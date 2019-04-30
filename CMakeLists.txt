@@ -61,9 +61,6 @@ set(BASISU_SRC_LIST ${COMMON_SRC_LIST}
 	basisu_ssim.cpp
 	basisu_tool.cpp
 	lodepng.cpp
-	detex/decompress_bc.c
-	detex/decompress_bc7.c
-	detex/decompress_eac.c
 	transcoder/basisu_transcoder.cpp
 	)
 

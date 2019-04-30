@@ -14,18 +14,10 @@
     <ClCompile Include="basisu_gpu_texture.cpp" />
     <ClCompile Include="lodepng.cpp" />
     <ClCompile Include="basisu_tool.cpp" />
-    <ClCompile Include="detex\decompress_bc.c">
-      <Filter>detex</Filter>
-    </ClCompile>
-    <ClCompile Include="detex\decompress_bc7.c">
-      <Filter>detex</Filter>
-    </ClCompile>
-    <ClCompile Include="detex\decompress_eac.c">
-      <Filter>detex</Filter>
-    </ClCompile>
     <ClCompile Include="transcoder\basisu_transcoder.cpp">
       <Filter>transcoder</Filter>
     </ClCompile>
+    <ClCompile Include="basisu_ssim.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="basisu_basis_file.h" />
@@ -42,18 +34,6 @@
     <ClInclude Include="lodepng.h" />
     <ClInclude Include="transcoder\basisu_file_headers.h" />
     <ClInclude Include="transcoder\basisu_global_selector_cb.h" />
-    <ClInclude Include="detex\decompress_eac.h">
-      <Filter>detex</Filter>
-    </ClInclude>
-    <ClInclude Include="detex\decompress_bc.h">
-      <Filter>detex</Filter>
-    </ClInclude>
-    <ClInclude Include="detex\decompress_bc7.h">
-      <Filter>detex</Filter>
-    </ClInclude>
-    <ClInclude Include="detex\detex_common.h">
-      <Filter>detex</Filter>
-    </ClInclude>
     <ClInclude Include="transcoder\basisu_global_selector_palette.h">
       <Filter>transcoder</Filter>
     </ClInclude>
@@ -66,6 +46,7 @@
     <ClInclude Include="transcoder\basisu_transcoder.h">
       <Filter>transcoder</Filter>
     </ClInclude>
+    <ClInclude Include="basisu_ssim.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="transcoder\basisu_transcoder_tables_dxt1_6.inc">
@@ -81,9 +62,6 @@
   <ItemGroup>
     <Filter Include="transcoder">
       <UniqueIdentifier>{7a54aaad-1d10-4bdf-b8e9-c14ed2263ed8}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="detex">
-      <UniqueIdentifier>{977e9455-f354-422a-b698-08778483328c}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
 </Project>

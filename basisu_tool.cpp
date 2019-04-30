@@ -471,6 +471,9 @@ static bool unpack_and_validate_mode(command_line_params &opts, bool validate_fl
 		return false;
 	}
 
+	uint32_t total_unpack_warnings = 0;
+	uint32_t total_pvrtc_nonpow2_warnings = 0;
+
 	for (uint32_t file_index = 0; file_index < opts.m_input_filenames.size(); file_index++)
 	{
 		const char *pInput_filename = opts.m_input_filenames[file_index].c_str();
@@ -554,9 +557,7 @@ static bool unpack_and_validate_mode(command_line_params &opts, bool validate_fl
 			for (uint32_t image_index = 0; image_index < fileinfo.m_total_images; image_index++)
 				gpu_images[tex_fmt][image_index].resize(fileinfo.m_image_mipmap_levels[image_index]);
 		}
-
-		bool pvrtc_nonpow2_warning = false;
-
+								
 		// Now transcode the file to all supported texture formats and save mipmapped KTX files
 		for (uint32_t image_index = 0; image_index < fileinfo.m_total_images; image_index++)
 		{
@@ -578,13 +579,10 @@ static bool unpack_and_validate_mode(command_line_params &opts, bool validate_fl
 					{
 						if (!is_pow2(level_info.m_width) || !is_pow2(level_info.m_height))
 						{
-							if (!pvrtc_nonpow2_warning)
-							{
-								pvrtc_nonpow2_warning = true;
+							total_pvrtc_nonpow2_warnings++;
 
-								printf("Warning: Will not transcode image %u level %u res %ux%u to PVRTC1 (one or more dimension is not a power of 2)\n", image_index, level_index, level_info.m_width, level_info.m_height);
-							}
-							
+							printf("Warning: Will not transcode image %u level %u res %ux%u to PVRTC1 (one or more dimension is not a power of 2)\n", image_index, level_index, level_info.m_width, level_info.m_height);
+														
 							// Can't transcode this image level to PVRTC because it's not a pow2 (we're going to support transcoding non-pow2 to the next larger pow2 soon)
 							continue;
 						}
@@ -653,8 +651,8 @@ static bool unpack_and_validate_mode(command_line_params &opts, bool validate_fl
 						image u;
 						if (!gi[level_index].unpack(u))
 						{
-							error_printf("Failed unpacking GPU texture data (%u %u %u)\n", format_iter, image_index, level_index);
-							return false;
+							printf("Warning: Failed unpacking GPU texture data (%u %u %u). Unpacking as much as possible.\n", format_iter, image_index, level_index);
+							total_unpack_warnings++;
 						}
 						//u.crop(level_info.m_orig_width, level_info.m_orig_height);
 					
@@ -682,11 +680,18 @@ static bool unpack_and_validate_mode(command_line_params &opts, bool validate_fl
 				} // image_index
 
 			} // format_iter
+						
 		} // if (!validate_flag)
 
 	} // image_index
 
-	printf("Success\n");
+	if (total_pvrtc_nonpow2_warnings)
+		printf("Warning: %u images could not be transcoded to PVRTC1 because one or both dimensions were not a power of 2\n", total_pvrtc_nonpow2_warnings);
+
+	if (total_unpack_warnings)
+		printf("ATTENTION: %u total images had invalid GPU texture data!\n", total_unpack_warnings);
+	else
+		printf("Success\n");
 	
 	return true;
 }
@@ -792,7 +797,7 @@ static bool compare_mode(command_line_params &opts)
 int main(int argc, const char **argv)
 {
 	basisu_encoder_init();
-
+		
 	printf("Basis Universal GPU Texture Compressor v" BASISU_TOOL_VERSION ", Copyright (C) 2017-2019 Binomial LLC, All rights reserved\n");
 
 	if (argc == 1)

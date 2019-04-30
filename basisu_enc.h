@@ -28,6 +28,13 @@ namespace basisu
 
 	void error_printf(const char *pFmt, ...);
 
+	// Helpers
+
+	inline uint8_t clamp255(int32_t i)
+	{
+		return (uint8_t)((i & 0xFFFFFF00U) ? (~(i >> 31)) : i);
+	}
+
 	// Linear algebra
 
 	template <uint32_t N, typename T>
@@ -752,6 +759,8 @@ namespace basisu
 		uint32_t urand32() { return static_cast<uint32_t>(irand(INT32_MIN, INT32_MAX)); }
 
 		bool bit() { return irand(0, 1) == 1; }
+
+		uint8_t byte() { return static_cast<uint8_t>(urand32()); }
 
 		// between [l,h)
 		float frand(float l, float h) { std::uniform_real_distribution<float> d(l, h); return d(m_mt); }

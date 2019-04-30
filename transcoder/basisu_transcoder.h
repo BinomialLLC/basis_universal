@@ -63,7 +63,7 @@ namespace basist
 
 		bool decode_tables(const uint8_t *pTable_data, uint32_t table_data_size);
 
-		bool transcode_slice(void *pDst_blocks, uint32_t num_blocks_x, uint32_t num_blocks_y, const uint8_t *pImage_data, uint32_t image_data_size, block_format fmt, uint32_t output_stride, bool wrap_addressing);
+		bool transcode_slice(void *pDst_blocks, uint32_t num_blocks_x, uint32_t num_blocks_y, const uint8_t *pImage_data, uint32_t image_data_size, block_format fmt, uint32_t output_stride, bool wrap_addressing, bool bc1_allow_threecolor_blocks);
 
 	private:
 		struct endpoint
@@ -212,12 +212,15 @@ namespace basist
 		{
 			// PVRTC1: texture will use wrap addressing vs. clamp (most PVRTC viewer tools assume wrap addressing, so we default to wrap although that can cause edge artifacts)
 			cDecodeFlagsPVRTCWrapAddressing = 1,	
-			
+						
 			// PVRTC1: decode non-pow2 ETC1S texture level to the next larger power of 2 (not implemented yet, but we're going to support it). Ignored if the slice's dimensions are already a power of 2.
 			cDecodeFlagsPVRTCDecodeToNextPow2 = 2,	
 			
 			// When decoding to an opaque texture format, if the basis file has alpha, decode the alpha slice instead of the color slice to the output texture format
-			cDecodeFlagsTranscodeAlphaDataToOpaqueFormats = 4 
+			cDecodeFlagsTranscodeAlphaDataToOpaqueFormats = 4,
+
+			// Forbid usage of BC1 3 color blocks (we don't support BC1 punchthrough alpha yet).
+			cDecodeFlagsBC1ForbidThreeColorBlocks = 8
 		};
 								
 		// transcode_image_level() decodes a single mipmap level from the .basis file to any of the supported output texture formats.

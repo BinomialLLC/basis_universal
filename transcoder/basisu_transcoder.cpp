@@ -947,153 +947,6 @@ namespace basist
 		uint16_t m_err;
 	};
 
-#if BASISD_WRITE_NEW_DXT1_TABLES
-	static void create_etc1_to_dxt1_5_conversion_table()
-	{
-		FILE* pFile = fopen("basisu_decoder_tables_dxt1_5.inc", "w");
-
-		uint32_t n = 0;
-
-		for (int inten = 0; inten < 8; inten++)
-		{
-			for (uint32_t g = 0; g < 32; g++)
-			{
-				color32 block_colors[4];
-				decoder_etc_block::get_diff_subblock_colors(block_colors, decoder_etc_block::pack_color5(color32(g, g, g, 255), false), inten);
-
-				for (uint32_t sr = 0; sr < NUM_ETC1_TO_DXT1_SELECTOR_RANGES; sr++)
-				{
-					const uint32_t low_selector = g_etc1_to_dxt1_selector_ranges[sr].m_low;
-					const uint32_t high_selector = g_etc1_to_dxt1_selector_ranges[sr].m_high;
-
-					for (uint32_t m = 0; m < NUM_ETC1_TO_DXT1_SELECTOR_MAPPINGS; m++)
-					{
-						uint32_t best_lo = 0;
-						uint32_t best_hi = 0;
-						uint64_t best_err = UINT64_MAX;
-
-						for (uint32_t hi = 0; hi <= 31; hi++)
-						{
-							for (uint32_t lo = 0; lo <= 31; lo++)
-							{
-								uint32_t colors[4];
-
-								colors[0] = (lo << 3) | (lo >> 2);
-								colors[3] = (hi << 3) | (hi >> 2);
-
-								colors[1] = (colors[0] * 2 + colors[3]) / 3;
-								colors[2] = (colors[3] * 2 + colors[0]) / 3;
-
-								uint64_t total_err = 0;
-
-								for (uint32_t s = low_selector; s <= high_selector; s++)
-								{
-									int err = block_colors[s].g - colors[g_etc1_to_dxt1_selector_mappings[m][s]];
-
-									total_err += err * err;
-								}
-
-								if (total_err < best_err)
-								{
-									best_err = total_err;
-									best_lo = lo;
-									best_hi = hi;
-								}
-							}
-						}
-
-						assert(best_err <= 0xFFFF);
-
-						//table[g + inten * 32].m_solutions[sr][m].m_lo = static_cast<uint8_t>(best_lo);
-						//table[g + inten * 32].m_solutions[sr][m].m_hi = static_cast<uint8_t>(best_hi);
-						//table[g + inten * 32].m_solutions[sr][m].m_err = static_cast<uint16_t>(best_err);
-
-						fprintf(pFile, "{%u,%u,%u},", best_lo, best_hi, best_err);
-						n++;
-						if ((n & 31) == 31)
-							fprintf(pFile, "\n");
-					} // m
-				} // sr
-			} // g
-		} // inten
-
-		fclose(pFile);
-	}
-
-	static void create_etc1_to_dxt1_6_conversion_table()
-	{
-		FILE* pFile = fopen("basisu_decoder_tables_dxt1_6.inc", "w");
-
-		uint32_t n = 0;
-
-		for (int inten = 0; inten < 8; inten++)
-		{
-			for (uint32_t g = 0; g < 32; g++)
-			{
-				color32 block_colors[4];
-				decoder_etc_block::get_diff_subblock_colors(block_colors, decoder_etc_block::pack_color5(color32(g, g, g, 255), false), inten);
-
-				for (uint32_t sr = 0; sr < NUM_ETC1_TO_DXT1_SELECTOR_RANGES; sr++)
-				{
-					const uint32_t low_selector = g_etc1_to_dxt1_selector_ranges[sr].m_low;
-					const uint32_t high_selector = g_etc1_to_dxt1_selector_ranges[sr].m_high;
-
-					for (uint32_t m = 0; m < NUM_ETC1_TO_DXT1_SELECTOR_MAPPINGS; m++)
-					{
-						uint32_t best_lo = 0;
-						uint32_t best_hi = 0;
-						uint64_t best_err = UINT64_MAX;
-
-						for (uint32_t hi = 0; hi <= 63; hi++)
-						{
-							for (uint32_t lo = 0; lo <= 63; lo++)
-							{
-								uint32_t colors[4];
-
-								colors[0] = (lo << 2) | (lo >> 4);
-								colors[3] = (hi << 2) | (hi >> 4);
-
-								colors[1] = (colors[0] * 2 + colors[3]) / 3;
-								colors[2] = (colors[3] * 2 + colors[0]) / 3;
-
-								uint64_t total_err = 0;
-
-								for (uint32_t s = low_selector; s <= high_selector; s++)
-								{
-									int err = block_colors[s].g - colors[g_etc1_to_dxt1_selector_mappings[m][s]];
-
-									total_err += err * err;
-								}
-
-								if (total_err < best_err)
-								{
-									best_err = total_err;
-									best_lo = lo;
-									best_hi = hi;
-								}
-							}
-						}
-
-						assert(best_err <= 0xFFFF);
-
-						//table[g + inten * 32].m_solutions[sr][m].m_lo = static_cast<uint8_t>(best_lo);
-						//table[g + inten * 32].m_solutions[sr][m].m_hi = static_cast<uint8_t>(best_hi);
-						//table[g + inten * 32].m_solutions[sr][m].m_err = static_cast<uint16_t>(best_err);
-
-						fprintf(pFile, "{%u,%u,%u},", best_lo, best_hi, best_err);
-						n++;
-						if ((n & 31) == 31)
-							fprintf(pFile, "\n");
-
-					} // m
-				} // sr
-			} // g
-		} // inten
-
-		fclose(pFile);
-	}
-#endif
-
 #if BASISD_SUPPORT_DXT1
 	static dxt_selector_range g_etc1_to_dxt1_selector_ranges[] =
 	{
@@ -1138,31 +991,222 @@ namespace basist
 #include "basisu_transcoder_tables_dxt1_5.inc"
 	};
 
-	// The idea for optimal BC1 single-color block encoding was first from ryg_dxt's real-time DXT1 encoder
-	static uint8_t g_bc1_match5[256][2], g_bc1_match6[256][2];
-	
-	static void prepare_bc1_single_color_table(uint8_t *pTable, const uint8_t *pExpand, int size)
+	// First saw the idea for optimal BC1 single-color block encoding using lookup tables in ryg_dxt.
+	struct bc1_match_entry
 	{
+		uint8_t m_hi;
+		uint8_t m_lo;
+	};
+	static bc1_match_entry g_bc1_match5_equals_1[256], g_bc1_match6_equals_1[256]; // selector 1, allow equals hi/lo
+	
+	static void prepare_bc1_single_color_table(bc1_match_entry *pTable, const uint8_t *pExpand, int size, int sel, bool allow_equals)
+	{
+		int total_e = 0;
+
 		for (int i = 0; i < 256; i++)
 		{
 			int lowest_e = 256;
-			for (int min = 0; min < size; min++)
+			for (int lo = 0; lo < size; lo++)
 			{
-				for (int max = 0; max < size; max++)
+				for (int hi = 0; hi < size; hi++)
 				{
-					int min_e = pExpand[min], max_e = pExpand[max];
-					int e = abs(((max_e * 2 + min_e) / 3) - i) + ((abs(max_e - min_e) >> 5));
+					const int lo_e = pExpand[lo], hi_e = pExpand[hi];
+					int e;
+
+					if (!allow_equals)
+					{
+						if (lo == hi)
+							continue;
+					}
+
+					if (sel == 1)
+					{
+						// Selector 1
+						e = abs(((hi_e * 2 + lo_e) / 3) - i) + ((abs(hi_e - lo_e) >> 5));
+					}
+					else
+					{
+						assert(sel == 0);
+
+						// Selector 0
+						e = abs(hi_e - i) + ((abs(hi_e - lo_e) >> 5));
+					}
+
 					if (e < lowest_e)
 					{
-						pTable[i * 2 + 0] = static_cast<uint8_t>(max);
-						pTable[i * 2 + 1] = static_cast<uint8_t>(min);
+						pTable[i].m_hi = static_cast<uint8_t>(hi);
+						pTable[i].m_lo = static_cast<uint8_t>(lo);
+						
 						lowest_e = e;
 					}
-				}
+
+				} // hi
+			} // lo
+
+			if (!allow_equals)
+			{
+				assert(pTable[i].m_lo != pTable[i].m_hi);
 			}
+			
+			total_e += lowest_e;
 		}
 	}
 #endif // BASISD_SUPPORT_DXT1
+
+	#if BASISD_WRITE_NEW_DXT1_TABLES
+	static void create_etc1_to_dxt1_5_conversion_table()
+	{
+		FILE* pFile = nullptr;
+		fopen_s(&pFile, "basisu_transcoder_tables_dxt1_5.inc", "w");
+
+		uint32_t n = 0;
+
+		for (int inten = 0; inten < 8; inten++)
+		{
+			for (uint32_t g = 0; g < 32; g++)
+			{
+				color32 block_colors[4];
+				decoder_etc_block::get_diff_subblock_colors(block_colors, decoder_etc_block::pack_color5(color32(g, g, g, 255), false), inten);
+
+				for (uint32_t sr = 0; sr < NUM_ETC1_TO_DXT1_SELECTOR_RANGES; sr++)
+				{
+					const uint32_t low_selector = g_etc1_to_dxt1_selector_ranges[sr].m_low;
+					const uint32_t high_selector = g_etc1_to_dxt1_selector_ranges[sr].m_high;
+
+					for (uint32_t m = 0; m < NUM_ETC1_TO_DXT1_SELECTOR_MAPPINGS; m++)
+					{
+						uint32_t best_lo = 0;
+						uint32_t best_hi = 0;
+						uint64_t best_err = UINT64_MAX;
+
+						for (uint32_t hi = 0; hi <= 31; hi++)
+						{
+							for (uint32_t lo = 0; lo <= 31; lo++)
+							{
+								//if (lo == hi) continue;
+
+								uint32_t colors[4];
+
+								colors[0] = (lo << 3) | (lo >> 2);
+								colors[3] = (hi << 3) | (hi >> 2);
+
+								colors[1] = (colors[0] * 2 + colors[3]) / 3;
+								colors[2] = (colors[3] * 2 + colors[0]) / 3;
+
+								uint64_t total_err = 0;
+
+								for (uint32_t s = low_selector; s <= high_selector; s++)
+								{
+									int err = block_colors[s].g - colors[g_etc1_to_dxt1_selector_mappings[m][s]];
+
+									total_err += err * err;
+								}
+
+								if (total_err < best_err)
+								{
+									best_err = total_err;
+									best_lo = lo;
+									best_hi = hi;
+								}
+							}
+						}
+
+						assert(best_err <= 0xFFFF);
+
+						//table[g + inten * 32].m_solutions[sr][m].m_lo = static_cast<uint8_t>(best_lo);
+						//table[g + inten * 32].m_solutions[sr][m].m_hi = static_cast<uint8_t>(best_hi);
+						//table[g + inten * 32].m_solutions[sr][m].m_err = static_cast<uint16_t>(best_err);
+
+						//assert(best_lo != best_hi);
+						fprintf(pFile, "{%u,%u,%u},", best_lo, best_hi, (uint32_t)best_err);
+						n++;
+						if ((n & 31) == 31)
+							fprintf(pFile, "\n");
+					} // m
+				} // sr
+			} // g
+		} // inten
+
+		fclose(pFile);
+	}
+
+	static void create_etc1_to_dxt1_6_conversion_table()
+	{
+		FILE* pFile = nullptr;
+		fopen_s(&pFile, "basisu_transcoder_tables_dxt1_6.inc", "w");
+
+		uint32_t n = 0;
+
+		for (int inten = 0; inten < 8; inten++)
+		{
+			for (uint32_t g = 0; g < 32; g++)
+			{
+				color32 block_colors[4];
+				decoder_etc_block::get_diff_subblock_colors(block_colors, decoder_etc_block::pack_color5(color32(g, g, g, 255), false), inten);
+
+				for (uint32_t sr = 0; sr < NUM_ETC1_TO_DXT1_SELECTOR_RANGES; sr++)
+				{
+					const uint32_t low_selector = g_etc1_to_dxt1_selector_ranges[sr].m_low;
+					const uint32_t high_selector = g_etc1_to_dxt1_selector_ranges[sr].m_high;
+
+					for (uint32_t m = 0; m < NUM_ETC1_TO_DXT1_SELECTOR_MAPPINGS; m++)
+					{
+						uint32_t best_lo = 0;
+						uint32_t best_hi = 0;
+						uint64_t best_err = UINT64_MAX;
+
+						for (uint32_t hi = 0; hi <= 63; hi++)
+						{
+							for (uint32_t lo = 0; lo <= 63; lo++)
+							{
+								//if (lo == hi) continue;
+
+								uint32_t colors[4];
+
+								colors[0] = (lo << 2) | (lo >> 4);
+								colors[3] = (hi << 2) | (hi >> 4);
+
+								colors[1] = (colors[0] * 2 + colors[3]) / 3;
+								colors[2] = (colors[3] * 2 + colors[0]) / 3;
+
+								uint64_t total_err = 0;
+
+								for (uint32_t s = low_selector; s <= high_selector; s++)
+								{
+									int err = block_colors[s].g - colors[g_etc1_to_dxt1_selector_mappings[m][s]];
+
+									total_err += err * err;
+								}
+
+								if (total_err < best_err)
+								{
+									best_err = total_err;
+									best_lo = lo;
+									best_hi = hi;
+								}
+							}
+						}
+
+						assert(best_err <= 0xFFFF);
+
+						//table[g + inten * 32].m_solutions[sr][m].m_lo = static_cast<uint8_t>(best_lo);
+						//table[g + inten * 32].m_solutions[sr][m].m_hi = static_cast<uint8_t>(best_hi);
+						//table[g + inten * 32].m_solutions[sr][m].m_err = static_cast<uint16_t>(best_err);
+
+						//assert(best_lo != best_hi);
+						fprintf(pFile, "{%u,%u,%u},", best_lo, best_hi, (uint32_t)best_err);
+						n++;
+						if ((n & 31) == 31)
+							fprintf(pFile, "\n");
+
+					} // m
+				} // sr
+			} // g
+		} // inten
+
+		fclose(pFile);
+	}
+#endif
 
 #if BASISD_SUPPORT_ETC2_EAC_A8
 	enum
@@ -1693,13 +1737,13 @@ namespace basist
 		uint8_t bc1_expand5[32];
 		for (int i = 0; i < 32; i++)
 			bc1_expand5[i] = static_cast<uint8_t>((i << 3) | (i >> 2));
-		prepare_bc1_single_color_table(&g_bc1_match5[0][0], bc1_expand5, 32);
-		
+		prepare_bc1_single_color_table(g_bc1_match5_equals_1, bc1_expand5, 32, 1, true);
+			
 		uint8_t bc1_expand6[64];
 		for (int i = 0; i < 64; i++)
 			bc1_expand6[i] = static_cast<uint8_t>((i << 2) | (i >> 4));
-		prepare_bc1_single_color_table(&g_bc1_match6[0][0], bc1_expand6, 64);
-
+		prepare_bc1_single_color_table(g_bc1_match6_equals_1, bc1_expand6, 64, 1, true);
+						
 		for (uint32_t i = 0; i < NUM_ETC1_TO_DXT1_SELECTOR_RANGES; i++)
 		{
 			uint32_t l = g_etc1_to_dxt1_selector_ranges[i].m_low;
@@ -1759,7 +1803,7 @@ namespace basist
 	}
 
 #if BASISD_SUPPORT_DXT1
-	static void convert_etc1s_to_dxt1(dxt1_block * pDst_block, const decoder_etc_block * pSrc_block, const selector * pSelector)
+	static void convert_etc1s_to_dxt1(dxt1_block * pDst_block, const decoder_etc_block *pSrc_block, const selector * pSelector, bool use_threecolor_blocks)
 	{
 #if !BASISD_WRITE_NEW_DXT1_TABLES
 		const uint32_t low_selector = pSelector->m_lo_selector;
@@ -1779,30 +1823,53 @@ namespace basist
 			const uint32_t b = block_colors[low_selector].b;
 
 			uint32_t mask = 0xAA;
-			uint32_t max16 = (g_bc1_match5[r][0] << 11) | (g_bc1_match6[g][0] << 5) | g_bc1_match5[b][0];
-			uint32_t min16 = (g_bc1_match5[r][1] << 11) | (g_bc1_match6[g][1] << 5) | g_bc1_match5[b][1];
+			uint32_t max16 = (g_bc1_match5_equals_1[r].m_hi << 11) | (g_bc1_match6_equals_1[g].m_hi << 5) | g_bc1_match5_equals_1[b].m_hi;
+			uint32_t min16 = (g_bc1_match5_equals_1[r].m_lo << 11) | (g_bc1_match6_equals_1[g].m_lo << 5) | g_bc1_match5_equals_1[b].m_lo;
+
+			if ((!use_threecolor_blocks) && (min16 == max16))
+			{
+				// This is an annoying edge case that impacts BC3.
+				// This is to guarantee that BC3 blocks never use punchthrough alpha (3 color) mode, which isn't supported on some (all?) GPU's.
+				mask = 0;
+
+				// Make l > h
+				if (min16 > 0)
+					min16--;
+				else 
+				{
+					// l = h = 0
+					assert(min16 == max16 && max16 == 0);
+
+					max16 = 1;
+					min16 = 0;
+					mask = 0x55;
+				}
+			
+				assert(max16 > min16);
+			}
 
 			if (max16 < min16)
 			{
 				std::swap(max16, min16);
 				mask ^= 0x55;
 			}
-
+						
 			pDst_block->set_low_color(static_cast<uint16_t>(max16));
 			pDst_block->set_high_color(static_cast<uint16_t>(min16));
 			pDst_block->m_selectors[0] = static_cast<uint8_t>(mask);
 			pDst_block->m_selectors[1] = static_cast<uint8_t>(mask);
 			pDst_block->m_selectors[2] = static_cast<uint8_t>(mask);
 			pDst_block->m_selectors[3] = static_cast<uint8_t>(mask);
+
 			return;
 		}
 
 		const uint32_t selector_range_table = g_etc1_to_dxt1_selector_range_index[low_selector][high_selector];
 
 		//[32][8][RANGES][MAPPING]
-		const etc1_to_dxt1_56_solution* pTable_r = &g_etc1_to_dxt_5[(inten_table * 32 + base_color.r) * (NUM_ETC1_TO_DXT1_SELECTOR_RANGES * NUM_ETC1_TO_DXT1_SELECTOR_MAPPINGS) + selector_range_table * NUM_ETC1_TO_DXT1_SELECTOR_MAPPINGS];
-		const etc1_to_dxt1_56_solution * pTable_g = &g_etc1_to_dxt_6[(inten_table * 32 + base_color.g) * (NUM_ETC1_TO_DXT1_SELECTOR_RANGES * NUM_ETC1_TO_DXT1_SELECTOR_MAPPINGS) + selector_range_table * NUM_ETC1_TO_DXT1_SELECTOR_MAPPINGS];
-		const etc1_to_dxt1_56_solution * pTable_b = &g_etc1_to_dxt_5[(inten_table * 32 + base_color.b) * (NUM_ETC1_TO_DXT1_SELECTOR_RANGES * NUM_ETC1_TO_DXT1_SELECTOR_MAPPINGS) + selector_range_table * NUM_ETC1_TO_DXT1_SELECTOR_MAPPINGS];
+		const etc1_to_dxt1_56_solution *pTable_r = &g_etc1_to_dxt_5[(inten_table * 32 + base_color.r) * (NUM_ETC1_TO_DXT1_SELECTOR_RANGES * NUM_ETC1_TO_DXT1_SELECTOR_MAPPINGS) + selector_range_table * NUM_ETC1_TO_DXT1_SELECTOR_MAPPINGS];
+		const etc1_to_dxt1_56_solution *pTable_g = &g_etc1_to_dxt_6[(inten_table * 32 + base_color.g) * (NUM_ETC1_TO_DXT1_SELECTOR_RANGES * NUM_ETC1_TO_DXT1_SELECTOR_MAPPINGS) + selector_range_table * NUM_ETC1_TO_DXT1_SELECTOR_MAPPINGS];
+		const etc1_to_dxt1_56_solution *pTable_b = &g_etc1_to_dxt_5[(inten_table * 32 + base_color.b) * (NUM_ETC1_TO_DXT1_SELECTOR_RANGES * NUM_ETC1_TO_DXT1_SELECTOR_MAPPINGS) + selector_range_table * NUM_ETC1_TO_DXT1_SELECTOR_MAPPINGS];
 
 		uint32_t best_err = UINT_MAX;
 		uint32_t best_mapping = 0;
@@ -1829,10 +1896,34 @@ namespace basist
 
 		if (l == h)
 		{
-			pDst_block->m_selectors[0] = 0;
-			pDst_block->m_selectors[1] = 0;
-			pDst_block->m_selectors[2] = 0;
-			pDst_block->m_selectors[3] = 0;
+			uint8_t mask = 0;
+
+			if (!use_threecolor_blocks)
+			{
+				// This is an annoying edge case that impacts BC3.
+
+				// Make l > h
+				if (h > 0)
+					h--;
+				else 
+				{
+					// l = h = 0
+					assert(l == h && h == 0);
+
+					h = 0;
+					l = 1;
+					mask = 0x55;
+				}
+
+				assert(l > h);
+				pDst_block->set_low_color(static_cast<uint16_t>(l));
+				pDst_block->set_high_color(static_cast<uint16_t>(h));
+			}
+			
+			pDst_block->m_selectors[0] = mask;
+			pDst_block->m_selectors[1] = mask;
+			pDst_block->m_selectors[2] = mask;
+			pDst_block->m_selectors[3] = mask;
 
 			return;
 		}
@@ -3402,7 +3493,8 @@ namespace basist
 		return true;
 	}
 
-	bool basisu_lowlevel_transcoder::transcode_slice(void *pDst_blocks, uint32_t num_blocks_x, uint32_t num_blocks_y, const uint8_t *pImage_data, uint32_t image_data_size, block_format fmt, uint32_t output_stride, bool pvrtc_wrap_addressing)
+	bool basisu_lowlevel_transcoder::transcode_slice(void *pDst_blocks, uint32_t num_blocks_x, uint32_t num_blocks_y, const uint8_t *pImage_data, uint32_t image_data_size, block_format fmt, 
+		uint32_t output_stride, bool pvrtc_wrap_addressing, bool bc1_allow_threecolor_blocks)
 	{
 		const uint32_t num_macroblocks_x = (num_blocks_x + 1) >> 1;
 		const uint32_t num_macroblocks_y = (num_blocks_y + 1) >> 1;
@@ -3598,7 +3690,7 @@ namespace basist
 
 							void* pDst_block = static_cast<uint8_t*>(pDst_blocks) + (bx + by * num_blocks_x) * output_stride;
 #if BASISD_SUPPORT_DXT1
-							convert_etc1s_to_dxt1(static_cast<dxt1_block*>(pDst_block), &block, pSelector);
+							convert_etc1s_to_dxt1(static_cast<dxt1_block*>(pDst_block), &block, pSelector, bc1_allow_threecolor_blocks);
 #else
 							assert(0);
 #endif
@@ -3931,7 +4023,8 @@ namespace basist
 		return true;
 	}
 
-	bool basisu_transcoder::transcode_slice(const void *pData, uint32_t data_size, uint32_t slice_index, void *pOutput_blocks, uint32_t output_blocks_buf_size_in_blocks, block_format fmt, uint32_t output_stride, uint32_t decode_flags) const
+	bool basisu_transcoder::transcode_slice(const void *pData, uint32_t data_size, uint32_t slice_index, void *pOutput_blocks, uint32_t output_blocks_buf_size_in_blocks, block_format fmt, 
+		uint32_t output_stride, uint32_t decode_flags) const
 	{
 		if (decode_flags & cDecodeFlagsPVRTCDecodeToNextPow2)
 		{
@@ -3969,7 +4062,7 @@ namespace basist
 
 		return m_lowlevel_decoder.transcode_slice(pOutput_blocks, slice_desc.m_num_blocks_x, slice_desc.m_num_blocks_y,
 			pDataU8 + slice_desc.m_file_ofs, slice_desc.m_file_size,
-			fmt, output_stride, (decode_flags & cDecodeFlagsPVRTCWrapAddressing) != 0);
+			fmt, output_stride, (decode_flags & cDecodeFlagsPVRTCWrapAddressing) != 0, (decode_flags & cDecodeFlagsBC1ForbidThreeColorBlocks) == 0);
 	}
 
 	int basisu_transcoder::find_first_slice_index(const void *pData, uint32_t data_size, uint32_t image_index, uint32_t level_index) const
@@ -4264,8 +4357,8 @@ namespace basist
 
 			if (status)
 			{
-				// Now decode the color data
-				status = transcode_slice(pData, data_size, slice_index, (uint8_t*)pOutput_blocks + 8, output_blocks_buf_size_in_blocks, cBC1, 16, decode_flags);
+				// Now decode the color data. Forbid 3 color blocks, which aren't allowed in BC3.
+				status = transcode_slice(pData, data_size, slice_index, (uint8_t*)pOutput_blocks + 8, output_blocks_buf_size_in_blocks, cBC1, 16, decode_flags | cDecodeFlagsBC1ForbidThreeColorBlocks);
 			}
 			break;
 		}

@@ -120,6 +120,13 @@ namespace basisu
 	
 	// GPU texture block unpacking
 
-	void unpack_block(texture_format fmt, const void *pBlock, color_rgba *pPixels);
+	void unpack_etc2_eac(const void *pBlock_bits, color_rgba *pPixels);
+	bool unpack_bc1(const void *pBlock_bits, color_rgba *pPixels, bool set_alpha);
+	void unpack_bc4(const void *pBlock_bits, uint8_t *pPixels, uint32_t stride);
+	bool unpack_bc3(const void *pBlock_bits, color_rgba *pPixels);
+	void unpack_bc5(const void *pBlock_bits, color_rgba *pPixels);
+	bool unpack_bc7_mode6(const void *pBlock_bits, color_rgba *pPixels);
+
+	bool unpack_block(texture_format fmt, const void *pBlock, color_rgba *pPixels);
 			
 } // namespace basisu
