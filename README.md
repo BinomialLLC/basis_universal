@@ -35,7 +35,7 @@ Now you can use the transcoder, which is implemented in the "basisu_transcoder" 
 
 I will be simplifying the transcoder so the caller doesn't need to deal with etc1_global_selector_codebook's next.
 
-transcode_image_level() and transcode_slice() are thread safe, i.e. you can decompressor multiple images/slices from multiple threads. start_decoding() is not thread safe.
+transcode_image_level() and transcode_slice() are thread safe, i.e. you can decompress multiple images/slices from multiple threads. start_decoding() is not thread safe.
 
 ### Quick Basis file details
 
