@@ -21,7 +21,7 @@ To compress an sRGB image to .basis:
 
 basisu -srgb x.png
 
-Note that basisu defaults to linear colorspace metrics, not sRGB. If the input is a photograph, or a diffuse/albedo/specular/etc. texture, you want to use sRGB for much better rate distortion performance. 
+Note that basisu defaults to linear colorspace metrics, not sRGB. If the input is a photograph, or a diffuse/albedo/specular/etc. texture, you will definitely want to use sRGB metrics for less artifacts and better rate distortion performance.
 
 To unpack a .basis file to .png/.ktx files:
 
