@@ -21,7 +21,7 @@ https://duckduckgo.com/?q=mali+texture+compression+tool&atb=v146-1&ia=web
 https://gpuopen.com/gaming-product/compressonator/
 https://www.imgtec.com/developers/powervr-sdk-tools/pvrtextool/
 
-To use .basis files in an application, you only need the files in the "transcoder" directory. The entire transcoder lives in a single .cpp file: transcoder/basisu_transcoder.cpp. If compiling with gcc/clang, be sure strict aliasing is disabled when compiling this file: -fno-strict-aliasing
+To use .basis files in an application, you only need the files in the "transcoder" directory. The entire transcoder lives in a single .cpp file: transcoder/basisu_transcoder.cpp. If compiling with gcc/clang, be sure strict aliasing is disabled when compiling this file, as I have not tested either the encoder or transcoder with strict aliasing enabled: -fno-strict-aliasing (The Linux kernel is also compiled with this option.)
 
 To use the transcoder, #include "transcoder/basisu_transcoder.h" and "transcoder/basisu_global_selector_palette.h". Call basist::basisu_transcoder_init() a single time (probably at startup). Also, probably at startup, you need to create a single instance of the basist::etc1_global_selector_codebook class, like this:
 
