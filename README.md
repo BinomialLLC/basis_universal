@@ -21,6 +21,8 @@ https://duckduckgo.com/?q=mali+texture+compression+tool&atb=v146-1&ia=web
 https://gpuopen.com/gaming-product/compressonator/
 https://www.imgtec.com/developers/powervr-sdk-tools/pvrtextool/
 
+### Transcoder details
+
 To use .basis files in an application, you only need the files in the "transcoder" directory. The entire transcoder lives in a single .cpp file: transcoder/basisu_transcoder.cpp. If compiling with gcc/clang, be sure strict aliasing is disabled when compiling this file, as I have not tested either the encoder or transcoder with strict aliasing enabled: -fno-strict-aliasing (The Linux kernel is also compiled with this option.)
 
 To use the transcoder, #include "transcoder/basisu_transcoder.h" and "transcoder/basisu_global_selector_palette.h". Call basist::basisu_transcoder_init() a single time (probably at startup). Also, probably at startup, you need to create a single instance of the basist::etc1_global_selector_codebook class, like this:
@@ -33,7 +35,8 @@ I will be simplifying the transcoder so the caller doesn't need to deal with etc
 
 transcode_image_level() and transcode_slice() are thread safe, i.e. you can decompressor multiple images/slices from multiple threads. start_decoding() is not thread safe.
 
-Quick Basis file details:
+### Quick Basis file details
+
 Internally, Basis files are composed of a non-uniform texture array of one or more 2D ETC1S texture "slices". ETC1S is a simple subset of the ETC1 texture format popular on Android. ETC1S has no block flips, no 4x2 or 2x4 subblocks, and each block only uses 555 base colors. ETC1S is still 100% standard ETC1, so transcoding to ETC1 or ETC2 is a no-op. We choose ETC1S because it has the valuable property that it can be quickly transcoded (converted) to any other GPU texture format at high quality using only simple per-block operations with small 1D lookup tables. 
 
 Basis files have a single set of compressed global endpoint/selector codebooks, which all slices refer to. The ETC1S texture data is compressed using vector quantization (VQ) seperately on the endpoints and selectors, followed by DPCM/RLE/psuedo-MTF/canonical Huffman coding. Each ETC1S texture slice may be a different resolution. Mipmaps (if any) are always stored in order from largest to smallest.
