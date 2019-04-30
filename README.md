@@ -3,7 +3,7 @@ Basis Universal GPU Texture Compression Codec
 
 Basis Universal is a GPU texture compression system that outputs a highly compressed intermediate file format (.basis) that can be quickly transcoded to a wide variety of GPU texture compression formats: PVRTC1 4bpp RGB, BC7 mode 6 RGB, BC1-5, ETC1, and ETC2. We will be adding ASTC RGB or RGBA, BC7 mode 4/5 RGBA, and PVRTC1 4bpp RGBA next. Basis files support non-uniform texture arrays, so cubemaps, volume textures, texture arrays, mipmap levels, video sequences, or arbitrary texture "tiles" can be stored in a single file. The compressor is able to exploit color and pattern correlations across the entire file.
 
-So far, we've compiled this using MSVS 2019, and under Ubuntu using cmake with either clang 3.8 or gcc 5.4.
+So far, we've compiled the code using MSVS 2019 and under Ubuntu x64 using cmake with either clang 3.8 or gcc 5.4. The compressor uses OpenMP for multithreading, but if you don't have OpenMP it'll still work (just much more slowly).
 
 The command line tool is named "basisu". Run basisu without any parameters for help. 
 
