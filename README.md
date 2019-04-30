@@ -17,9 +17,11 @@ basisu x.basis
 
 The mipmapped .KTX files will be in a variety of GPU formats (PVRTC1 4bpp, ETC1-2, BC1-5, BC7), and to my knowledge there is no single .KTX viewer tool that supports every GPU texture format. BC1-5 and BC7 files are viewable using AMD's Compressonator, ETC1/2 using Mali's Texture Compression Tool, and PVRTC1 using Imagination Tech's PVRTexTool. Links:
 
-https://duckduckgo.com/?q=mali+texture+compression+tool&atb=v146-1&ia=web
-https://gpuopen.com/gaming-product/compressonator/
-https://www.imgtec.com/developers/powervr-sdk-tools/pvrtextool/
+[Mali Texture Compression Tool](https://duckduckgo.com/?q=mali+texture+compression+tool&atb=v146-1&ia=web)]
+
+[Compressonator](https://gpuopen.com/gaming-product/compressonator/)
+
+[PVRTexTool](https://www.imgtec.com/developers/powervr-sdk-tools/pvrtextool/)
 
 ### Transcoder details
 
