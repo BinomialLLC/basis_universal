@@ -11,8 +11,6 @@ The transcoder (in the "transcoder" directory) has no 3rd party code dependencie
 
 The encoder uses [lodepng](https://lodev.org/lodepng/) for loading and saving PNG images, which is Copyright (c) 2005-2019 Lode Vandevenne. It uses the zlib license.
 
-basisu uses portions of [detex](https://github.com/hglm/detex) for decompressing BC1-5, BC7 and EAC texture data blocks to raw pixels, which is Copyright (c) 2015 Harm Hanemaaijer. detex uses the ISC license, which "is functionally equivalent to the BSD 2-Clause and MIT licenses, removing some language that is no longer necessary." Note that detex is technically optionally, and if we can't use it we can either not include it at all (only allowing transcoding to .KTX, which is very inconviendent for testing), find an alternative implementation, or write our own.
-
 ### Command Line Tool
 
 The command line tool is named "basisu". Run basisu without any parameters for help. 
