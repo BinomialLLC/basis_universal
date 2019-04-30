@@ -35,6 +35,9 @@ The mipmapped .KTX files will be in a variety of GPU formats (PVRTC1 4bpp, ETC1-
 
 [PVRTexTool](https://www.imgtec.com/developers/powervr-sdk-tools/pvrtextool/)
 
+For the maximum possible achievable quality with the current former and encoder, use:
+basisu x.png -srgb -slower -max_endpoint_clusters 8192 -max_selector_clusters 7936 -no_selector_rdo -no_auto_global_sel_pal
+
 ### Transcoder details
 
 To use .basis files in an application, you only need the files in the "transcoder" directory. The entire transcoder lives in a single .cpp file: transcoder/basisu_transcoder.cpp. If compiling with gcc/clang, be sure strict aliasing is disabled when compiling this file, as I have not tested either the encoder or transcoder with strict aliasing enabled: -fno-strict-aliasing (The Linux kernel is also compiled with this option.)
