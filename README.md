@@ -5,6 +5,8 @@ Basis Universal is a GPU texture compression system that outputs a highly compre
 
 So far, we've compiled the code using MSVS 2019 and under Ubuntu x64 using cmake with either clang 3.8 or gcc 5.4. The compressor uses OpenMP for multithreading, but if you don't have OpenMP it'll still work (just much more slowly).
 
+### Command Line Tool
+
 The command line tool is named "basisu". Run basisu without any parameters for help. 
 
 To compress an sRGB image to .basis:
