@@ -32,3 +32,12 @@ Now you can use the transcoder, which is implemented in the "basisu_transcoder" 
 I will be simplifying the transcoder so the caller doesn't need to deal with etc1_global_selector_codebook's next.
 
 transcode_image_level() and transcode_slice() are thread safe, i.e. you can decompressor multiple images/slices from multiple threads. start_decoding() is not thread safe.
+
+Quick Basis file details:
+Internally, Basis files are composed of a non-uniform texture array of one or more 2D ETC1S texture "slices". ETC1S is a simple subset of the ETC1 texture format popular on Android. ETC1S has no block flips, no 4x2 or 2x4 subblocks, and each block only uses 555 base colors. ETC1S is still 100% standard ETC1, so transcoding to ETC1 or ETC2 is a no-op. We choose ETC1S because it has the valuable property that it can be quickly transcoded (converted) to any other GPU texture format at high quality using only simple per-block operations with small 1D lookup tables. 
+
+Basis files have a single set of compressed global endpoint/selector codebooks, which all slices refer to. The ETC1S texture data is compressed using vector quantization (VQ) seperately on the endpoints and selectors, followed by DPCM/RLE/psuedo-MTF/canonical Huffman coding. Each ETC1S texture slice may be a different resolution. Mipmaps (if any) are always stored in order from largest to smallest.
+
+The slices are randomly accessible. Opaque files always have one slice per image, and files with alpha channels always have two slices per image (even if some images in the file don't have alpha channels, i.e. alpha is all or nothing). The transcoder abstracts these details away into a simple "image" API, which is what most people will use. An image may be one slice, or two.
+
+We currently support CPU transcoding to PVRTC1 opaque, BC7 mode 6 opaque, BC1-5, ETC1/2, and PVRTC1 4bpp opaque. The next steps are to add ASTC opaque/alpha, BC7 mode 4 or 5 opaque/alpha, PVRTC1 4bpp transparent, and possibly PVRTC1 2bpp. GPU assisted transcoding/format conversion is also possible.
