@@ -1,6 +1,8 @@
 # basis_universal
 Basis Universal GPU Texture Compression Codec
 
+Basis is a GPU texture compression tool that outputs a highly compressed intermediate file format (.basis) that can be very quickly transcoded to a wide variety of GPU texture compression formats: PVRTC1 4bpp RGB, BC7 mode 6 RGB, BC1-5, ETC1, and ETC2. We will be adding ASTC RGB or RGBA, BC7 mode 4/5 RGBA, and PVRTC1 4bpp RGBA next.
+
 So far, we've compiled this using MSVS 2019, and under Ubuntu using cmake with either clang 3.8 or gcc 5.4.
 
 The command line tool is named "basisu". Run basisu without any parameters for help. 
@@ -45,4 +47,4 @@ Basis files have a single set of compressed global endpoint/selector codebooks, 
 
 The slices are randomly accessible. Opaque files always have one slice per image, and files with alpha channels always have two slices per image (even if some images in the file don't have alpha channels, i.e. alpha is all or nothing). The transcoder abstracts these details away into a simple "image" API, which is what most people will use. An image may be one slice, or two.
 
-We currently support CPU transcoding to PVRTC1 opaque, BC7 mode 6 opaque, BC1-5, ETC1/2, and PVRTC1 4bpp opaque. The next steps are to add ASTC opaque/alpha, BC7 mode 4 or 5 opaque/alpha, PVRTC1 4bpp transparent, and possibly PVRTC1 2bpp. GPU assisted transcoding/format conversion is also possible.
+We currently only support CPU transcoding, but GPU assisted transcoding/format conversion is also possible by uploading the decompressed codebooks as textures and using compute shaders to convert the ETC1S data to the desired output format.
