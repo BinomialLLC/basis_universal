@@ -7,7 +7,7 @@ So far, we've compiled the code using MSVS 2019 and under Ubuntu x64 using cmake
 
 ### 3rd party code dependencies
 
-The transcoder (in the "transcoder directory) has no 3rd party code dependencies.
+The transcoder (in the "transcoder" directory) has no 3rd party code dependencies.
 
 The encoder uses [lodepng](https://lodev.org/lodepng/) for loading and saving PNG images, which is Copyright (c) 2005-2019 Lode Vandevenne. It uses the zlib license.
 
