@@ -5,6 +5,18 @@ Basis Universal is a GPU texture compression system that outputs a highly compre
 
 So far, we've compiled the code using MSVS 2019 and under Ubuntu x64 using cmake with either clang 3.8 or gcc 5.4. The compressor uses OpenMP for multithreading, but if you don't have OpenMP it'll still work (just much more slowly).
 
+### 3rd party code dependencies
+
+The transcoder (in the "transcoder directory) has no 3rd party code dependencies.
+
+The encoder uses [lodepng](https://lodev.org/lodepng/) for loading and saving PNG images, which is Copyright (c) 2005-2019 Lode Vandevenne. It uses the zlib license.
+
+basisu uses portions of "detex" for decompressing BC1-5, BC7 and EAC texture data blocks to raw pixels, which is Copyright (c) 2015 Harm Hanemaaijer <fgenfb@yahoo.com>:
+
+[detex] (https://github.com/hglm/detex)
+
+detex uses the ISC license, which "is functionally equivalent to the BSD 2-Clause and MIT licenses, removing some language that is no longer necessary." Note that detex is technically optionally, and if we can't use it we can either not include it at all (only allowing transcoding to .KTX, which is very inconviendent for testing), find an alternative implementation, or write our own.
+
 ### Command Line Tool
 
 The command line tool is named "basisu". Run basisu without any parameters for help. 
