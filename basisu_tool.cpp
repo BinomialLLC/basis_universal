@@ -295,6 +295,11 @@ public:
 				m_comp_params.m_hybrid_sel_cb_quality_thresh = (float)atof(arg_v[arg_index + 1]);
 				arg_count++;
 			}
+			else if (pArg[0] == '-')
+			{
+				error_printf("Unrecognized command line option: %s\n", pArg);
+				return false;
+			}
 			else
 			{
 				// Let's assume it's a source filename, so globbing works
