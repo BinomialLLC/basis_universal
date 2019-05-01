@@ -70,13 +70,9 @@ One the codebook and Huffman tables are decompressed, the slices are randomly ac
 We currently only support CPU transcoding, but GPU assisted transcoding/format conversion is also possible by uploading the decompressed codebooks as textures and using compute shaders to convert the ETC1S data to the desired output format.
 
 ### Possible improvements
-The way the delta indices are Huffman compressed by the compressor's backend could be definitely improved upon (but this would change the file format). On files with large codebooks and single images, the Huffman tables are relatively large compared to the compressed slice data.
-
 The current max codebook sizes are 8K. 12-16K codebooks would result in higher quality, but changes would be needed to the way delta indices are compressed.
 
 The way the -q (quality) option is converted to codebook sizes is very simple (fixed formulas), and could be improved. 
-
-There are alternate (more efficient) ways of compressing the endpoint indices, by reusing indices from neighboring already-transcoded blocks.
 
 The compressor's front end doesn't support endpoint tiling, which purposely constrains adjacent ETC1S block to use the same endpoint colors/intensity levels. The file format already has tiling optimizations, but the frontend needs to be modified to better exploit it.
 
