@@ -80,9 +80,11 @@ There are alternate (more efficient) ways of compressing the endpoint indices, b
 
 The compressor's front end doesn't support endpoint tiling, which purposely constrains adjacent ETC1S block to use the same endpoint colors/intensity levels. The file format already has tiling optimizations, but the frontend needs to be modified to better exploit it.
 
-The various Huffman codes could be divided up into groups (like Zstd), for much faster Huffman decoding in the transcoder. Also, larger slices could be divided up into segment, and each segment transcoded using a different thread. Both of these changes would modify the format.
+The various Huffman codes could be divided up into groups (like Zstd), for much faster Huffman decoding in the transcoder. Also, larger slices could be divided up into multiple segments, and each segment transcoded using a different thread. Both of these changes would modify the format.
 
 PVRTC1 modulation values could be determined using multiple threads and/or SIMD code.
+
+PVRTC1 2bpp and ATITC support wouldn't be hard to add.
 
 The transcoder's BC7 tables are a bit large, and can be reduced, which would allow the transcoder to be downloaded more quickly.
 
