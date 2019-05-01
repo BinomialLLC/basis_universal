@@ -43,14 +43,7 @@ The "WebGL" directory contains a very simple WebGL demo that uses the transcoder
 
 On browsers that don't support BC1 (Firefox is one), there's a low-quality fallback code path for opaque textures (but no fallback for BC3 yet). Note that the fallback path only currently converts to 16-bit RGB images, so the quality isn't as good as it should be.
 
-Note that I was unable to disable assertions when compiling the transcoder in release (-O2), and I'm not sure why yet. Currently, basisu.h forcefully disables the assert() macro, which is ugly but works:
-
-`#if defined(__EMSCRIPTEN__) && !defined(_DEBUG) && !defined(DEBUG)`
-`// HUGE HACK: I've been unable to disable assertions using emcc -O2 -s ASSERTIONS=0, no idea why. `
-`// We definitely don't want them enabled in release.`
-`#undef assert`
-`#define assert(x) ((void)0)`
-`#endif`
+Note that I was unable to disable assertions when compiling the transcoder in release (-O2), and I'm not sure why yet. Currently, basisu.h forcefully #undef's the assert() macro, which is ugly but works.
 
 ### Transcoder details
 
