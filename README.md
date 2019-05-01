@@ -3,7 +3,7 @@ Basis Universal GPU Texture Compression Codec
 
 Basis Universal is a GPU texture compression system that outputs a highly compressed intermediate file format (.basis) that can be quickly transcoded to a wide variety of GPU texture compression formats: PVRTC1 4bpp RGB, BC7 mode 6 RGB, BC1-5, ETC1, and ETC2. We will be adding ASTC RGB or RGBA, BC7 mode 4/5 RGBA, and PVRTC1 4bpp RGBA next. Basis files support non-uniform texture arrays, so cubemaps, volume textures, texture arrays, mipmap levels, video sequences, or arbitrary texture "tiles" can be stored in a single file. The compressor is able to exploit color and pattern correlations across the entire file.
 
-So far, we've compiled the code using MSVS 2019 and under Ubuntu x64 using cmake with either clang 3.8 or gcc 5.4. The compressor uses OpenMP for multithreading, but if you don't have OpenMP it'll still work (just much more slowly).
+So far, we've compiled the code using MSVS 2019, under Ubuntu x64 using cmake with either clang 3.8 or gcc 5.4, and emscripten 1.35 to asm.js. The compressor uses OpenMP for multithreading, but if you don't have OpenMP it'll still work (just much more slowly). The transcoder is currently single threaded (and doesn't use OpenMP).
 
 ### 3rd party code dependencies
 
@@ -36,6 +36,12 @@ The mipmapped .KTX files will be in a variety of GPU formats (PVRTC1 4bpp, ETC1-
 For the maximum possible achievable quality with the current former and encoder, use (remove -srgb for non-photographic images):
 
 `basisu x.png -srgb -slower -max_endpoint_clusters 8192 -max_selector_clusters 7936 -no_selector_rdo -no_auto_global_sel_pal`
+
+### WebGL test 
+
+The "WebGL" directory contains a very simple WebGL demo that uses the transcoder compiled to asm.js using emscriten. It currently only supports transcoding to the BC1 and BC3 texture formats. The file WebGL/basis_wrappers.cpp contains a simple C-style API that the Javascript code can call to interface with the C++ Basis transcoder.
+
+On browsers that don't support BC1 (Firefox is one), there's a low-quality fallback code path for opaque textures (but no fallback for BC3 yet). Note that the fallback path only currently converts to 16-bit RGB images, so the quality isn't as good as it should be.
 
 ### Transcoder details
 
