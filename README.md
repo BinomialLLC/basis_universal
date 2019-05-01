@@ -70,7 +70,9 @@ One the codebook and Huffman tables are decompressed, the slices are randomly ac
 We currently only support CPU transcoding, but GPU assisted transcoding/format conversion is also possible by uploading the decompressed codebooks as textures and using compute shaders to convert the ETC1S data to the desired output format.
 
 ### Special thanks
-Thanks to a number of companies or groups who have supported Binomial over the years: Intel, SpaceX, Netflix, Forgotten Empires, Microsoft, Polystream, Hothead Games, BioDigital, Magic Leap, Activision, Google, the Khronos Group, and the organizers at CppCon.
+A big thanks to Google for partnering with us and enabling this code to be open sourced.
+
+Thanks to a number of companies or groups who have supported Binomial over the years: Intel, SpaceX, Netflix, Forgotten Empires, Microsoft, Polystream, Hothead Games, BioDigital, Magic Leap, Activision, the Khronos Group, and the organizers at CppCon.
 
 Thanks to John Brooks at Blue Shift, Inc. for inspiring this work by showing me his Dreamcast texture compression system around 2002, and for releasing etc2comp. I first saw the subblock flip estimation approach (used in basisu_etc.cpp) in etc2comp.
 
