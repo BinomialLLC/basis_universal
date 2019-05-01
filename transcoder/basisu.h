@@ -45,6 +45,13 @@
 #include <assert.h>
 #include <random>
 
+#if defined(__EMSCRIPTEN__) && !defined(_DEBUG) && !defined(DEBUG)
+// HUGE HACK: I've been unable to disable assertions using emcc -O2 -s ASSERTIONS=0, no idea why. 
+// We definitely don't want them enabled in release.
+#undef assert
+#define assert(x) ((void)0)
+#endif
+
 #ifdef max
 #undef max
 #endif
@@ -57,6 +64,11 @@
 #define strcasecmp _stricmp
 #endif
 
+// Set to one to enable debug printf()'s when any errors occur, for development/debugging.
+#ifndef BASISU_DEVEL_MESSAGES
+#define BASISU_DEVEL_MESSAGES 0
+#endif
+
 #define BASISU_NOTE_UNUSED(x) (void)(x)
 #define BASISU_ARRAY_SIZE(x) (sizeof(x) / sizeof(x[0]))
 #define BASISU_NO_EQUALS_OR_COPY_CONSTRUCT(x) x(x &); x& operator= (const x&);
@@ -64,6 +76,12 @@
 #define BASISU_OFFSETOF(s, m) (uint32_t)(intptr_t)(&((s *)(0))->m)
 #define BASISU_STRINGIZE(x) #x
 #define BASISU_STRINGIZE2(x) BASISU_STRINGIZE(x)
+
+#if BASISU_DEVEL_MESSAGES
+	#define BASISU_DEVEL_ERROR(args...) do { basisu::debug_printf(args); } while(0)
+#else
+	#define BASISU_DEVEL_ERROR(...)
+#endif
 
 namespace basisu
 {

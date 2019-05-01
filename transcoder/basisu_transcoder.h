@@ -14,6 +14,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+
+// Set BASISU_DEVEL_MESSAGES to 1 to enable debug printf()'s whenever an error occurs, for easier debugging during development.
+//#define BASISU_DEVEL_MESSAGES 0
+
 #include "basisu_transcoder_internal.h"
 #include "basisu_global_selector_palette.h"
 
@@ -51,9 +55,13 @@ namespace basist
 	const char *basis_get_format_name(transcoder_texture_format fmt);
 	bool basis_transcoder_format_has_alpha(transcoder_texture_format fmt);
 	basisu::texture_format basis_get_basisu_texture_format(transcoder_texture_format fmt);
-			
+	
+	class basisu_transcoder;
+	
 	class basisu_lowlevel_transcoder
 	{
+		friend class basisu_transcoder;
+	
 	public:
 		basisu_lowlevel_transcoder(const basist::etc1_global_selector_codebook *pGlobal_sel_codebook);
 
@@ -73,7 +81,6 @@ namespace basist
 		};
 
 		typedef std::vector<endpoint> endpoint_vec;
-
 		endpoint_vec m_endpoints;
 
 		typedef std::vector<selector> selector_vec;
@@ -195,6 +202,12 @@ namespace basist
 		// Note that the number of mipmap levels for each image may differ, and that images may have different resolutions.
 		uint32_t get_total_images(const void *pData, uint32_t data_size) const;
 
+		// Returns the number of mipmap levels in an image.
+		uint32_t get_total_image_levels(const void *pData, uint32_t data_size, uint32_t image_index) const;
+		
+		// Returns basic information about an image. Note that orig_width/orig_height may not be a multiple of 4.
+		bool get_image_level_desc(const void *pData, uint32_t data_size, uint32_t image_index, uint32_t level_index, uint32_t &orig_width, uint32_t &orig_height, uint32_t &total_blocks) const;
+
 		// Returns information about the specified image.
 		bool get_image_info(const void *pData, uint32_t data_size, basisu_image_info &image_info, uint32_t image_index) const;
 
@@ -204,9 +217,12 @@ namespace basist
 		// Get a description of the basis file and low-level information about each slice.
 		bool get_file_info(const void *pData, uint32_t data_size, basisu_file_info &file_info) const;
 				
-		// start_decoding() must be called before calling transcode_slice() or transcode_image_level().
+		// start_transcoding() must be called before calling transcode_slice() or transcode_image_level().
 		// This decompresses the selector/endpoint codebooks, so ideally you would only call this once per .basis file (not each image/mipmap level).
-		bool start_decoding(const void *pData, uint32_t data_size) const;
+		bool start_transcoding(const void *pData, uint32_t data_size) const;
+		
+		// Returns true if start_transcoding() has been called.
+		bool get_ready_to_transcode() const { return m_lowlevel_decoder.m_endpoints.size() > 0; }
 
 		enum 
 		{
@@ -255,6 +271,8 @@ namespace basist
 		mutable basisu_lowlevel_transcoder m_lowlevel_decoder;
 
 		int find_first_slice_index(const void* pData, uint32_t data_size, uint32_t image_index, uint32_t level_index) const;
+		
+		bool validate_header_quick(const void* pData, uint32_t data_size) const;
 	};
 
 	// basisu_transcoder_init() must be called before a .basis file can be transcoded.

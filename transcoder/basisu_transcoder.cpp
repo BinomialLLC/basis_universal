@@ -12,6 +12,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
 #include "basisu_transcoder.h"
 #include "basisu_file_headers.h"
 #include <limits.h>
@@ -41,6 +42,9 @@ namespace basisu
 
 	void debug_printf(const char *pFmt, ...)
 	{
+#if BASISU_DEVEL_MESSAGES	
+		g_debug_printf = true;
+#endif
 		if (g_debug_printf)
 		{
 			va_list args;
@@ -2411,6 +2415,8 @@ namespace basist
 			pDst_block->m_selectors[1] = 0;
 			pDst_block->m_selectors[2] = 0;
 			pDst_block->m_selectors[3] = 0;
+			pDst_block->m_selectors[4] = 0;
+			pDst_block->m_selectors[5] = 0;
 			return;
 		}
 		else if (pSelector->m_num_unique_selectors == 2)
@@ -2425,6 +2431,7 @@ namespace basist
 			pDst_block->set_low_alpha(g0);
 			pDst_block->set_high_alpha(g1);
 
+			// TODO: Optimize this
 			for (uint32_t y = 0; y < 4; y++)
 			{
 				for (uint32_t x = 0; x < 4; x++)
@@ -3260,13 +3267,22 @@ namespace basist
 		huffman_decoding_table color5_delta_model, inten5_delta_model;
 
 		if (!sym_codec.init(pEndpoints_data, endpoints_data_size))
+		{
+			BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::decode_palettes: fail 0\n");		
 			return false;
+		}
 
 		if (!sym_codec.read_huffman_table(color5_delta_model))
+		{
+			BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::decode_palettes: fail 1\n");		
 			return false;
+		}
 
 		if (!sym_codec.read_huffman_table(inten5_delta_model))
+		{
+			BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::decode_palettes: fail 2\n");		
 			return false;
+		}
 
 		m_endpoints.resize(num_endpoints);
 
@@ -3284,13 +3300,19 @@ namespace basist
 			int g5 = prev_color5.g + delta_g5;
 			int b5 = prev_color5.b + delta_b5;
 			if (static_cast<uint32_t>(r5 | g5 | b5) > 31)
+			{
+				BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::decode_palettes: fail 3\n");		
 				return false;
+			}
 
 			m_endpoints[i].m_color5.set(r5, g5, b5, 0);
 
 			int inten5 = prev_inten5 + delta_inten5;
 			if ((inten5 < 0) || (inten5 > 7))
+			{
+				BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::decode_palettes: fail 4\n");		
 				return false;
+			}
 			m_endpoints[i].m_inten5 = static_cast<uint8_t>(inten5);
 
 			prev_color5 = m_endpoints[i].m_color5;
@@ -3302,7 +3324,10 @@ namespace basist
 		m_selectors.resize(num_selectors);
 
 		if (!sym_codec.init(pSelectors_data, selectors_data_size))
+		{
+			BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::decode_palettes: fail 5\n");		
 			return false;
+		}
 
 		basist::huffman_decoding_table delta_selector_pal_model;
 
@@ -3318,7 +3343,10 @@ namespace basist
 			if (mod_bits)
 			{
 				if (!sym_codec.read_huffman_table(mod_model))
+				{
+					BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::decode_palettes: fail 6\n");		
 					return false;
+				}
 			}
 
 			//uint32_t total_mod_bits = 0;
@@ -3353,13 +3381,19 @@ namespace basist
 
 				basist::huffman_decoding_table uses_global_cb_bitflags_model;
 				if (!sym_codec.read_huffman_table(uses_global_cb_bitflags_model))
+				{
+					BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::decode_palettes: fail 7\n");		
 					return false;
+				}
 
 				basist::huffman_decoding_table global_mod_indices_model;
 				if (mod_bits)
 				{
 					if (!sym_codec.read_huffman_table(global_mod_indices_model))
+					{
+						BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::decode_palettes: fail 8\n");		
 						return false;
+					}
 				}
 
 				uint32_t cur_uses_global_cb_bitflags = 0;
@@ -3470,19 +3504,34 @@ namespace basist
 	{
 		basist::bitwise_decoder sym_codec;
 		if (!sym_codec.init(pTable_data, table_data_size))
+		{
+			BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::decode_tables: fail 0\n");		
 			return false;
+		}
 
 		if (!sym_codec.read_huffman_table(m_template_model))
+		{
+			BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::decode_tables: fail 1\n");		
 			return false;
+		}
 
 		if (!sym_codec.read_huffman_table(m_delta_endpoint_model))
+		{
+			BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::decode_tables: fail 2\n");		
 			return false;
+		}
 
 		if (!sym_codec.read_huffman_table(m_delta_selector_model))
+		{
+			BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::decode_tables: fail 3\n");		
 			return false;
+		}
 
 		if (!sym_codec.read_huffman_table(m_selector_history_buf_rle_model))
+		{
+			BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::decode_tables: fail 4\n");		
 			return false;
+		}
 
 		m_selector_history_buf_size = sym_codec.get_bits(13);
 
@@ -3502,10 +3551,13 @@ namespace basist
 		const uint32_t total_macroblock_blocks = num_macroblocks_x * num_macroblocks_y * 4;
 
 		basist::bitwise_decoder sym_codec;
-
+				
 		if (!sym_codec.init(pImage_data, image_data_size))
+		{
+			BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::transcode_slice: sym_codec.init failed\n");		
 			return false;
-
+		}
+		
 		approx_move_to_front selector_history_buf(m_selector_history_buf_size);
 
 		int prev_endpoint_index = 0;
@@ -3531,10 +3583,13 @@ namespace basist
 		{
 			pPVRTC_work_mem = malloc(num_blocks_x * num_blocks_y * (sizeof(decoder_etc_block) + sizeof(uint32_t)));
 			if (!pPVRTC_work_mem)
+			{
+				BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::transcode_slice: malloc failed\n");		
 				return false;
+			}
 			pPVRTC_endpoints = (uint32_t *)&((decoder_etc_block*)pPVRTC_work_mem)[num_blocks_x * num_blocks_y];
 		}
-		
+						
 		for (uint32_t macroblock_y = 0; macroblock_y < num_macroblocks_y; macroblock_y++)
 		{
 			const int x_start = (macroblock_y & 1) ? (num_macroblocks_x - 1) : 0;
@@ -3808,18 +3863,24 @@ namespace basist
 		const basis_file_header *pHeader = reinterpret_cast<const basis_file_header*>(pData);
 
 		if (crc16(&pHeader->m_data_size, sizeof(basis_file_header) - BASISU_OFFSETOF(basis_file_header, m_data_size), 0) != pHeader->m_header_crc16)
+		{
+			BASISU_DEVEL_ERROR("basisu_transcoder::get_total_images: header CRC check failed\n");		
 			return false;
+		}
 
 		if (full_validation)
 		{
 			if (crc16(reinterpret_cast<const uint8_t*>(pData) + sizeof(basis_file_header), pHeader->m_data_size, 0) != pHeader->m_data_crc16)
+			{
+				BASISU_DEVEL_ERROR("basisu_transcoder::get_total_images: data CRC check failed\n");		
 				return false;
+			}
 		}
 		
 		return true;
 	}
-
-	bool basisu_transcoder::validate_header(const void* pData, uint32_t data_size) const
+	
+	bool basisu_transcoder::validate_header_quick(const void* pData, uint32_t data_size) const
 	{
 		if (data_size <= sizeof(basis_file_header))
 			return false;
@@ -3827,28 +3888,70 @@ namespace basist
 		const basis_file_header *pHeader = reinterpret_cast<const basis_file_header*>(pData);
 
 		if ((pHeader->m_sig != basis_file_header::cBASISSigValue) || (pHeader->m_ver != BASISD_SUPPORTED_BASIS_VERSION) || (pHeader->m_header_size != sizeof(basis_file_header)))
+		{
+			BASISU_DEVEL_ERROR("basisu_transcoder::get_total_images: header has an invalid signature, or file version is unsupported\n");		
 			return false;
+		}
 
 		uint32_t expected_file_size = sizeof(basis_file_header) + pHeader->m_data_size;
 		if (data_size < expected_file_size)
+		{
+			BASISU_DEVEL_ERROR("basisu_transcoder::get_total_images: source buffer is too small\n");		
 			return false;
+		}
+	
+		return true;
+	}
+
+	bool basisu_transcoder::validate_header(const void* pData, uint32_t data_size) const
+	{
+		if (data_size <= sizeof(basis_file_header))
+		{
+			BASISU_DEVEL_ERROR("basisu_transcoder::get_total_images: input source buffer is too small\n");		
+			return false;
+		}
+
+		const basis_file_header *pHeader = reinterpret_cast<const basis_file_header*>(pData);
+
+		if ((pHeader->m_sig != basis_file_header::cBASISSigValue) || (pHeader->m_ver != BASISD_SUPPORTED_BASIS_VERSION) || (pHeader->m_header_size != sizeof(basis_file_header)))
+		{
+			BASISU_DEVEL_ERROR("basisu_transcoder::get_total_images: header has an invalid signature, or file version is unsupported\n");		
+			return false;
+		}
+
+		uint32_t expected_file_size = sizeof(basis_file_header) + pHeader->m_data_size;
+		if (data_size < expected_file_size)
+		{
+			BASISU_DEVEL_ERROR("basisu_transcoder::get_total_images: input source buffer is too small, or header is corrupted\n");		
+			return false;
+		}
 
 		if ((!pHeader->m_total_images) || (!pHeader->m_total_slices))
+		{
+			BASISU_DEVEL_ERROR("basisu_transcoder::get_total_images: invalid basis file (total images or slices are 0)\n");		
 			return false;
+		}
 
 		if (pHeader->m_total_images > pHeader->m_total_slices)
+		{
+			BASISU_DEVEL_ERROR("basisu_transcoder::get_total_images: invalid basis file (too many images)\n");		
 			return false;
+		}
 
 		if (pHeader->m_flags & cBASISHeaderFlagHasAlphaSlices)
 		{
 			// Must have an even # of slices if the .basis file has alpha
 			if (pHeader->m_total_slices & 1)
+			{
+				BASISU_DEVEL_ERROR("basisu_transcoder::get_total_images: invalid basis file (odd number of slices)\n");		
 				return false;
+			}
 		}
 
 		if ((pHeader->m_flags & cBASISHeaderFlagETC1S) == 0)
 		{
 			// We only support ETC1S in basis universal
+			BASISU_DEVEL_ERROR("basisu_transcoder::get_total_images: invalid basis file (ETC1S flag check)\n");		
 			return false;
 		}
 
@@ -3857,8 +3960,11 @@ namespace basist
 
 	uint32_t basisu_transcoder::get_total_images(const void *pData, uint32_t data_size) const
 	{
-		if (!validate_header(pData, data_size))
+		if (!validate_header_quick(pData, data_size))
+		{
+			BASISU_DEVEL_ERROR("basisu_transcoder::get_total_images: header validation failed\n");		
 			return 0;
+		}
 
 		const basis_file_header *pHeader = static_cast<const basis_file_header *>(pData);
 
@@ -3867,17 +3973,26 @@ namespace basist
 
 	bool basisu_transcoder::get_image_info(const void *pData, uint32_t data_size, basisu_image_info &image_info, uint32_t image_index) const
 	{
-		if (!validate_header(pData, data_size))
+		if (!validate_header_quick(pData, data_size))
+		{
+			BASISU_DEVEL_ERROR("basisu_transcoder::get_image_info: header validation failed\n");		
 			return false;
+		}
 				
 		int slice_index = find_first_slice_index(pData, data_size, image_index, 0);
 		if (slice_index < 0)
+		{
+			BASISU_DEVEL_ERROR("basisu_transcoder::get_image_info: invalid slice index\n");		
 			return false;
+		}
 
 		const basis_file_header *pHeader = static_cast<const basis_file_header *>(pData);
 
 		if (image_index >= pHeader->m_total_images)
+		{
+			BASISU_DEVEL_ERROR("basisu_transcoder::get_image_info: invalid image_index\n");		
 			return false;
+		}
 
 		const basis_slice_desc *pSlice_descs = reinterpret_cast<const basis_slice_desc *>(static_cast<const uint8_t *>(pData) + pHeader->m_slice_desc_file_ofs);
 
@@ -3904,20 +4019,98 @@ namespace basist
 
 		return true;
 	}
-
-	bool basisu_transcoder::get_image_level_info(const void *pData, uint32_t data_size, basisu_image_level_info &image_info, uint32_t image_index, uint32_t level_index) const
+	
+	uint32_t basisu_transcoder::get_total_image_levels(const void *pData, uint32_t data_size, uint32_t image_index) const
 	{
-		if (!validate_header(pData, data_size))
+		if (!validate_header_quick(pData, data_size))
+		{
+			BASISU_DEVEL_ERROR("basisu_transcoder::get_total_image_levels: header validation failed\n");		
 			return false;
-				
-		int slice_index = find_first_slice_index(pData, data_size, image_index, level_index);
+		}
+
+		int slice_index = find_first_slice_index(pData, data_size, image_index, 0);
 		if (slice_index < 0)
+		{
+			BASISU_DEVEL_ERROR("basisu_transcoder::get_total_image_levels: failed finding slice\n");		
 			return false;
+		}
 
 		const basis_file_header *pHeader = static_cast<const basis_file_header *>(pData);
 
 		if (image_index >= pHeader->m_total_images)
+		{
+			BASISU_DEVEL_ERROR("basisu_transcoder::get_total_image_levels: invalid image_index\n");		
 			return false;
+		}
+
+		const basis_slice_desc *pSlice_descs = reinterpret_cast<const basis_slice_desc *>(static_cast<const uint8_t *>(pData) + pHeader->m_slice_desc_file_ofs);
+
+		uint32_t total_levels = 1;
+		for (uint32_t i = slice_index + 1; i < pHeader->m_total_slices; i++)
+			if (pSlice_descs[i].m_image_index == image_index)
+				total_levels = basisu::maximum<uint32_t>(total_levels, pSlice_descs[i].m_level_index + 1);
+			else 
+				break;			
+				
+		return total_levels;
+	}
+		
+	bool basisu_transcoder::get_image_level_desc(const void *pData, uint32_t data_size, uint32_t image_index, uint32_t level_index, uint32_t &orig_width, uint32_t &orig_height, uint32_t &total_blocks) const
+	{
+		if (!validate_header_quick(pData, data_size))
+		{
+			BASISU_DEVEL_ERROR("basisu_transcoder::get_image_level_desc: header validation failed\n");		
+			return false;
+		}
+				
+		int slice_index = find_first_slice_index(pData, data_size, image_index, level_index);
+		if (slice_index < 0)
+		{
+			BASISU_DEVEL_ERROR("basisu_transcoder::get_image_level_desc: failed finding slice\n");		
+			return false;
+		}
+
+		const basis_file_header *pHeader = static_cast<const basis_file_header *>(pData);
+
+		if (image_index >= pHeader->m_total_images)
+		{
+			BASISU_DEVEL_ERROR("basisu_transcoder::get_image_level_desc: invalid image_index\n");		
+			return false;
+		}
+
+		const basis_slice_desc *pSlice_descs = reinterpret_cast<const basis_slice_desc *>(static_cast<const uint8_t *>(pData) + pHeader->m_slice_desc_file_ofs);
+		
+		const basis_slice_desc &slice_desc = pSlice_descs[slice_index];
+
+		orig_width = slice_desc.m_orig_width;
+		orig_height = slice_desc.m_orig_height;
+		total_blocks = slice_desc.m_num_blocks_x * slice_desc.m_num_blocks_y;
+				
+		return true;
+	}
+
+	bool basisu_transcoder::get_image_level_info(const void *pData, uint32_t data_size, basisu_image_level_info &image_info, uint32_t image_index, uint32_t level_index) const
+	{
+		if (!validate_header_quick(pData, data_size))
+		{
+			BASISU_DEVEL_ERROR("basisu_transcoder::get_image_level_info: validate_file_checksums failed\n");		
+			return false;
+		}
+				
+		int slice_index = find_first_slice_index(pData, data_size, image_index, level_index);
+		if (slice_index < 0)
+		{
+			BASISU_DEVEL_ERROR("basisu_transcoder::get_image_level_info: failed finding slice\n");		
+			return false;
+		}
+
+		const basis_file_header *pHeader = static_cast<const basis_file_header *>(pData);
+
+		if (image_index >= pHeader->m_total_images)
+		{
+			BASISU_DEVEL_ERROR("basisu_transcoder::get_image_level_info: invalid image_index\n");		
+			return false;
+		}
 
 		const basis_slice_desc *pSlice_descs = reinterpret_cast<const basis_slice_desc *>(static_cast<const uint8_t *>(pData) + pHeader->m_slice_desc_file_ofs);
 
@@ -3941,7 +4134,10 @@ namespace basist
 	bool basisu_transcoder::get_file_info(const void* pData, uint32_t data_size, basisu_file_info & file_info) const
 	{
 		if (!validate_file_checksums(pData, data_size, false))
+		{
+			BASISU_DEVEL_ERROR("basisu_transcoder::get_file_info: validate_file_checksums failed\n");
 			return false;
+		}
 
 		const basis_file_header* pHeader = static_cast<const basis_file_header*>(pData);
 		const basis_slice_desc* pSlice_descs = reinterpret_cast<const basis_slice_desc*>(static_cast<const uint8_t*>(pData) + pHeader->m_slice_desc_file_ofs);
@@ -3999,10 +4195,19 @@ namespace basist
 		return true;
 	}
 
-	bool basisu_transcoder::start_decoding(const void *pData, uint32_t data_size) const
+	bool basisu_transcoder::start_transcoding(const void *pData, uint32_t data_size) const
 	{
-		if (!validate_header(pData, data_size))
+		if (m_lowlevel_decoder.m_endpoints.size())
+		{
+			BASISU_DEVEL_ERROR("basisu_transcoder::transcode_slice: already called start_transcoding\n");
+			return true;
+		}
+	
+		if (!validate_header_quick(pData, data_size))
+		{
+			BASISU_DEVEL_ERROR("basisu_transcoder::transcode_slice: header validation failed\n");
 			return false;
+		}
 
 		const basis_file_header *pHeader = reinterpret_cast<const basis_file_header*>(pData);
 
@@ -4012,11 +4217,13 @@ namespace basist
 			pHeader->m_total_endpoints, pDataU8 + pHeader->m_endpoint_cb_file_ofs, pHeader->m_endpoint_cb_file_size,
 			pHeader->m_total_selectors, pDataU8 + pHeader->m_selector_cb_file_ofs, pHeader->m_selector_cb_file_size))
 		{
+			BASISU_DEVEL_ERROR("basisu_transcoder::transcode_slice: decode_palettes failed\n");
 			return false;
 		}
 
 		if (!m_lowlevel_decoder.decode_tables(pDataU8 + pHeader->m_tables_file_ofs, pHeader->m_tables_file_size))
 		{
+			BASISU_DEVEL_ERROR("basisu_transcoder::transcode_slice: decode_tables failed\n");
 			return false;
 		}
 
@@ -4026,27 +4233,43 @@ namespace basist
 	bool basisu_transcoder::transcode_slice(const void *pData, uint32_t data_size, uint32_t slice_index, void *pOutput_blocks, uint32_t output_blocks_buf_size_in_blocks, block_format fmt, 
 		uint32_t output_stride, uint32_t decode_flags) const
 	{
+		if (!m_lowlevel_decoder.m_endpoints.size())
+		{
+			BASISU_DEVEL_ERROR("basisu_transcoder::transcode_slice: must call start_transcoding first\n");
+			return false;
+		}
+			
 		if (decode_flags & cDecodeFlagsPVRTCDecodeToNextPow2)
 		{
 			// TODO: Not yet supported
+			BASISU_DEVEL_ERROR("basisu_transcoder::transcode_slice: cDecodeFlagsPVRTCDecodeToNextPow2 currently unsupported\n");
 			return false;
 		}
-
-		if (!validate_header(pData, data_size))
+		
+		if (!validate_header_quick(pData, data_size))
+		{
+			BASISU_DEVEL_ERROR("basisu_transcoder::transcode_slice: header validation failed\n");
 			return false;
-
+		}
+			
 		const basis_file_header *pHeader = reinterpret_cast<const basis_file_header *>(pData);
 
 		const uint8_t *pDataU8 = static_cast<const uint8_t* >(pData);
 
 		if (slice_index >= pHeader->m_total_slices)
+		{
+			BASISU_DEVEL_ERROR("basisu_transcoder::transcode_slice: slice_index >= pHeader->m_total_slices\n");
 			return false;
+		}
 
 		const basis_slice_desc &slice_desc = reinterpret_cast<const basis_slice_desc *>(pDataU8 + pHeader->m_slice_desc_file_ofs)[slice_index];
 
 		uint32_t total_blocks = slice_desc.m_num_blocks_x * slice_desc.m_num_blocks_y;
 		if (output_blocks_buf_size_in_blocks < total_blocks)
+		{
+			BASISU_DEVEL_ERROR("basisu_transcoder::transcode_slice: output_blocks_buf_size_in_blocks < total_blocks\n");
 			return false;
+		}
 
 		if (fmt != cETC1)
 		{
@@ -4055,11 +4278,12 @@ namespace basist
 				if ((!basisu::is_pow2(slice_desc.m_num_blocks_x * 4)) || (!basisu::is_pow2(slice_desc.m_num_blocks_y * 4)))
 				{
 					// PVRTC1 only supports power of 2 dimensions
+					BASISU_DEVEL_ERROR("basisu_transcoder::transcode_slice: PVRTC1 only supports power of 2 dimensions\n");
 					return false;
 				}
 			}
 		}
-
+				
 		return m_lowlevel_decoder.transcode_slice(pOutput_blocks, slice_desc.m_num_blocks_x, slice_desc.m_num_blocks_y,
 			pDataU8 + slice_desc.m_file_ofs, slice_desc.m_file_size,
 			fmt, output_stride, (decode_flags & cDecodeFlagsPVRTCWrapAddressing) != 0, (decode_flags & cDecodeFlagsBC1ForbidThreeColorBlocks) == 0);
@@ -4080,14 +4304,19 @@ namespace basist
 			if ((slice_desc.m_image_index == image_index) && (slice_desc.m_level_index == level_index))
 				return slice_iter;
 		}
+		
+		BASISU_DEVEL_ERROR("basisu_transcoder::find_first_slice_index: didn't find slice\n");
 
 		return -1;
 	}
 
 	int basisu_transcoder::find_slice(const void *pData, uint32_t data_size, uint32_t image_index, uint32_t level_index, bool alpha_data) const
 	{
-		if (!validate_header(pData, data_size))
+		if (!validate_header_quick(pData, data_size))
+		{
+			BASISU_DEVEL_ERROR("basisu_transcoder::find_slice: header validation failed\n");
 			return false;
+		}
 
 		const basis_file_header *pHeader = reinterpret_cast<const basis_file_header*>(pData);
 		const uint8_t *pDataU8 = static_cast<const uint8_t*>(pData);
@@ -4105,6 +4334,8 @@ namespace basist
 					return slice_iter;
 			}
 		}
+		
+		BASISU_DEVEL_ERROR("basisu_transcoder::find_slice: didn't find slice\n");
 
 		return -1;
 	}
@@ -4155,16 +4386,28 @@ namespace basist
 		transcoder_texture_format fmt,
 		uint32_t decode_flags) const
 	{
+
+	
+		if (!m_lowlevel_decoder.m_endpoints.size())
+		{
+			BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: must call start_transcoding() first\n");
+			return false;
+		}
+					
 		const bool transcode_alpha_data_to_opaque_formats = (decode_flags & cDecodeFlagsTranscodeAlphaDataToOpaqueFormats) != 0;
 
 		if (decode_flags & cDecodeFlagsPVRTCDecodeToNextPow2)
 		{
+			BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: cDecodeFlagsPVRTCDecodeToNextPow2 currently unsupported\n");
 			// TODO: Not yet supported
 			return false;
 		}
 
-		if (!validate_header(pData, data_size))
+		if (!validate_header_quick(pData, data_size))
+		{
+			BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: header validation failed\n");
 			return false;
+		}
 
 		const basis_file_header *pHeader = reinterpret_cast<const basis_file_header*>(pData);
 
@@ -4177,6 +4420,7 @@ namespace basist
 		int slice_index = find_first_slice_index(pData, data_size, image_index, level_index);
 		if (slice_index < 0)
 		{
+			BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: failed finding slice index\n");
 			// Unable to find the requested image/level 
 			return false;
 		}
@@ -4195,6 +4439,8 @@ namespace basist
 				
 		if (pSlice_descs[slice_index].m_flags & cSliceDescFlagsIsAlphaData)
 		{
+			BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: alpha basis file has out of order alpha slice\n");
+			
 			// The first slice shouldn't have alpha data in a properly formed basis file
 			return false;
 		}
@@ -4204,6 +4450,7 @@ namespace basist
 			// The alpha data should immediately follow the color data, and have the same resolution.
 			if ((slice_index + 1U) >= pHeader->m_total_slices)
 			{
+				BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: alpha basis file has missing alpha slice\n");
 				// basis file is missing the alpha slice
 				return false;
 			}
@@ -4211,12 +4458,14 @@ namespace basist
 			// Basic sanity checks
 			if ((pSlice_descs[slice_index + 1].m_flags & cSliceDescFlagsIsAlphaData) == 0)
 			{
+				BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: alpha basis file has missing alpha slice (flag check)\n");
 				// This slice should have alpha data
 				return false;
 			}
 						
 			if ((pSlice_descs[slice_index].m_num_blocks_x != pSlice_descs[slice_index + 1].m_num_blocks_x) || (pSlice_descs[slice_index].m_num_blocks_y != pSlice_descs[slice_index + 1].m_num_blocks_y))
 			{
+				BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: alpha basis file slice dimensions bad\n");
 				// Alpha slice should have been the same res as the color slice
 				return false;
 			}
@@ -4238,7 +4487,7 @@ namespace basist
 		bool status = false;
 
 		const uint32_t total_slice_blocks = pSlice_descs[slice_index].m_num_blocks_x * pSlice_descs[slice_index].m_num_blocks_y;
-
+								
 		switch (fmt)
 		{
 		case cTFETC1:
@@ -4251,6 +4500,10 @@ namespace basist
 				slice_index_to_decode++;
 
 			status = transcode_slice(pData, data_size, slice_index_to_decode, pOutput_blocks, output_blocks_buf_size_in_blocks, cETC1, bytes_per_block, decode_flags);
+			if (!status)
+			{
+				BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: transcode_slice() to ETC1 failed\n");
+			}
 			break;
 		}
 		case cTFBC1:
@@ -4266,6 +4519,10 @@ namespace basist
 				slice_index_to_decode++;
 
 			status = transcode_slice(pData, data_size, slice_index_to_decode, pOutput_blocks, output_blocks_buf_size_in_blocks, cBC1, bytes_per_block, decode_flags);
+			if (!status)
+			{
+				BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: transcode_slice() to BC1 failed\n");
+			}
 			break;
 		}
 		case cTFBC4:
@@ -4281,6 +4538,10 @@ namespace basist
 				slice_index_to_decode++;
 
 			status = transcode_slice(pData, data_size, slice_index_to_decode, pOutput_blocks, output_blocks_buf_size_in_blocks, cBC4, bytes_per_block, decode_flags);
+			if (!status)
+			{
+				BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: transcode_slice() to BC4 failed\n");
+			}
 			break;
 		}
 		case cTFPVRTC1_4_OPAQUE_ONLY:
@@ -4296,6 +4557,10 @@ namespace basist
 				slice_index_to_decode++;
 
 			status = transcode_slice(pData, data_size, slice_index_to_decode, pOutput_blocks, output_blocks_buf_size_in_blocks, cPVRTC1_4_OPAQUE_ONLY, bytes_per_block, decode_flags);
+			if (!status)
+			{
+				BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: transcode_slice() to PVRTC1 4 opaque only failed\n");
+			}
 			break;
 		}
 		case cTFBC7_M6_OPAQUE_ONLY:
@@ -4311,6 +4576,10 @@ namespace basist
 				slice_index_to_decode++;
 
 			status = transcode_slice(pData, data_size, slice_index_to_decode, pOutput_blocks, output_blocks_buf_size_in_blocks, cBC7_M6_OPAQUE_ONLY, bytes_per_block, decode_flags);
+			if (!status)
+			{
+				BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: transcode_slice() to BC7 m6 opaque only failed\n");
+			}
 			break;
 		}
 		case cTFETC2:
@@ -4335,6 +4604,14 @@ namespace basist
 			{
 				// Now decode the color data
 				status = transcode_slice(pData, data_size, slice_index, (uint8_t*)pOutput_blocks + 8, output_blocks_buf_size_in_blocks, cETC1, 16, decode_flags);
+				if (!status)
+				{
+					BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: transcode_slice() to ETC2 RGB failed\n");
+				}
+			}
+			else
+			{
+				BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: transcode_slice() to ETC2 A failed\n");
 			}
 			break;
 		}
@@ -4343,7 +4620,11 @@ namespace basist
 #if !BASISD_SUPPORT_DXT1
 			return false;
 #endif
+#if !BASISD_SUPPORT_DXT5A
+			return false;
+#endif
 			assert(total_slices == 2);
+
 			// First decode the alpha data 
 			if (basis_file_has_alpha_slices)
 			{
@@ -4359,7 +4640,16 @@ namespace basist
 			{
 				// Now decode the color data. Forbid 3 color blocks, which aren't allowed in BC3.
 				status = transcode_slice(pData, data_size, slice_index, (uint8_t*)pOutput_blocks + 8, output_blocks_buf_size_in_blocks, cBC1, 16, decode_flags | cDecodeFlagsBC1ForbidThreeColorBlocks);
+				if (!status)
+				{
+					BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: transcode_slice() to BC3 RGB failed\n");
+				}
 			}
+			else
+			{
+				BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: transcode_slice() to BC3 A failed\n");
+			}
+
 			break;
 		}
 		case cTFBC5:
@@ -4376,6 +4666,10 @@ namespace basist
 				{
 					// Decode the G data (actually the green channel of the alpha data slice in the basis file)
 					status = transcode_slice(pData, data_size, slice_index + 1, (uint8_t*)pOutput_blocks + 8, output_blocks_buf_size_in_blocks, cBC4, 16, decode_flags);
+					if (!status)
+					{
+						BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: transcode_slice() to BC5 1 failed\n");
+					}
 				}
 				else
 				{
@@ -4383,11 +4677,16 @@ namespace basist
 					status = true;
 				}
 			}
+			else
+			{
+				BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: transcode_slice() to BC5 channel 0 failed\n");
+			}
 			break;
 		}
 		default:
 		{
 			assert(0);
+			BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: Invalid fmt\n");
 			break;
 		}
 		}
@@ -4411,6 +4710,7 @@ namespace basist
 			return 16;
 		default:
 			assert(0);
+			BASISU_DEVEL_ERROR("basis_get_basisu_texture_format: Invalid fmt\n");
 			break;
 		}
 		return 0;
@@ -4430,6 +4730,7 @@ namespace basist
 		case cTFBC5: return "BC5";
 		default:
 			assert(0);
+			BASISU_DEVEL_ERROR("basis_get_basisu_texture_format: Invalid fmt\n");
 			break;
 		}
 		return "";
@@ -4462,6 +4763,7 @@ namespace basist
 			case cTFBC5: return basisu::cBC5;
 			default:
 				assert(0);
+				BASISU_DEVEL_ERROR("basis_get_basisu_texture_format: Invalid fmt\n");
 				break;
 		}
 		return basisu::cInvalidTextureFormat;
