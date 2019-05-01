@@ -540,9 +540,9 @@ static bool unpack_and_validate_mode(command_line_params &opts, bool validate_fl
 		printf("\n");
 		printf("  Y Flipped: %u, Has alpha slices: %u\n", fileinfo.m_y_flipped, fileinfo.m_has_alpha_slices);
 				
-		if (!dec.start_decoding(&basis_data[0], (uint32_t)basis_data.size()))
+		if (!dec.start_transcoding(&basis_data[0], (uint32_t)basis_data.size()))
 		{
-			error_printf("start_decoding() failed!\n");
+			error_printf("start_transcoding() failed!\n");
 			return false;
 		}
 

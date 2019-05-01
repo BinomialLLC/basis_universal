@@ -827,13 +827,13 @@ namespace basisu
 		interval_timer tm;
 		tm.start();
 
-		if (!decoder.start_decoding(&comp_data[0], (uint32_t)comp_data.size()))
+		if (!decoder.start_transcoding(&comp_data[0], (uint32_t)comp_data.size()))
 		{
-			error_printf("decoder.start_decoding() failed!\n");
+			error_printf("decoder.start_transcoding() failed!\n");
 			return false;
 		}
 
-		debug_printf("basisu_comppressor::start_decoding() took %3.3fms\n", tm.get_elapsed_ms());
+		debug_printf("basisu_comppressor::start_transcoding() took %3.3fms\n", tm.get_elapsed_ms());
 
 		uint32_t total_orig_pixels = 0;
 		uint32_t total_texels = 0;

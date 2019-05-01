@@ -322,14 +322,14 @@ namespace basisu
 		if (block.m_lo.m_mode != (1 << 6))
 			return false;
 
-		const uint32_t r0 = (block.m_lo.m_r0 << 1) | block.m_lo.m_p0;
-		const uint32_t g0 = (block.m_lo.m_g0 << 1) | block.m_lo.m_p0;
-		const uint32_t b0 = (block.m_lo.m_b0 << 1) | block.m_lo.m_p0;
-		const uint32_t a0 = (block.m_lo.m_a0 << 1) | block.m_lo.m_p0;
-		const uint32_t r1 = (block.m_lo.m_r1 << 1) | block.m_hi.m_p1;
-		const uint32_t g1 = (block.m_lo.m_g1 << 1) | block.m_hi.m_p1;
-		const uint32_t b1 = (block.m_lo.m_b1 << 1) | block.m_hi.m_p1;
-		const uint32_t a1 = (block.m_lo.m_a1 << 1) | block.m_hi.m_p1;
+		const uint32_t r0 = (uint32_t)((block.m_lo.m_r0 << 1) | block.m_lo.m_p0);
+		const uint32_t g0 = (uint32_t)((block.m_lo.m_g0 << 1) | block.m_lo.m_p0);
+		const uint32_t b0 = (uint32_t)((block.m_lo.m_b0 << 1) | block.m_lo.m_p0);
+		const uint32_t a0 = (uint32_t)((block.m_lo.m_a0 << 1) | block.m_lo.m_p0);
+		const uint32_t r1 = (uint32_t)((block.m_lo.m_r1 << 1) | block.m_hi.m_p1);
+		const uint32_t g1 = (uint32_t)((block.m_lo.m_g1 << 1) | block.m_hi.m_p1);
+		const uint32_t b1 = (uint32_t)((block.m_lo.m_b1 << 1) | block.m_hi.m_p1);
+		const uint32_t a1 = (uint32_t)((block.m_lo.m_a1 << 1) | block.m_hi.m_p1);
 
 		color_rgba vals[16];
 		for (uint32_t i = 0; i < 16; i++)
