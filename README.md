@@ -5,6 +5,8 @@ Basis Universal is a GPU texture compression system that outputs a highly compre
 
 So far, we've compiled the code using MSVS 2019, under Ubuntu x64 using cmake with either clang 3.8 or gcc 5.4, and emscripten 1.35 to asm.js. (Be sure to use this version of emcc, as earlier versions fail with internal errors/exceptions during compilation.) The compressor uses OpenMP for multithreading, but if you don't have OpenMP it'll still work (just much more slowly). The transcoder is currently single threaded (and doesn't use OpenMP).
 
+**Important:** I've changed the .basis file format today (4/2/19), to add some new fields (texture type and video framerate) to the header. Be sure to recompress any files you have. The file format will be stabilized by next week.
+
 ### 3rd party code dependencies
 
 The transcoder (in the "transcoder" directory) has no 3rd party code dependencies.
