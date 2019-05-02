@@ -180,43 +180,6 @@ namespace basist
 		cETC1ColorDeltaMin = -4,
 		cETC1ColorDeltaMax = 3,
 
-		cETC2PlanarROBitOffset = 57,
-		cETC2PlanarGO1BitOffset = 56,
-		cETC2PlanarGO2BitOffset = 49,
-		cETC2PlanarBO1BitOffset = 48,
-		cETC2PlanarBO2BitOffset = 43,
-		cETC2PlanarBO3BitOffset = 39,
-		cETC2PlanarRH1BitOffset = 34,
-		cETC2PlanarRH2BitOffset = 32,
-		cETC2PlanarGHBitOffset = 25,
-		cETC2PlanarBHBitOffset = 19,
-		cETC2PlanarRVBitOffset = 13,
-		cETC2PlanarGVBitOffset = 6,
-		cETC2PlanarBVBitOffset = 0,
-
-		cETC2TR1ABitOffset = 59,
-		cETC2TR1BBitOffset = 56,
-		cETC2TG1BitOffset = 52,
-		cETC2TB1Bitoffset = 48,
-		cETC2TR2BitOffset = 44,
-		cETC2TG2BitOffset = 40,
-		cETC2TB2BitOffset = 36,
-		cETC2TDABitOffset = 34,
-		cETC2TDBBitOffset = 32,
-
-		cETC2HR1BitOffset = 59,
-		cETC2HG1ABitOffset = 56,
-		cETC2HG1BBitOffset = 52,
-		cETC2HB1ABitOffset = 51,
-		cETC2HB1BBitOffset = 47,
-		cETC2HR2BitOffset = 43,
-		cETC2HG2BitOffset = 39,
-		cETC2HB2BitOffset = 35,
-		cETC2HDABitOffset = 34,
-		cETC2HDBBitOffset = 32,
-
-		cETC2THDistanceTableSize = 8,
-
 		// Delta3:
 		// 0   1   2   3   4   5   6   7
 		// 000 001 010 011 100 101 110 111
@@ -231,7 +194,6 @@ namespace basist
 	};
 
 	DECLARE_ETC1_INTEN_TABLE(g_etc1_inten_tables, 1);
-	DECLARE_ETC1_INTEN_TABLE(g_etc1_inten_tables3, 1);
 	DECLARE_ETC1_INTEN_TABLE(g_etc1_inten_tables48, 3 * 16);
 
 	static const uint8_t g_etc_5_to_8[32] = { 0, 8, 16, 24, 33, 41, 49, 57, 66, 74, 82, 90, 99, 107, 115, 123, 132, 140, 148, 156, 165, 173, 181, 189, 198, 206, 214, 222, 231, 239, 247, 255 };
@@ -621,32 +583,7 @@ namespace basist
 			pBlock_colors[2].set(clamp255(b.r + pInten_table[2]), clamp255(b.g + pInten_table[2]), clamp255(b.b + pInten_table[2]), 255);
 			pBlock_colors[3].set(clamp255(b.r + pInten_table[3]), clamp255(b.g + pInten_table[3]), clamp255(b.b + pInten_table[3]), 255);
 		}
-
-		static void get_block_colors5_y(int* pBlock_colors_y, const color32 & base_color5, uint32_t inten_table)
-		{
-			color32 b(base_color5);
-
-			b.r = (b.r << 3) | (b.r >> 2);
-			b.g = (b.g << 3) | (b.g >> 2);
-			b.b = (b.b << 3) | (b.b >> 2);
-
-			// Hmm - This leads to a tiny amount of extra artifacts, but seems worth it for faster PVRTC transcoding.
-#if 0
-			const int* pInten_table = g_etc1_inten_tables[inten_table];
-			pBlock_colors_y[0] = clamp255(b.r + pInten_table[0]) + clamp255(b.g + pInten_table[0]) + clamp255(b.b + pInten_table[0]);
-			pBlock_colors_y[1] = clamp255(b.r + pInten_table[1]) + clamp255(b.g + pInten_table[1]) + clamp255(b.b + pInten_table[1]);
-			pBlock_colors_y[2] = clamp255(b.r + pInten_table[2]) + clamp255(b.g + pInten_table[2]) + clamp255(b.b + pInten_table[2]);
-			pBlock_colors_y[3] = clamp255(b.r + pInten_table[3]) + clamp255(b.g + pInten_table[3]) + clamp255(b.b + pInten_table[3]);
-#else
-			const int* pInten_table3 = g_etc1_inten_tables3[inten_table];
-			int x = b.r + b.g + b.b;
-			pBlock_colors_y[0] = x + pInten_table3[0];
-			pBlock_colors_y[1] = x + pInten_table3[1];
-			pBlock_colors_y[2] = x + pInten_table3[2];
-			pBlock_colors_y[3] = x + pInten_table3[3];
-#endif
-		}
-
+				
 		static void get_block_colors5_bounds(color32 * pBlock_colors, const color32 & base_color5, uint32_t inten_table, uint32_t l = 0, uint32_t h = 3)
 		{
 			color32 b(base_color5);
@@ -3088,7 +3025,7 @@ namespace basist
 #define DO_ITER2(idx) \
 		{  \
 			uint32_t v0 = ((pTable_r[(idx)+0] + pTable_g[(idx)+0] + pTable_b[(idx)+0]) << 14) | ((idx) + 0); if (v0 < best_err0) best_err0 = v0; \
-		   uint32_t v1 = ((pTable_r[(idx)+1] + pTable_g[(idx)+1] + pTable_b[(idx)+1]) << 14) | ((idx) + 1); if (v1 < best_err1) best_err1 = v1; \
+			uint32_t v1 = ((pTable_r[(idx)+1] + pTable_g[(idx)+1] + pTable_b[(idx)+1]) << 14) | ((idx) + 1); if (v1 < best_err1) best_err1 = v1; \
 		}
 #define DO_ITER4(idx) DO_ITER2(idx); DO_ITER2((idx) + 2);
 #define DO_ITER8(idx) DO_ITER4(idx); DO_ITER4((idx) + 4);
