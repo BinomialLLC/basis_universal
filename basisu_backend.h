@@ -122,7 +122,7 @@ namespace basisu
 		uint32_t m_num_macroblocks_x;
 		uint32_t m_num_macroblocks_y;
 
-		uint32_t m_source_file_index;
+		uint32_t m_source_file_index;		// also the basis image index
 		uint32_t m_mip_index;
 		bool m_alpha;
 	};

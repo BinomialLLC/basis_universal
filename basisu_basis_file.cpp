@@ -16,11 +16,11 @@
 #include "transcoder/basisu_transcoder.h"
 
 // The output file version. Keep in sync with BASISD_SUPPORTED_BASIS_VERSION.
-#define BASIS_FILE_VERSION (0x11)
+#define BASIS_FILE_VERSION (0x12)
 
 namespace basisu
 {
-	void basisu_file::create_header(const basisu_backend_output &encoder_output, uint32_t userdata0, uint32_t userdata1, bool y_flipped)
+	void basisu_file::create_header(const basisu_backend_output &encoder_output, basist::basis_texture_type tex_type, uint32_t userdata0, uint32_t userdata1, bool y_flipped, uint32_t us_per_frame)
 	{
 		m_header.m_header_size = sizeof(basist::basis_file_header);
 
@@ -34,13 +34,13 @@ namespace basisu
 				
 		m_header.m_format = basist::cETC1;
 		m_header.m_flags = 0;
-
+		
 		if (encoder_output.m_etc1s)
 			m_header.m_flags = m_header.m_flags | basist::cBASISHeaderFlagETC1S;
 
 		if (y_flipped)
 			m_header.m_flags = m_header.m_flags | basist::cBASISHeaderFlagYFlipped;
-		
+				
 		for (uint32_t i = 0; i < encoder_output.m_slice_desc.size(); i++)
 		{
 			if (encoder_output.m_slice_desc[i].m_alpha)
@@ -49,6 +49,9 @@ namespace basisu
 				break;
 			}
 		}
+
+		m_header.m_tex_type = static_cast<uint8_t>(tex_type);
+		m_header.m_us_per_frame = clamp<uint32_t>(us_per_frame, 0, basist::cBASISMaxUSPerFrame);
 
 		m_header.m_userdata0 = userdata0;
 		m_header.m_userdata1 = userdata1;
@@ -151,7 +154,7 @@ namespace basisu
 		pHeader->m_ver = BASIS_FILE_VERSION;// basist::basis_file_header::cBASISFirstVersion;
 	}
 
-	bool basisu_file::init(const basisu_backend_output &encoder_output, uint32_t userdata0, uint32_t userdata1, bool y_flipped)
+	bool basisu_file::init(const basisu_backend_output &encoder_output, basist::basis_texture_type tex_type, uint32_t userdata0, uint32_t userdata1, bool y_flipped, uint32_t us_per_frame)
 	{
 		clear();
 
@@ -184,7 +187,7 @@ namespace basisu
 
 		m_total_file_size = (uint32_t)total_file_size;
 
-		create_header(encoder_output, userdata0, userdata1, y_flipped);
+		create_header(encoder_output, tex_type, userdata0, userdata1, y_flipped, us_per_frame);
 
 		if (!create_image_descs(encoder_output))
 			return false;

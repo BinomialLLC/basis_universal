@@ -521,17 +521,82 @@ namespace basisu
 		void clear() { clear_obj(*this);	}
 	};
 
-	bool create_ktx_texture_file(uint8_vec &ktx_data, const gpu_image_vec& g)
+	// Input is a texture array of mipmapped gpu_image's: gpu_images[array_index][level_index]
+	bool create_ktx_texture_file(uint8_vec &ktx_data, const std::vector<gpu_image_vec>& gpu_images, bool cubemap_flag)
 	{
-		if (!g.size())
+		if (!gpu_images.size())
 		{
 			assert(0);
 			return false;
 		}
 
+		uint32_t width = 0, height = 0, total_levels = 0;
+		basisu::texture_format fmt = cInvalidTextureFormat;
+
+		if (cubemap_flag)
+		{
+			if ((gpu_images.size() % 6) != 0)
+			{
+				assert(0);
+				return false;
+			}
+		}
+
+		for (uint32_t array_index = 0; array_index < gpu_images.size(); array_index++)
+		{
+			const gpu_image_vec &levels = gpu_images[array_index];
+
+			if (!levels.size())
+			{
+				// Empty mip chain
+				assert(0);
+				return false;
+			}
+
+			if (!array_index)
+			{
+				width = levels[0].get_width();
+				height = levels[0].get_height();
+				total_levels = (uint32_t)levels.size();
+				fmt = levels[0].get_format();
+			}
+			else
+			{
+				if ((width != levels[0].get_width()) ||
+				    (height != levels[0].get_height()) ||
+				    (total_levels != levels.size()))
+				{
+					// All cubemap/texture array faces must be the same dimension
+					assert(0);
+					return false;
+				}
+			}
+
+			for (uint32_t level_index = 0; level_index < levels.size(); level_index++)
+			{
+				if (level_index)
+				{
+					if ( (levels[level_index].get_width() != maximum<uint32_t>(1, levels[0].get_width() >> level_index)) ||
+							(levels[level_index].get_height() != maximum<uint32_t>(1, levels[0].get_height() >> level_index)) )
+					{
+						// Malformed mipmap chain
+						assert(0);
+						return false;
+					}
+				}
+
+				if (fmt != levels[level_index].get_format())
+				{
+					// All input textures must use the same GPU format
+					assert(0);
+					return false;
+				}
+			}
+		}
+
 		uint32_t internal_fmt = KTX_ETC1_RGB8_OES, base_internal_fmt = KTX_RGB;
 
-		switch (g[0].get_format())
+		switch (fmt)
 		{
 		case cBC1:
 		{
@@ -602,51 +667,63 @@ namespace basisu
 		header.clear();
 		memcpy(&header.m_identifier, g_ktx_file_id, sizeof(g_ktx_file_id));
 		header.m_endianness = KTX_ENDIAN;
-		header.m_pixelWidth = g[0].get_width();
-		header.m_pixelHeight = g[0].get_height();
+		
+		header.m_pixelWidth = width;
+		header.m_pixelHeight = height;
+		
 		header.m_glInternalFormat = internal_fmt;
 		header.m_glBaseInternalFormat = base_internal_fmt;
-		header.m_numberOfMipmapLevels = (uint32_t)g.size();
-		header.m_numberOfFaces = 1;
+
+		header.m_numberOfArrayElements = (uint32_t)(cubemap_flag ? (gpu_images.size() / 6) : gpu_images.size());
+		if (header.m_numberOfArrayElements == 1)
+			header.m_numberOfArrayElements = 0;
+
+		header.m_numberOfMipmapLevels = total_levels;
+		header.m_numberOfFaces = cubemap_flag ? 6 : 1;
 
 		append_vector(ktx_data, (uint8_t *)&header, sizeof(header));
-		
-		for (uint32_t level = 0; level < g.size(); level++)
+
+		for (uint32_t level_index = 0; level_index < total_levels; level_index++)
 		{
-			const gpu_image& img = g[level];
-
-			if (level)
-			{
-				if ( (img.get_format() != g[0].get_format()) ||
-					  (img.get_width() != maximum<uint32_t>(1, g[0].get_width() >> level)) ||
-					  (img.get_height() != maximum<uint32_t>(1, g[0].get_height() >> level)) )
-				{
-					// Bad input
-					assert(0);
-					return false;
-				}
-			}
-
-			packed_uint<4> img_size = (uint32_t)img.get_size_in_bytes();
-
-			assert(img_size && ((img_size & 3) == 0));
+			uint32_t img_size = gpu_images[0][level_index].get_size_in_bytes();
 			
-			append_vector(ktx_data, (uint8_t *)&img_size, sizeof(img_size));
+			img_size = img_size * header.m_numberOfFaces * maximum<uint32_t>(1, header.m_numberOfArrayElements);
+			
+			assert(img_size && ((img_size & 3) == 0));
 
-			append_vector(ktx_data, (uint8_t *)img.get_ptr(), img.get_size_in_bytes());
-		}
+			packed_uint<4> packed_img_size(img_size);
+			append_vector(ktx_data, (uint8_t *)&packed_img_size, sizeof(packed_img_size));
+
+			uint32_t bytes_written = 0;
+
+			for (uint32_t array_index = 0; array_index < maximum<uint32_t>(1, header.m_numberOfArrayElements); array_index++)
+			{
+				for (uint32_t face_index = 0; face_index < header.m_numberOfFaces; face_index++)
+				{
+					const gpu_image& img = gpu_images[cubemap_flag ? (array_index * 6 + face_index) : array_index][level_index];
+
+					append_vector(ktx_data, (uint8_t *)img.get_ptr(), img.get_size_in_bytes());
+					
+					bytes_written += img.get_size_in_bytes();
+				}
+			
+			} // array_index
+
+			assert(bytes_written == img_size);
+			
+		} // level_index
 
 		return true;
 	}
 
-	bool write_compressed_texture_file(const char* pFilename, const gpu_image_vec& g)
+	bool write_compressed_texture_file(const char* pFilename, const std::vector<gpu_image_vec>& g, bool cubemap_flag)
 	{
 		std::string extension(string_tolower(string_get_extension(pFilename)));
 
 		uint8_vec filedata;
 		if (extension == "ktx")
 		{
-			if (!create_ktx_texture_file(filedata, g))
+			if (!create_ktx_texture_file(filedata, g, cubemap_flag))
 				return false;
 		}
 		else if (extension == "pvr")
@@ -671,9 +748,9 @@ namespace basisu
 
 	bool write_compressed_texture_file(const char* pFilename, const gpu_image& g)
 	{
-		gpu_image_vec v;
-		v.push_back(g);
-		return write_compressed_texture_file(pFilename, v);
+		std::vector<gpu_image_vec> v;
+		enlarge_vector(v, 1)->push_back(g);
+		return write_compressed_texture_file(pFilename, v, false);
 	}
 
 } // basisu

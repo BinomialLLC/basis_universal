@@ -231,6 +231,11 @@ namespace basisu
 			m_max_endpoint_clusters = 0;
 			m_max_selector_clusters = 0;
 			m_quality_level = -1;
+
+			m_tex_type = basist::cBASISTexType2D;
+			m_userdata0 = 0;
+			m_userdata1 = 0;
+			m_us_per_frame = 0;
 		}
 
 		// Pointer to the global selector codebook, or nullptr to not use a global selector codebook
@@ -314,6 +319,12 @@ namespace basisu
 		uint32_t m_max_endpoint_clusters;
 		uint32_t m_max_selector_clusters;
 		int m_quality_level;
+		
+		// m_tex_type, m_userdata0, m_userdata1, m_framerate - These fields go directly into the Basis file header.
+		basist::basis_texture_type m_tex_type;
+		uint32_t m_userdata0;
+		uint32_t m_userdata1;
+		uint32_t m_us_per_frame;
 	};
 	
 	class basis_compressor
@@ -329,6 +340,7 @@ namespace basisu
 		{
 			cECSuccess = 0,
 			cECFailedReadingSourceImages,
+			cECFailedValidating,
 			cECFailedFrontEnd,
 			cECFailedFontendExtract,
 			cECFailedBackend,
@@ -349,7 +361,7 @@ namespace basisu
 	private:
 		basis_compressor_params m_params;
 		
-		std::vector<image> m_source_images;
+		std::vector<image> m_slice_images;
 
 		std::vector<image_stats> m_stats;
 
@@ -390,6 +402,7 @@ namespace basisu
 		bool create_basis_file_and_transcode();
 		bool write_output_files_and_compute_stats();
 		bool generate_mipmaps(const image &img, std::vector<image> &mips, bool has_alpha);
+		bool validate_texture_type_constraints();
 	};
 
 } // namespace basisu

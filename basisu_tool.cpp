@@ -65,6 +65,9 @@ static void print_usage()
 		" -debug_images: Enable codec debug images (much slower)\n"
 		" -compute_stats: Compute and display image quality metrics (slightly slower)\n"
 		" -slower: Enable optional stages in the compressor for slower but higher quality compression\n"
+		" -tex_type <2d, 2darray, 3d, video, cubemap>: Set Basis file header's texture type field. Cubemap arrays require multiples of 6 images, in X+, X-, Y+, Y-, Z+, Z- order, each image must be the same resolutions.\n"
+		"  (2d=arbitrary 2D images, 2darray=2D array, 3D=volume texture slices, video=video frames, cubemap=array of faces. For 2darray/3d/cubemaps/video, each source image's dimensions and # of mipmap levels must be the same.)"
+		" -framerate X: Set framerate in header to X/frames sec\n"
 		"\n"
 		"More options:\n"
 		" -max_endpoint_clusters X: Manually set the max number of color endpoint clusters from 1-8192, use instead of -q\n"
@@ -97,6 +100,10 @@ static void print_usage()
 		" -global_mod_bits X: Set virtual selector codebook modifier bits, range is [0,15], defualt is 8, higher is slower/better quality\n"
 		" -no_endpoint_refinement: Disable endpoint codebook refinement stage (slightly faster, but lower quality)\n"
 		" -hybrid_sel_cb_quality_thresh X: Set hybrid selector codebook quality threshold, default is 2.0, try 1.5-3, higher is lower quality/smaller codebooks\n"
+		"\n"
+		"Set various fields in the Basis file header:\n"
+		" -userdata0 X: Set 32-bit userdata0 field in Basis file header to X (X is a signed 32-bit int)\n"
+		" -userdata1 X: Set 32-bit userdata1 field in Basis file header to X (X is a signed 32-bit int)\n"
 		"\n"
 		"Various command line examples:\n"
 		"basisu -srgb -file x.png -mipmap -y_flip : Compress a mipmapped x.basis file from an sRGB image named x.png, Y flip each source image\n"
@@ -295,6 +302,50 @@ public:
 				m_comp_params.m_hybrid_sel_cb_quality_thresh = (float)atof(arg_v[arg_index + 1]);
 				arg_count++;
 			}
+			else if (strcasecmp(pArg, "-userdata0") == 0)
+			{
+				REMAINING_ARGS_CHECK(1);
+				m_comp_params.m_userdata0 = atoi(arg_v[arg_index + 1]);
+				arg_count++;
+			}
+			else if (strcasecmp(pArg, "-userdata1") == 0)
+			{
+				REMAINING_ARGS_CHECK(1);
+				m_comp_params.m_userdata1 = atoi(arg_v[arg_index + 1]);
+				arg_count++;
+			}
+			else if (strcasecmp(pArg, "-framerate") == 0)
+			{
+				REMAINING_ARGS_CHECK(1);
+				double fps = atof(arg_v[arg_index + 1]);
+				double us_per_frame = 0;
+				if (fps > 0)
+					us_per_frame = 1000000.0f / fps;
+
+				m_comp_params.m_us_per_frame = clamp<int>(static_cast<int>(us_per_frame + .5f), 0, basist::cBASISMaxUSPerFrame);
+				arg_count++;
+			}
+			else if (strcasecmp(pArg, "-tex_type") == 0)
+			{
+				REMAINING_ARGS_CHECK(1);
+				const char *pType = arg_v[arg_index + 1];
+				if (strcasecmp(pType, "2d") == 0)
+					m_comp_params.m_tex_type = basist::cBASISTexType2D;
+				else if (strcasecmp(pType, "2darray") == 0)
+					m_comp_params.m_tex_type = basist::cBASISTexType2DArray;
+				else if (strcasecmp(pType, "3d") == 0)
+					m_comp_params.m_tex_type = basist::cBASISTexTypeVolume;
+				else if (strcasecmp(pType, "cubemap") == 0)
+					m_comp_params.m_tex_type = basist::cBASISTexTypeCubemapArray;
+				else if (strcasecmp(pType, "video") == 0)
+					m_comp_params.m_tex_type = basist::cBASISTexTypeVideoFrames;
+				else
+				{
+					error_printf("Invalid texture type: %s\n", pType);
+					return false;
+				}
+				arg_count++;
+			}
 			else if (pArg[0] == '-')
 			{
 				error_printf("Unrecognized command line option: %s\n", pArg);
@@ -433,6 +484,9 @@ static bool compress_mode(command_line_params &opts)
 			case basis_compressor::cECFailedReadingSourceImages:
 				error_printf("Compressor failed reading a source image!\n");
 				break;
+			case basis_compressor::cECFailedValidating:
+				error_printf("Compressor failed 2darray/cubemap/video validation checks!\n");
+				break;
 			case basis_compressor::cECFailedFrontEnd:
 				error_printf("Compressor frontend stage failed!\n");
 				break;
@@ -507,11 +561,11 @@ static bool unpack_and_validate_mode(command_line_params &opts, bool validate_fl
 		// Validate the file - note this isn't necessary for transcoding
 		if (!dec.validate_file_checksums(&basis_data[0], (uint32_t)basis_data.size(), true))
 		{
-			error_printf("File failed CRC checks!\n");
+			error_printf("File version is unsupported, or file fail CRC checks!\n");
 			return false;
 		}
 
-		printf("File CRC checks succeeded\n");
+		printf("File version and CRC checks succeeded\n");
 				
 		basist::basisu_file_info fileinfo;
 		if (!dec.get_file_info(&basis_data[0], (uint32_t)basis_data.size(), fileinfo))
@@ -532,14 +586,17 @@ static bool unpack_and_validate_mode(command_line_params &opts, bool validate_fl
 		printf("  Endpoint codebook size: %u\n", fileinfo.m_endpoint_codebook_size);
 		printf("  Tables size: %u\n", fileinfo.m_tables_size);
 		printf("  Slices size: %u\n", fileinfo.m_slices_size);
+		printf("  Texture type: %s\n", basist::basis_get_texture_type_name(fileinfo.m_tex_type));
+		printf("  us per frame: %u (%f fps)\n", fileinfo.m_us_per_frame, fileinfo.m_us_per_frame ? (1.0f / ((float)fileinfo.m_us_per_frame / 1000000.0f)) : 0.0f);
 		printf("  Total slices: %u\n", (uint32_t)fileinfo.m_slice_info.size());
 		printf("  Total images: %i\n", fileinfo.m_total_images);
-		printf("  Image mipmap levels: ");
+		printf("  Y Flipped: %u, Has alpha slices: %u\n", fileinfo.m_y_flipped, fileinfo.m_has_alpha_slices);
+		printf("  userdata0: 0x%X userdata1: 0x%X\n", fileinfo.m_userdata0, fileinfo.m_userdata1);						
+		printf("  Per-image mipmap levels: ");
 		for (uint32_t i = 0; i < fileinfo.m_total_images; i++)
 			printf("%u ", fileinfo.m_image_mipmap_levels[i]);
 		printf("\n");
-		printf("  Y Flipped: %u, Has alpha slices: %u\n", fileinfo.m_y_flipped, fileinfo.m_has_alpha_slices);
-				
+
 		if (!dec.start_transcoding(&basis_data[0], (uint32_t)basis_data.size()))
 		{
 			error_printf("start_transcoding() failed!\n");
@@ -615,6 +672,25 @@ static bool unpack_and_validate_mode(command_line_params &opts, bool validate_fl
 			{
 				const basist::transcoder_texture_format transcoder_tex_fmt = static_cast<basist::transcoder_texture_format>(format_iter);
 
+				if (fileinfo.m_tex_type == basist::cBASISTexTypeCubemapArray)
+				{
+					// No KTX tool that we know of supports cubemap arrays, so write individual cubemap files.
+					for (uint32_t image_index = 0; image_index < fileinfo.m_total_images; image_index += 6)
+					{
+						std::vector<gpu_image_vec> cubemap;
+						for (uint32_t i = 0; i < 6; i++)
+							cubemap.push_back(gpu_images[format_iter][image_index + i]);
+
+						std::string ktx_filename(base_filename + string_format("_transcoded_cubemap_%s_%u.ktx", basist::basis_get_format_name(transcoder_tex_fmt), image_index / 6));
+						if (!write_compressed_texture_file(ktx_filename.c_str(), cubemap, true))
+						{
+							error_printf("Failed writing KTX file \"%s\"!\n", ktx_filename.c_str());
+							return false;
+						}
+						printf("Wrote KTX file \"%s\"\n", ktx_filename.c_str());
+					}
+				}
+
 				for (uint32_t image_index = 0; image_index < fileinfo.m_total_images; image_index++)
 				{
 					gpu_image_vec &gi = gpu_images[format_iter][image_index];
@@ -630,13 +706,16 @@ static bool unpack_and_validate_mode(command_line_params &opts, bool validate_fl
 					if (level < gi.size())
 						continue;
 
-					std::string ktx_filename(base_filename + string_format("_transcoded_%s_%u.ktx", basist::basis_get_format_name(transcoder_tex_fmt), image_index));
-					if (!write_compressed_texture_file(ktx_filename, gi))
+					if (fileinfo.m_tex_type != basist::cBASISTexTypeCubemapArray)
 					{
-						error_printf("Failed writing KTX file \"%s\"!\n", ktx_filename.c_str());
-						return false;
+						std::string ktx_filename(base_filename + string_format("_transcoded_%s_%u.ktx", basist::basis_get_format_name(transcoder_tex_fmt), image_index));
+						if (!write_compressed_texture_file(ktx_filename.c_str(), gi))
+						{
+							error_printf("Failed writing KTX file \"%s\"!\n", ktx_filename.c_str());
+							return false;
+						}
+						printf("Wrote KTX file \"%s\"\n", ktx_filename.c_str());
 					}
-					printf("Wrote KTX file \"%s\"\n", ktx_filename.c_str());
 
 					for (uint32_t level_index = 0; level_index < gi.size(); level_index++)
 					{

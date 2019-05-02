@@ -20,6 +20,7 @@
 
 #include "basisu_transcoder_internal.h"
 #include "basisu_global_selector_palette.h"
+#include "basisu_file_headers.h"
 
 namespace basist
 {
@@ -55,6 +56,7 @@ namespace basist
 	const char *basis_get_format_name(transcoder_texture_format fmt);
 	bool basis_transcoder_format_has_alpha(transcoder_texture_format fmt);
 	basisu::texture_format basis_get_basisu_texture_format(transcoder_texture_format fmt);
+	const char *basis_get_texture_type_name(basis_texture_type tex_type);
 	
 	class basisu_transcoder;
 	
@@ -173,11 +175,17 @@ namespace basist
 		uint32_t m_tables_size;
 		uint32_t m_slices_size;	
 
+		basis_texture_type m_tex_type;
+		uint32_t m_us_per_frame;
+
 		// Low-level slice information (1 slice per image for color-only basis files, 2 for alpha basis files)
 		basisu_slice_info_vec m_slice_info;
 
 		uint32_t m_total_images;	 // total # of images
 		std::vector<uint32_t> m_image_mipmap_levels; // the # of mipmap levels for each image
+
+		uint32_t m_userdata0;
+		uint32_t m_userdata1;
 		
 		bool m_etc1s;					// always true for basis universal
 		bool m_y_flipped;				// true if the image was Y flipped
@@ -197,6 +205,9 @@ namespace basist
 
 		// Quick header validation - no crc16 checks.
 		bool validate_header(const void *pData, uint32_t data_size) const;
+
+		basis_texture_type get_texture_type(const void *pData, uint32_t data_size) const;
+		bool get_userdata(const void *pData, uint32_t data_size, uint32_t &userdata0, uint32_t &userdata1) const;
 		
 		// Returns the total number of images in the basis file (always 1 or more).
 		// Note that the number of mipmap levels for each image may differ, and that images may have different resolutions.

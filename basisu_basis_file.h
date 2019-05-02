@@ -43,7 +43,7 @@ namespace basisu
 			m_total_file_size = 0;
 		}
 
-		bool init(const basisu_backend_output& encoder_output, uint32_t userdata0 = 0, uint32_t userdata1 = 0, bool y_flipped = false);
+		bool init(const basisu_backend_output& encoder_output, basist::basis_texture_type tex_type, uint32_t userdata0, uint32_t userdata1, bool y_flipped, uint32_t us_per_frame);
 
 		const uint8_vec &get_compressed_data() const { return m_comp_data; }
 
@@ -61,7 +61,7 @@ namespace basisu
 		uint32_t m_first_image_file_ofs;
 		uint32_t m_total_file_size;
 
-		void create_header(const basisu_backend_output& encoder_output, uint32_t userdata0, uint32_t userdata1, bool y_flipped);
+		void create_header(const basisu_backend_output& encoder_output,  basist::basis_texture_type tex_type, uint32_t userdata0, uint32_t userdata1, bool y_flipped, uint32_t us_per_frame);
 		bool create_image_descs(const basisu_backend_output& encoder_output);
 		void create_comp_data(const basisu_backend_output& encoder_output);
 		void fixup_crcs();

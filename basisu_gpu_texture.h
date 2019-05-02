@@ -110,13 +110,18 @@ namespace basisu
 
 	// KTX file writing
 
-	bool create_ktx_texture_file(uint8_vec &ktx_data, const gpu_image_vec& g);
-
-	bool write_compressed_texture_file(const char *pFilename, const gpu_image& g);
-	bool write_compressed_texture_file(const char *pFilename, const gpu_image_vec& g);
+	bool create_ktx_texture_file(uint8_vec &ktx_data, const std::vector<gpu_image_vec>& gpu_images, bool cubemap_flag);
+		
+	bool write_compressed_texture_file(const char *pFilename, const std::vector<gpu_image_vec>& g, bool cubemap_flag);
 	
-	inline bool write_compressed_texture_file(const std::string &filename, const gpu_image &g) { return write_compressed_texture_file(filename.c_str(), g); }
-	inline bool write_compressed_texture_file(const std::string &filename, const gpu_image_vec &g) { return write_compressed_texture_file(filename.c_str(), g); }
+	inline bool write_compressed_texture_file(const char *pFilename, const gpu_image_vec &g)
+	{
+		std::vector<gpu_image_vec> a;
+		a.push_back(g);
+		return write_compressed_texture_file(pFilename, a, false);
+	}
+
+	bool write_compressed_texture_file(const char *pFilename, const gpu_image &g);
 	
 	// GPU texture block unpacking
 

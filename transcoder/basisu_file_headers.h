@@ -42,12 +42,27 @@ namespace basist
 		basisu::packed_uint<2> m_slice_data_crc16;
 	};
 
-	enum
+	enum basis_header_flags
 	{
 		cBASISHeaderFlagETC1S = 1,
 		cBASISHeaderFlagYFlipped = 2,
-		cBASISHeaderFlagHasAlphaSlices = 4,
-		cBASISHeaderFlagHasExtendedData = 8
+		cBASISHeaderFlagHasAlphaSlices = 4
+	};
+
+	// The image type field attempts to describe how to interpret the image data in a Basis file.
+	// The encoder library doesn't really do anything special or different with these texture types, this is mostly here for the benefit of the user.
+	enum basis_texture_type
+	{
+		cBASISTexType2D = 0,					// An arbitrary array of 2D RGB or RGBA images with optional mipmaps, array size = # images, each image may have a different resolution and # of mipmap levels
+		cBASISTexType2DArray = 1,			// An array of 2D RGB or RGBA images with optional mipmaps, array size = # images, each image has the same resolution and mipmap levels
+		cBASISTexTypeCubemapArray = 2,	// an array of cubemap levels, total # of images must be divisable by 6, in X+, X-, Y+, Y-, Z+, Z- order, with optional mipmaps
+		cBASISTexTypeVideoFrames = 3,		// An array of 2D video frames, with optional mipmaps, # frames = # images, each image has the same resolution and # of mipmap levels
+		cBASISTexTypeVolume = 4				// A 3D texture with optional mipmaps, Z dimension = # images, each image has the same resolution and # of mipmap levels
+	};
+
+	enum
+	{
+		cBASISMaxUSPerFrame = 0xFFFFFF
 	};
 
 	struct basis_file_header
@@ -71,7 +86,9 @@ namespace basist
 		basisu::packed_uint<3>      m_total_images;
 				
 		basisu::packed_uint<1>      m_format;			// enum basist::block_format
-		basisu::packed_uint<2>      m_flags;
+		basisu::packed_uint<2>      m_flags;			// enum basist::header_flags
+		basisu::packed_uint<1>      m_tex_type;		// enum basist::basis_texture_type
+		basisu::packed_uint<3>      m_us_per_frame;	// framerate of video, in microseconds per frame
 
 		basisu::packed_uint<4>      m_reserved;
 		basisu::packed_uint<4>      m_userdata0;

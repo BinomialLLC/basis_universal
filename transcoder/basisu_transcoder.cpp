@@ -14,12 +14,11 @@
 // limitations under the License.
 
 #include "basisu_transcoder.h"
-#include "basisu_file_headers.h"
 #include <limits.h>
 #include <vector>
 
 // The supported .basis file header version. Keep in sync with BASIS_FILE_VERSION.
-#define BASISD_SUPPORTED_BASIS_VERSION (0x11)
+#define BASISD_SUPPORTED_BASIS_VERSION (0x12)
 
 #define BASISD_SUPPORT_DXT1			1
 #define BASISD_SUPPORT_DXT5A			1
@@ -3895,6 +3894,34 @@ namespace basist
 		return true;
 	}
 
+	basis_texture_type basisu_transcoder::get_texture_type(const void *pData, uint32_t data_size) const
+	{
+		if (!validate_header_quick(pData, data_size))
+		{
+			BASISU_DEVEL_ERROR("basisu_transcoder::get_texture_type: header validation failed\n");		
+			return cBASISTexType2DArray;
+		}
+
+		const basis_file_header *pHeader = static_cast<const basis_file_header *>(pData);
+
+		return static_cast<basis_texture_type>(static_cast<uint8_t>(pHeader->m_tex_type));
+	}
+
+	bool basisu_transcoder::get_userdata(const void *pData, uint32_t data_size, uint32_t &userdata0, uint32_t &userdata1) const
+	{
+		if (!validate_header_quick(pData, data_size))
+		{
+			BASISU_DEVEL_ERROR("basisu_transcoder::get_userdata: header validation failed\n");		
+			return false;
+		}
+
+		const basis_file_header *pHeader = static_cast<const basis_file_header *>(pData);
+
+		userdata0 = pHeader->m_userdata0;
+		userdata1 = pHeader->m_userdata1;
+		return true;
+	}
+	
 	uint32_t basisu_transcoder::get_total_images(const void *pData, uint32_t data_size) const
 	{
 		if (!validate_header_quick(pData, data_size))
@@ -4100,6 +4127,11 @@ namespace basist
 		file_info.m_slice_info.resize(total_slices);
 
 		file_info.m_slices_size = 0;
+
+		file_info.m_tex_type = static_cast<basis_texture_type>(static_cast<uint8_t>(pHeader->m_tex_type));
+		file_info.m_us_per_frame = pHeader->m_us_per_frame;
+		file_info.m_userdata0 = pHeader->m_userdata0;
+		file_info.m_userdata1 = pHeader->m_userdata1;
 				
 		file_info.m_image_mipmap_levels.resize(0);
 		file_info.m_image_mipmap_levels.resize(pHeader->m_total_images);
@@ -4669,6 +4701,23 @@ namespace basist
 			assert(0);
 			BASISU_DEVEL_ERROR("basis_get_basisu_texture_format: Invalid fmt\n");
 			break;
+		}
+		return "";
+	}
+
+	const char *basis_get_texture_type_name(basis_texture_type tex_type)
+	{
+		switch (tex_type)
+		{
+			case cBASISTexType2D: return "2D";
+			case cBASISTexType2DArray: return "2D array";
+			case cBASISTexTypeCubemapArray: return "cubemap array";
+			case cBASISTexTypeVideoFrames: return "video";
+			case cBASISTexTypeVolume: return "3D";
+			default: 
+				assert(0);
+				BASISU_DEVEL_ERROR("basis_get_texture_type_name: Invalid tex_type\n");
+				break;
 		}
 		return "";
 	}
