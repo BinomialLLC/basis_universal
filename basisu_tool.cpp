@@ -66,7 +66,7 @@ static void print_usage()
 		" -compute_stats: Compute and display image quality metrics (slightly slower)\n"
 		" -slower: Enable optional stages in the compressor for slower but higher quality compression\n"
 		" -tex_type <2d, 2darray, 3d, video, cubemap>: Set Basis file header's texture type field. Cubemap arrays require multiples of 6 images, in X+, X-, Y+, Y-, Z+, Z- order, each image must be the same resolutions.\n"
-		"  (2d=arbitrary 2D images, 2darray=2D array, 3D=volume texture slices, video=video frames, cubemap=array of faces. For 2darray/3d/cubemaps/video, each source image's dimensions and # of mipmap levels must be the same.)"
+		"  (2d=arbitrary 2D images, 2darray=2D array, 3D=volume texture slices, video=video frames, cubemap=array of faces. For 2darray/3d/cubemaps/video, each source image's dimensions and # of mipmap levels must be the same.)\n"
 		" -framerate X: Set framerate in header to X/frames sec\n"
 		"\n"
 		"More options:\n"
