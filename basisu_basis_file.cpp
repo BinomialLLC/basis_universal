@@ -16,7 +16,7 @@
 #include "transcoder/basisu_transcoder.h"
 
 // The output file version. Keep in sync with BASISD_SUPPORTED_BASIS_VERSION.
-#define BASIS_FILE_VERSION (0x12)
+#define BASIS_FILE_VERSION (0x13)
 
 namespace basisu
 {

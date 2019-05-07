@@ -18,7 +18,7 @@
 #include <vector>
 
 // The supported .basis file header version. Keep in sync with BASIS_FILE_VERSION.
-#define BASISD_SUPPORTED_BASIS_VERSION (0x12)
+#define BASISD_SUPPORTED_BASIS_VERSION (0x13)
 
 #define BASISD_SUPPORT_DXT1			1
 #define BASISD_SUPPORT_DXT5A			1
@@ -73,6 +73,26 @@ namespace basist
 		return static_cast<uint16_t>(~crc);
 	}
 
+	uint8_t g_hamming_dist[256] =
+	{
+		0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4,
+		1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5,
+		1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5,
+		2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6,
+		1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5,
+		2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6,
+		2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6,
+		3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7,
+		1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5,
+		2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6,
+		2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6,
+		3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7,
+		2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6,
+		3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7,
+		3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7,
+		4, 5, 5, 6, 5, 6, 6, 7, 5, 6, 6, 7, 6, 7, 7, 8
+	};
+
 	const uint32_t g_global_selector_cb[] =
 #include "basisu_global_selector_cb.h"
 		;
@@ -97,34 +117,6 @@ namespace basist
 		}
 		fprintf(pFile, "\n}\n");
 	}
-
-	// Each template's total number of delta endpoint indices.
-	const uint8_t g_endpoint_index_template_indices[TOTAL_ENDPOINT_INDEX_TEMPLATES] =
-	{
-		1, 2, 2, 2, 3, 2, 2, 3, 2, 2, 3, 3, 3, 3, 4
-	};
-
-	// Each template indices which macroblock delta endpoint index is used by that ETC1 subblock. (There are two subblocks per ETC1/ETC1S block.)
-	// basisu only supports ETC1S, so each subblock must use the same index.
-	const endpoint_index_template g_endpoint_index_templates[TOTAL_ENDPOINT_INDEX_TEMPLATES] =
-	{
-		{ { 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 } },
-		{ { 0 , 0 , 0 , 0 , 0 , 0 , 1 , 1 } },
-		{ { 0 , 0 , 0 , 0 , 1 , 1 , 0 , 0 } },
-		{ { 0 , 0 , 0 , 0 , 1 , 1 , 1 , 1 } },
-		{ { 0 , 0 , 0 , 0 , 1 , 1 , 2 , 2 } },
-		{ { 0 , 0 , 1 , 1 , 0 , 0 , 0 , 0 } },
-		{ { 0 , 0 , 1 , 1 , 0 , 0 , 1 , 1 } },
-		{ { 0 , 0 , 1 , 1 , 0 , 0 , 2 , 2 } },
-
-		{ { 0 , 0 , 1 , 1 , 1 , 1 , 0 , 0 } },
-		{ { 0 , 0 , 1 , 1 , 1 , 1 , 1 , 1 } },
-		{ { 0 , 0 , 1 , 1 , 1 , 1 , 2 , 2 } },
-		{ { 0 , 0 , 1 , 1 , 2 , 2 , 0 , 0 } },
-		{ { 0 , 0 , 1 , 1 , 2 , 2 , 1 , 1 } },
-		{ { 0 , 0 , 1 , 1 , 2 , 2 , 2 , 2 } },
-		{ { 0 , 0 , 1 , 1 , 2 , 2 , 3 , 3 } }
-	};
 
 	enum etc_constants
 	{
@@ -3189,8 +3181,7 @@ namespace basist
 
 	basisu_lowlevel_transcoder::basisu_lowlevel_transcoder(const etc1_global_selector_codebook * pGlobal_sel_codebook) :
 		m_pGlobal_sel_codebook(pGlobal_sel_codebook),
-		m_selector_history_buf_size(0),
-		m_selector_history_buf_rice_bits(0)
+		m_selector_history_buf_size(0)
 	{
 	}
 
@@ -3200,61 +3191,75 @@ namespace basist
 	{
 		bitwise_decoder sym_codec;
 
-		huffman_decoding_table color5_delta_model, inten5_delta_model;
+		huffman_decoding_table color5_delta_model0, color5_delta_model1, color5_delta_model2, inten_delta_model;
 
 		if (!sym_codec.init(pEndpoints_data, endpoints_data_size))
 		{
 			BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::decode_palettes: fail 0\n");		
 			return false;
 		}
-
-		if (!sym_codec.read_huffman_table(color5_delta_model))
+				
+		if (!sym_codec.read_huffman_table(color5_delta_model0))
 		{
 			BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::decode_palettes: fail 1\n");		
 			return false;
 		}
 
-		if (!sym_codec.read_huffman_table(inten5_delta_model))
+		if (!sym_codec.read_huffman_table(color5_delta_model1))
 		{
-			BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::decode_palettes: fail 2\n");		
+			BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::decode_palettes: fail 1a\n");		
 			return false;
 		}
 
-		m_endpoints.resize(num_endpoints);
-
-		color32 prev_color5(0, 0, 0, 0);
-		int prev_inten5 = 0;
-
-		for (uint32_t i = 0; i < num_endpoints; i++)
+		if (!sym_codec.read_huffman_table(color5_delta_model2))
 		{
-			int delta_r5 = sym_codec.decode_huffman(color5_delta_model) - 31;
-			int delta_g5 = sym_codec.decode_huffman(color5_delta_model) - 31;
-			int delta_b5 = sym_codec.decode_huffman(color5_delta_model) - 31;
-			int delta_inten5 = sym_codec.decode_huffman(inten5_delta_model) - 7;
-
-			int r5 = prev_color5.r + delta_r5;
-			int g5 = prev_color5.g + delta_g5;
-			int b5 = prev_color5.b + delta_b5;
-			if (static_cast<uint32_t>(r5 | g5 | b5) > 31)
-			{
-				BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::decode_palettes: fail 3\n");		
-				return false;
-			}
-
-			m_endpoints[i].m_color5.set(r5, g5, b5, 0);
-
-			int inten5 = prev_inten5 + delta_inten5;
-			if ((inten5 < 0) || (inten5 > 7))
-			{
-				BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::decode_palettes: fail 4\n");		
-				return false;
-			}
-			m_endpoints[i].m_inten5 = static_cast<uint8_t>(inten5);
-
-			prev_color5 = m_endpoints[i].m_color5;
-			prev_inten5 = m_endpoints[i].m_inten5;
+			BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::decode_palettes: fail 2a\n");		
+			return false;
 		}
 
+		if (!sym_codec.read_huffman_table(inten_delta_model))
+		{
+			BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::decode_palettes: fail 2b\n");		
+			return false;
+		}
+
+		const bool endpoints_are_grayscale = sym_codec.get_bits(1) != 0;
+		
+		m_endpoints.resize(num_endpoints);
+
+		color32 prev_color5(16, 16, 16, 0);
+		uint32_t prev_inten = 0;
+		
+		for (uint32_t i = 0; i < num_endpoints; i++)
+		{
+			uint32_t inten_delta = sym_codec.decode_huffman(inten_delta_model);
+			m_endpoints[i].m_inten5 = static_cast<uint8_t>((inten_delta + prev_inten) & 7);
+			prev_inten = m_endpoints[i].m_inten5;
+			
+			for (uint32_t c = 0; c < (endpoints_are_grayscale ? 1U : 3U); c++)
+			{
+				int delta;
+				if (prev_color5[c] <= basist::COLOR5_PAL0_PREV_HI)
+					delta = sym_codec.decode_huffman(color5_delta_model0);
+				else if (prev_color5[c] <= basist::COLOR5_PAL1_PREV_HI)
+					delta = sym_codec.decode_huffman(color5_delta_model1);
+				else
+					delta = sym_codec.decode_huffman(color5_delta_model2);
+
+				int v = (prev_color5[c] + delta) & 31;
+				
+				m_endpoints[i].m_color5[c] = static_cast<uint8_t>(v);
+
+				prev_color5[c] = static_cast<uint8_t>(v);
+			}
+
+			if (endpoints_are_grayscale)
+			{
+				m_endpoints[i].m_color5[1] = m_endpoints[i].m_color5[0];
+				m_endpoints[i].m_color5[2] = m_endpoints[i].m_color5[0];
+			}
+		}
+				
 		sym_codec.stop();
 
 		m_selectors.resize(num_selectors);
@@ -3284,8 +3289,7 @@ namespace basist
 					return false;
 				}
 			}
-
-			//uint32_t total_mod_bits = 0;
+						
 			for (uint32_t i = 0; i < num_selectors; i++)
 			{
 				uint32_t pal_index = 0;
@@ -3302,7 +3306,7 @@ namespace basist
 				for (uint32_t y = 0; y < 4; y++)
 					for (uint32_t x = 0; x < 4; x++)
 						m_selectors[i].set_selector(x, y, e[x + y * 4]);
-
+								
 				m_selectors[i].init_flags();
 			}
 		}
@@ -3334,7 +3338,7 @@ namespace basist
 
 				uint32_t cur_uses_global_cb_bitflags = 0;
 				uint32_t uses_global_cb_bitflags_remaining = 0;
-
+								
 				for (uint32_t q = 0; q < num_selectors; q++)
 				{
 					if (!uses_global_cb_bitflags_remaining)
@@ -3398,7 +3402,7 @@ namespace basist
 						return false;
 
 					uint8_t prev_bytes[4] = { 0, 0, 0, 0 };
-
+					
 					for (uint32_t i = 0; i < num_selectors; i++)
 					{
 						if (!i)
@@ -3407,7 +3411,7 @@ namespace basist
 							{
 								uint32_t cur_byte = sym_codec.get_bits(8);
 								prev_bytes[j] = static_cast<uint8_t>(cur_byte);
-
+								
 								for (uint32_t k = 0; k < 4; k++)
 									m_selectors[i].set_selector(k, j, (cur_byte >> (k * 2)) & 3);
 							}
@@ -3445,7 +3449,7 @@ namespace basist
 			return false;
 		}
 
-		if (!sym_codec.read_huffman_table(m_template_model))
+		if (!sym_codec.read_huffman_table(m_endpoint_pred_model))
 		{
 			BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::decode_tables: fail 1\n");		
 			return false;
@@ -3453,11 +3457,11 @@ namespace basist
 
 		if (!sym_codec.read_huffman_table(m_delta_endpoint_model))
 		{
-			BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::decode_tables: fail 2\n");		
+			BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::decode_tables: fail 1\n");		
 			return false;
 		}
 
-		if (!sym_codec.read_huffman_table(m_delta_selector_model))
+		if (!sym_codec.read_huffman_table(m_selector_model))
 		{
 			BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::decode_tables: fail 3\n");		
 			return false;
@@ -3470,21 +3474,16 @@ namespace basist
 		}
 
 		m_selector_history_buf_size = sym_codec.get_bits(13);
-
-		m_selector_history_buf_rice_bits = sym_codec.get_bits(4);
-
+				
 		sym_codec.stop();
 
 		return true;
 	}
-
+			
 	bool basisu_lowlevel_transcoder::transcode_slice(void *pDst_blocks, uint32_t num_blocks_x, uint32_t num_blocks_y, const uint8_t *pImage_data, uint32_t image_data_size, block_format fmt, 
 		uint32_t output_stride, bool pvrtc_wrap_addressing, bool bc1_allow_threecolor_blocks)
 	{
-		const uint32_t num_macroblocks_x = (num_blocks_x + 1) >> 1;
-		const uint32_t num_macroblocks_y = (num_blocks_y + 1) >> 1;
-
-		const uint32_t total_macroblock_blocks = num_macroblocks_x * num_macroblocks_y * 4;
+		const uint32_t total_blocks = num_blocks_x * num_blocks_y;
 
 		basist::bitwise_decoder sym_codec;
 				
@@ -3495,18 +3494,13 @@ namespace basist
 		}
 		
 		approx_move_to_front selector_history_buf(m_selector_history_buf_size);
-
-		int prev_endpoint_index = 0;
+				
 		int prev_selector_index = 0;
 
-		const uint32_t SELECTOR_HISTORY_BUF_RLE_COUNT_THRESH = 3;
-		const uint32_t SELECTOR_HISTORY_BUF_RLE_COUNT_BITS = 6;
-		const uint32_t SELECTOR_HISTORY_BUF_RLE_COUNT_TOTAL = (1 << SELECTOR_HISTORY_BUF_RLE_COUNT_BITS);
-
-		const uint32_t SELECTOR_HISTORY_BUF_FIRST_SYMBOL_INDEX = (uint32_t)m_selectors.size() * 2;
+		const uint32_t SELECTOR_HISTORY_BUF_FIRST_SYMBOL_INDEX = (uint32_t)m_selectors.size();
 		const uint32_t SELECTOR_HISTORY_BUF_RLE_SYMBOL_INDEX = m_selector_history_buf_size + SELECTOR_HISTORY_BUF_FIRST_SYMBOL_INDEX;
 		uint32_t cur_selector_rle_count = 0;
-
+								
 		decoder_etc_block block;
 		memset(&block, 0, sizeof(block));
 
@@ -3525,251 +3519,294 @@ namespace basist
 			}
 			pPVRTC_endpoints = (uint32_t *)&((decoder_etc_block*)pPVRTC_work_mem)[num_blocks_x * num_blocks_y];
 		}
-						
-		for (uint32_t macroblock_y = 0; macroblock_y < num_macroblocks_y; macroblock_y++)
+		
+		if (m_block_endpoint_preds[0].size() < num_blocks_x)
 		{
-			const int x_start = (macroblock_y & 1) ? (num_macroblocks_x - 1) : 0;
-			const int x_end = (macroblock_y & 1) ? -1 : num_macroblocks_x;
-			const int x_dir = (macroblock_y & 1) ? -1 : 1;
+			m_block_endpoint_preds[0].resize(num_blocks_x);
+			m_block_endpoint_preds[1].resize(num_blocks_x);
+		}
 
-			for (int macroblock_x = x_start; macroblock_x != x_end; macroblock_x += x_dir)
+		uint32_t cur_pred_bits = 0;
+		int prev_endpoint_pred_sym = 0;
+		int endpoint_pred_repeat_count = 0;
+		uint32_t prev_endpoint_index = 0;
+			
+		for (uint32_t block_y = 0; block_y < num_blocks_y; block_y++)
+		{
+			const uint32_t cur_block_endpoint_pred_array = block_y & 1;
+
+			for (uint32_t block_x = 0; block_x < num_blocks_x; block_x++)
 			{
-				uint32_t template_index = sym_codec.decode_huffman(m_template_model);
-
-				const endpoint_index_template& endpoint_template = g_endpoint_index_templates[template_index];
-				const uint32_t num_endpoint_delta_indices = g_endpoint_index_template_indices[template_index];
-
-				// Decode the unique endpoint indices
-				uint32_t endpoint_indices[8];
-				for (uint32_t i = 0; i < num_endpoint_delta_indices; i++)
+				// Decode endpoint index predictor symbols
+				if ((block_x & 1) == 0)
 				{
-					int delta_sym = sym_codec.decode_huffman(m_delta_endpoint_model);
-
-					int delta_index = delta_sym - static_cast<int>(m_endpoints.size());
-
-					endpoint_indices[i] = delta_index + prev_endpoint_index;
-
-					prev_endpoint_index = endpoint_indices[i];
-
-					if ((prev_endpoint_index < 0) || (prev_endpoint_index >= static_cast<int>(m_endpoints.size())))
+					if ((block_y & 1) == 0)
 					{
-						// The file is corrupted or we've got a bug.
-						//console::error("rdo_etc1_lowlevel_decoder::transcode_slice: Invalid endpoint index!");
-						if (pPVRTC_work_mem)
-							free(pPVRTC_work_mem);
-						return false;
-					}
+						if (endpoint_pred_repeat_count)
+						{
+							endpoint_pred_repeat_count--;
+							cur_pred_bits = prev_endpoint_pred_sym;
+						}
+						else
+						{
+							cur_pred_bits = sym_codec.decode_huffman(m_endpoint_pred_model);
+							if (cur_pred_bits == ENDPOINT_PRED_REPEAT_LAST_SYMBOL)
+							{
+								endpoint_pred_repeat_count = sym_codec.decode_vlc(ENDPOINT_PRED_COUNT_VLC_BITS) + ENDPOINT_PRED_MIN_REPEAT_COUNT - 1;
+								  
+								cur_pred_bits = prev_endpoint_pred_sym;
+							}
+							else
+							{
+								prev_endpoint_pred_sym = cur_pred_bits;
+							}
+						}
+
+						m_block_endpoint_preds[cur_block_endpoint_pred_array ^ 1][block_x].m_pred_bits = (uint8_t)(cur_pred_bits >> 4);
+					 }
+					 else
+					 {
+						 cur_pred_bits = m_block_endpoint_preds[cur_block_endpoint_pred_array][block_x].m_pred_bits;
+					 }
 				}
 
-				// Decode selector indices
-				uint32_t selector_indices[4];
-				for (uint32_t i = 0; i < 4; i++)
+				// Decode endpoint index
+				uint32_t endpoint_index;
+
+				const uint32_t pred = cur_pred_bits & 3;
+				cur_pred_bits >>= 2;
+
+				if (pred == 0)
 				{
-					int delta_sym;
-					if (cur_selector_rle_count > 0)
+					// Left
+					if (!block_x)
 					{
-						cur_selector_rle_count--;
-
-						delta_sym = (int)m_selectors.size() * 2;
-					}
-					else
-					{
-						delta_sym = sym_codec.decode_huffman(m_delta_selector_model);
-
-						if (delta_sym == static_cast<int>(SELECTOR_HISTORY_BUF_RLE_SYMBOL_INDEX))
-						{
-							int run_sym = sym_codec.decode_huffman(m_selector_history_buf_rle_model);
-
-							if (run_sym == (SELECTOR_HISTORY_BUF_RLE_COUNT_TOTAL - 1))
-								cur_selector_rle_count = sym_codec.decode_rice(m_selector_history_buf_rice_bits) + SELECTOR_HISTORY_BUF_RLE_COUNT_THRESH;
-							else
-								cur_selector_rle_count = run_sym + SELECTOR_HISTORY_BUF_RLE_COUNT_THRESH;
-
-							if (cur_selector_rle_count > total_macroblock_blocks)
-							{
-								// The file is corrupted or we've got a bug.
-								//console::error("rdo_etc1_lowlevel_decoder::transcode_slice: selector RLE value is too large!");
-								if (pPVRTC_work_mem)
-									free(pPVRTC_work_mem);
-								return false;
-							}
-
-							delta_sym = (int)m_selectors.size() * 2;
-
-							cur_selector_rle_count--;
-						}
+						if (pPVRTC_work_mem)
+							free(pPVRTC_work_mem);
+						BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::transcode_slice: invalid datastream (0)\n");		
+						return false;
 					}
 
-					if (delta_sym >= static_cast<int>(m_selectors.size() * 2))
+					endpoint_index = prev_endpoint_index;
+				}
+				else if (pred == 1)
+				{
+					// Upper
+					if (!block_y)
 					{
-						assert(m_selector_history_buf_size > 0);
-
-						int history_buf_index = delta_sym - (int)m_selectors.size() * 2;
-						selector_indices[i] = selector_history_buf[history_buf_index];
-
-						if (history_buf_index != 0)
-							selector_history_buf.use(history_buf_index);
+						if (pPVRTC_work_mem)
+							free(pPVRTC_work_mem);
+						BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::transcode_slice: invalid datastream (1)\n");		
+						return false;
 					}
-					else
+
+					endpoint_index = m_block_endpoint_preds[cur_block_endpoint_pred_array ^ 1][block_x].m_endpoint_index;
+				}
+				else if (pred == 2)
+				{
+					// Upper left
+					if ((!block_x) || (!block_y))
 					{
-						int delta_index = delta_sym - static_cast<int>(m_selectors.size());
-						int idx = delta_index + prev_selector_index;
+						if (pPVRTC_work_mem)
+							free(pPVRTC_work_mem);
+						BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::transcode_slice: invalid datastream (2)\n");		
+						return false;
+					}
 
-						selector_indices[i] = idx;
+					endpoint_index = m_block_endpoint_preds[cur_block_endpoint_pred_array ^ 1][block_x - 1].m_endpoint_index;
+				}
+				else
+				{
+					// Decode and apply delta
+					const uint32_t delta_sym = sym_codec.decode_huffman(m_delta_endpoint_model);
 
-						if ((idx < 0) || (idx >= static_cast<int>(m_selectors.size())))
+					endpoint_index = delta_sym + prev_endpoint_index;
+					if (endpoint_index >= m_endpoints.size())
+						endpoint_index -= (int)m_endpoints.size();
+				}
+
+				m_block_endpoint_preds[cur_block_endpoint_pred_array][block_x].m_endpoint_index = (uint16_t)endpoint_index;
+
+				prev_endpoint_index = endpoint_index;
+				
+				// Decode selector index
+				uint32_t selector_index;
+				int selector_sym;
+				if (cur_selector_rle_count > 0)
+				{
+					cur_selector_rle_count--;
+
+					selector_sym = (int)m_selectors.size();
+				}
+				else
+				{
+					selector_sym = sym_codec.decode_huffman(m_selector_model);
+
+					if (selector_sym == static_cast<int>(SELECTOR_HISTORY_BUF_RLE_SYMBOL_INDEX))
+					{
+						int run_sym = sym_codec.decode_huffman(m_selector_history_buf_rle_model);
+
+						if (run_sym == (SELECTOR_HISTORY_BUF_RLE_COUNT_TOTAL - 1))
+							cur_selector_rle_count = sym_codec.decode_vlc(7) + SELECTOR_HISTORY_BUF_RLE_COUNT_THRESH;
+						else
+							cur_selector_rle_count = run_sym + SELECTOR_HISTORY_BUF_RLE_COUNT_THRESH;
+
+						if (cur_selector_rle_count > total_blocks)
 						{
 							// The file is corrupted or we've got a bug.
-							//console::error("rdo_etc1_lowlevel_decoder::transcode_slice: Delta selector decomp failed!");
+							//console::error("rdo_etc1_lowlevel_decoder::transcode_slice: selector RLE value is too large!");
 							if (pPVRTC_work_mem)
 								free(pPVRTC_work_mem);
 							return false;
 						}
 
-						if (m_selector_history_buf_size)
-							selector_history_buf.add(selector_indices[i]);
+						selector_sym = (int)m_selectors.size();
+
+						cur_selector_rle_count--;
 					}
+				}
 
-					prev_selector_index = selector_indices[i];
-
-				} // i
-
-				// Now create each output block and convert it to the output format.
-				for (uint32_t y = 0; y < 2; y++)
+				if (selector_sym >= (int)m_selectors.size())
 				{
-					if ((macroblock_y * 2 + y) >= num_blocks_y)
-						break;
+					assert(m_selector_history_buf_size > 0);
 
-					uint32_t by = macroblock_y * 2 + y;
+					int history_buf_index = selector_sym - (int)m_selectors.size();
+					selector_index = selector_history_buf[history_buf_index];
 
-					for (uint32_t x = 0; x < 2; x++)
-					{
-						const uint32_t block_index = x + y * 2;
+					if (history_buf_index != 0)
+						selector_history_buf.use(history_buf_index);
+				}
+				else
+				{
+					selector_index = selector_sym;
 
-						if ((macroblock_x * 2 + x) >= num_blocks_x)
-							continue;
+					if (m_selector_history_buf_size)
+						selector_history_buf.add(selector_index);
+				}
 
-						uint32_t bx = macroblock_x * 2 + x;
+#if 0
+				if (k != selector_index)
+					printf("!");
+#endif
 
-						const uint32_t l0 = endpoint_template.m_local_indices[block_index * 2 + 0];
-						const uint32_t e0 = endpoint_indices[l0];
-						const endpoint *pEndpoint0 = &m_endpoints[e0];
+				prev_selector_index = selector_index;
+
+				const endpoint *pEndpoint0 = &m_endpoints[endpoint_index];
 												
-						block.set_base5_color(decoder_etc_block::pack_color5(pEndpoint0->m_color5, false));
+				block.set_base5_color(decoder_etc_block::pack_color5(pEndpoint0->m_color5, false));
 
-						block.set_inten_table(0, pEndpoint0->m_inten5);
-						block.set_inten_table(1, pEndpoint0->m_inten5);
+				block.set_inten_table(0, pEndpoint0->m_inten5);
+				block.set_inten_table(1, pEndpoint0->m_inten5);
 
-						const selector * pSelector = &m_selectors[selector_indices[block_index]];
+				const selector *pSelector = &m_selectors[selector_index];
 
-						switch (fmt)
-						{
-						case cETC1:
-						{
-							//block.set_raw_selector_bits(pSelector->m_bytes[0], pSelector->m_bytes[1], pSelector->m_bytes[2], pSelector->m_bytes[3]);
-							//memcpy(pDst_block, &block, sizeof(block));
+				switch (fmt)
+				{
+				case cETC1:
+				{
+					//block.set_raw_selector_bits(pSelector->m_bytes[0], pSelector->m_bytes[1], pSelector->m_bytes[2], pSelector->m_bytes[3]);
+					//memcpy(pDst_block, &block, sizeof(block));
 
-							decoder_etc_block* pDst_block = reinterpret_cast<decoder_etc_block*>(static_cast<uint8_t*>(pDst_blocks) + (bx + by * num_blocks_x) * output_stride);
-							pDst_block->m_uint32[0] = block.m_uint32[0];
-							pDst_block->set_raw_selector_bits(pSelector->m_bytes[0], pSelector->m_bytes[1], pSelector->m_bytes[2], pSelector->m_bytes[3]);
+					decoder_etc_block* pDst_block = reinterpret_cast<decoder_etc_block*>(static_cast<uint8_t*>(pDst_blocks) + (block_x + block_y * num_blocks_x) * output_stride);
+					pDst_block->m_uint32[0] = block.m_uint32[0];
+					pDst_block->set_raw_selector_bits(pSelector->m_bytes[0], pSelector->m_bytes[1], pSelector->m_bytes[2], pSelector->m_bytes[3]);
 
-							break;
-						}
-						case cBC1:
-						{
-							block.set_raw_selector_bits(pSelector->m_bytes[0], pSelector->m_bytes[1], pSelector->m_bytes[2], pSelector->m_bytes[3]);
+					break;
+				}
+				case cBC1:
+				{
+					block.set_raw_selector_bits(pSelector->m_bytes[0], pSelector->m_bytes[1], pSelector->m_bytes[2], pSelector->m_bytes[3]);
 
-							void* pDst_block = static_cast<uint8_t*>(pDst_blocks) + (bx + by * num_blocks_x) * output_stride;
+					void* pDst_block = static_cast<uint8_t*>(pDst_blocks) + (block_x + block_y * num_blocks_x) * output_stride;
 #if BASISD_SUPPORT_DXT1
-							convert_etc1s_to_dxt1(static_cast<dxt1_block*>(pDst_block), &block, pSelector, bc1_allow_threecolor_blocks);
+					convert_etc1s_to_dxt1(static_cast<dxt1_block*>(pDst_block), &block, pSelector, bc1_allow_threecolor_blocks);
 #else
-							assert(0);
+					assert(0);
 #endif
-							break;
-						}
-						case cBC4:
-						{
-							block.set_raw_selector_bits(pSelector->m_bytes[0], pSelector->m_bytes[1], pSelector->m_bytes[2], pSelector->m_bytes[3]);
+					break;
+				}
+				case cBC4:
+				{
+					block.set_raw_selector_bits(pSelector->m_bytes[0], pSelector->m_bytes[1], pSelector->m_bytes[2], pSelector->m_bytes[3]);
 
-							void* pDst_block = static_cast<uint8_t*>(pDst_blocks) + (bx + by * num_blocks_x) * output_stride;
+					void* pDst_block = static_cast<uint8_t*>(pDst_blocks) + (block_x + block_y * num_blocks_x) * output_stride;
 #if BASISD_SUPPORT_DXT5A
-							convert_etc1s_to_dxt5a(static_cast<dxt5a_block*>(pDst_block), &block, pSelector);
+					convert_etc1s_to_dxt5a(static_cast<dxt5a_block*>(pDst_block), &block, pSelector);
 #else
-							assert(0);
+					assert(0);
 #endif
-							break;
-						}
-						case cPVRTC1_4_OPAQUE_ONLY:
-						{
+					break;
+				}
+				case cPVRTC1_4_OPAQUE_ONLY:
+				{
 #if BASISD_SUPPORT_PVRTC1
-							block.set_raw_selector_bits(pSelector->m_bytes[0], pSelector->m_bytes[1], pSelector->m_bytes[2], pSelector->m_bytes[3]);
+					block.set_raw_selector_bits(pSelector->m_bytes[0], pSelector->m_bytes[1], pSelector->m_bytes[2], pSelector->m_bytes[3]);
 
-							((decoder_etc_block*)pPVRTC_work_mem)[bx + by * num_blocks_x] = block;
+					((decoder_etc_block*)pPVRTC_work_mem)[block_x + block_y * num_blocks_x] = block;
 
-							const color32 base_color(block.get_base5_color_unscaled());
-							const uint32_t inten_table = block.get_inten_table(0);
+					const color32 base_color(block.get_base5_color_unscaled());
+					const uint32_t inten_table = block.get_inten_table(0);
 
-							const uint32_t low_selector = pSelector->m_lo_selector;
-							const uint32_t high_selector = pSelector->m_hi_selector;
+					const uint32_t low_selector = pSelector->m_lo_selector;
+					const uint32_t high_selector = pSelector->m_hi_selector;
 
-							color32 block_colors[2];
-							decoder_etc_block::get_block_colors5_bounds(block_colors, base_color, inten_table, low_selector, high_selector);
+					color32 block_colors[2];
+					decoder_etc_block::get_block_colors5_bounds(block_colors, base_color, inten_table, low_selector, high_selector);
 
-							assert(block_colors[0][0] <= block_colors[1][0]);
-							assert(block_colors[0][1] <= block_colors[1][1]);
-							assert(block_colors[0][2] <= block_colors[1][2]);
+					assert(block_colors[0][0] <= block_colors[1][0]);
+					assert(block_colors[0][1] <= block_colors[1][1]);
+					assert(block_colors[0][2] <= block_colors[1][2]);
 
-							pvrtc4_block temp;
-							temp.set_endpoint(0, block_colors[0], true, true, 0);
-							temp.set_endpoint(1, block_colors[1], true, true, 254);
+					pvrtc4_block temp;
+					temp.set_endpoint(0, block_colors[0], true, true, 0);
+					temp.set_endpoint(1, block_colors[1], true, true, 254);
 
-							//temp.set_endpoint(0, block_colors[1], true, true, 254);
-							//temp.set_endpoint(1, block_colors[0], true, true, 0);
+					//temp.set_endpoint(0, block_colors[1], true, true, 254);
+					//temp.set_endpoint(1, block_colors[0], true, true, 0);
 
-							pPVRTC_endpoints[bx + by * num_blocks_x] = temp.m_endpoints;
+					pPVRTC_endpoints[block_x + block_y * num_blocks_x] = temp.m_endpoints;
 #else
-							assert(0);
+					assert(0);
 #endif	
 
-							break;
-						}
-						case cBC7_M6_OPAQUE_ONLY:
-						{
+					break;
+				}
+				case cBC7_M6_OPAQUE_ONLY:
+				{
 #if BASISD_SUPPORT_BC7
-							block.set_raw_selector_bits(pSelector->m_bytes[0], pSelector->m_bytes[1], pSelector->m_bytes[2], pSelector->m_bytes[3]);
+					block.set_raw_selector_bits(pSelector->m_bytes[0], pSelector->m_bytes[1], pSelector->m_bytes[2], pSelector->m_bytes[3]);
 
-							void* pDst_block = static_cast<uint8_t*>(pDst_blocks) + (bx + by * num_blocks_x) * output_stride;
-							convert_etc1s_to_bc7_m6(static_cast<bc7_mode_6*>(pDst_block), &block, pSelector);
+					void* pDst_block = static_cast<uint8_t*>(pDst_blocks) + (block_x + block_y * num_blocks_x) * output_stride;
+					convert_etc1s_to_bc7_m6(static_cast<bc7_mode_6*>(pDst_block), &block, pSelector);
 #else	
-							assert(0);
+					assert(0);
 #endif
-							break;
-						}
-						case cETC2_EAC_A8:
-						{
-							block.set_raw_selector_bits(pSelector->m_bytes[0], pSelector->m_bytes[1], pSelector->m_bytes[2], pSelector->m_bytes[3]);
-							void* pDst_block = static_cast<uint8_t*>(pDst_blocks) + (bx + by * num_blocks_x) * output_stride;
+					break;
+				}
+				case cETC2_EAC_A8:
+				{
+					block.set_raw_selector_bits(pSelector->m_bytes[0], pSelector->m_bytes[1], pSelector->m_bytes[2], pSelector->m_bytes[3]);
+					void* pDst_block = static_cast<uint8_t*>(pDst_blocks) + (block_x + block_y * num_blocks_x) * output_stride;
 #if BASISD_SUPPORT_ETC2_EAC_A8
-							convert_etc1s_to_etc2_eac_a8(static_cast<eac_a8_block*>(pDst_block), &block, pSelector);
+					convert_etc1s_to_etc2_eac_a8(static_cast<eac_a8_block*>(pDst_block), &block, pSelector);
 #else
-							assert(0);
+					assert(0);
 #endif
-							break;
-						}
-						default:
-						{
-							assert(0);
-							break;
-						}
-						}
+					break;
+				}
+				default:
+				{
+					assert(0);
+					break;
+				}
+				}
 
-					} // x
-				} // y
+			} // block_x
 
-			} // macroblock_x
+		} // block-y
 
-		} // macroblock_y
-
+		assert(endpoint_pred_repeat_count == 0);
+		
 		if (fmt == cPVRTC1_4_OPAQUE_ONLY)
 		{
 			// PVRTC post process - create per-pixel modulation values.

@@ -13,7 +13,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
-// TODO: This code originally supported full ETC1 and ETC1S, so there's some legacy stuff in here.
+// TODO: 
+// This code originally supported full ETC1 and ETC1S, so there's some legacy stuff to be cleaned up in here.
+// Add endpoint tiling support (where we force adjacent blocks to use the same endpoints during quantization), for a ~10% or more increase in bitrate at same SSIM. The backend already supports this.
 //
 #include "transcoder/basisu.h"
 #include "basisu_frontend.h"
@@ -23,11 +25,11 @@
 
 namespace basisu
 {
-	const uint32_t BASISU_MAX_ENDPOINT_REFINEMENT_STEPS = 2;
-	const uint32_t BASISU_MAX_SELECTOR_REFINEMENT_STEPS = 2;
+	const uint32_t BASISU_MAX_ENDPOINT_REFINEMENT_STEPS = 3;
+	const uint32_t BASISU_MAX_SELECTOR_REFINEMENT_STEPS = 3;
 
 	// TODO - How to handle internal verifies in the basisu lib
-	static void verify(bool condition, int line)
+	static inline void verify(bool condition, int line)
 	{
 		if (!condition)
 		{
@@ -56,10 +58,13 @@ namespace basisu
 			p.m_use_hybrid_selector_codebooks,
 			p.m_hybrid_codebook_quality_thresh);
 
-		if ((p.m_max_endpoint_clusters < 1) || (p.m_max_endpoint_clusters > cMaxEndpointClustersRDO))
+		if ((p.m_max_endpoint_clusters < 1) || (p.m_max_endpoint_clusters > cMaxEndpointClusters))
 			return false;
-		if ((p.m_max_selector_clusters < 1) || (p.m_max_selector_clusters > cMaxSelectorClustersRDO))
+		if ((p.m_max_selector_clusters < 1) || (p.m_max_selector_clusters > cMaxSelectorClusters))
 			return false;
+
+		m_source_blocks.resize(0);
+		append_vector(m_source_blocks, p.m_pSource_blocks, p.m_num_source_blocks);
 
 		m_params = p;
 
@@ -642,7 +647,7 @@ namespace basisu
 					total_prev_err += total_err;
 				}
 
-				  // See if we should update this cluster's endpoints (if the error has actually fallen)
+				// See if we should update this cluster's endpoints (if the error has actually fallen)
 				if (total_prev_err > (new_subblock_params.m_color_error[0] + new_subblock_params.m_color_error[1]))
 				{
 					use_new_subblock_params = true;
@@ -1469,7 +1474,7 @@ namespace basisu
 			blk.clear();
 			blk.set_flip_bit(false);
 			blk.set_diff_bit(true);
-			blk.set_both_inten_tables(m_endpoint_cluster_etc_params[cluster_iter].m_inten_table[0]);
+			blk.set_inten_tables_etc1s(m_endpoint_cluster_etc_params[cluster_iter].m_inten_table[0]);
 			blk.set_base5_color(etc_block::pack_color5(m_endpoint_cluster_etc_params[cluster_iter].m_color_unscaled[0], false));
 
 			color_rgba blk_colors[4];
@@ -1503,17 +1508,211 @@ namespace basisu
 	{
 		for (uint32_t block_index = 0; block_index < m_total_blocks; block_index++)
 		{
-			const bool diff_flag = get_diff_flag(block_index);
-
 			for (uint32_t subblock_index = 0; subblock_index < 2; subblock_index++)
 			{
 				const uint32_t endpoint_cluster_index = get_subblock_endpoint_cluster_index(block_index, subblock_index);
 
-				m_endpoint_cluster_etc_params[endpoint_cluster_index].m_color_used[!diff_flag] = true;
+				m_endpoint_cluster_etc_params[endpoint_cluster_index].m_color_used[0] = true;
 			}
 		}
 	}
 
+	// The backend has remapped the block endpoints while optimizing the output symbols for better rate distortion performance, so let's go and reoptimize the endpoint codebook.
+	// This is currently the only place where the backend actually goes and changes the quantization and calls the frontend to fix things up. 
+	// This is basically a bottom up clusterization stage, where some leaves can be combined.
+	void basisu_frontend::reoptimize_remapped_endpoints(const uint_vec &new_block_endpoints, int_vec &old_to_new_endpoint_cluster_indices, bool optimize_final_codebook, uint_vec *pBlock_selector_indices)
+	{
+		debug_printf("reoptimize_remapped_endpoints\n");
+
+		std::vector<uint_vec> new_endpoint_cluster_block_indices(m_endpoint_clusters.size());
+		for (uint32_t i = 0; i < new_block_endpoints.size(); i++)
+			new_endpoint_cluster_block_indices[new_block_endpoints[i]].push_back(i);
+
+		std::vector<uint8_t> cluster_valid(new_endpoint_cluster_block_indices.size());
+		std::vector<uint8_t> cluster_improved(new_endpoint_cluster_block_indices.size());
+		
+#pragma omp parallel for
+		for (int cluster_index = 0; cluster_index < static_cast<int>(new_endpoint_cluster_block_indices.size()); cluster_index++)
+		{
+			const std::vector<uint32_t>& cluster_block_indices = new_endpoint_cluster_block_indices[cluster_index];
+
+			if (!cluster_block_indices.size())
+				continue;
+
+			const uint32_t total_pixels = (uint32_t)cluster_block_indices.size() * 16;
+
+			std::vector<color_rgba> cluster_pixels(total_pixels);
+			uint8_vec force_selectors(total_pixels);
+
+			etc_block blk;
+			blk.set_block_color5_etc1s(get_endpoint_cluster_unscaled_color(cluster_index, false));
+			blk.set_inten_tables_etc1s(get_endpoint_cluster_inten_table(cluster_index, false));
+			blk.set_flip_bit(true);
+						
+			uint64_t cur_err = 0;
+
+			for (uint32_t cluster_block_indices_iter = 0; cluster_block_indices_iter < cluster_block_indices.size(); cluster_block_indices_iter++)
+			{
+				const uint32_t block_index = cluster_block_indices[cluster_block_indices_iter];
+				
+				const color_rgba *pBlock_pixels = get_source_pixel_block(block_index).get_ptr();
+
+				memcpy(&cluster_pixels[cluster_block_indices_iter * 16], pBlock_pixels, 16 * sizeof(color_rgba));
+
+				const uint32_t selector_cluster_index = pBlock_selector_indices ? (*pBlock_selector_indices)[block_index] : get_block_selector_cluster_index(block_index);
+
+				const etc_block &blk_selectors = get_selector_cluster_selector_bits(selector_cluster_index);
+
+				blk.set_raw_selector_bits(blk_selectors.get_raw_selector_bits());
+
+				cur_err += blk.evaluate_etc1_error(pBlock_pixels, m_params.m_perceptual);
+				
+				for (uint32_t y = 0; y < 4; y++)
+					for (uint32_t x = 0; x < 4; x++)
+						force_selectors[cluster_block_indices_iter * 16 + x + y * 4] = static_cast<uint8_t>(blk_selectors.get_selector(x, y));
+			}
+
+			endpoint_cluster_etc_params new_endpoint_cluster_etc_params;
+						
+			{
+				etc1_optimizer optimizer;
+				etc1_solution_coordinates solutions[2];
+
+				etc1_optimizer::params cluster_optimizer_params;
+				cluster_optimizer_params.m_num_src_pixels = total_pixels;
+				cluster_optimizer_params.m_pSrc_pixels = &cluster_pixels[0];
+
+				cluster_optimizer_params.m_use_color4 = false;
+				cluster_optimizer_params.m_perceptual = m_params.m_perceptual;
+				cluster_optimizer_params.m_pForce_selectors = &force_selectors[0];
+
+				etc1_optimizer::results cluster_optimizer_results;
+
+				std::vector<uint8_t> cluster_selectors(total_pixels);
+				cluster_optimizer_results.m_n = total_pixels;
+				cluster_optimizer_results.m_pSelectors = &cluster_selectors[0];
+
+				optimizer.init(cluster_optimizer_params, cluster_optimizer_results);
+
+				optimizer.compute();
+
+				new_endpoint_cluster_etc_params.m_color_unscaled[0] = cluster_optimizer_results.m_block_color_unscaled;
+				new_endpoint_cluster_etc_params.m_inten_table[0] = cluster_optimizer_results.m_block_inten_table;
+				new_endpoint_cluster_etc_params.m_color_error[0] = cluster_optimizer_results.m_error;
+				new_endpoint_cluster_etc_params.m_color_used[0] = true;
+				new_endpoint_cluster_etc_params.m_valid = true;
+			}
+
+			if (new_endpoint_cluster_etc_params.m_color_error[0] < cur_err)
+			{
+				m_endpoint_cluster_etc_params[cluster_index] = new_endpoint_cluster_etc_params;
+				
+				cluster_improved[cluster_index] = true;
+			}
+
+			cluster_valid[cluster_index] = true;
+
+		} // cluster_index
+				
+		uint32_t total_unused_clusters = 0;
+		uint32_t total_improved_clusters = 0;
+		
+		old_to_new_endpoint_cluster_indices.resize(m_endpoint_clusters.size());
+		vector_set_all(old_to_new_endpoint_cluster_indices, -1);
+				
+		int total_new_endpoint_clusters = 0;
+
+		for (uint32_t old_cluster_index = 0; old_cluster_index < m_endpoint_clusters.size(); old_cluster_index++)
+		{
+			if (!cluster_valid[old_cluster_index])
+				total_unused_clusters++;
+			else
+				old_to_new_endpoint_cluster_indices[old_cluster_index] = total_new_endpoint_clusters++;
+
+			if (cluster_improved[old_cluster_index])
+				total_improved_clusters++;
+		}
+
+		debug_printf("Total unused clusters: %u\n", total_unused_clusters);
+		debug_printf("Total improved_clusters: %u\n", total_improved_clusters);
+		debug_printf("Total endpoint clusters: %u\n", total_new_endpoint_clusters);
+
+		if (optimize_final_codebook)
+		{
+			cluster_subblock_etc_params_vec new_endpoint_cluster_etc_params(total_new_endpoint_clusters);
+
+			for (uint32_t old_cluster_index = 0; old_cluster_index < m_endpoint_clusters.size(); old_cluster_index++)
+			{
+				if (old_to_new_endpoint_cluster_indices[old_cluster_index] >= 0)
+					new_endpoint_cluster_etc_params[old_to_new_endpoint_cluster_indices[old_cluster_index]] = m_endpoint_cluster_etc_params[old_cluster_index];
+			}
+
+			debug_printf("basisu_frontend::reoptimize_remapped_endpoints: stage 1\n");
+
+			std::vector<uint_vec> new_endpoint_clusters(total_new_endpoint_clusters);
+
+			for (uint32_t block_index = 0; block_index < new_block_endpoints.size(); block_index++)
+			{
+				const uint32_t old_endpoint_cluster_index = new_block_endpoints[block_index];
+			
+				const int new_endpoint_cluster_index = old_to_new_endpoint_cluster_indices[old_endpoint_cluster_index];
+				BASISU_FRONTEND_VERIFY(new_endpoint_cluster_index >= 0);
+
+				BASISU_FRONTEND_VERIFY(new_endpoint_cluster_index < (int)new_endpoint_clusters.size());
+
+				new_endpoint_clusters[new_endpoint_cluster_index].push_back(block_index * 2 + 0);
+				new_endpoint_clusters[new_endpoint_cluster_index].push_back(block_index * 2 + 1);
+
+				BASISU_FRONTEND_VERIFY(new_endpoint_cluster_index < (int)new_endpoint_cluster_etc_params.size());
+
+				new_endpoint_cluster_etc_params[new_endpoint_cluster_index].m_subblocks.push_back(block_index * 2 + 0);
+				new_endpoint_cluster_etc_params[new_endpoint_cluster_index].m_subblocks.push_back(block_index * 2 + 1);
+									
+				m_block_endpoint_clusters_indices[block_index][0] = new_endpoint_cluster_index;
+				m_block_endpoint_clusters_indices[block_index][1] = new_endpoint_cluster_index;
+			}
+
+			debug_printf("basisu_frontend::reoptimize_remapped_endpoints: stage 2\n");
+		
+			m_endpoint_clusters = new_endpoint_clusters;
+			m_endpoint_cluster_etc_params = new_endpoint_cluster_etc_params;
+
+			eliminate_redundant_or_empty_endpoint_clusters();
+
+			debug_printf("basisu_frontend::reoptimize_remapped_endpoints: stage 3\n");
+
+			for (uint32_t new_cluster_index = 0; new_cluster_index < m_endpoint_clusters.size(); new_cluster_index++)
+			{
+				for (uint32_t cluster_block_iter = 0; cluster_block_iter < m_endpoint_clusters[new_cluster_index].size(); cluster_block_iter++)
+				{
+					const uint32_t subblock_index = m_endpoint_clusters[new_cluster_index][cluster_block_iter];
+					const uint32_t block_index = subblock_index >> 1;
+
+					m_block_endpoint_clusters_indices[block_index][0] = new_cluster_index;
+					m_block_endpoint_clusters_indices[block_index][1] = new_cluster_index;
+
+					const uint32_t old_cluster_index = new_block_endpoints[block_index];
+
+					old_to_new_endpoint_cluster_indices[old_cluster_index] = new_cluster_index;
+				}
+			}
+
+			debug_printf("basisu_frontend::reoptimize_remapped_endpoints: stage 4\n");
+
+			for (uint32_t block_index = 0; block_index < m_encoded_blocks.size(); block_index++)
+			{
+				const uint32_t endpoint_cluster_index = get_subblock_endpoint_cluster_index(block_index, 0);
+
+				m_encoded_blocks[block_index].set_block_color5_etc1s(get_endpoint_cluster_unscaled_color(endpoint_cluster_index, false));
+				m_encoded_blocks[block_index].set_inten_tables_etc1s(get_endpoint_cluster_inten_table(endpoint_cluster_index, false));
+			}
+
+			debug_printf("Final (post-RDO) endpoint clusters: %u\n", m_endpoint_clusters.size());
+		}
+						
+		//debug_printf("validate_output: %u\n", validate_output());
+	}
+	
 	bool basisu_frontend::validate_output() const
 	{
 		debug_printf("validate_output\n");
@@ -1523,43 +1722,33 @@ namespace basisu
 
 		for (uint32_t block_index = 0; block_index < m_total_blocks; block_index++)
 		{
-			if (!get_output_block(block_index).get_flip_bit())
-				return false;
+#define CHECK(x) do { if (!(x)) return false; } while(0)
+
+			CHECK(get_output_block(block_index).get_flip_bit() == true);
 			
 			const bool diff_flag = get_diff_flag(block_index);
+			CHECK(diff_flag == true);
 
 			etc_block blk;
 			memset(&blk, 0, sizeof(blk));
 			blk.set_flip_bit(true);
-			blk.set_diff_bit(diff_flag);
+			blk.set_diff_bit(true);
 
 			const uint32_t endpoint_cluster0_index = get_subblock_endpoint_cluster_index(block_index, 0);
 			const uint32_t endpoint_cluster1_index = get_subblock_endpoint_cluster_index(block_index, 1);
 
-#define CHECK(x) do { if (!(x)) return false; } while(0)
-
+			// basisu only supports ETC1S, so these must be equal.
 			CHECK(endpoint_cluster0_index == endpoint_cluster1_index);
+			
+			CHECK(blk.set_block_color5_check(get_endpoint_cluster_unscaled_color(endpoint_cluster0_index, false), get_endpoint_cluster_unscaled_color(endpoint_cluster1_index, false)));
 
-			if (diff_flag)
-			{
-				CHECK(blk.set_block_color5_check(get_endpoint_cluster_unscaled_color(endpoint_cluster0_index, false), get_endpoint_cluster_unscaled_color(endpoint_cluster1_index, false)));
-
-				CHECK(get_endpoint_cluster_color_is_used(endpoint_cluster0_index, false));
-				CHECK(get_endpoint_cluster_color_is_used(endpoint_cluster1_index, false));
-			}
-			else
-			{
-				blk.set_block_color4(get_endpoint_cluster_unscaled_color(endpoint_cluster0_index, true), get_endpoint_cluster_unscaled_color(endpoint_cluster1_index, true));
-
-				CHECK(get_endpoint_cluster_color_is_used(endpoint_cluster0_index, true));
-				CHECK(get_endpoint_cluster_color_is_used(endpoint_cluster1_index, true));
-			}
-
-			blk.set_inten_table(0, get_endpoint_cluster_inten_table(endpoint_cluster0_index, !diff_flag));
-			blk.set_inten_table(1, get_endpoint_cluster_inten_table(endpoint_cluster1_index, !diff_flag));
+			CHECK(get_endpoint_cluster_color_is_used(endpoint_cluster0_index, false));
+			
+			blk.set_inten_table(0, get_endpoint_cluster_inten_table(endpoint_cluster0_index, false));
+			blk.set_inten_table(1, get_endpoint_cluster_inten_table(endpoint_cluster1_index, false));
 
 			const uint32_t selector_cluster_index = get_block_selector_cluster_index(block_index);
-
+						
 			CHECK(vector_find(get_selector_cluster_block_indices(selector_cluster_index), block_index) != -1);
 
 			blk.set_raw_selector_bits(get_selector_cluster_selector_bits(selector_cluster_index).get_raw_selector_bits());
@@ -1570,16 +1759,8 @@ namespace basisu
 			CHECK(rdo_output_block.get_diff_bit() == blk.get_diff_bit());
 			CHECK(rdo_output_block.get_inten_table(0) == blk.get_inten_table(0));
 			CHECK(rdo_output_block.get_inten_table(1) == blk.get_inten_table(1));
-			if (diff_flag)
-			{
-				CHECK(rdo_output_block.get_base5_color() == blk.get_base5_color());
-				CHECK(rdo_output_block.get_delta3_color() == blk.get_delta3_color());
-			}
-			else
-			{
-				CHECK(rdo_output_block.get_base4_color(0) == blk.get_base4_color(0));
-				CHECK(rdo_output_block.get_base4_color(1) == blk.get_base4_color(1));
-			}
+			CHECK(rdo_output_block.get_base5_color() == blk.get_base5_color());
+			CHECK(rdo_output_block.get_delta3_color() == blk.get_delta3_color());
 			CHECK(rdo_output_block.get_raw_selector_bits() == blk.get_raw_selector_bits());
 
 			if (m_params.m_pGlobal_sel_codebook)

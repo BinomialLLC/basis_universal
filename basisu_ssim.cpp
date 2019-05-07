@@ -365,7 +365,7 @@ namespace basisu
 		return avg_image(smap);
 	}
 
-	vec4F compute_ssim(const image &a, const image &b, bool luma)
+	vec4F compute_ssim(const image &a, const image &b, bool luma, bool luma_601)
 	{
 		image ta(a), tb(b);
 
@@ -391,8 +391,8 @@ namespace basisu
 			{
 				for (uint32_t x = 0; x < ta.get_width(); x++)
 				{
-					ta(x, y).set(ta(x, y).get_709_luma(), ta(x, y).a);
-					tb(x, y).set(tb(x, y).get_709_luma(), tb(x, y).a);
+					ta(x, y).set(ta(x, y).get_luma(luma_601), ta(x, y).a);
+					tb(x, y).set(tb(x, y).get_luma(luma_601), tb(x, y).a);
 				}
 			}
 		}

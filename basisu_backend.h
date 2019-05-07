@@ -22,40 +22,33 @@
 
 namespace basisu
 {
-	struct etc1_macroblock
+	struct encoder_block
 	{
-		etc1_macroblock()
+		encoder_block()
 		{
 			clear();
 		}
+				
+		uint32_t m_endpoint_predictor; 
 
-		uint8_t m_diff_bits;
-		uint8_t m_flip_bits;
+		int m_endpoint_index;
+		int m_selector_index;
 
-		int m_template_index;
-
-		int_vec m_endpoint_indices;
-		int_vec m_selector_indices;
-
-		int_vec m_endpoint_delta_indices;
-		int_vec m_selector_delta_indices;
-		int_vec m_selector_history_buf_indices;
+		int m_selector_history_buf_index;
 
 		void clear()
 		{
-			m_diff_bits = 0;
-			m_flip_bits = 0;
-			m_template_index = 0;
-			m_endpoint_indices.clear();
-			m_selector_indices.clear();
-			m_endpoint_delta_indices.clear();
-			m_selector_delta_indices.clear();
-			m_selector_history_buf_indices.clear();
+			m_endpoint_predictor = 0;
+			
+			m_endpoint_index = 0;
+			m_selector_index = 0;
+						
+			m_selector_history_buf_index = 0;
 		}
 	};
 
-	typedef std::vector<etc1_macroblock> etc1_macroblock_vec;
-	typedef vector2D<etc1_macroblock> etc1_macroblock_vec2D;
+	typedef std::vector<encoder_block> encoder_block_vec;
+	typedef vector2D<encoder_block> encoder_block_vec2D;
 
 	struct etc1_endpoint_palette_entry
 	{
@@ -80,7 +73,8 @@ namespace basisu
 	{
 		bool m_etc1s;
 		bool m_debug, m_debug_images;
-		float m_delta_selector_rdo_quality_thresh; // 1.25f
+		float m_endpoint_rdo_quality_thresh;
+		float m_selector_rdo_quality_thresh;
 
 		bool m_use_global_sel_codebook;
 		uint32_t m_global_sel_codebook_pal_bits;
@@ -97,7 +91,8 @@ namespace basisu
 			m_etc1s = false;
 			m_debug = false;
 			m_debug_images = false;
-			m_delta_selector_rdo_quality_thresh = 0.0f;//2.5f;
+			m_endpoint_rdo_quality_thresh = 0.0f;
+			m_selector_rdo_quality_thresh = 0.0f;
 
 			m_use_global_sel_codebook = false;
 			m_global_sel_codebook_pal_bits = ETC1_GLOBAL_SELECTOR_CODEBOOK_MAX_PAL_BITS;
@@ -192,7 +187,7 @@ namespace basisu
 		const basisu_backend_output &get_output() const { return m_output; }
 
 	private:
-		const basisu_frontend *m_pFront_end;
+		basisu_frontend *m_pFront_end;
 		basisu_backend_params m_params;
 		basisu_backend_slice_desc_vec m_slices;
 		basisu_backend_output m_output;
@@ -212,7 +207,7 @@ namespace basisu
 
 		etc1_global_selector_cb_entry_desc_vec m_global_selector_palette_desc;
 
-		std::vector<etc1_macroblock_vec2D> m_slice_macroblocks;
+		std::vector<encoder_block_vec2D> m_slice_encoder_blocks;
 
 		// Maps OLD to NEW endpoint/selector indices
 		uint_vec m_endpoint_remap_table_old_to_new;
@@ -241,28 +236,18 @@ namespace basisu
 
 			return slice.m_first_block_index + block_y * slice.m_num_blocks_x + block_x;
 		}
-
-		uint32_t get_num_macroblocks_x(uint32_t slice_index) const
+				
+		uint32_t get_total_blocks(uint32_t slice_index) const
 		{
-			return m_slices[slice_index].m_num_macroblocks_x;
+			return m_slices[slice_index].m_num_blocks_x * m_slices[slice_index].m_num_blocks_y;
 		}
-
-		uint32_t get_num_macroblocks_y(uint32_t slice_index) const
+								
+		uint32_t get_total_blocks() const
 		{
-			return m_slices[slice_index].m_num_macroblocks_y;
-		}
-
-		uint32_t get_total_macroblocks(uint32_t slice_index) const
-		{
-			return m_slices[slice_index].m_num_macroblocks_x * m_slices[slice_index].m_num_macroblocks_y;
-		}
-
-		uint32_t get_total_macroblocks() const
-		{
-			uint32_t total_macroblocks = 0;
+			uint32_t total_blocks = 0;
 			for (uint32_t i = 0; i < m_slices.size(); i++)
-				total_macroblocks += get_total_macroblocks(i);
-			return total_macroblocks;
+				total_blocks += get_total_blocks(i);
+			return total_blocks;
 		}
 
 		// Returns the total number of input texels, not counting padding up to blocks/macroblocks.
@@ -314,16 +299,12 @@ namespace basisu
 		//      Alternately, if no template applies, we can send 4 ETC1S bits followed by 4-8 endpoint indices
 		//  4 selector indices
 
-		float selector_zeng_similarity_func(uint32_t index_a, uint32_t index_b, void *pContext);
-
-		void create_macroblocks();
-
-		void optimize_selector_palette_order(const uint_vec &all_selector_indices);
-
+		void reoptimize_and_sort_endpoints_codebook(uint32_t total_block_endpoints_remapped, uint_vec &all_endpoint_indices);
+		void sort_selector_codebook();
+		void create_encoder_blocks();
+		void compute_slice_crcs();
 		bool encode_image();
-
 		bool encode_endpoint_palette();
-
 		bool encode_selector_palette();
 	};
 

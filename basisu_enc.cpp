@@ -39,10 +39,18 @@ namespace basisu
 
 	void error_printf(const char *pFmt, ...)
 	{
+		char buf[2048];
+
 		va_list args;
 		va_start(args, pFmt);
-		vfprintf(stderr, pFmt, args);
+#ifdef _WIN32		
+		vsprintf_s(buf, sizeof(buf), pFmt, args);
+#else
+		vsnprintf(buf, sizeof(buf), pFmt, args);
+#endif
 		va_end(args);
+
+		fprintf(stderr, "ERROR: %s", buf);
 	}
 
 #if defined(_WIN32)
@@ -149,9 +157,30 @@ namespace basisu
 		if (err)
 			return false;
 
-		std::vector<uint8_t> out;
 		unsigned w = 0, h = 0;
+				
+		if (sizeof(void *) == sizeof(uint32_t))
+		{
+			// Inspect the image first on 32-bit builds, to see if the image would require too much memory.
+			lodepng::State state;
+			err = lodepng_inspect(&w, &h, &state, &buffer[0], buffer.size());
+			if ((err != 0) || (!w) || (!h))
+				return false;
 
+			const uint32_t exepected_alloc_size = w * h * sizeof(uint32_t);
+			
+			// If the file is too large on 32-bit builds then just bail now, to prevent causing a memory exception.
+			const uint32_t MAX_ALLOC_SIZE = 250000000;
+			if (exepected_alloc_size >= MAX_ALLOC_SIZE)
+			{
+				error_printf("Image \"%s\" is too large (%ux%u) to process in a 32-bit build!\n", pFilename, w, h);
+				return false;
+			}
+			
+			w = h = 0;
+		}
+				
+		std::vector<uint8_t> out;
 		err = lodepng::decode(out, w, h, &buffer[0], buffer.size());
 		if ((err != 0) || (!w) || (!h))
 			return false;
@@ -1074,7 +1103,7 @@ namespace basisu
 		return which_side;
 	}
 
-	void image_metrics::calc(const image &a, const image &b, uint32_t first_chan, uint32_t total_chans, bool avg_comp_error)
+	void image_metrics::calc(const image &a, const image &b, uint32_t first_chan, uint32_t total_chans, bool avg_comp_error, bool use_601_luma)
 	{
 		assert((first_chan < 4U) && (first_chan + total_chans <= 4U));
 						
@@ -1097,7 +1126,10 @@ namespace basisu
 				}
 				else
 				{
-					hist[iabs(ca.get_709_luma() - cb.get_709_luma())]++;
+					if (use_601_luma)
+						hist[iabs(ca.get_601_luma() - cb.get_601_luma())]++;
+					else
+						hist[iabs(ca.get_709_luma() - cb.get_709_luma())]++;
 				}
 			}
 		}

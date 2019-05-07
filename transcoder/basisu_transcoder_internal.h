@@ -35,17 +35,24 @@
 
 namespace basist
 {
-	struct endpoint_index_template
-	{
-		uint8_t m_local_indices[8];
-	};
+	const int COLOR5_PAL0_PREV_HI = 9, COLOR5_PAL0_DELTA_LO = -9, COLOR5_PAL0_DELTA_HI = 31;
+	const int COLOR5_PAL1_PREV_HI = 21, COLOR5_PAL1_DELTA_LO = -21, COLOR5_PAL1_DELTA_HI = 21;
+	const int COLOR5_PAL2_PREV_HI = 31, COLOR5_PAL2_DELTA_LO = -31, COLOR5_PAL2_DELTA_HI = 9;
+	const int COLOR5_PAL_MIN_DELTA_B_RUNLEN = 3, COLOR5_PAL_DELTA_5_RUNLEN_VLC_BITS = 3;
 
-	const uint32_t TOTAL_ENDPOINT_INDEX_TEMPLATES = 15;
+	const uint32_t ENDPOINT_PRED_TOTAL_SYMBOLS = (4 * 4 * 4 * 4) + 1;
+	const uint32_t ENDPOINT_PRED_REPEAT_LAST_SYMBOL = ENDPOINT_PRED_TOTAL_SYMBOLS - 1;
+	const uint32_t ENDPOINT_PRED_MIN_REPEAT_COUNT = 3;
+	const uint32_t ENDPOINT_PRED_COUNT_VLC_BITS = 4;
 
-	extern const uint8_t g_endpoint_index_template_indices[TOTAL_ENDPOINT_INDEX_TEMPLATES];
-	extern const endpoint_index_template g_endpoint_index_templates[TOTAL_ENDPOINT_INDEX_TEMPLATES];
-
+	const uint32_t MAX_SELECTOR_HISTORY_BUF_SIZE = 64;
+	const uint32_t SELECTOR_HISTORY_BUF_RLE_COUNT_THRESH = 3;
+	const uint32_t SELECTOR_HISTORY_BUF_RLE_COUNT_BITS = 6;
+	const uint32_t SELECTOR_HISTORY_BUF_RLE_COUNT_TOTAL = (1 << SELECTOR_HISTORY_BUF_RLE_COUNT_BITS);
+		
 	uint16_t crc16(const void *r, size_t size, uint16_t crc);
+
+	extern uint8_t g_hamming_dist[256];
 
 	class huffman_decoding_table
 	{
@@ -247,6 +254,21 @@ namespace basist
 			return bits;
 		}
 
+		uint32_t decode_truncated_binary(uint32_t n)
+		{
+			assert(n >= 2);
+
+			const uint32_t k = basisu::floor_log2i(n);
+			const uint32_t u = (1 << (k + 1)) - n;
+
+			uint32_t result = get_bits(k);
+
+			if (result >= u)
+				result = ((result << 1) | get_bits(1)) - u;
+
+			return result;
+		}
+
 		uint32_t decode_rice(uint32_t m)
 		{
 			assert(m);
@@ -272,6 +294,35 @@ namespace basist
 			}
 
 			return (q << m) + (get_bits(m + 1) >> 1);
+		}
+
+		inline uint32_t decode_vlc(uint32_t chunk_bits)
+		{
+			assert(chunk_bits);
+
+			const uint32_t chunk_size = 1 << chunk_bits;
+			const uint32_t chunk_mask = chunk_size - 1;
+					
+			uint32_t v = 0;
+			uint32_t ofs = 0;
+
+			for ( ; ; )
+			{
+				uint32_t s = get_bits(chunk_bits + 1);
+				v |= ((s & chunk_mask) << ofs);
+				ofs += chunk_bits;
+
+				if ((s & chunk_size) == 0)
+					break;
+				
+				if (ofs >= 32)
+				{
+					assert(0);
+					break;
+				}
+			}
+
+			return v;
 		}
 
 		inline uint32_t decode_huffman(const huffman_decoding_table &ct)

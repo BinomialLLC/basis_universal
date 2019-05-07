@@ -197,7 +197,7 @@ namespace basisu
 			m_bytes[3] |= (t << ofs);
 		}
 
-		inline void set_both_inten_tables(uint32_t t)
+		inline void set_inten_tables_etc1s(uint32_t t)
 		{
 			set_inten_table(0, t);
 			set_inten_table(1, t);
@@ -530,6 +530,14 @@ namespace basisu
 			int db = c1_unscaled.b - c0_unscaled.b;
 
 			set_delta3_color(pack_delta3(dr, dg, db));
+		}
+
+		void set_block_color5_etc1s(const color_rgba &c_unscaled)
+		{
+			set_diff_bit(true);
+			
+			set_base5_color(pack_color5(c_unscaled, false));
+			set_delta3_color(pack_delta3(0, 0, 0));
 		}
 
 		bool set_block_color5_check(const color_rgba &c0_unscaled, const color_rgba &c1_unscaled)

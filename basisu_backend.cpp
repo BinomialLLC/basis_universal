@@ -17,16 +17,13 @@
 //
 #include "basisu_backend.h"
 
-#define DISABLE_CODEBOOK_REORDERING (0)
+#define BASISU_FASTER_SELECTOR_REORDERING 0
 #define BASISU_BACKEND_VERIFY(c) verify(c, __LINE__);
 
 namespace basisu
 {
-	const uint32_t TOTAL_MACROBLOCK_DIFF_BITS = 4;
-	const uint32_t TOTAL_MACROBLOCK_FLIP_BITS = 4;
-
 	// TODO
-	static void verify(bool condition, int line)
+	static inline void verify(bool condition, int line)
 	{
 		if (!condition)
 		{
@@ -54,23 +51,25 @@ namespace basisu
 		m_slices = slice_descs;
 		m_pGlobal_sel_codebook = pGlobal_sel_codebook;
 
-		debug_printf("basisu_backend::Init: Slices: %u, ETC1S: %u, DeltaSelectorRDOQualityThresh: %f, UseGlobalSelCodebook: %u, GlobalSelCodebookPalBits: %u, GlobalSelCodebookModBits: %u, Use hybrid selector codebooks: %u\n",
+		debug_printf("basisu_backend::Init: Slices: %u, ETC1S: %u, EndpointRDOQualityThresh: %f, SelectorRDOQualityThresh: %f, UseGlobalSelCodebook: %u, GlobalSelCodebookPalBits: %u, GlobalSelCodebookModBits: %u, Use hybrid selector codebooks: %u\n",
 			m_slices.size(),
 			params.m_etc1s,
-			params.m_delta_selector_rdo_quality_thresh,
+			params.m_endpoint_rdo_quality_thresh,
+			params.m_selector_rdo_quality_thresh,
 			params.m_use_global_sel_codebook,
 			params.m_global_sel_codebook_pal_bits,
 			params.m_global_sel_codebook_mod_bits,
 			params.m_use_hybrid_sel_codebooks);
 
+		debug_printf("Frontend endpoints: %u selectors: %u\n", m_pFront_end->get_total_endpoint_clusters(), m_pFront_end->get_total_selector_clusters());
+		
 		for (uint32_t i = 0; i < m_slices.size(); i++)
 		{
-			debug_printf("Slice: %u, OrigWidth: %u, OrigHeight: %u, Width: %u, Height: %u, NumBlocksX: %u, NumBlocksY: %u, NumMacroBlocksX: %u, NumMacroBlocksY: %u, FirstBlockIndex: %u\n",
+			debug_printf("Slice: %u, OrigWidth: %u, OrigHeight: %u, Width: %u, Height: %u, NumBlocksX: %u, NumBlocksY: %u, FirstBlockIndex: %u\n",
 				i,
 				m_slices[i].m_orig_width, m_slices[i].m_orig_height,
 				m_slices[i].m_width, m_slices[i].m_height,
 				m_slices[i].m_num_blocks_x, m_slices[i].m_num_blocks_y,
-				m_slices[i].m_num_macroblocks_x, m_slices[i].m_num_macroblocks_y,
 				m_slices[i].m_first_block_index);
 		}
 	}
@@ -79,27 +78,26 @@ namespace basisu
 	{
 		const basisu_frontend &r = *m_pFront_end;
 
+		m_output.m_num_endpoints = r.get_total_endpoint_clusters();
+
 		m_endpoint_palette.resize(r.get_total_endpoint_clusters());
 		for (uint32_t i = 0; i < r.get_total_endpoint_clusters(); i++)
 		{
 			etc1_endpoint_palette_entry &e = m_endpoint_palette[i];
-
+			
 			e.m_color5_valid = r.get_endpoint_cluster_color_is_used(i, false);
-			if (e.m_color5_valid)
-			{
-				e.m_color5 = r.get_endpoint_cluster_unscaled_color(i, false);
-				e.m_inten5 = r.get_endpoint_cluster_inten_table(i, false);
-			}
-			else
-			{
-				BASISU_BACKEND_VERIFY(false);
-			}
+			e.m_color5 = r.get_endpoint_cluster_unscaled_color(i, false);
+			e.m_inten5 = r.get_endpoint_cluster_inten_table(i, false);
+
+			BASISU_BACKEND_VERIFY(e.m_color5_valid);
 		}
 	}
 
 	void basisu_backend::create_selector_palette()
 	{
 		const basisu_frontend &r = *m_pFront_end;
+
+		m_output.m_num_selectors = r.get_total_selector_clusters();
 
 		m_selector_palette.resize(r.get_total_selector_clusters());
 
@@ -164,377 +162,308 @@ namespace basisu
 			}
 		}
 	}
-
-	// endpoint palette
-	//   5:5:5 and predicted 4:4:4 colors, 1 or 2 3-bit intensity table indices
-	// selector palette
-	//   4x4 2-bit selectors
-
-	// per-macroblock:
-	//  4 diff bits
-	//  4 flip bits
-	//  Endpoint template index, 1-8 endpoint indices
-	//      Alternately, if no template applies, we can send 4 ETC1S bits followed by 4-8 endpoint indices
-	//  4 selector indices
-
-	float basisu_backend::selector_zeng_similarity_func(uint32_t index_a, uint32_t index_b, void *pContext)
+	
+	static const struct 
 	{
-		basisu_backend& backend = *static_cast<basisu_backend*>(pContext);
-
-		const basist::etc1_selector_palette_entry &a = backend.m_selector_palette[index_a];
-		const basist::etc1_selector_palette_entry &b = backend.m_selector_palette[index_b];
-
-		float total = static_cast<float>(a.calc_hamming_dist(b));
-
-		float weight = 1.0f - clamp(total * (1.0f / 32.0f), 0.0f, 1.0f);
-		return weight;
-	}
-
-	void basisu_backend::create_macroblocks()
+		int8_t m_dx, m_dy;
+	} g_endpoint_preds[] = 
 	{
-		const basisu_frontend &r = *m_pFront_end;
+		{ -1, 0 },
+		{ 0, -1 },
+		{ -1, -1 }
+	};
+	const uint32_t NUM_ENDPOINT_PREDS = BASISU_ARRAY_SIZE(g_endpoint_preds);
+	const uint32_t NO_ENDPOINT_PRED_INDEX = 3;//NUM_ENDPOINT_PREDS;
 
-		m_slice_macroblocks.resize(m_slices.size());
+	void basisu_backend::reoptimize_and_sort_endpoints_codebook(uint32_t total_block_endpoints_remapped, uint_vec &all_endpoint_indices)
+	{
+		basisu_frontend &r = *m_pFront_end;
 
-		uint_vec all_endpoint_indices;
-		uint_vec all_selector_indices;
-
-		uint32_t total_template_exceptions = 0;
-
-		for (uint32_t slice_index = 0; slice_index < m_slices.size(); slice_index++)
+		if (total_block_endpoints_remapped)
 		{
-			const uint32_t first_block_index = m_slices[slice_index].m_first_block_index;
-
-			const uint32_t width = m_slices[slice_index].m_width;
-			const uint32_t height = m_slices[slice_index].m_height;
-			const uint32_t num_blocks_x = m_slices[slice_index].m_num_blocks_x;
-			const uint32_t num_blocks_y = m_slices[slice_index].m_num_blocks_y;
-
-			const uint32_t num_macroblocks_x = m_slices[slice_index].m_num_macroblocks_x;
-			const uint32_t num_macroblocks_y = m_slices[slice_index].m_num_macroblocks_y;
-
-			m_slice_macroblocks[slice_index].resize(num_macroblocks_x, num_macroblocks_y);
-
-			for (uint32_t macroblock_y = 0; macroblock_y < num_macroblocks_y; macroblock_y++)
+			// We're changed the block endpoint indices, so we need to go and adjust the endpoint codebook (remove unused entries, optimize existing entries that have changed)
+			uint_vec new_block_endpoints(get_total_blocks());
+		
+			for (uint32_t slice_index = 0; slice_index < m_slices.size(); slice_index++)
 			{
-				const uint32_t y = macroblock_y * 2;
+				const uint32_t first_block_index = m_slices[slice_index].m_first_block_index;
+				const uint32_t num_blocks_x = m_slices[slice_index].m_num_blocks_x;
+				const uint32_t num_blocks_y = m_slices[slice_index].m_num_blocks_y;
 
-				const int x_start = (macroblock_y & 1) ? (num_macroblocks_x - 1) : 0;
-				const int x_end = (macroblock_y & 1) ? -1 : num_macroblocks_x;
-				const int x_dir = (macroblock_y & 1) ? -1 : 1;
+				for (uint32_t block_y = 0; block_y < num_blocks_y; block_y++)
+					for (uint32_t block_x = 0; block_x < num_blocks_x; block_x++)
+						new_block_endpoints[first_block_index + block_x + block_y * num_blocks_x] = m_slice_encoder_blocks[slice_index](block_x, block_y).m_endpoint_index;
+			}
 
-				for (int macroblock_x = x_start; macroblock_x != x_end; macroblock_x += x_dir)
+			int_vec old_to_new_endpoint_indices;
+			r.reoptimize_remapped_endpoints(new_block_endpoints, old_to_new_endpoint_indices, true);
+			
+			create_endpoint_palette();
+
+			for (uint32_t slice_index = 0; slice_index < m_slices.size(); slice_index++)
+			{
+				const uint32_t first_block_index = m_slices[slice_index].m_first_block_index;
+
+				const uint32_t width = m_slices[slice_index].m_width;
+				const uint32_t height = m_slices[slice_index].m_height;
+				const uint32_t num_blocks_x = m_slices[slice_index].m_num_blocks_x;
+				const uint32_t num_blocks_y = m_slices[slice_index].m_num_blocks_y;
+
+				for (uint32_t block_y = 0; block_y < num_blocks_y; block_y++)
 				{
-					const uint32_t x = macroblock_x * 2;
-
-					uint32_t block_indices[4];
-					block_indices[0] = first_block_index + x + y * num_blocks_x;
-					block_indices[1] = first_block_index + minimum<int>(x + 1, num_blocks_x - 1) + y * num_blocks_x;
-					block_indices[2] = first_block_index + x + minimum<int>(y + 1, num_blocks_y - 1) * num_blocks_x;
-					block_indices[3] = first_block_index + minimum<int>(x + 1, num_blocks_x - 1) + minimum<int>(y + 1, num_blocks_y - 1) * num_blocks_x;
-
-					etc_block macroblock[4];
-					for (uint32_t i = 0; i < 4; i++)
-						macroblock[i] = r.get_output_block(block_indices[i]);
-
-					uint32_t flip_bits = 0;
-					uint32_t diff_bits = 0;
-					for (uint32_t k = 0; k < 4; k++)
+					for (uint32_t block_x = 0; block_x < num_blocks_x; block_x++)
 					{
-						flip_bits = (flip_bits << 1) | (macroblock[k].get_flip_bit() ? 1 : 0);
-						diff_bits = (diff_bits << 1) | (macroblock[k].get_diff_bit() ? 1 : 0);
-					}
+						const uint32_t block_index = first_block_index + block_x + block_y * num_blocks_x;
 
-					etc1_macroblock m;
+						encoder_block &m = m_slice_encoder_blocks[slice_index](block_x, block_y);
+						
+						m.m_endpoint_index = old_to_new_endpoint_indices[m.m_endpoint_index];
+					} // block_x
+				} // block_y
+			} // slice_index
 
-					m.m_diff_bits = static_cast<uint8_t>(diff_bits);
-					m.m_flip_bits = static_cast<uint8_t>(flip_bits);
+			for (uint32_t i = 0; i < all_endpoint_indices.size(); i++)
+				all_endpoint_indices[i] = old_to_new_endpoint_indices[all_endpoint_indices[i]];
+		
+		} //if (total_block_endpoints_remapped)
 
-					uint_vec endpoint_indices;
+		// Sort endpoint codebook
+		palette_index_reorderer reorderer;
+		reorderer.init((uint32_t)all_endpoint_indices.size(), &all_endpoint_indices[0], r.get_total_endpoint_clusters(), nullptr, nullptr, 0);
+		m_endpoint_remap_table_old_to_new = reorderer.get_remap_table();
 
-					for (uint32_t i = 0; i < 4; i++)
-					{
-						endpoint_indices.push_back(r.get_subblock_endpoint_cluster_index(block_indices[i], 0));
-						endpoint_indices.push_back(r.get_subblock_endpoint_cluster_index(block_indices[i], 1));
-
-						if (macroblock[i].get_diff_bit())
-						{
-							uint32_t e0 = r.get_subblock_endpoint_cluster_index(block_indices[i], 0);
-							uint32_t e1 = r.get_subblock_endpoint_cluster_index(block_indices[i], 1);
-
-							color_rgba c0(r.get_endpoint_cluster_unscaled_color(e0, false));
-							color_rgba c1(r.get_endpoint_cluster_unscaled_color(e1, false));
-
-							etc_block test_block;
-							if (!test_block.set_block_color5_check(c0, c1))
-							{
-								BASISU_BACKEND_VERIFY(0);
-							}
-						}
-
-						m.m_selector_indices.push_back(r.get_block_selector_cluster_index(block_indices[i]));
-					}
-
-					int_vec endpoint_palette;
-					uint8_t endpoint_palette_indices[8];
-					uint32_t n = 0;
-
-					for (uint32_t ty = 0; ty < 2; ty++)
-					{
-						for (uint32_t tx = 0; tx < 2; tx++)
-						{
-							for (uint32_t t = 0; t < 2; t++)
-							{
-								int endpoint_index = r.get_subblock_endpoint_cluster_index(block_indices[tx + ty * 2], t);
-
-								uint32_t p;
-								for (p = 0; p < endpoint_palette.size(); p++)
-									if (endpoint_palette[p] == endpoint_index)
-										break;
-
-								if (p >= endpoint_palette.size())
-								{
-									endpoint_palette.push_back(endpoint_index);
-								}
-
-								endpoint_palette_indices[n++] = static_cast<uint8_t>(p);
-							}
-						}
-					}
-
-					uint32_t t;
-					for (t = 0; t < basist::TOTAL_ENDPOINT_INDEX_TEMPLATES; t++)
-					{
-						if (memcmp(endpoint_palette_indices, basist::g_endpoint_index_templates[t].m_local_indices, 8) == 0)
-							break;
-					}
-
-					// TODO: There shouldn't be any exceptions in ETC1S
-					if (t == basist::TOTAL_ENDPOINT_INDEX_TEMPLATES)
-					{
-						endpoint_palette.resize(0);
-						n = 0;
-						clear_obj(endpoint_palette_indices);
-
-						for (uint32_t i = 0; i < 4; i++)
-						{
-							uint32_t endpoint_index0 = r.get_subblock_endpoint_cluster_index(block_indices[i], 0);
-							uint32_t endpoint_index1 = r.get_subblock_endpoint_cluster_index(block_indices[i], 1);
-
-							endpoint_palette_indices[n++] = static_cast<uint8_t>(endpoint_palette.size());
-							endpoint_palette.push_back(endpoint_index0);
-
-							if (endpoint_index0 != endpoint_index1)
-							{
-								endpoint_palette.push_back(endpoint_index1);
-							}
-
-							endpoint_palette_indices[n++] = static_cast<uint8_t>(endpoint_palette.size() - 1);
-						}
-
-						for (t = 0; t < basist::TOTAL_ENDPOINT_INDEX_TEMPLATES; t++)
-						{
-							if (memcmp(endpoint_palette_indices, basist::g_endpoint_index_templates[t].m_local_indices, 8) == 0)
-								break;
-						}
-
-						BASISU_BACKEND_VERIFY(t != basist::TOTAL_ENDPOINT_INDEX_TEMPLATES);
-
-						total_template_exceptions++;
-					}
-
-					m.m_template_index = t;
-					m.m_endpoint_indices = endpoint_palette;
-
-					for (uint32_t i = 0; i < 4; i++)
-					{
-						if (!macroblock[i].get_diff_bit())
-							continue;
-
-						uint32_t l0 = basist::g_endpoint_index_templates[t].m_local_indices[i * 2 + 0];
-						uint32_t l1 = basist::g_endpoint_index_templates[t].m_local_indices[i * 2 + 1];
-
-						uint32_t e0 = endpoint_palette[l0];
-						uint32_t e1 = endpoint_palette[l1];
-
-						//uint32_t e0 = r.get_subblock_endpoint_cluster_index(block_indices[i], 0);
-						//uint32_t e1 = r.get_subblock_endpoint_cluster_index(block_indices[i], 1);
-
-						color_rgba c0(r.get_endpoint_cluster_unscaled_color(e0, false));
-						color_rgba c1(r.get_endpoint_cluster_unscaled_color(e1, false));
-
-						etc_block test_block;
-						if (!test_block.set_block_color5_check(c0, c1))
-						{
-							BASISU_BACKEND_VERIFY(0);
-						}
-					}
-
-					m_slice_macroblocks[slice_index](macroblock_x, macroblock_y) = m;
-
-					for (uint32_t i = 0; i < endpoint_palette.size(); i++)
-						all_endpoint_indices.push_back(endpoint_palette[i]);
-
-					for (uint32_t i = 0; i < m.m_selector_indices.size(); i++)
-						all_selector_indices.push_back(m.m_selector_indices[i]);
-
-				} // macroblock_x
-
-			} // macroblock_y
-		} // slice
-
-		debug_printf("Total template exception: %u out of %u %3.1f%%\n", total_template_exceptions, get_total_macroblocks(), total_template_exceptions * 100.0f / get_total_macroblocks());
-
-#if DISABLE_CODEBOOK_REORDERING
-		m_endpoint_remap_table_old_to_new.resize(r.get_total_endpoint_clusters());
-		for (uint32_t i = 0; i < r.get_total_endpoint_clusters(); i++)
-			m_endpoint_remap_table_old_to_new[i] = i;
-
-		m_selector_remap_table_old_to_new.resize(r.get_total_selector_clusters());
-		for (uint32_t i = 0; i < r.get_total_selector_clusters(); i++)
-			m_selector_remap_table_old_to_new[i] = i;
-#else
-		{
-			//create_zeng_reorder_table(r.get_total_endpoint_clusters(), all_endpoint_indices.size(), all_endpoint_indices.get_ptr(), m_endpoint_remap_table_old_to_new, NULL, NULL, 0.0f);
-
-			palette_index_reorderer reorderer;
-			reorderer.init((uint32_t)all_endpoint_indices.size(), &all_endpoint_indices[0], r.get_total_endpoint_clusters(), nullptr, nullptr, 0);
-			m_endpoint_remap_table_old_to_new = reorderer.get_remap_table();
-		}
-
-		// Maps old to new selector indices
-		{
-			//const float selector_similarity_func_weight = 1.0f;
-			//create_zeng_reorder_table(r.get_total_selector_clusters(), all_selector_indices.size(), all_selector_indices.get_ptr(), m_selector_remap_table_old_to_new, selector_zeng_similarity_func, this, selector_similarity_func_weight);
-			//create_zeng_reorder_table(r.get_total_selector_clusters(), all_selector_indices.size(), all_selector_indices.get_ptr(), m_selector_remap_table_old_to_new, NULL, NULL, 0.0f);
-
-			palette_index_reorderer reorderer;
-			reorderer.init((uint32_t)all_selector_indices.size(), &all_selector_indices[0], r.get_total_selector_clusters(), nullptr, nullptr, 0);
-			m_selector_remap_table_old_to_new = reorderer.get_remap_table();
-		}
-
-#endif
 		m_endpoint_remap_table_new_to_old.resize(r.get_total_endpoint_clusters());
 		for (uint32_t i = 0; i < m_endpoint_remap_table_old_to_new.size(); i++)
 			m_endpoint_remap_table_new_to_old[m_endpoint_remap_table_old_to_new[i]] = i;
-
-		// Maps new to old selector indices
-		m_selector_remap_table_new_to_old.resize(r.get_total_selector_clusters());
-		for (uint32_t i = 0; i < m_selector_remap_table_old_to_new.size(); i++)
-			m_selector_remap_table_new_to_old[m_selector_remap_table_old_to_new[i]] = i;
-
-		if (!m_params.m_use_global_sel_codebook)
-			optimize_selector_palette_order(all_selector_indices);
 	}
 
-	void basisu_backend::optimize_selector_palette_order(const uint_vec &all_selector_indices)
+	void basisu_backend::sort_selector_codebook()
 	{
-		const basisu_frontend &r = *m_pFront_end;
+		basisu_frontend &r = *m_pFront_end;
 
-		uint_vec new_selector_hist(r.get_total_selector_clusters());
-		for (uint32_t i = 0; i < all_selector_indices.size(); i++)
-			new_selector_hist[m_selector_remap_table_old_to_new[all_selector_indices[i]]]++;
+		m_selector_remap_table_new_to_old.resize(r.get_total_selector_clusters());
+		
+		m_selector_remap_table_new_to_old[0] = 0;
+		uint32_t prev_selector_index = 0;
 
-		uint32_t max_hist_value = 0;
-		uint32_t max_hist_value_index = 0;
-		for (uint32_t i = 0; i < new_selector_hist.size(); i++)
+		int_vec remaining_selectors;
+		remaining_selectors.reserve(r.get_total_selector_clusters() - 1);
+		for (uint32_t i = 1; i < r.get_total_selector_clusters(); i++)
+			remaining_selectors.push_back(i);
+
+		// This is the traveling salesman problem.
+		for (uint32_t i = 1; i < r.get_total_selector_clusters(); i++)
 		{
-			if (new_selector_hist[i] > max_hist_value)
+			uint32_t best_hamming_dist = 100;
+			uint32_t best_index = 0;
+
+#if BASISU_FASTER_SELECTOR_REORDERING
+			const uint32_t step = (remaining_selectors.size() > 16) ? 16 : 1;
+			for (uint32_t j = 0; j < remaining_selectors.size(); j += step)
+#else
+			for (uint32_t j = 0; j < remaining_selectors.size(); j++)
+#endif
 			{
-				max_hist_value = new_selector_hist[i];
-				max_hist_value_index = i;
-			}
-		}
+				int selector_index = remaining_selectors[j];
+				
+				uint32_t hamming_dist = 
+					basist::g_hamming_dist[m_selector_palette[prev_selector_index].get_byte(0) ^ m_selector_palette[selector_index].get_byte(0)] + 
+					basist::g_hamming_dist[m_selector_palette[prev_selector_index].get_byte(1) ^ m_selector_palette[selector_index].get_byte(1)] + 
+					basist::g_hamming_dist[m_selector_palette[prev_selector_index].get_byte(2) ^ m_selector_palette[selector_index].get_byte(2)] + 
+					basist::g_hamming_dist[m_selector_palette[prev_selector_index].get_byte(3) ^ m_selector_palette[selector_index].get_byte(3)];
 
-		uint_vec optimized_selector_order;
-
-		const uint32_t N = 32;
-		for (uint32_t i = 0; i < r.get_total_selector_clusters(); i += N)
-		{
-			const uint32_t e = minimum<int>(i + N, r.get_total_selector_clusters());
-
-			if (do_excl_ranges_overlap(i, e, static_cast<int>(max_hist_value_index) - 16, static_cast<int>(max_hist_value_index) + 16))
-			{
-				for (uint32_t j = i; j < e; j++)
-					optimized_selector_order.push_back(j);
-				continue;
-			}
-
-			basist::etc1_selector_palette_entry prev_entry(m_selector_palette[m_selector_remap_table_new_to_old[i]]);
-
-			optimized_selector_order.push_back(i);
-
-			uint_vec remaining_entries;
-			for (uint32_t j = i + 1; j < e; j++)
-				remaining_entries.push_back(j);
-
-			for (uint32_t j = i + 1; j < e; j++)
-			{
-				uint32_t best_dist = UINT32_MAX;
-				uint32_t best_entry = 0;
-
-				for (uint32_t k = 0; k < remaining_entries.size(); k++)
+				if (hamming_dist < best_hamming_dist)
 				{
-					uint32_t dist = prev_entry.calc_hamming_dist(m_selector_palette[m_selector_remap_table_new_to_old[remaining_entries[k]]]);
-					if (dist < best_dist)
-					{
-						best_dist = dist;
-						best_entry = k;
-					}
+					best_hamming_dist = hamming_dist;
+					best_index = j;
+					if (best_hamming_dist <= 1)
+						break;
 				}
-
-				optimized_selector_order.push_back(remaining_entries[best_entry]);
-
-				prev_entry = m_selector_palette[m_selector_remap_table_new_to_old[remaining_entries[best_entry]]];
-
-				remaining_entries.erase(remaining_entries.begin() + best_entry);
 			}
+			
+			prev_selector_index = remaining_selectors[best_index];
+			m_selector_remap_table_new_to_old[i] = prev_selector_index;
+			
+			remaining_selectors[best_index] = remaining_selectors.back();
+			remaining_selectors.resize(remaining_selectors.size() - 1);
 		}
-
-		uint_vec temp(r.get_total_selector_clusters());
-		for (uint32_t i = 0; i < r.get_total_selector_clusters(); i++)
-			temp[i] = m_selector_remap_table_new_to_old[optimized_selector_order[i]];
-
-		m_selector_remap_table_new_to_old = temp;
-
-		for (uint32_t i = 0; i < r.get_total_selector_clusters(); i++)
+		
+		m_selector_remap_table_old_to_new.resize(r.get_total_selector_clusters());
+		for (uint32_t i = 0; i < m_selector_remap_table_new_to_old.size(); i++)
 			m_selector_remap_table_old_to_new[m_selector_remap_table_new_to_old[i]] = i;
 	}
-
-	bool basisu_backend::encode_image()
-	{
-		const basisu_frontend &r = *m_pFront_end;
-
-		uint_vec endpoint_histogram(r.get_total_endpoint_clusters() * 2);
-		uint_vec selector_histogram(r.get_total_selector_clusters() * 2);
-		uint_vec actual_selector_histogram(r.get_total_selector_clusters());
 				
-		// TODO: Choose the size in an intelligent way (try different sizes?)
-		const uint32_t MAX_SELECTOR_HISTORY_BUF_SIZE = 64;
-		basist::approx_move_to_front selector_history_buf(MAX_SELECTOR_HISTORY_BUF_SIZE);
-		histogram selector_history_buf_histogram(MAX_SELECTOR_HISTORY_BUF_SIZE);
+	void basisu_backend::create_encoder_blocks()
+	{
+		basisu_frontend &r = *m_pFront_end;
 
-		uint32_t total_used_selector_history_buf = 0;
+		m_slice_encoder_blocks.resize(m_slices.size());
 
-		histogram delta_endpoint_histogram(r.get_total_endpoint_clusters() * 2);
-		histogram delta_selector_histogram(MAX_SELECTOR_HISTORY_BUF_SIZE + r.get_total_selector_clusters() * 2 + 1);
-		histogram template_histogram(basist::TOTAL_ENDPOINT_INDEX_TEMPLATES);
+		uint32_t total_endpoint_pred_missed = 0, total_endpoint_pred_hits = 0, total_block_endpoints_remapped = 0;
 
-		const uint32_t SELECTOR_HISTORY_BUF_RLE_COUNT_THRESH = 3;
-		const uint32_t SELECTOR_HISTORY_BUF_RLE_COUNT_BITS = 6;
-		const uint32_t SELECTOR_HISTORY_BUF_RLE_COUNT_TOTAL = (1 << SELECTOR_HISTORY_BUF_RLE_COUNT_BITS);
+		uint_vec all_endpoint_indices;
+		all_endpoint_indices.reserve(get_total_blocks());
+										
+		for (uint32_t slice_index = 0; slice_index < m_slices.size(); slice_index++)
+		{
+			const uint32_t first_block_index = m_slices[slice_index].m_first_block_index;
 
-		const uint32_t SELECTOR_HISTORY_BUF_FIRST_SYMBOL_INDEX = r.get_total_selector_clusters() * 2;
-		const uint32_t SELECTOR_HISTORY_BUF_RLE_SYMBOL_INDEX = SELECTOR_HISTORY_BUF_FIRST_SYMBOL_INDEX + MAX_SELECTOR_HISTORY_BUF_SIZE;
+			const uint32_t width = m_slices[slice_index].m_width;
+			const uint32_t height = m_slices[slice_index].m_height;
+			const uint32_t num_blocks_x = m_slices[slice_index].m_num_blocks_x;
+			const uint32_t num_blocks_y = m_slices[slice_index].m_num_blocks_y;
 
-		histogram selector_history_buf_rle_histogram(1 << SELECTOR_HISTORY_BUF_RLE_COUNT_BITS);
+			m_slice_encoder_blocks[slice_index].resize(num_blocks_x, num_blocks_y);
 
-		uint32_t total_selector_indices_remapped = 0;
+			for (uint32_t block_y = 0; block_y < num_blocks_y; block_y++)
+			{
+				for (uint32_t block_x = 0; block_x < num_blocks_x; block_x++)
+				{
+					const uint32_t block_index = first_block_index + block_x + block_y * num_blocks_x;
 
-		std::vector<uint_vec> selector_syms(m_slices.size());
+					encoder_block &m = m_slice_encoder_blocks[slice_index](block_x, block_y);
+																				
+					m.m_endpoint_index = r.get_subblock_endpoint_cluster_index(block_index, 0);
+					BASISU_BACKEND_VERIFY(r.get_subblock_endpoint_cluster_index(block_index, 0) == r.get_subblock_endpoint_cluster_index(block_index, 1));
 
-		m_output.m_slice_image_crcs.resize(m_slices.size());
+					m.m_selector_index = r.get_block_selector_cluster_index(block_index);
 
+					m.m_endpoint_predictor = NO_ENDPOINT_PRED_INDEX;
+
+					const uint32_t block_endpoint = m.m_endpoint_index;
+
+					uint32_t best_endpoint_pred = UINT32_MAX;
+
+					for (uint32_t endpoint_pred = 0; endpoint_pred < NUM_ENDPOINT_PREDS; endpoint_pred++)
+					{
+						int pred_block_x = block_x + g_endpoint_preds[endpoint_pred].m_dx;
+						if ((pred_block_x < 0) || (pred_block_x >= (int)num_blocks_x))
+							continue;
+
+						int pred_block_y = block_y + g_endpoint_preds[endpoint_pred].m_dy;
+						if ((pred_block_y < 0) || (pred_block_y >= (int)num_blocks_y))
+							continue;
+						
+						uint32_t pred_endpoint = m_slice_encoder_blocks[slice_index](pred_block_x, pred_block_y).m_endpoint_index;
+									
+						if (pred_endpoint == block_endpoint)
+						{
+							if (endpoint_pred < best_endpoint_pred)
+							{
+								best_endpoint_pred = endpoint_pred;
+							}
+						}
+					
+					} // endpoint_pred
+
+					if (best_endpoint_pred != UINT32_MAX)
+					{
+						m.m_endpoint_predictor = best_endpoint_pred;
+						
+						total_endpoint_pred_hits++;
+					}
+					else if (m_params.m_endpoint_rdo_quality_thresh > 0.0f)
+					{
+						const pixel_block &src_pixels = r.get_source_pixel_block(block_index);
+
+						etc_block etc_blk(r.get_output_block(block_index));
+
+						uint64_t cur_err = etc_blk.evaluate_etc1_error(src_pixels.get_ptr(), r.get_params().m_perceptual);
+
+						if (cur_err)
+						{
+							const uint64_t thresh_err = (uint64_t)(cur_err * maximum(1.0f, m_params.m_endpoint_rdo_quality_thresh));
+
+							etc_block trial_etc_block(etc_blk);
+
+							uint64_t best_err = UINT64_MAX;
+							uint32_t best_endpoint_index = 0;
+							
+							best_endpoint_pred = UINT32_MAX;
+												
+							for (uint32_t endpoint_pred = 0; endpoint_pred < NUM_ENDPOINT_PREDS; endpoint_pred++)
+							{
+								int pred_block_x = block_x + g_endpoint_preds[endpoint_pred].m_dx;
+								if ((pred_block_x < 0) || (pred_block_x >= (int)num_blocks_x))
+									continue;
+
+								int pred_block_y = block_y + g_endpoint_preds[endpoint_pred].m_dy;
+								if ((pred_block_y < 0) || (pred_block_y >= (int)num_blocks_y))
+									continue;
+						
+								uint32_t pred_endpoint_index = m_slice_encoder_blocks[slice_index](pred_block_x, pred_block_y).m_endpoint_index;
+
+								uint32_t pred_inten = r.get_endpoint_cluster_inten_table(pred_endpoint_index, false);
+								color_rgba pred_color = r.get_endpoint_cluster_unscaled_color(pred_endpoint_index, false);
+								
+								trial_etc_block.set_block_color5(pred_color, pred_color);
+								trial_etc_block.set_inten_table(0, pred_inten);
+								trial_etc_block.set_inten_table(1, pred_inten);
+
+								color_rgba trial_colors[16];
+								unpack_etc1(trial_etc_block, trial_colors);
+
+								uint64_t trial_err = 0;
+								for (uint32_t p = 0; p < 16; p++)
+								{
+									trial_err += color_distance(r.get_params().m_perceptual, src_pixels.get_ptr()[p], trial_colors[p], false);
+									if (trial_err > thresh_err)
+										break;
+								}
+								
+								if (trial_err <= thresh_err)
+								{
+									if ((trial_err < best_err) || ((trial_err == best_err) && (endpoint_pred < best_endpoint_pred)))
+									{
+										best_endpoint_pred = endpoint_pred;
+										best_err = trial_err;
+										best_endpoint_index = pred_endpoint_index;
+									}
+								}
+							} // endpoint_pred
+
+							if (best_endpoint_pred != UINT32_MAX)
+							{
+								m.m_endpoint_index = best_endpoint_index;
+								m.m_endpoint_predictor = best_endpoint_pred;
+
+								total_endpoint_pred_hits++;
+								total_block_endpoints_remapped++;
+							}
+							else
+							{
+								total_endpoint_pred_missed++;
+							}
+						}
+					}
+					else
+					{
+						total_endpoint_pred_missed++;
+					}
+
+					if (m.m_endpoint_predictor == NO_ENDPOINT_PRED_INDEX)
+					{
+						all_endpoint_indices.push_back(m.m_endpoint_index);
+					}
+					
+				} // block_x
+
+			} // block_y
+
+		} // slice
+
+		debug_printf("total_endpoint_pred_missed: %u (%3.2f%%) total_endpoint_pred_hit: %u (%3.2f%%), total_block_endpoints_remapped: %u (%3.2f%%)\n", 
+			total_endpoint_pred_missed, total_endpoint_pred_missed * 100.0f / get_total_blocks(), 
+			total_endpoint_pred_hits, total_endpoint_pred_hits * 100.0f / get_total_blocks(),
+			total_block_endpoints_remapped, total_block_endpoints_remapped * 100.0f / get_total_blocks());
+
+		reoptimize_and_sort_endpoints_codebook(total_block_endpoints_remapped, all_endpoint_indices);
+				
+		sort_selector_codebook();
+	}
+
+	void basisu_backend::compute_slice_crcs()
+	{
 		for (uint32_t slice_index = 0; slice_index < m_slices.size(); slice_index++)
 		{
 			const uint32_t first_block_index = m_slices[slice_index].m_first_block_index;
@@ -542,350 +471,40 @@ namespace basisu
 			const uint32_t height = m_slices[slice_index].m_height;
 			const uint32_t num_blocks_x = m_slices[slice_index].m_num_blocks_x;
 			const uint32_t num_blocks_y = m_slices[slice_index].m_num_blocks_y;
-			const uint32_t num_macroblocks_x = m_slices[slice_index].m_num_macroblocks_x;
-			const uint32_t num_macroblocks_y = m_slices[slice_index].m_num_macroblocks_y;
-
-			selector_history_buf.reset();
-
-			int prev_endpoint_index = 0;
-			int prev_selector_index = 0;
-			int selector_history_buf_rle_count = 0;
 
 			gpu_image gi;
 			gi.init(cETC1, width, height);
 
-			for (uint32_t macroblock_y = 0; macroblock_y < num_macroblocks_y; macroblock_y++)
+			for (uint32_t block_y = 0; block_y < num_blocks_y; block_y++)
 			{
-				const uint32_t y = macroblock_y * 2;
-
-				const int x_start = (macroblock_y & 1) ? (num_macroblocks_x - 1) : 0;
-				const int x_end = (macroblock_y & 1) ? -1 : num_macroblocks_x;
-				const int x_dir = (macroblock_y & 1) ? -1 : 1;
-
-				for (int macroblock_x = x_start; macroblock_x != x_end; macroblock_x += x_dir)
+				for (uint32_t block_x = 0; block_x < num_blocks_x; block_x++)
 				{
-					const uint32_t x = macroblock_x * 2;
+					const uint32_t block_index = first_block_index + block_x + block_y * num_blocks_x;
 
-					uint32_t block_indices[4];
-					block_indices[0] = first_block_index + x + y * num_blocks_x;
-					block_indices[1] = first_block_index + minimum<int>(x + 1, num_blocks_x - 1) + y * num_blocks_x;
-					block_indices[2] = first_block_index + x + minimum<int>(y + 1, num_blocks_y - 1) * num_blocks_x;
-					block_indices[3] = first_block_index + minimum<int>(x + 1, num_blocks_x - 1) + minimum<int>(y + 1, num_blocks_y - 1) * num_blocks_x;
+					encoder_block &m = m_slice_encoder_blocks[slice_index](block_x, block_y);
 
-					etc1_macroblock &m = m_slice_macroblocks[slice_index](macroblock_x, macroblock_y);
-
-					template_histogram.inc(m.m_template_index);
-
-					for (uint32_t i = 0; i < m.m_endpoint_indices.size(); i++)
 					{
-						int idx = m_endpoint_remap_table_old_to_new[m.m_endpoint_indices[i]];
-
-						int delta_idx = idx - prev_endpoint_index;
-						prev_endpoint_index = idx;
-
-						m.m_endpoint_indices[i] = idx;
-						m.m_endpoint_delta_indices.push_back(delta_idx);
-
-						delta_endpoint_histogram.inc(delta_idx + r.get_total_endpoint_clusters());
-
-						endpoint_histogram[r.get_total_endpoint_clusters() + delta_idx]++;
-					}
-
-					for (uint32_t i = 0; i < m.m_selector_indices.size(); i++)
-					{
-						int idx = m_selector_remap_table_old_to_new[m.m_selector_indices[i]];
-
-						int selector_history_buf_index = -1;
-
-#if 1
-						if (m_params.m_delta_selector_rdo_quality_thresh > 0.0f)
-						{
-							const pixel_block &src_pixels = r.get_source_pixel_block(block_indices[i]);
-
-							etc_block etc_blk(r.get_output_block(block_indices[i]));
-
-							color_rgba etc_blk_unpacked[16];
-							unpack_etc1(etc_blk, etc_blk_unpacked);
-
-							uint64_t cur_err = 0;
-							for (uint32_t p = 0; p < 16; p++)
-								cur_err += color_distance(r.get_params().m_perceptual, src_pixels.get_ptr()[p], etc_blk_unpacked[p], false);
-
-							uint64_t best_trial_err = UINT64_MAX;
-							int best_trial_idx = 0;
-							uint32_t best_trial_history_buf_idx = 0;
-
-							//int cur_delta_idx = idx - prev_selector_index;
-
-							etc_block best_trial_etc_block;
-
-							const float SELECTOR_REMAP_THRESH = maximum(1.0f, m_params.m_delta_selector_rdo_quality_thresh); //2.5f;
-
-							for (uint32_t j = 0; j < selector_history_buf.size(); j++)
-							{
-								int trial_idx = selector_history_buf[j];
-
-								for (uint32_t sy = 0; sy < 4; sy++)
-									for (uint32_t sx = 0; sx < 4; sx++)
-										etc_blk.set_selector(sx, sy, m_selector_palette[m_selector_remap_table_new_to_old[trial_idx]](sx, sy));
-
-								unpack_etc1(etc_blk, etc_blk_unpacked);
-
-								uint64_t trial_err = 0;
-								for (uint32_t p = 0; p < 16; p++)
-									trial_err += color_distance(r.get_params().m_perceptual, src_pixels.get_ptr()[p], etc_blk_unpacked[p], false);
-
-								if (trial_err <= cur_err * SELECTOR_REMAP_THRESH)
-								{
-									//int trial_delta_idx = trial_idx - prev_selector_index;
-
-									if (trial_err < best_trial_err)
-									{
-										best_trial_err = trial_err;
-										best_trial_idx = trial_idx;
-										best_trial_etc_block = etc_blk;
-										best_trial_history_buf_idx = j;
-									}
-								}
-							}
-
-							if (best_trial_err != UINT64_MAX)
-							{
-								idx = best_trial_idx;
-
-								//total_selector_indices_remapped++;
-
-								total_used_selector_history_buf++;
-
-								selector_history_buf_index = best_trial_history_buf_idx;
-
-								selector_history_buf_histogram.inc(best_trial_history_buf_idx);
-							}
-						}
-#endif
-
-#if 1
-						if ((selector_history_buf_index < 0) && (m_params.m_delta_selector_rdo_quality_thresh > 0.0f))
-						{
-							const pixel_block &src_pixels = r.get_source_pixel_block(block_indices[i]);
-
-							etc_block etc_blk(r.get_output_block(block_indices[i]));
-
-							color_rgba etc_blk_unpacked[16];
-							unpack_etc1(etc_blk, etc_blk_unpacked);
-
-							uint64_t cur_err = 0;
-							for (uint32_t p = 0; p < 16; p++)
-								cur_err += color_distance(r.get_params().m_perceptual, src_pixels.get_ptr()[p], etc_blk_unpacked[p], false);
-
-							uint64_t best_trial_err = UINT64_MAX;
-							int best_trial_idx = 0;
-
-							int cur_delta_idx = idx - prev_selector_index;
-
-							etc_block best_trial_etc_block;
-
-							const float SELECTOR_REMAP_THRESH = maximum(1.0f, m_params.m_delta_selector_rdo_quality_thresh); //2.5f;
-
-							for (int d = -cur_delta_idx + 1; d < cur_delta_idx; d++)
-							{
-								int trial_idx = prev_selector_index + d;
-								if (trial_idx < 0)
-									continue;
-								else if (trial_idx >= static_cast<int>(r.get_total_selector_clusters()))
-									continue;
-
-								if (trial_idx == idx)
-									continue;
-
-								//etc_blk.set_raw_selector_bits(r.get_selector_cluster_selector_bits(m_selector_remap_table_new_to_old[trial_idx]).get_raw_selector_bits());
-								for (uint32_t sy = 0; sy < 4; sy++)
-									for (uint32_t sx = 0; sx < 4; sx++)
-										etc_blk.set_selector(sx, sy, m_selector_palette[m_selector_remap_table_new_to_old[trial_idx]](sx, sy));
-
-								unpack_etc1(etc_blk, etc_blk_unpacked);
-
-								uint64_t trial_err = 0;
-								for (uint32_t p = 0; p < 16; p++)
-									trial_err += color_distance(r.get_params().m_perceptual, src_pixels.get_ptr()[p], etc_blk_unpacked[p], false);
-
-								if (trial_err < cur_err * SELECTOR_REMAP_THRESH)
-								{
-									int trial_delta_idx = trial_idx - prev_selector_index;
-
-									const int N = r.get_total_selector_clusters() / 4;
-									if (iabs(trial_delta_idx) < (uint32_t)N)
-									{
-										float f = iabs(trial_delta_idx) / float(N);
-
-										f = powf(f, 2.0f);
-
-										trial_err = static_cast<uint64_t>(trial_err * lerp(.4f, 1.0f, f));
-									}
-
-									if (trial_err < best_trial_err)
-									{
-										best_trial_err = trial_err;
-										best_trial_idx = trial_idx;
-										best_trial_etc_block = etc_blk;
-									}
-								}
-							}
-
-							if (best_trial_err != UINT64_MAX)
-							{
-								idx = best_trial_idx;
-
-								total_selector_indices_remapped++;
-							}
-						} // if (m_params.m_delta_selector_rdo_quality_thresh >= 1.0f)
-#endif
-
-						int delta_idx = idx - prev_selector_index;
-						prev_selector_index = idx;
-
-						m.m_selector_indices[i] = m_selector_remap_table_new_to_old[idx];
-
-						if ((selector_history_buf_rle_count) && (selector_history_buf_index != 0))
-						{
-							if (selector_history_buf_rle_count >= (int)SELECTOR_HISTORY_BUF_RLE_COUNT_THRESH)
-							{
-								selector_syms[slice_index].push_back(SELECTOR_HISTORY_BUF_RLE_SYMBOL_INDEX);
-								selector_syms[slice_index].push_back(selector_history_buf_rle_count);
-
-								int run_sym = selector_history_buf_rle_count - SELECTOR_HISTORY_BUF_RLE_COUNT_THRESH;
-								if (run_sym >= ((int)SELECTOR_HISTORY_BUF_RLE_COUNT_TOTAL - 1))
-									selector_history_buf_rle_histogram.inc(SELECTOR_HISTORY_BUF_RLE_COUNT_TOTAL - 1);
-								else
-									selector_history_buf_rle_histogram.inc(run_sym);
-
-								delta_selector_histogram.inc(SELECTOR_HISTORY_BUF_RLE_SYMBOL_INDEX);
-							}
-							else
-							{
-								for (int k = 0; k < selector_history_buf_rle_count; k++)
-								{
-									uint32_t sym_index = SELECTOR_HISTORY_BUF_FIRST_SYMBOL_INDEX + 0;
-
-									selector_syms[slice_index].push_back(sym_index);
-
-									delta_selector_histogram.inc(sym_index);
-								}
-							}
-
-							selector_history_buf_rle_count = 0;
-						}
-
-						if (selector_history_buf_index >= 0)
-						{
-							if (selector_history_buf_index == 0)
-								selector_history_buf_rle_count++;
-							else
-							{
-								uint32_t delta_indices_sym = SELECTOR_HISTORY_BUF_FIRST_SYMBOL_INDEX + selector_history_buf_index;
-
-								selector_syms[slice_index].push_back(delta_indices_sym);
-
-								delta_selector_histogram.inc(delta_indices_sym);
-							}
-						}
-						else
-						{
-							uint32_t delta_indices_sym = delta_idx + r.get_total_selector_clusters();
-
-							selector_syms[slice_index].push_back(delta_indices_sym);
-
-							delta_selector_histogram.inc(delta_indices_sym);
-						}
-
-						m.m_selector_delta_indices.push_back(delta_idx);
-						m.m_selector_history_buf_indices.push_back(selector_history_buf_index);
-
-						actual_selector_histogram[idx]++;
-						selector_histogram[r.get_total_selector_clusters() + delta_idx]++;
-
-						if (selector_history_buf_index < 0)
-							selector_history_buf.add(idx);
-						else if (selector_history_buf.size())
-							selector_history_buf.use(selector_history_buf_index);
-					}
-
-					for (uint32_t i = 0; i < 4; i++)
-					{
-						const uint32_t block_x = macroblock_x * 2 + (i & 1);
-						const uint32_t block_y = macroblock_y * 2 + (i / 2);
-						if ((block_x >= gi.get_blocks_x()) || (block_y >= gi.get_blocks_y()))
-							continue;
-
 						etc_block &output_block = *(etc_block *)gi.get_block_ptr(block_x, block_y);
 
-						output_block.set_diff_bit(((m.m_diff_bits << i) & 8) != 0);
-						output_block.set_flip_bit(((m.m_flip_bits << i) & 8) != 0);
+						output_block.set_diff_bit(true);
+						output_block.set_flip_bit(true);
+												
+						const uint32_t endpoint_index = m.m_endpoint_index;
+						
+						output_block.set_block_color5_etc1s(m_endpoint_palette[endpoint_index].m_color5);
+						output_block.set_inten_tables_etc1s(m_endpoint_palette[endpoint_index].m_inten5);
 
-						const basist::endpoint_index_template &t = basist::g_endpoint_index_templates[m.m_template_index];
+						const uint32_t selector_idx = m.m_selector_index;
 
-						uint32_t e0 = m_endpoint_remap_table_new_to_old[m.m_endpoint_indices[t.m_local_indices[i * 2 + 0]]];
-						uint32_t e1 = m_endpoint_remap_table_new_to_old[m.m_endpoint_indices[t.m_local_indices[i * 2 + 1]]];
-
-						if (output_block.get_diff_bit())
-						{
-							BASISU_BACKEND_VERIFY(m_endpoint_palette[e0].m_color5_valid);
-							BASISU_BACKEND_VERIFY(m_endpoint_palette[e1].m_color5_valid);
-
-							if (!output_block.set_block_color5_check(m_endpoint_palette[e0].m_color5, m_endpoint_palette[e1].m_color5))
-							{
-								BASISU_BACKEND_VERIFY(0);
-							}
-
-							output_block.set_inten_table(0, m_endpoint_palette[e0].m_inten5);
-							output_block.set_inten_table(1, m_endpoint_palette[e1].m_inten5);
-						}
-						else
-						{
-							BASISU_BACKEND_VERIFY(false);
-						}
-
-						uint32_t selector_idx = m.m_selector_indices[i];
 						const basist::etc1_selector_palette_entry &selectors = m_selector_palette[selector_idx];
 						for (uint32_t sy = 0; sy < 4; sy++)
 							for (uint32_t sx = 0; sx < 4; sx++)
 								output_block.set_selector(sx, sy, selectors(sx, sy));
 					}
 
-				} // macroblock_x
+				} // block_x
+			} // block_y
 
-			} // macroblock_y
-
-			if (selector_history_buf_rle_count)
-			{
-				if (selector_history_buf_rle_count >= (int)SELECTOR_HISTORY_BUF_RLE_COUNT_THRESH)
-				{
-					selector_syms[slice_index].push_back(SELECTOR_HISTORY_BUF_RLE_SYMBOL_INDEX);
-					selector_syms[slice_index].push_back(selector_history_buf_rle_count);
-
-					int run_sym = selector_history_buf_rle_count - SELECTOR_HISTORY_BUF_RLE_COUNT_THRESH;
-					if (run_sym >= ((int)SELECTOR_HISTORY_BUF_RLE_COUNT_TOTAL - 1))
-						selector_history_buf_rle_histogram.inc(SELECTOR_HISTORY_BUF_RLE_COUNT_TOTAL - 1);
-					else
-						selector_history_buf_rle_histogram.inc(run_sym);
-
-					delta_selector_histogram.inc(SELECTOR_HISTORY_BUF_RLE_SYMBOL_INDEX);
-				}
-				else
-				{
-					for (int i = 0; i < selector_history_buf_rle_count; i++)
-					{
-						uint32_t sym_index = SELECTOR_HISTORY_BUF_FIRST_SYMBOL_INDEX + 0;
-
-						selector_syms[slice_index].push_back(sym_index);
-
-						delta_selector_histogram.inc(sym_index);
-					}
-				}
-
-				selector_history_buf_rle_count = 0;
-			}
-						
 			m_output.m_slice_image_crcs[slice_index] = basist::crc16(gi.get_ptr(), gi.get_size_in_bytes(), 0);
 
 			if (m_params.m_debug_images)
@@ -901,32 +520,429 @@ namespace basisu
 #endif				
 				save_png(buf, gi_unpacked);
 			}
+			 
+		} // slice_index
+	}
 
+	// TODO: Split this into multiple methods.
+	bool basisu_backend::encode_image()
+	{
+		basisu_frontend &r = *m_pFront_end;
+
+		uint32_t total_used_selector_history_buf = 0;
+		uint32_t total_selector_indices_remapped = 0;
+
+		basist::approx_move_to_front selector_history_buf(basist::MAX_SELECTOR_HISTORY_BUF_SIZE);
+		histogram selector_history_buf_histogram(basist::MAX_SELECTOR_HISTORY_BUF_SIZE);
+		histogram selector_histogram(r.get_total_selector_clusters() + basist::MAX_SELECTOR_HISTORY_BUF_SIZE +  1);
+		histogram selector_history_buf_rle_histogram(1 << basist::SELECTOR_HISTORY_BUF_RLE_COUNT_BITS);
+				
+		std::vector<uint_vec> selector_syms(m_slices.size());
+
+		const uint32_t SELECTOR_HISTORY_BUF_FIRST_SYMBOL_INDEX = r.get_total_selector_clusters();
+		const uint32_t SELECTOR_HISTORY_BUF_RLE_SYMBOL_INDEX = SELECTOR_HISTORY_BUF_FIRST_SYMBOL_INDEX + basist::MAX_SELECTOR_HISTORY_BUF_SIZE;
+
+		m_output.m_slice_image_crcs.resize(m_slices.size());
+
+		histogram delta_endpoint_histogram(r.get_total_endpoint_clusters());
+
+		histogram endpoint_pred_histogram(basist::ENDPOINT_PRED_TOTAL_SYMBOLS);
+		std::vector<uint_vec> endpoint_pred_syms(m_slices.size());		
+						
+		uint32_t total_endpoint_indices_remapped = 0;
+
+		uint_vec block_endpoint_indices, block_selector_indices;
+
+		for (uint32_t slice_index = 0; slice_index < m_slices.size(); slice_index++)
+		{
+			const uint32_t first_block_index = m_slices[slice_index].m_first_block_index;
+			const uint32_t width = m_slices[slice_index].m_width;
+			const uint32_t height = m_slices[slice_index].m_height;
+			const uint32_t num_blocks_x = m_slices[slice_index].m_num_blocks_x;
+			const uint32_t num_blocks_y = m_slices[slice_index].m_num_blocks_y;
+
+			selector_history_buf.reset();
+
+			int selector_history_buf_rle_count = 0;
+						
+			int prev_endpoint_pred_sym_bits = -1, endpoint_pred_repeat_count = 0;
+						
+			uint32_t prev_endpoint_index = 0;
+
+			vector2D<uint8_t> block_endpoints_are_referenced(num_blocks_x, num_blocks_y);
+
+			for (uint32_t block_y = 0; block_y < num_blocks_y; block_y++)
+			{
+				for (uint32_t block_x = 0; block_x < num_blocks_x; block_x++)
+				{
+					const uint32_t block_index = first_block_index + block_x + block_y * num_blocks_x;
+
+					encoder_block &m = m_slice_encoder_blocks[slice_index](block_x, block_y);
+
+					if (m.m_endpoint_predictor == 0)
+						block_endpoints_are_referenced(block_x - 1, block_y) = true;
+					else if (m.m_endpoint_predictor == 1)
+						block_endpoints_are_referenced(block_x, block_y - 1) = true;
+					else if (m.m_endpoint_predictor == 2)
+						block_endpoints_are_referenced(block_x - 1, block_y - 1) = true;
+				}
+			}
+						
+			for (uint32_t block_y = 0; block_y < num_blocks_y; block_y++)
+			{
+				for (uint32_t block_x = 0; block_x < num_blocks_x; block_x++)
+				{
+					const uint32_t block_index = first_block_index + block_x + block_y * num_blocks_x;
+
+					encoder_block &m = m_slice_encoder_blocks[slice_index](block_x, block_y);
+
+					if (((block_x & 1) == 0) && ((block_y & 1) == 0))
+					{
+						uint32_t endpoint_pred_cur_sym_bits = 0;
+
+						for (uint32_t y = 0; y < 2; y++)
+						{
+							for (uint32_t x = 0; x < 2; x++)
+							{
+								const uint32_t bx = block_x + x;
+								const uint32_t by = block_y + y;
+								
+								uint32_t pred = NO_ENDPOINT_PRED_INDEX;
+								if ((bx < num_blocks_x) && (by < num_blocks_y))
+									pred = m_slice_encoder_blocks[slice_index](bx, by).m_endpoint_predictor;
+									
+								endpoint_pred_cur_sym_bits |= (pred << (x * 2 + y * 4));
+							}
+						}
+					
+						if ((int)endpoint_pred_cur_sym_bits == prev_endpoint_pred_sym_bits)
+						{
+							endpoint_pred_repeat_count++;
+						}
+						else
+						{
+							if (endpoint_pred_repeat_count > 0)
+							{
+								if (endpoint_pred_repeat_count > (int)basist::ENDPOINT_PRED_MIN_REPEAT_COUNT)
+								{
+									endpoint_pred_histogram.inc(basist::ENDPOINT_PRED_REPEAT_LAST_SYMBOL);
+									endpoint_pred_syms[slice_index].push_back(basist::ENDPOINT_PRED_REPEAT_LAST_SYMBOL);
+									
+									endpoint_pred_syms[slice_index].push_back(endpoint_pred_repeat_count);
+								}
+								else
+								{
+									for (int j = 0; j < endpoint_pred_repeat_count; j++)
+									{
+										endpoint_pred_histogram.inc(prev_endpoint_pred_sym_bits);
+										endpoint_pred_syms[slice_index].push_back(prev_endpoint_pred_sym_bits);
+									}
+								}
+
+								endpoint_pred_repeat_count = 0;
+							}
+
+							endpoint_pred_histogram.inc(endpoint_pred_cur_sym_bits);
+							endpoint_pred_syms[slice_index].push_back(endpoint_pred_cur_sym_bits);
+
+							prev_endpoint_pred_sym_bits = endpoint_pred_cur_sym_bits;
+						}
+					}
+
+					int new_endpoint_index = m_endpoint_remap_table_old_to_new[m.m_endpoint_index];
+
+					if (m.m_endpoint_predictor == NO_ENDPOINT_PRED_INDEX) 
+					{
+						int endpoint_delta = new_endpoint_index - prev_endpoint_index;
+						
+						if ((m_params.m_endpoint_rdo_quality_thresh > 1.0f) && (iabs(endpoint_delta) > 1) && (!block_endpoints_are_referenced(block_x, block_y)))
+						{
+							const pixel_block &src_pixels = r.get_source_pixel_block(block_index);
+
+							etc_block etc_blk(r.get_output_block(block_index));
+
+							const uint64_t cur_err = etc_blk.evaluate_etc1_error(src_pixels.get_ptr(), r.get_params().m_perceptual);
+
+							if (cur_err) 
+							{
+								const float endpoint_remap_thresh = maximum(1.0f, m_params.m_endpoint_rdo_quality_thresh);
+								const uint64_t thresh_err = (uint64_t)(cur_err * endpoint_remap_thresh);
+
+								uint64_t best_trial_err = UINT64_MAX;
+								int best_trial_idx = 0;
+														
+								etc_block trial_etc_blk(etc_blk);
+
+								const int MAX_ENDPOINT_SEARCH_DIST = 32;
+								const int search_dist = minimum<int>(iabs(endpoint_delta) - 1, MAX_ENDPOINT_SEARCH_DIST);
+								for (int d = -search_dist; d < search_dist; d++)
+								{
+									int trial_idx = prev_endpoint_index + d;
+									if (trial_idx < 0)
+										trial_idx += (int)r.get_total_endpoint_clusters();
+									else if (trial_idx >= (int)r.get_total_endpoint_clusters())
+										trial_idx -= (int)r.get_total_endpoint_clusters();
+
+									if (trial_idx == new_endpoint_index)
+										continue;
+
+									const etc1_endpoint_palette_entry &p = m_endpoint_palette[m_endpoint_remap_table_new_to_old[trial_idx]];
+									trial_etc_blk.set_block_color5_etc1s(p.m_color5);
+									trial_etc_blk.set_inten_tables_etc1s(p.m_inten5);
+								
+									uint64_t trial_err = trial_etc_blk.evaluate_etc1_error(src_pixels.get_ptr(), r.get_params().m_perceptual);
+
+									if (trial_err <= thresh_err)
+									{
+										if (trial_err < best_trial_err)
+										{
+											best_trial_err = trial_err;
+											best_trial_idx = trial_idx;
+										}
+									}
+								}
+
+								if (best_trial_err != UINT64_MAX)
+								{
+									m.m_endpoint_index = m_endpoint_remap_table_new_to_old[best_trial_idx];
+
+									new_endpoint_index = best_trial_idx;
+									
+									endpoint_delta = new_endpoint_index - prev_endpoint_index;
+
+									total_endpoint_indices_remapped++;
+								}
+							}
+						}
+						
+						if (endpoint_delta < 0)
+							endpoint_delta += (int)r.get_total_endpoint_clusters();
+
+						delta_endpoint_histogram.inc(endpoint_delta);
+					}
+
+					block_endpoint_indices.push_back(m_endpoint_remap_table_new_to_old[new_endpoint_index]);
+					
+					prev_endpoint_index = new_endpoint_index;
+																			
+					{
+						int new_selector_index = m_selector_remap_table_old_to_new[m.m_selector_index];
+
+						int selector_history_buf_index = -1;
+
+						{
+							const pixel_block &src_pixels = r.get_source_pixel_block(block_index);
+
+							etc_block etc_blk(r.get_output_block(block_index));
+
+							color_rgba etc_blk_unpacked[16];
+							unpack_etc1(etc_blk, etc_blk_unpacked);
+
+							uint64_t cur_err = 0;
+							for (uint32_t p = 0; p < 16; p++)
+								cur_err += color_distance(r.get_params().m_perceptual, src_pixels.get_ptr()[p], etc_blk_unpacked[p], false);
+														
+							uint64_t best_trial_err = UINT64_MAX;
+							int best_trial_idx = 0;
+							uint32_t best_trial_history_buf_idx = 0;
+
+							etc_block best_trial_etc_block;
+
+							const float selector_remap_thresh = maximum(1.0f, m_params.m_selector_rdo_quality_thresh); //2.5f;
+
+							for (uint32_t j = 0; j < selector_history_buf.size(); j++)
+							{
+								int trial_idx = selector_history_buf[j];
+
+								for (uint32_t sy = 0; sy < 4; sy++)
+									for (uint32_t sx = 0; sx < 4; sx++)
+										etc_blk.set_selector(sx, sy, m_selector_palette[m_selector_remap_table_new_to_old[trial_idx]](sx, sy));
+
+								// TODO: Optimize this
+								unpack_etc1(etc_blk, etc_blk_unpacked);
+
+								uint64_t trial_err = 0;
+								const uint64_t thresh_err = minimum((uint64_t)ceilf(cur_err * selector_remap_thresh), best_trial_err);																
+								for (uint32_t p = 0; p < 16; p++)
+								{
+									trial_err += color_distance(r.get_params().m_perceptual, src_pixels.get_ptr()[p], etc_blk_unpacked[p], false);
+									if (trial_err > thresh_err)
+										break;
+								}
+
+								if (trial_err <= cur_err * selector_remap_thresh)
+								{
+									if (trial_err < best_trial_err)
+									{
+										best_trial_err = trial_err;
+										best_trial_idx = trial_idx;
+										best_trial_etc_block = etc_blk;
+										best_trial_history_buf_idx = j;
+									}
+								}
+							}
+
+							if (best_trial_err != UINT64_MAX)
+							{
+								if (new_selector_index != best_trial_idx)
+									total_selector_indices_remapped++;
+
+								new_selector_index = best_trial_idx;
+																
+								total_used_selector_history_buf++;
+
+								selector_history_buf_index = best_trial_history_buf_idx;
+
+								selector_history_buf_histogram.inc(best_trial_history_buf_idx);
+							}
+						} // if (m_params.m_selector_rdo_quality_thresh > 0.0f)
+
+						m.m_selector_index = m_selector_remap_table_new_to_old[new_selector_index];
+						
+						block_selector_indices.push_back(m.m_selector_index);
+
+						if ((selector_history_buf_rle_count) && (selector_history_buf_index != 0))
+						{
+							if (selector_history_buf_rle_count >= (int)basist::SELECTOR_HISTORY_BUF_RLE_COUNT_THRESH)
+							{
+								selector_syms[slice_index].push_back(SELECTOR_HISTORY_BUF_RLE_SYMBOL_INDEX);
+								selector_syms[slice_index].push_back(selector_history_buf_rle_count);
+
+								int run_sym = selector_history_buf_rle_count - basist::SELECTOR_HISTORY_BUF_RLE_COUNT_THRESH;
+								if (run_sym >= ((int)basist::SELECTOR_HISTORY_BUF_RLE_COUNT_TOTAL - 1))
+									selector_history_buf_rle_histogram.inc(basist::SELECTOR_HISTORY_BUF_RLE_COUNT_TOTAL - 1);
+								else
+									selector_history_buf_rle_histogram.inc(run_sym);
+
+								selector_histogram.inc(SELECTOR_HISTORY_BUF_RLE_SYMBOL_INDEX);
+							}
+							else
+							{
+								for (int k = 0; k < selector_history_buf_rle_count; k++)
+								{
+									uint32_t sym_index = SELECTOR_HISTORY_BUF_FIRST_SYMBOL_INDEX + 0;
+
+									selector_syms[slice_index].push_back(sym_index);
+
+									selector_histogram.inc(sym_index);
+								}
+							}
+
+							selector_history_buf_rle_count = 0;
+						}
+
+						if (selector_history_buf_index >= 0)
+						{
+							if (selector_history_buf_index == 0)
+								selector_history_buf_rle_count++;
+							else
+							{
+								uint32_t history_buf_sym = SELECTOR_HISTORY_BUF_FIRST_SYMBOL_INDEX + selector_history_buf_index;
+
+								selector_syms[slice_index].push_back(history_buf_sym);
+
+								selector_histogram.inc(history_buf_sym);
+							}
+						}
+						else
+						{
+							selector_syms[slice_index].push_back(new_selector_index);
+
+							selector_histogram.inc(new_selector_index);
+						}
+
+						m.m_selector_history_buf_index = selector_history_buf_index;
+												
+						if (selector_history_buf_index < 0)
+							selector_history_buf.add(new_selector_index);
+						else if (selector_history_buf.size())
+							selector_history_buf.use(selector_history_buf_index);
+					}
+
+				} // block_x
+
+			} // block_y
+						
+			if (endpoint_pred_repeat_count > 0)
+			{
+				if (endpoint_pred_repeat_count > (int)basist::ENDPOINT_PRED_MIN_REPEAT_COUNT)
+				{
+					endpoint_pred_histogram.inc(basist::ENDPOINT_PRED_REPEAT_LAST_SYMBOL);
+					endpoint_pred_syms[slice_index].push_back(basist::ENDPOINT_PRED_REPEAT_LAST_SYMBOL);
+									
+					endpoint_pred_syms[slice_index].push_back(endpoint_pred_repeat_count);
+				}
+				else
+				{
+					for (int j = 0; j < endpoint_pred_repeat_count; j++)
+					{
+						endpoint_pred_histogram.inc(prev_endpoint_pred_sym_bits);
+						endpoint_pred_syms[slice_index].push_back(prev_endpoint_pred_sym_bits);
+					}
+				}
+
+				endpoint_pred_repeat_count = 0;
+			}
+
+			if (selector_history_buf_rle_count)
+			{
+				if (selector_history_buf_rle_count >= (int)basist::SELECTOR_HISTORY_BUF_RLE_COUNT_THRESH)
+				{
+					selector_syms[slice_index].push_back(SELECTOR_HISTORY_BUF_RLE_SYMBOL_INDEX);
+					selector_syms[slice_index].push_back(selector_history_buf_rle_count);
+
+					int run_sym = selector_history_buf_rle_count - basist::SELECTOR_HISTORY_BUF_RLE_COUNT_THRESH;
+					if (run_sym >= ((int)basist::SELECTOR_HISTORY_BUF_RLE_COUNT_TOTAL - 1))
+						selector_history_buf_rle_histogram.inc(basist::SELECTOR_HISTORY_BUF_RLE_COUNT_TOTAL - 1);
+					else
+						selector_history_buf_rle_histogram.inc(run_sym);
+
+					selector_histogram.inc(SELECTOR_HISTORY_BUF_RLE_SYMBOL_INDEX);
+				}
+				else
+				{
+					for (int i = 0; i < selector_history_buf_rle_count; i++)
+					{
+						uint32_t sym_index = SELECTOR_HISTORY_BUF_FIRST_SYMBOL_INDEX + 0;
+
+						selector_syms[slice_index].push_back(sym_index);
+
+						selector_histogram.inc(sym_index);
+					}
+				}
+
+				selector_history_buf_rle_count = 0;
+			}
+			
 		} // slice_index
 
-		debug_printf("Total selector indices remapped: %u %3.2f%%, Used history buf: %u %3.2f%%\n",
-			total_selector_indices_remapped, total_selector_indices_remapped * 100.0f / (get_total_macroblocks() * 4),
-			total_used_selector_history_buf, total_used_selector_history_buf * 100.0f / (get_total_macroblocks() * 4));
+		debug_printf("Endpoint pred RDO total endpoint indices remapped: %u %3.2f%%\n",
+			total_endpoint_indices_remapped, total_endpoint_indices_remapped * 100.0f / get_total_blocks());
+		
+		debug_printf("Selector history RDO total selector indices remapped: %u %3.2f%%, Used history buf: %u %3.2f%%\n",
+			total_selector_indices_remapped, total_selector_indices_remapped * 100.0f / get_total_blocks(),
+			total_used_selector_history_buf, total_used_selector_history_buf * 100.0f / get_total_blocks());
 
-		if (m_params.m_debug_images)
+		if (total_endpoint_indices_remapped)
 		{
-			//draw_histogram_chart("delta_endpoint_hist.png", "Delta Endpoint Histogram", endpoint_histogram);
-			//draw_histogram_chart("delta_selector_hist.png", "Delta Selector Histogram", selector_histogram);
-			//draw_histogram_chart("selector_hist.png", "Selector Histogram", actual_selector_histogram);
+			int_vec unused;
+			r.reoptimize_remapped_endpoints(block_endpoint_indices, unused, false, &block_selector_indices);
+		
+			create_endpoint_palette();
 		}
 
+		compute_slice_crcs();
+				
+		double endpoint_pred_entropy = endpoint_pred_histogram.get_entropy() / endpoint_pred_histogram.get_total();
 		double delta_endpoint_entropy = delta_endpoint_histogram.get_entropy() / delta_endpoint_histogram.get_total();
-		double delta_selector_entropy = delta_selector_histogram.get_entropy() / delta_selector_histogram.get_total();
-		double template_entropy = template_histogram.get_entropy() / template_histogram.get_total();
+		double selector_entropy = selector_histogram.get_entropy() / selector_histogram.get_total();
+		
+		debug_printf("Histogram entropy: EndpointPred: %3.3f DeltaEndpoint: %3.3f DeltaSelector: %3.3f\n", endpoint_pred_entropy, delta_endpoint_entropy, selector_entropy);
 
-		debug_printf("Entropy: AvgEndpoints/macroblock: %3.3f DeltaEndpoint: %3.3f DeltaSelector: %3.3f Template: %3.3f\n",
-			static_cast<double>(delta_endpoint_histogram.get_total()) / get_total_macroblocks(),
-			delta_endpoint_entropy, delta_selector_entropy, template_entropy);
-
-		huffman_encoding_table template_model;
-		if (!template_model.init(template_histogram, 16))
+		huffman_encoding_table endpoint_pred_model;
+		if (!endpoint_pred_model.init(endpoint_pred_histogram, 16))
 		{
-			error_printf("template_model.init() failed!");
+			error_printf("endpoint_pred_model.init() failed!");
 			return false;
 		}
 
@@ -937,23 +953,10 @@ namespace basisu
 			return false;
 		}
 
-		BASISU_ASSUME(basisu_frontend::cMaxEndpointClusterBits <= 15);
-		uint32_t max_delta_selector_code_size = ceil_log2i(r.get_total_selector_clusters() * 2) + 2;
-
-		max_delta_selector_code_size = clamp<int>(max_delta_selector_code_size, 10, 15);
-
-		if (m_params.m_debug_images)
+		huffman_encoding_table selector_model;
+		if (!selector_model.init(selector_histogram, 16))
 		{
-			uint_vec delta_selector_plot_histogram(delta_selector_histogram.size());
-			for (uint32_t i = 0; i < delta_selector_histogram.size(); i++)
-				delta_selector_plot_histogram[i] = delta_selector_histogram[i];
-			//draw_histogram_chart("delta_selector_symbol_hist.png", "Delta Selector Symbol Histogram", delta_selector_plot_histogram);
-		}
-
-		huffman_encoding_table delta_selector_model;
-		if (!delta_selector_model.init(delta_selector_histogram, max_delta_selector_code_size))
-		{
-			error_printf("delta_selector_model.init() failed!");
+			error_printf("selector_model.init() failed!");
 			return false;
 		}
 
@@ -961,7 +964,7 @@ namespace basisu
 			selector_history_buf_rle_histogram.inc(0);
 
 		huffman_encoding_table selector_history_buf_rle_model;
-		if (!selector_history_buf_rle_model.init(selector_history_buf_rle_histogram, 15))
+		if (!selector_history_buf_rle_model.init(selector_history_buf_rle_histogram, 16))
 		{
 			error_printf("selector_history_buf_rle_model.init() failed!");
 			return false;
@@ -970,27 +973,24 @@ namespace basisu
 		bitwise_coder coder;
 		coder.init(1024 * 1024 * 4);
 
-		uint32_t template_model_bits = coder.emit_huffman_table(template_model);
-		uint32_t delta_endpoint_model_bits = coder.emit_huffman_table(delta_endpoint_model);
-		uint32_t delta_selector_model_bits = coder.emit_huffman_table(delta_selector_model);
+		uint32_t endpoint_pred_model_bits = coder.emit_huffman_table(endpoint_pred_model);
+		uint32_t delta_endpoint_bits = coder.emit_huffman_table(delta_endpoint_model);
+		uint32_t selector_model_bits = coder.emit_huffman_table(selector_model);
 		uint32_t selector_history_buf_run_sym_bits = coder.emit_huffman_table(selector_history_buf_rle_model);
 
-		coder.put_bits(MAX_SELECTOR_HISTORY_BUF_SIZE, 13);
-				
-		const uint32_t SELECTOR_HISTORY_BUF_RUN_RICE_BITS = 3;
-		coder.put_bits(SELECTOR_HISTORY_BUF_RUN_RICE_BITS, 4);
-
-		debug_printf("Model sizes: Template: %u DeltaEndpoint: %u (%3.3f bpp) DeltaSelector: %u (%3.3f bpp) SelectorHistBufRLE: %u (%3.3f bpp)\n",
-			(template_model_bits + 7) / 8,
-			(delta_endpoint_model_bits + 7) / 8, delta_endpoint_model_bits / float(get_total_input_texels()),
-			(delta_selector_model_bits + 7) / 8, delta_selector_model_bits / float(get_total_input_texels()),
-			(selector_history_buf_run_sym_bits + 7) / 8, selector_history_buf_run_sym_bits / float(get_total_input_texels()));
+		coder.put_bits(basist::MAX_SELECTOR_HISTORY_BUF_SIZE, 13);
+		
+		debug_printf("Model sizes: EndpointPred: %u bits %u bytes (%3.3f bpp) DeltaEndpoint: %u bits %u bytes (%3.3f bpp) Selector: %u bits %u bytes (%3.3f bpp) SelectorHistBufRLE: %u bits %u bytes (%3.3f bpp)\n",
+			endpoint_pred_model_bits, (endpoint_pred_model_bits + 7) / 8, endpoint_pred_model_bits / float(get_total_input_texels()),
+			delta_endpoint_bits, (delta_endpoint_bits + 7) / 8, delta_endpoint_bits / float(get_total_input_texels()),
+			selector_model_bits, (selector_model_bits + 7) / 8, selector_model_bits / float(get_total_input_texels()),
+			selector_history_buf_run_sym_bits, (selector_history_buf_run_sym_bits + 7) / 8, selector_history_buf_run_sym_bits / float(get_total_input_texels()));
 
 		coder.flush();
 
 		m_output.m_slice_image_tables = coder.get_bytes();
 
-		uint32_t total_template_bits = 0, total_delta_endpoint_bits = 0, total_delta_selector_bits = 0;
+		uint32_t total_endpoint_pred_bits = 0, total_delta_endpoint_bits = 0, total_selector_bits = 0;
 
 		uint32_t total_image_bytes = 0;
 
@@ -1002,63 +1002,100 @@ namespace basisu
 			const uint32_t height = m_slices[slice_index].m_height;
 			const uint32_t num_blocks_x = m_slices[slice_index].m_num_blocks_x;
 			const uint32_t num_blocks_y = m_slices[slice_index].m_num_blocks_y;
-			const uint32_t num_macroblocks_x = m_slices[slice_index].m_num_macroblocks_x;
-			const uint32_t num_macroblocks_y = m_slices[slice_index].m_num_macroblocks_y;
 
 			coder.init(1024 * 1024 * 4);
 
 			uint32_t cur_selector_sym_ofs = 0;
 			uint32_t selector_rle_count = 0;
 
-			for (uint32_t macroblock_y = 0; macroblock_y < num_macroblocks_y; macroblock_y++)
+			int endpoint_pred_repeat_count = 0;
+			uint32_t cur_endpoint_pred_sym_ofs = 0;
+			uint32_t prev_endpoint_pred_sym = 0;
+			uint32_t prev_endpoint_index = 0;
+						
+			for (uint32_t block_y = 0; block_y < num_blocks_y; block_y++)
 			{
-				const int x_start = (macroblock_y & 1) ? (num_macroblocks_x - 1) : 0;
-				const int x_end = (macroblock_y & 1) ? -1 : num_macroblocks_x;
-				const int x_dir = (macroblock_y & 1) ? -1 : 1;
-
-				for (int macroblock_x = x_start; macroblock_x != x_end; macroblock_x += x_dir)
+				for (uint32_t block_x = 0; block_x < num_blocks_x; block_x++)
 				{
-					const etc1_macroblock &m = m_slice_macroblocks[slice_index](macroblock_x, macroblock_y);
+					const encoder_block &m = m_slice_encoder_blocks[slice_index](block_x, block_y);
 
-					total_template_bits += coder.put_code(m.m_template_index, template_model);
-					
-					for (uint32_t i = 0; i < m.m_endpoint_delta_indices.size(); i++)
-						total_delta_endpoint_bits += coder.put_code(m.m_endpoint_delta_indices[i] + r.get_total_endpoint_clusters(), delta_endpoint_model);
-
-					for (uint32_t i = 0; i < 4; i++)
+					if (((block_x & 1) == 0) && ((block_y & 1) == 0))
 					{
-						if (!selector_rle_count)
+						if (endpoint_pred_repeat_count > 0)
 						{
-							uint32_t selector_sym_index = selector_syms[slice_index][cur_selector_sym_ofs++];
+							endpoint_pred_repeat_count--;
+						}
+						else
+						{
+							uint32_t sym = endpoint_pred_syms[slice_index][cur_endpoint_pred_sym_ofs++];
 
-							if (selector_sym_index == SELECTOR_HISTORY_BUF_RLE_SYMBOL_INDEX)
-								selector_rle_count = selector_syms[slice_index][cur_selector_sym_ofs++];
-
-							total_delta_selector_bits += coder.put_code(selector_sym_index, delta_selector_model);
-
-							if (selector_sym_index == SELECTOR_HISTORY_BUF_RLE_SYMBOL_INDEX)
+							if (sym == basist::ENDPOINT_PRED_REPEAT_LAST_SYMBOL)
 							{
-								int run_sym = selector_rle_count - SELECTOR_HISTORY_BUF_RLE_COUNT_THRESH;
-								if (run_sym >= ((int)SELECTOR_HISTORY_BUF_RLE_COUNT_TOTAL - 1))
-								{
-									total_delta_selector_bits += coder.put_code(SELECTOR_HISTORY_BUF_RLE_COUNT_TOTAL - 1, selector_history_buf_rle_model);
-									total_delta_selector_bits += coder.put_rice(selector_rle_count - SELECTOR_HISTORY_BUF_RLE_COUNT_THRESH, SELECTOR_HISTORY_BUF_RUN_RICE_BITS);
-								}
-								else
-									total_delta_selector_bits += coder.put_code(run_sym, selector_history_buf_rle_model);
+								total_endpoint_pred_bits += coder.put_code(sym, endpoint_pred_model);
+
+								endpoint_pred_repeat_count = endpoint_pred_syms[slice_index][cur_endpoint_pred_sym_ofs++];
+								assert(endpoint_pred_repeat_count >= basist::ENDPOINT_PRED_MIN_REPEAT_COUNT);
+								
+								total_endpoint_pred_bits += coder.put_vlc(endpoint_pred_repeat_count - basist::ENDPOINT_PRED_MIN_REPEAT_COUNT, basist::ENDPOINT_PRED_COUNT_VLC_BITS);	
+
+								endpoint_pred_repeat_count--;
+							}
+							else
+							{
+								total_endpoint_pred_bits += coder.put_code(sym, endpoint_pred_model);
+								
+								prev_endpoint_pred_sym = sym;
 							}
 						}
-
-						if (selector_rle_count)
-							selector_rle_count--;
 					}
 
-				} // macroblock_x
+					const int new_endpoint_index = m_endpoint_remap_table_old_to_new[m.m_endpoint_index];
 
-			} // macroblock_y
+					if (m.m_endpoint_predictor == NO_ENDPOINT_PRED_INDEX)
+					{
+						int endpoint_delta = new_endpoint_index - prev_endpoint_index;
+						if (endpoint_delta < 0)
+							endpoint_delta += (int)r.get_total_endpoint_clusters();
 
+						total_delta_endpoint_bits += coder.put_code(endpoint_delta, delta_endpoint_model);
+					}
+
+					prev_endpoint_index = new_endpoint_index;
+					
+					if (!selector_rle_count)
+					{
+						uint32_t selector_sym_index = selector_syms[slice_index][cur_selector_sym_ofs++];
+
+						if (selector_sym_index == SELECTOR_HISTORY_BUF_RLE_SYMBOL_INDEX)
+							selector_rle_count = selector_syms[slice_index][cur_selector_sym_ofs++];
+
+						total_selector_bits += coder.put_code(selector_sym_index, selector_model);
+
+						if (selector_sym_index == SELECTOR_HISTORY_BUF_RLE_SYMBOL_INDEX)
+						{
+							int run_sym = selector_rle_count - basist::SELECTOR_HISTORY_BUF_RLE_COUNT_THRESH;
+							if (run_sym >= ((int)basist::SELECTOR_HISTORY_BUF_RLE_COUNT_TOTAL - 1))
+							{
+								total_selector_bits += coder.put_code(basist::SELECTOR_HISTORY_BUF_RLE_COUNT_TOTAL - 1, selector_history_buf_rle_model);
+									
+								uint32_t n = selector_rle_count - basist::SELECTOR_HISTORY_BUF_RLE_COUNT_THRESH;
+								total_selector_bits += coder.put_vlc(n, 7);
+							}
+							else
+								total_selector_bits += coder.put_code(run_sym, selector_history_buf_rle_model);
+						}
+					}
+
+					if (selector_rle_count)
+						selector_rle_count--;
+
+				} // block_x
+
+			} // block_y
+
+			BASISU_BACKEND_VERIFY(cur_endpoint_pred_sym_ofs == endpoint_pred_syms[slice_index].size());
 			BASISU_BACKEND_VERIFY(cur_selector_sym_ofs == selector_syms[slice_index].size());
-
+			
 			coder.flush();
 
 			m_output.m_slice_image_data[slice_index] = coder.get_bytes();
@@ -1070,13 +1107,14 @@ namespace basisu
 		} // slice_index
 
 		const double total_texels = static_cast<double>(get_total_input_texels());
-		const double total_macroblocks = static_cast<double>(get_total_macroblocks());
+		const double total_blocks = static_cast<double>(get_total_blocks());
 
-		debug_printf("Total template bits: %u bytes: %u bits/texel: %3.3f bits/macroblock: %3.3f\n", total_template_bits, total_template_bits / 8, total_template_bits / total_texels, total_template_bits / total_macroblocks);
-		debug_printf("Total delta endpoint bits: %u bytes: %u bits/texel: %3.3f bits/macroblock: %3.3f\n", total_delta_endpoint_bits, total_delta_endpoint_bits / 8, total_delta_endpoint_bits / total_texels, total_delta_endpoint_bits / total_macroblocks);
-		debug_printf("Total delta selector bits: %u bytes: %u bits/texel: %3.3f bits/macroblock: %3.3f\n", total_delta_selector_bits, total_delta_selector_bits / 8, total_delta_selector_bits / total_texels, total_delta_selector_bits / total_macroblocks);
+		debug_printf("Total endpoint pred bits: %u bytes: %u bits/texel: %3.3f bits/block: %3.3f\n", total_endpoint_pred_bits, total_endpoint_pred_bits / 8, total_endpoint_pred_bits / total_texels, total_endpoint_pred_bits / total_blocks);
+		debug_printf("Total delta endpoint bits: %u bytes: %u bits/texel: %3.3f bits/block: %3.3f\n", total_delta_endpoint_bits, total_delta_endpoint_bits / 8, total_delta_endpoint_bits / total_texels, total_delta_endpoint_bits / total_blocks);
+		debug_printf("Total selector bits: %u bytes: %u bits/texel: %3.3f bits/block: %3.3f\n", total_selector_bits, total_selector_bits / 8, total_selector_bits / total_texels, total_selector_bits / total_blocks);
 
-		debug_printf("Total table bytes: %u, Total image bytes: %u, %3.3f bits/texel\n", m_output.m_slice_image_tables.size(), total_image_bytes, total_image_bytes * 8.0f / total_texels);
+		debug_printf("Total table bytes: %u, %3.3f bits/texel\n", m_output.m_slice_image_tables.size(), m_output.m_slice_image_tables.size() * 8.0f / total_texels);
+		debug_printf("Total image bytes: %u, %3.3f bits/texel\n", total_image_bytes, total_image_bytes * 8.0f / total_texels);
 
 		return true;
 	}
@@ -1084,89 +1122,129 @@ namespace basisu
 	bool basisu_backend::encode_endpoint_palette()
 	{
 		const basisu_frontend &r = *m_pFront_end;
-				
-		histogram color5_delta_hist(32 * 2 - 1);
-		histogram inten5_delta_hist(8 * 2 - 1);
 		
-		color_rgba prev_color5(0, 0, 0, 0);
-		int prev_inten5 = 0;
-
 		// Maps NEW to OLD endpoints
 		uint_vec endpoint_remap_table_inv(r.get_total_endpoint_clusters());
 		for (uint32_t old_endpoint_index = 0; old_endpoint_index < m_endpoint_remap_table_old_to_new.size(); old_endpoint_index++)
 			endpoint_remap_table_inv[m_endpoint_remap_table_old_to_new[old_endpoint_index]] = old_endpoint_index;
 
+		bool is_grayscale = true;
+		for (uint32_t old_endpoint_index = 0; old_endpoint_index < (uint32_t)m_endpoint_palette.size(); old_endpoint_index++)
+		{
+			int r5 = m_endpoint_palette[old_endpoint_index].m_color5[0];
+			int g5 = m_endpoint_palette[old_endpoint_index].m_color5[1];
+			int b5 = m_endpoint_palette[old_endpoint_index].m_color5[2];
+			if ((r5 != g5) || (r5 != b5))
+			{
+				is_grayscale = false;
+				break;
+			}
+		}
+		
+		histogram color5_delta_hist0(32); // prev 0-9, delta is -9 to 31
+		histogram color5_delta_hist1(32); // prev 10-21, delta is -21 to 21
+		histogram color5_delta_hist2(32); // prev 22-31, delta is -31 to 9
+		histogram inten_delta_hist(8);
+										
+		color_rgba prev_color5(16, 16, 16, 0);
+		uint32_t prev_inten = 0;
+						
 		for (uint32_t new_endpoint_index = 0; new_endpoint_index < r.get_total_endpoint_clusters(); new_endpoint_index++)
 		{
 			const uint32_t old_endpoint_index = endpoint_remap_table_inv[new_endpoint_index];
-												
-			int delta_r5 = m_endpoint_palette[old_endpoint_index].m_color5[0] - prev_color5[0];
-			int delta_g5 = m_endpoint_palette[old_endpoint_index].m_color5[1] - prev_color5[1];
-			int delta_b5 = m_endpoint_palette[old_endpoint_index].m_color5[2] - prev_color5[2];
-			int delta_inten5 = m_endpoint_palette[old_endpoint_index].m_inten5 - prev_inten5;
+						
+			int delta_inten = m_endpoint_palette[old_endpoint_index].m_inten5 - prev_inten;
+			inten_delta_hist.inc(delta_inten & 7);
+			prev_inten = m_endpoint_palette[old_endpoint_index].m_inten5;
+			
+			for (uint32_t i = 0; i < (is_grayscale ? 1U : 3U); i++)
+			{
+				const int delta = (m_endpoint_palette[old_endpoint_index].m_color5[i] - prev_color5[i]) & 31;
 
-			prev_color5[0] = m_endpoint_palette[old_endpoint_index].m_color5[0];
-			prev_color5[1] = m_endpoint_palette[old_endpoint_index].m_color5[1];
-			prev_color5[2] = m_endpoint_palette[old_endpoint_index].m_color5[2];
-			prev_inten5 = m_endpoint_palette[old_endpoint_index].m_inten5;
+				if (prev_color5[i] <= basist::COLOR5_PAL0_PREV_HI)
+					color5_delta_hist0.inc(delta);
+				else if (prev_color5[i] <= basist::COLOR5_PAL1_PREV_HI)
+					color5_delta_hist1.inc(delta);
+				else
+					color5_delta_hist2.inc(delta);
 
-			color5_delta_hist.inc(31 + delta_r5);
-			color5_delta_hist.inc(31 + delta_g5);
-			color5_delta_hist.inc(31 + delta_b5);
-			inten5_delta_hist.inc(7 + delta_inten5);
+				prev_color5[i] = m_endpoint_palette[old_endpoint_index].m_color5[i];
+			}
 		}
-				
-		huffman_encoding_table color5_delta_model;
-		if (!color5_delta_model.init(color5_delta_hist, 16))
+
+		if (!color5_delta_hist0.get_total()) color5_delta_hist0.inc(0);
+		if (!color5_delta_hist1.get_total()) color5_delta_hist1.inc(0);
+		if (!color5_delta_hist2.get_total()) color5_delta_hist2.inc(0);
+						
+		huffman_encoding_table color5_delta_model0, color5_delta_model1, color5_delta_model2, inten_delta_model;
+		if (!color5_delta_model0.init(color5_delta_hist0, 16))
 		{
 			error_printf("color5_delta_model.init() failed!");
 			return false;
 		}
 
-		huffman_encoding_table inten5_delta_model;
-		if (!inten5_delta_model.init(inten5_delta_hist, 16))
+		if (!color5_delta_model1.init(color5_delta_hist1, 16))
 		{
-			error_printf("inten5_delta_model.init() failed!");
+			error_printf("color5_delta_model.init() failed!");
 			return false;
 		}
-								
+
+		if (!color5_delta_model2.init(color5_delta_hist2, 16))
+		{
+			error_printf("color5_delta_model.init() failed!");
+			return false;
+		}
+
+		if (!inten_delta_model.init(inten_delta_hist, 16))
+		{
+			error_printf("inten3_model.init() failed!");
+			return false;
+		}
+												
 		bitwise_coder coder;
 
-		coder.init(1024 * 1024);
+		coder.init(8192);
 
-		coder.emit_huffman_table(color5_delta_model);
-		coder.emit_huffman_table(inten5_delta_model);
+		coder.emit_huffman_table(color5_delta_model0);
+		coder.emit_huffman_table(color5_delta_model1);
+		coder.emit_huffman_table(color5_delta_model2);
+		coder.emit_huffman_table(inten_delta_model);
 		
-		prev_color5.set(0, 0, 0, 0);
-		prev_inten5 = 0;
+		coder.put_bits(is_grayscale, 1);
 
-		for (uint32_t q = 0; q < r.get_total_endpoint_clusters(); q++)
+		prev_color5.set(16, 16, 16, 0);
+		prev_inten = 0;
+
+		for (uint32_t new_endpoint_index = 0; new_endpoint_index < r.get_total_endpoint_clusters(); new_endpoint_index++)
 		{
-			const uint32_t i = endpoint_remap_table_inv[q];
+			const uint32_t old_endpoint_index = endpoint_remap_table_inv[new_endpoint_index];
 						
-			int delta_r5 = m_endpoint_palette[i].m_color5[0] - prev_color5[0];
-			int delta_g5 = m_endpoint_palette[i].m_color5[1] - prev_color5[1];
-			int delta_b5 = m_endpoint_palette[i].m_color5[2] - prev_color5[2];
-			int delta_inten5 = m_endpoint_palette[i].m_inten5 - prev_inten5;
+			int delta_inten = (m_endpoint_palette[old_endpoint_index].m_inten5 - prev_inten) & 7;
+			coder.put_code(delta_inten, inten_delta_model);
+			prev_inten = m_endpoint_palette[old_endpoint_index].m_inten5;
+						
+			for (uint32_t i = 0; i < (is_grayscale ? 1U : 3U); i++)
+			{
+				const int delta = (m_endpoint_palette[old_endpoint_index].m_color5[i] - prev_color5[i]) & 31;
 
-			prev_color5[0] = m_endpoint_palette[i].m_color5[0];
-			prev_color5[1] = m_endpoint_palette[i].m_color5[1];
-			prev_color5[2] = m_endpoint_palette[i].m_color5[2];
-			prev_inten5 = m_endpoint_palette[i].m_inten5;
+				if (prev_color5[i] <= basist::COLOR5_PAL0_PREV_HI)
+					coder.put_code(delta, color5_delta_model0);
+				else if (prev_color5[i] <= basist::COLOR5_PAL1_PREV_HI)
+					coder.put_code(delta, color5_delta_model1);
+				else
+					coder.put_code(delta, color5_delta_model2);
 
-			coder.put_code(31 + delta_r5, color5_delta_model);
-			coder.put_code(31 + delta_g5, color5_delta_model);
-			coder.put_code(31 + delta_b5, color5_delta_model);
-			coder.put_code(7 + delta_inten5, inten5_delta_model);
-			
+				prev_color5[i] = m_endpoint_palette[old_endpoint_index].m_color5[i];
+			}
+
 		} // q
 
 		coder.flush();
 
 		m_output.m_endpoint_palette = coder.get_bytes();
 
-		debug_printf("Endpoint palette size: %u, Bits per entry: %3.1f, Avg bits/texel: %3.3f\n",
-			m_output.m_endpoint_palette.size(), m_output.m_endpoint_palette.size() * 8.0f / r.get_total_endpoint_clusters(), m_output.m_endpoint_palette.size() * 8.0f / get_total_input_texels());
+		debug_printf("Endpoint codebook size: %u bits %u bytes, Bits per entry: %3.1f, Avg bits/texel: %3.3f\n",
+			8 * (int)m_output.m_endpoint_palette.size(), (int)m_output.m_endpoint_palette.size(), m_output.m_endpoint_palette.size() * 8.0f / r.get_total_endpoint_clusters(), m_output.m_endpoint_palette.size() * 8.0f / get_total_input_texels());
 
 		return true;
 	}
@@ -1174,7 +1252,7 @@ namespace basisu
 	bool basisu_backend::encode_selector_palette()
 	{
 		const basisu_frontend &r = *m_pFront_end;
-
+										
 		if ((m_params.m_use_global_sel_codebook) && (!m_params.m_use_hybrid_sel_codebooks))
 		{
 			histogram global_mod_indices(1 << m_params.m_global_sel_codebook_mod_bits);
@@ -1217,7 +1295,7 @@ namespace basisu
 				if (m_params.m_global_sel_codebook_mod_bits)
 					total_mod_bits += coder.put_code(m_global_selector_palette_desc[i].m_mod_index, global_mod_model);
 			}
-
+						
 			coder.flush();
 
 			m_output.m_selector_palette = coder.get_bytes();
@@ -1384,24 +1462,22 @@ namespace basisu
 
 		}  // if (m_params.m_use_global_sel_codebook)        
 
-		debug_printf("Selector palette bytes: %u, Bits per entry: %3.1f, Avg bits/texel: %3.3f\n", m_output.m_selector_palette.size(), m_output.m_selector_palette.size() * 8.0f / r.get_total_selector_clusters(), m_output.m_selector_palette.size() * 8.0f / get_total_input_texels());
+		debug_printf("Selector codebook bits: %u bytes: %u, Bits per entry: %3.1f, Avg bits/texel: %3.3f\n", 
+			(int)m_output.m_selector_palette.size() * 8, (int)m_output.m_selector_palette.size(), 
+			m_output.m_selector_palette.size() * 8.0f / r.get_total_selector_clusters(), m_output.m_selector_palette.size() * 8.0f / get_total_input_texels());
 
 		return true;
 	}
 
 	uint32_t basisu_backend::encode()
 	{
-		const basisu_frontend &r = *m_pFront_end;
-
 		m_output.m_slice_desc = m_slices;
 		m_output.m_etc1s = m_params.m_etc1s;
-		m_output.m_num_endpoints = r.get_total_endpoint_clusters();
-		m_output.m_num_selectors = r.get_total_selector_clusters();
-
+				
 		create_endpoint_palette();
 		create_selector_palette();
 
-		create_macroblocks();
+		create_encoder_blocks();
 
 		if (!encode_image())
 			return 0;

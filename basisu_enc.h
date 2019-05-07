@@ -466,7 +466,9 @@ namespace basisu
 			return false;
 		}
 
+		inline int get_601_luma() const { return (19595U * m_comps[0] + 38470U * m_comps[1] + 7471U * m_comps[2] + 32768U) >> 16U; }
 		inline int get_709_luma() const { return (13938U * m_comps[0] + 46869U * m_comps[1] + 4729U * m_comps[2] + 32768U) >> 16U; } 
+		inline int get_luma(bool luma_601) const { return luma_601 ? get_601_luma() : get_709_luma(); }
 	};
 
 	typedef std::vector<color_rgba> color_rgba_vec;
@@ -1387,6 +1389,24 @@ namespace basisu
 			return code_size;
 		}
 
+		inline uint32_t put_truncated_binary(uint32_t v, uint32_t n)
+		{
+			assert((n >= 2) && (v < n));
+
+			uint32_t k = floor_log2i(n);
+			uint32_t u = (1 << (k + 1)) - n;
+
+			if (v < u)
+				return put_bits(v, k);
+			
+			uint32_t x = v + u;
+			assert((x >> 1) >= u);
+
+			put_bits(x >> 1, k);
+			put_bits(x & 1, 1);
+			return k + 1;
+		}
+
 		inline uint32_t put_rice(uint32_t v, uint32_t m)
 		{
 			assert(m);
@@ -1394,6 +1414,9 @@ namespace basisu
 			const uint64_t start_bits = m_total_bits;
 
 			uint32_t q = v >> m, r = v & ((1 << m) - 1);
+
+			// rice coding sanity check
+			assert(q <= 64);
 			
 			for (; q > 16; q -= 16)
 				put_bits(0xFFFF, 16);
@@ -1402,6 +1425,29 @@ namespace basisu
 			put_bits(r << 1, m + 1);
 			
 			return (uint32_t)(m_total_bits - start_bits);
+		}
+
+		inline uint32_t put_vlc(uint32_t v, uint32_t chunk_bits)
+		{
+			assert(chunk_bits);
+
+			const uint32_t chunk_size = 1 << chunk_bits;
+			const uint32_t chunk_mask = chunk_size - 1;
+					
+			uint32_t total_bits = 0;
+
+			for ( ; ; )
+			{
+				uint32_t next_v = v >> chunk_bits;
+								
+				total_bits += put_bits((v & chunk_mask) | (next_v ? chunk_size : 0), chunk_bits + 1);
+				if (!next_v)
+					break;
+
+				v = next_v;
+			}
+
+			return total_bits;
 		}
 
 		uint32_t emit_huffman_table(const huffman_encoding_table &tab);
@@ -2091,7 +2137,7 @@ namespace basisu
 
 		void print(const char *pPrefix = nullptr)	{ printf("%sMax: %3.0f Mean: %3.3f RMS: %3.3f PSNR: %2.3f dB\n", pPrefix ? pPrefix : "", m_max, m_mean, m_rms, m_psnr);	}
 
-		void calc(const image &a, const image &b, uint32_t first_chan = 0, uint32_t total_chans = 0, bool avg_comp_error = true);
+		void calc(const image &a, const image &b, uint32_t first_chan = 0, uint32_t total_chans = 0, bool avg_comp_error = true, bool use_601_luma = false);
 	};
 
 	// Image saving/loading/resampling
@@ -2200,13 +2246,13 @@ namespace basisu
 		inline uint32_t size_in_bytes() const { return (uint32_t)m_values.size() * sizeof(m_values[0]); }
 
 		inline const T &operator() (uint32_t x, uint32_t y) const { assert(x < m_width && y < m_height); return m_values[x + y * m_width]; }
-		inline T &operator() (uint32_t x, uint32_t y) { assert(x < m_width && y < m_height);  return m_values[x + y * m_width]; }
+		inline T &operator() (uint32_t x, uint32_t y) { assert(x < m_width && y < m_height); return m_values[x + y * m_width]; }
 
 		inline const T &operator[] (uint32_t i) const { return m_values[i]; }
 		inline T &operator[] (uint32_t i) { return m_values[i]; }
 				
-		inline const T &at_clamped (int x, int y) const { return (*this)(clamp<int>(x, 0, m_width), clamp<int>(y, 0, m_height)); }		
-		inline T &at_clamped (int x, int y) { return (*this)(clamp<int>(x, 0, m_width), clamp<int>(y, 0, m_height)); }
+		inline const T &at_clamped(int x, int y) const { return (*this)(clamp<int>(x, 0, m_width), clamp<int>(y, 0, m_height)); }		
+		inline T &at_clamped(int x, int y) { return (*this)(clamp<int>(x, 0, m_width), clamp<int>(y, 0, m_height)); }
 
 		void clear()
 		{

@@ -39,6 +39,6 @@ namespace basisu
 	void gaussian_filter(imagef &dst, const imagef &orig_img, uint32_t odd_filter_width, float sigma_sqr, bool wrapping = false, uint32_t width_divisor = 1, uint32_t height_divisor = 1);
 
 	vec4F compute_ssim(const imagef &a, const imagef &b);
-	vec4F compute_ssim(const image &a, const image &b, bool luma);
+	vec4F compute_ssim(const image &a, const image &b, bool luma, bool luma_601);
 
 } // namespace basisu

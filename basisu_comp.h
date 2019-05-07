@@ -19,22 +19,27 @@
 #include "transcoder/basisu_global_selector_palette.h"
 #include "transcoder/basisu_transcoder.h"
 
-#define BASISU_MAX_SUPPORTED_TEXTURE_DIMENSION (16384)
-
-const float BASISU_DEFAULT_SELECTOR_RDO_THRESH = 1.25f;
-const int BASISU_DEFAULT_QUALITY = 128;
-const float BASISU_DEFAULT_HYBRID_SEL_CB_QUALITY_THRESH = 2.0f;
-
-const uint32_t BSISU_MAX_IMAGE_DIMENSION = 16384;
-const uint32_t BASISU_QUALITY_MIN = 1;
-const uint32_t BASISU_QUALITY_MAX = 255;
-const uint32_t BASISU_MAX_ENDPOINT_CLUSTERS = 8192;
-const uint32_t BASISU_MAX_SELECTOR_CLUSTERS = 7936;
-
-const uint32_t BASISU_MAX_SLICES = 0xFFFFFF;
-
 namespace basisu
 {
+	const uint32_t BASISU_MAX_SUPPORTED_TEXTURE_DIMENSION = 16384;
+
+	// Allow block's color distance to increase by 1.5 while searching for an alternative nearby endpoint.
+	const float BASISU_DEFAULT_ENDPOINT_RDO_THRESH = 1.5f; 
+	
+	// Allow block's color distance to increase by 1.25 while searching the selector history buffer for a close enough match.
+	const float BASISU_DEFAULT_SELECTOR_RDO_THRESH = 1.25f; 
+
+	const int BASISU_DEFAULT_QUALITY = 128;
+	const float BASISU_DEFAULT_HYBRID_SEL_CB_QUALITY_THRESH = 2.0f;
+
+	const uint32_t BASISU_MAX_IMAGE_DIMENSION = 16384;
+	const uint32_t BASISU_QUALITY_MIN = 1;
+	const uint32_t BASISU_QUALITY_MAX = 255;
+	const uint32_t BASISU_MAX_ENDPOINT_CLUSTERS = basisu_frontend::cMaxEndpointClusters;
+	const uint32_t BASISU_MAX_SELECTOR_CLUSTERS = basisu_frontend::cMaxSelectorClusters;
+
+	const uint32_t BASISU_MAX_SLICES = 0xFFFFFF;
+
 	struct image_stats
 	{
 		image_stats()
@@ -175,6 +180,7 @@ namespace basisu
 			m_hybrid_sel_cb_quality_thresh(BASISU_DEFAULT_HYBRID_SEL_CB_QUALITY_THRESH, 0.0f, 1e+10f),
 			m_global_pal_bits(8, 0, ETC1_GLOBAL_SELECTOR_CODEBOOK_MAX_PAL_BITS),
 			m_global_mod_bits(8, 0, basist::etc1_global_palette_entry_modifier::cTotalBits),
+			m_endpoint_rdo_thresh(BASISU_DEFAULT_ENDPOINT_RDO_THRESH, 0.0f, 1e+10f),
 			m_selector_rdo_thresh(BASISU_DEFAULT_SELECTOR_RDO_THRESH, 0.0f, 1e+10f),
 			m_pSel_codebook(NULL),
 			m_max_endpoint_clusters(512),
@@ -217,6 +223,9 @@ namespace basisu
 			m_hybrid_sel_cb_quality_thresh.clear();
 			m_global_pal_bits.clear();
 			m_global_mod_bits.clear();
+
+			m_no_endpoint_rdo.clear();
+			m_endpoint_rdo_thresh.clear();
 						
 			m_mip_gen.clear();
 			m_mip_scale.clear();
@@ -271,11 +280,14 @@ namespace basisu
 		bool_param<false> m_no_hybrid_sel_cb;
 		
 		// Use perceptual sRGB colorspace metrics (for normal maps, etc.)
-		bool_param<false> m_perceptual;
+		bool_param<true> m_perceptual;
 
 		// Disable selector RDO, for faster compression but larger files
 		bool_param<false> m_no_selector_rdo;
 		param<float> m_selector_rdo_thresh;
+
+		bool_param<false> m_no_endpoint_rdo;
+		param<float> m_endpoint_rdo_thresh;
 
 		// Read source images from m_source_filenames/m_source_alpha_filenames
 		bool_param<false> m_read_source_images;

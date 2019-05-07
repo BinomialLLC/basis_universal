@@ -60,6 +60,7 @@ namespace basisu
 			PRINT_BOOL_VALUE(m_no_endpoint_refinement);
 			PRINT_BOOL_VALUE(m_no_hybrid_sel_cb);
 			PRINT_BOOL_VALUE(m_perceptual);
+			PRINT_BOOL_VALUE(m_no_endpoint_rdo);
 			PRINT_BOOL_VALUE(m_no_selector_rdo);
 			PRINT_BOOL_VALUE(m_read_source_images);
 			PRINT_BOOL_VALUE(m_write_output_basis_files);
@@ -74,8 +75,9 @@ namespace basisu
 			PRINT_INT_VALUE(m_global_pal_bits);
 			PRINT_INT_VALUE(m_global_mod_bits);
 
+			PRINT_FLOAT_VALUE(m_endpoint_rdo_thresh);
 			PRINT_FLOAT_VALUE(m_selector_rdo_thresh);
-
+			
 			PRINT_BOOL_VALUE(m_mip_gen);
 			PRINT_BOOL_VALUE(m_mip_renormalize);
 			PRINT_BOOL_VALUE(m_mip_wrapping);
@@ -665,55 +667,80 @@ namespace basisu
 		if (m_params.m_quality_level != -1)
 		{
 			const float quality = saturate(m_params.m_quality_level / 255.0f);
-
-			float color_endpoint_quality = quality;
-			float color_selector_quality = quality;
-
-			const float bits_per_endpoint_cluster = 22.0f;
+									
+			const float bits_per_endpoint_cluster = 14.0f;
 			const float max_desired_endpoint_cluster_bits_per_texel = 1.0f; // .15f
 			int max_endpoints = static_cast<int>((max_desired_endpoint_cluster_bits_per_texel * total_texels) / bits_per_endpoint_cluster);
-			max_endpoints = clamp<int>(max_endpoints, 256, 3072); //basisu_frontend::cMaxEndpointClusters);
-			max_endpoints = minimum<uint32_t>(max_endpoints, m_total_blocks);
-
+			
 			const float mid = 128.0f / 255.0f;
+
+			float color_endpoint_quality = quality;
 
 			const float endpoint_split_point = 0.5f;
 			if (color_endpoint_quality <= mid)
+			{
 				color_endpoint_quality = lerp(0.0f, endpoint_split_point, powf(color_endpoint_quality / mid, .65f));
+
+				max_endpoints = clamp<int>(max_endpoints, 256, 3072);
+				max_endpoints = minimum<uint32_t>(max_endpoints, m_total_blocks);
+								
+				if (max_endpoints < 64)
+					max_endpoints = 64;
+				endpoint_clusters = clamp<uint32_t>((uint32_t)(.5f + lerp<float>(32, static_cast<float>(max_endpoints), color_endpoint_quality)), 32, basisu_frontend::cMaxEndpointClusters);
+			}
 			else
-				color_endpoint_quality = lerp(endpoint_split_point, 1.0f, powf((color_endpoint_quality - mid) / (1.0f - mid), 1.5f));
+			{
+				color_endpoint_quality = powf((color_endpoint_quality - mid) / (1.0f - mid), 1.6f);
 
-			if (max_endpoints < 64)
-				max_endpoints = 64;
-			endpoint_clusters = clamp<uint32_t>((uint32_t)(.5f + lerp<float>(32, static_cast<float>(max_endpoints), color_endpoint_quality)), 32, basisu_frontend::cMaxEndpointClusters);
-
-			float bits_per_selector_cluster = m_params.m_global_sel_pal ? 21.0f : 31.0f;
+				max_endpoints = clamp<int>(max_endpoints, 256, 8192);
+				max_endpoints = minimum<uint32_t>(max_endpoints, m_total_blocks);
+								
+				if (max_endpoints < 3072)
+					max_endpoints = 3072;
+				endpoint_clusters = clamp<uint32_t>((uint32_t)(.5f + lerp<float>(3072, static_cast<float>(max_endpoints), color_endpoint_quality)), 32, basisu_frontend::cMaxEndpointClusters);
+			}
+						
+			float bits_per_selector_cluster = m_params.m_global_sel_pal ? 21.0f : 14.0f;
 
 			const float max_desired_selector_cluster_bits_per_texel = 1.0f; // .15f
 			int max_selectors = static_cast<int>((max_desired_selector_cluster_bits_per_texel * total_texels) / bits_per_selector_cluster);
 			max_selectors = clamp<int>(max_selectors, 256, basisu_frontend::cMaxSelectorClusters);
 			max_selectors = minimum<uint32_t>(max_selectors, m_total_blocks);
 
-			color_selector_quality = powf(color_selector_quality, 1.65f);
+			float color_selector_quality = quality;
+			//color_selector_quality = powf(color_selector_quality, 1.65f);
+			color_selector_quality = powf(color_selector_quality, 2.62f);
 
 			if (max_selectors < 96)
 				max_selectors = 96;
 			selector_clusters = clamp<uint32_t>((uint32_t)(.5f + lerp<float>(96, static_cast<float>(max_selectors), color_selector_quality)), 8, basisu_frontend::cMaxSelectorClusters);
 
-			debug_printf("Max endpoints: %u (out of %u), max selectors: %u (out of %u)\n", endpoint_clusters, max_endpoints, selector_clusters, max_selectors);
+			debug_printf("Max endpoints: %u, max selectors: %u\n", endpoint_clusters, selector_clusters);
 
 			if (m_params.m_quality_level >= 223)
 			{
 				if (!m_params.m_selector_rdo_thresh.was_changed())
-					m_params.m_selector_rdo_thresh *= .25f;
+				{
+					if (!m_params.m_endpoint_rdo_thresh.was_changed())
+						m_params.m_endpoint_rdo_thresh *= .25f;
+					
+					if (!m_params.m_selector_rdo_thresh.was_changed())
+						m_params.m_selector_rdo_thresh *= .25f;
+				}
 			}
 			else if (m_params.m_quality_level >= 192)
 			{
+				if (!m_params.m_endpoint_rdo_thresh.was_changed())
+					m_params.m_endpoint_rdo_thresh *= .5f;
+
 				if (!m_params.m_selector_rdo_thresh.was_changed())
 					m_params.m_selector_rdo_thresh *= .5f;
 			}
 			else if (m_params.m_quality_level >= 160)
 			{
+				if (!m_params.m_endpoint_rdo_thresh.was_changed())
+					m_params.m_endpoint_rdo_thresh *= .75f;
+
 				if (!m_params.m_selector_rdo_thresh.was_changed())
 					m_params.m_selector_rdo_thresh *= .75f;
 			}
@@ -721,6 +748,9 @@ namespace basisu
 			{
 				float l = (quality - 129 / 255.0f) / ((160 - 129) / 255.0f);
 
+				if (!m_params.m_endpoint_rdo_thresh.was_changed())
+					m_params.m_endpoint_rdo_thresh *= lerp<float>(1.0f, .75f, l);
+				
 				if (!m_params.m_selector_rdo_thresh.was_changed())
 					m_params.m_selector_rdo_thresh *= lerp<float>(1.0f, .75f, l);
 			}
@@ -844,9 +874,13 @@ namespace basisu
 		backend_params.m_debug = m_params.m_debug;
 		backend_params.m_debug_images = m_params.m_debug_images;
 		backend_params.m_etc1s = true;
-		if (!m_params.m_no_selector_rdo)
-			backend_params.m_delta_selector_rdo_quality_thresh = m_params.m_selector_rdo_thresh;
+		
+		if (!m_params.m_no_endpoint_rdo)
+			backend_params.m_endpoint_rdo_quality_thresh = m_params.m_endpoint_rdo_thresh;
 
+		if (!m_params.m_no_selector_rdo)
+			backend_params.m_selector_rdo_quality_thresh = m_params.m_selector_rdo_thresh;
+				
 		backend_params.m_use_global_sel_codebook = (m_frontend.get_params().m_pGlobal_sel_codebook != NULL);
 		backend_params.m_global_sel_codebook_pal_bits = m_frontend.get_params().m_num_global_sel_codebook_pal_bits;
 		backend_params.m_global_sel_codebook_mod_bits = m_frontend.get_params().m_num_global_sel_codebook_mod_bits;
@@ -932,7 +966,7 @@ namespace basisu
 			if (image_crc16 != m_backend.get_output().m_slice_image_crcs[i])
 			{
 				error_printf("Decoded image data CRC check failed on slice %u!\n", i);
-				return EXIT_FAILURE;
+				return false;
 			}
 			debug_printf("Decoded image data CRC check succeeded on slice %i\n", i);
 
@@ -1056,7 +1090,10 @@ namespace basisu
 
 				// .basis ETC1S stats
 				em.calc(m_slice_images[slice_index], m_decoded_output_textures_unpacked[slice_index], 0, 0);
-				em.print(".basis ETC1S Luma:         ");
+				em.print(".basis ETC1S 709 Luma:     ");
+
+				em.calc(m_slice_images[slice_index], m_decoded_output_textures_unpacked[slice_index], 0, 0, true, true);
+				em.print(".basis ETC1S 601 Luma:     ");
 
 				s.m_basis_etc1_luma_psnr = static_cast<float>(em.m_psnr);
 				s.m_basis_etc1_luma_ssim = static_cast<float>(em.m_ssim);
@@ -1068,7 +1105,10 @@ namespace basisu
 
 				// .basis BC1 stats
 				em.calc(m_slice_images[slice_index], m_decoded_output_textures_unpacked_bc1[slice_index], 0, 0);
-				em.print(".basis BC1 Luma:           ");
+				em.print(".basis BC1 709 Luma:       ");
+
+				em.calc(m_slice_images[slice_index], m_decoded_output_textures_unpacked_bc1[slice_index], 0, 0, true, true);
+				em.print(".basis BC1 601 Luma:       ");
 
 				s.m_basis_bc1_luma_psnr = static_cast<float>(em.m_psnr);
 				s.m_basis_bc1_luma_ssim = static_cast<float>(em.m_ssim);

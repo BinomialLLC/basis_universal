@@ -47,17 +47,9 @@ namespace basisu
 
 		enum
 		{
-			cMaxEndpointClusterBits = 13,
-			cMaxEndpointClusters = 1 << cMaxEndpointClusterBits,
-			
-			cMaxEndpointClusterBitsRDO = 15,
-			cMaxEndpointClustersRDO = 1 << cMaxEndpointClusterBitsRDO,
-
-			cMaxSelectorClusterBits = 13,
-			cMaxSelectorClusters = (1 << cMaxSelectorClusterBits) - 256, // because of how the delta selector huff symbols are coded alongside an RLE and selector history buffer syms
-
-			cMaxSelectorClusterBitsRDO = 15,
-			cMaxSelectorClustersRDO = (1 << cMaxSelectorClusterBitsRDO) // because of how the delta selector huff symbols are coded alongside an RLE and selector history buffer syms
+			cMaxEndpointClusters = 16128,
+						
+			cMaxSelectorClusters = 16128,
 		};
 
 		struct params
@@ -109,7 +101,7 @@ namespace basisu
 
 		const params &get_params() const { return m_params; }
 
-		const pixel_block &get_source_pixel_block(uint32_t i) const { assert(i < m_params.m_num_source_blocks); return m_params.m_pSource_blocks[i]; }
+		const pixel_block &get_source_pixel_block(uint32_t i) const { return m_source_blocks[i]; }
 
 		// RDO output blocks
 		uint32_t get_total_output_blocks() const { return static_cast<uint32_t>(m_encoded_blocks.size()); }
@@ -127,13 +119,10 @@ namespace basisu
 		uint32_t get_total_endpoint_clusters() const { return static_cast<uint32_t>(m_endpoint_clusters.size()); }
 		uint32_t get_subblock_endpoint_cluster_index(uint32_t block_index, uint32_t subblock_index) const { return m_block_endpoint_clusters_indices[block_index][subblock_index]; }
 
-		const color_rgba&get_endpoint_cluster_unscaled_color(uint32_t cluster_index, bool individual_mode) const { return m_endpoint_cluster_etc_params[cluster_index].m_color_unscaled[individual_mode]; }
+		const color_rgba &get_endpoint_cluster_unscaled_color(uint32_t cluster_index, bool individual_mode) const { return m_endpoint_cluster_etc_params[cluster_index].m_color_unscaled[individual_mode]; }
 		uint32_t get_endpoint_cluster_inten_table(uint32_t cluster_index, bool individual_mode) const { return m_endpoint_cluster_etc_params[cluster_index].m_inten_table[individual_mode]; }
 
 		bool get_endpoint_cluster_color_is_used(uint32_t cluster_index, bool individual_mode) const { return m_endpoint_cluster_etc_params[cluster_index].m_color_used[individual_mode]; }
-
-		// Returns subblock indices using each endpoint cluster (block_index*2+subblock_index)
-		const uint_vec &get_endpoint_cluster_subblock_indices(uint32_t endpoint_cluster_index) const { return m_endpoint_cluster_etc_params[endpoint_cluster_index].m_subblocks; }
 
 		// Selector clusters
 		uint32_t get_total_selector_clusters() const { return static_cast<uint32_t>(m_selector_cluster_indices.size()); }
@@ -147,11 +136,15 @@ namespace basisu
 		const uint_vec &get_selector_cluster_block_indices(uint32_t selector_cluster_index) const { return m_selector_cluster_indices[selector_cluster_index]; }
 
 		void dump_debug_image(const char *pFilename, uint32_t first_block, uint32_t num_blocks_x, uint32_t num_blocks_y, bool output_blocks);
+		
+		void reoptimize_remapped_endpoints(const uint_vec &new_block_endpoints, int_vec &old_to_new_endpoint_cluster_indices, bool optimize_final_codebook, uint_vec *pBlock_selector_indices = nullptr);
 
 	private:
 		params m_params;
 		uint32_t m_total_blocks;
 		uint32_t m_total_pixels;
+
+		pixel_block_vec m_source_blocks;
 
 		etc_block_vec m_encoded_blocks;
 		etc_block_vec m_orig_encoded_blocks; // encoded blocks after endpoint quant, but before selector quant
@@ -163,7 +156,8 @@ namespace basisu
 
 		typedef tree_vector_quant<vec6F> vec6F_quantizer;
 		vec6F_quantizer m_endpoint_clusterizer;
-				
+
+		// For each endpoint cluster: An array of which subblock indices (block_index*2+subblock) are located in that cluster.
 		std::vector<uint_vec> m_endpoint_clusters;
 
 		struct endpoint_cluster_etc_params

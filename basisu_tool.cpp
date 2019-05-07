@@ -26,9 +26,11 @@
 #include <omp.h>
 #endif
 
+#define BASISU_CATCH_EXCEPTIONS 1
+
 using namespace basisu;
 
-#define BASISU_TOOL_VERSION "1.00.00"
+#define BASISU_TOOL_VERSION "1.05.00"
 
 enum tool_mode
 {
@@ -49,29 +51,33 @@ static void print_usage()
 		" -validate: Validate and display information about a .basis file\n"
 		" -compare: Compare two PNG images specified with -file, output PSNR and SSIM statistics and RGB/A delta images\n"
 		"\n"
-		"Important: By default, the compressor assumes the input is not sRGB. If the input is sRGB (diffuse/albedo textures, images, etc), be sure to specify -srgb for much better compression.\n"
+		"Important: By default, the compressor assumes the input is in the sRGB colorspace (like photos/albedo textures).\n"
+		"If the input is NOT sRGB (like a normal map), be sure to specify -linear for less artifacts.\n"
+		"\n"
+		"Filenames prefixed with a @ symbol are read as filename listing files.\n"
 		"\n"
 		"Options:\n"
-		" -file filename.png: Input image filename, multiple images are OK, use -file X for each input filename (prefixing input filenames with -file is now optional)\n"
+		" -file filename.png: Input image filename, multiple images are OK, use -file X for each input filename (prefixing input filenames with -file is optional)\n"
 		" -alpha_file filename.png: Input alpha image filename, multiple images are OK, use -file X for each input filename (must be paired with -file), images converted to REC709 grayscale and used as input alpha\n"
 		" -multifile_printf: printf() format strint to use to compose multiple filenames\n"
 		" -multifile_first: The index of the first file to process, default is 0 (must specify -multifile_printf and -multifile_num))\n"
 		" -multifile_num: The total number of files to process\n"
-		" -srgb: Use perceptual colorspace metrics for significantly higher rate distortion performance on sRGB textures. Don't use on non-sRGB inputs.\n"
+		" -linear: Use linear colorspace metrics (instead of sRGB).\n"
 		" -q X: Set quality level, 1-255, default is 128, lower=better compression/lower quality/faster, higher=less compression/higher quality/slower, default is 128\n"
 		" -output_file filename: Output .basis/.ktx filename\n"
 		" -output_path: Output .basis/.ktx files to specified directory\n"
-		" -debug_output: Enable codec debug print to stdout (slightly slower)\n"
+		" -debug: Enable codec debug print to stdout (slightly slower)\n"
 		" -debug_images: Enable codec debug images (much slower)\n"
-		" -compute_stats: Compute and display image quality metrics (slightly slower)\n"
+		" -stats: Compute and display image quality metrics (slightly slower)\n"
 		" -slower: Enable optional stages in the compressor for slower but higher quality compression\n"
 		" -tex_type <2d, 2darray, 3d, video, cubemap>: Set Basis file header's texture type field. Cubemap arrays require multiples of 6 images, in X+, X-, Y+, Y-, Z+, Z- order, each image must be the same resolutions.\n"
 		"  (2d=arbitrary 2D images, 2darray=2D array, 3D=volume texture slices, video=video frames, cubemap=array of faces. For 2darray/3d/cubemaps/video, each source image's dimensions and # of mipmap levels must be the same.)\n"
 		" -framerate X: Set framerate in header to X/frames sec\n"
+		" -individual: Process input images individually and output multiple .basis files (not as a texture array)\n"
 		"\n"
 		"More options:\n"
-		" -max_endpoint_clusters X: Manually set the max number of color endpoint clusters from 1-8192, use instead of -q\n"
-		" -max_selector_clusters X: Manually set the max number of color selector clusters from 1-7936, use instead of -q\n"
+		" -max_endpoints X: Manually set the max number of color endpoint clusters from 1-16128, use instead of -q\n"
+		" -max_selectors X: Manually set the max number of color selector clusters from 1-16128, use instead of -q\n"
 		" -y_flip: Flip input images vertically before compression\n"
 		" -normal_map: Tunes codec parameters for better quality on normal maps (no selector RDO, no sRGB)\n"
 		" -no_alpha: Always output non-alpha basis files, even if one or more inputs has alpha\n"
@@ -88,9 +94,11 @@ static void print_usage()
 		" -mip_smallest X: Set smallest pixel dimension for generated mipmaps, default is 1\n"
 		" -mip_srgb: Convert image to linear before filtering, then back to sRGB\n"
 		"\n"
-		"Backend selector RDO codec options:\n"
+		"Backend endpoint/selector RDO codec options:\n"
 		" -no_selector_rdo: Disable backend's selector rate distortion optimizations (slightly faster, less noisy output, but lower quality per output bit)\n"
 		" -selector_rdo_thresh X: Set selector RDO quality threshold, default is 1.25, lower is higher quality but less quality per output bit (try 1.0-3.0)\n"
+		" -no_endpoint_rdo: Disable backend's endpoint rate distortion optimizations (slightly faster, less noisy output, but lower quality per output bit)\n"
+		" -endpoint_rdo_thresh X: Set endpoint RDO quality threshold, default is 1.75, lower is higher quality but less quality per output bit (try 1.0-3.0)\n"
 		"\n"
 		"Hierarchical virtual selector codebook options:\n"
 		" -global_sel_pal: Always use vitual selector palettes (instead of custom palettes), slightly smaller files, but lower quality, slower encoding\n"
@@ -106,17 +114,88 @@ static void print_usage()
 		" -userdata1 X: Set 32-bit userdata1 field in Basis file header to X (X is a signed 32-bit int)\n"
 		"\n"
 		"Various command line examples:\n"
-		"basisu -srgb -file x.png -mipmap -y_flip : Compress a mipmapped x.basis file from an sRGB image named x.png, Y flip each source image\n"
+		"basisu -file x.png -mipmap -y_flip : Compress a mipmapped x.basis file from an sRGB image named x.png, Y flip each source image\n"
 		"basisu -validate -file x.basis : Validate x.basis (check header, check file CRC's, attempt to transcode all slices)\n"
 		"basisu -unpack -file x.basis : Validates, transcodes and unpacks x.basis to mipmapped .KTX and RGB/A .PNG files (transcodes to all supported GPU texture formats)\n"
-		"basisu -q 255 -srgb -file x.png -mipmap -debug_output -comput_stats : Compress sRGB x.png to x.basis at quality level 255 with compressor debug output/statistics\n"
-		"basisu -max_endpoint_clusters 8192 -max_selector_clusters 7936 -file x.png : Compress non-sRGB x.png to x.basis using the largest supported manually specified codebook sizes\n"
-		"basisu -global_sel_pal -no_hybrid_sel_cb -file x.png : Compress a non-sRGB image, use virtual selector codebooks for improved compression (but slower encoding)\n"
-		"basisu -global_sel_pal -file x.png: Compress a non-sRGB image, use hybrid selector codebooks for slightly improved compression (but slower encoding)\n"
-		"basisu -srgb -multifile_printf \"x%02u.png\" -multifile_first 1 -multifile_count 20 : Compress a 20 sRGB source image video sequence (x01.png, x02.png, x03.png, etc.) to x01.basis\n"
-		"basisu -srgb x.png : Compress sRGB image x.png to x.basis using default settings (multiple filenames OK)\n"
+		"basisu -q 255 -file x.png -mipmap -debug -comput_stats : Compress sRGB x.png to x.basis at quality level 255 with compressor debug output/statistics\n"
+		"basisu -linear -max_endpoint_clusters 16128 -max_selector_clusters 16128 -file x.png : Compress non-sRGB x.png to x.basis using the largest supported manually specified codebook sizes\n"
+		"basisu -linear -global_sel_pal -no_hybrid_sel_cb -file x.png : Compress a non-sRGB image, use virtual selector codebooks for improved compression (but slower encoding)\n"
+		"basisu -linear -global_sel_pal -file x.png: Compress a non-sRGB image, use hybrid selector codebooks for slightly improved compression (but slower encoding)\n"
+		"basisu -multifile_printf \"x%02u.png\" -multifile_first 1 -multifile_count 20 : Compress a 20 sRGB source image video sequence (x01.png, x02.png, x03.png, etc.) to x01.basis\n"
+		"basisu x.png : Compress sRGB image x.png to x.basis using default settings (multiple filenames OK)\n"
 		"basisu x.basis : Unpack x.basis to PNG/KTX files (multiple filenames OK)\n"
 	);
+}
+
+static bool load_listing_file(const std::string &f, std::vector<std::string> &filenames)
+{
+	std::string filename(f);
+	filename.erase(0, 1);
+
+	FILE *pFile = nullptr;
+#ifdef _WIN32
+	fopen_s(&pFile, filename.c_str(), "r");
+#else
+	pFile = fopen(filename.c_str(), "r");
+#endif
+
+	if (!pFile)
+	{
+		error_printf("Failed opening listing file: \"%s\"\n", filename.c_str());
+		return false;
+	}
+
+	uint32_t total_filenames = 0;
+
+	for ( ; ; )
+	{
+		char buf[3072];
+		buf[0] = '\0';
+
+		char *p = fgets(buf, sizeof(buf), pFile);
+		if (!p)
+		{
+			if (ferror(pFile))
+			{
+				error_printf("Failed reading from listing file: \"%s\"\n", filename.c_str());
+
+				fclose(pFile);
+				return false;
+			}
+			else
+				break;
+		}
+
+		std::string read_filename(p);
+		while (read_filename.size())
+		{
+			if (read_filename[0] == ' ')
+				read_filename.erase(0, 1);
+			else 
+				break;
+		}
+
+		while (read_filename.size())
+		{
+			const char c = read_filename.back();
+			if ((c == ' ') || (c == '\n') || (c == '\r'))
+				read_filename.erase(read_filename.size() - 1, 1);
+			else 
+				break;
+		}
+
+		if (read_filename.size())
+		{
+			filenames.push_back(read_filename);
+			total_filenames++;
+		}
+	}
+
+	fclose(pFile);
+
+	printf("Successfully read %u filenames(s) from listing file \"%s\"\n", total_filenames, filename.c_str());
+
+	return true;
 }
 
 class command_line_params
@@ -125,7 +204,8 @@ public:
 	command_line_params() :
 		m_mode(cDefault),
 		m_multifile_first(0),
-		m_multifile_num(0)
+		m_multifile_num(0),
+		m_individual(false)
 	{
 	}
 
@@ -178,6 +258,8 @@ public:
 				m_multifile_num = atoi(arg_v[arg_index + 1]);
 				arg_count++;
 			}
+			else if (strcasecmp(pArg, "-linear") == 0)
+				m_comp_params.m_perceptual = false;
 			else if (strcasecmp(pArg, "-srgb") == 0)
 				m_comp_params.m_perceptual = true;
 			else if (strcasecmp(pArg, "-q") == 0)
@@ -198,24 +280,24 @@ public:
 				m_output_path = arg_v[arg_index + 1];
 				arg_count++;
 			}
-			else if (strcasecmp(pArg, "-debug_output") == 0)
+			else if (strcasecmp(pArg, "-debug") == 0)
 			{
 				m_comp_params.m_debug = true;
 				enable_debug_printf(true);
 			}
 			else if (strcasecmp(pArg, "-debug_images") == 0)
 				m_comp_params.m_debug_images = true;
-			else if (strcasecmp(pArg, "-compute_stats") == 0)
+			else if (strcasecmp(pArg, "-stats") == 0)
 				m_comp_params.m_compute_stats = true;
 			else if (strcasecmp(pArg, "-slower") == 0)
 				m_comp_params.m_faster = false;
-			else if (strcasecmp(pArg, "-max_endpoint_clusters") == 0)
+			else if (strcasecmp(pArg, "-max_endpoints") == 0)
 			{
 				REMAINING_ARGS_CHECK(1);
 				m_comp_params.m_max_endpoint_clusters = clamp<int>(atoi(arg_v[arg_index + 1]), 1, BASISU_MAX_ENDPOINT_CLUSTERS);
 				arg_count++;
 			}
-			else if (strcasecmp(pArg, "-max_selector_clusters") == 0)
+			else if (strcasecmp(pArg, "-max_selectors") == 0)
 			{
 				REMAINING_ARGS_CHECK(1);
 				m_comp_params.m_max_selector_clusters = clamp<int>(atoi(arg_v[arg_index + 1]), 1, BASISU_MAX_SELECTOR_CLUSTERS);
@@ -228,6 +310,7 @@ public:
 				m_comp_params.m_perceptual = false;
 				m_comp_params.m_mip_srgb = false;
 				m_comp_params.m_no_selector_rdo = true;
+				m_comp_params.m_no_endpoint_rdo = true;
 			}
 			else if (strcasecmp(pArg, "-no_alpha") == 0)
 				m_comp_params.m_check_for_alpha = false;
@@ -274,6 +357,14 @@ public:
 			{
 				REMAINING_ARGS_CHECK(1);
 				m_comp_params.m_selector_rdo_thresh = (float)atof(arg_v[arg_index + 1]);
+				arg_count++;
+			}
+			else if (strcasecmp(pArg, "-no_endpoint_rdo") == 0)
+				m_comp_params.m_no_endpoint_rdo = true;
+			else if (strcasecmp(pArg, "-endpoint_rdo_thresh") == 0)
+			{
+				REMAINING_ARGS_CHECK(1);
+				m_comp_params.m_endpoint_rdo_thresh = (float)atof(arg_v[arg_index + 1]);
 				arg_count++;
 			}
 			else if (strcasecmp(pArg, "-global_sel_pal") == 0)
@@ -346,6 +437,8 @@ public:
 				}
 				arg_count++;
 			}
+			else if (strcasecmp(pArg, "-individual") == 0)
+				m_individual = true;
 			else if (pArg[0] == '-')
 			{
 				error_printf("Unrecognized command line option: %s\n", pArg);
@@ -373,7 +466,38 @@ public:
 
 			m_comp_params.m_quality_level = 128;
 		}
+				
+		return true;
+	}
 
+	bool process_listing_files()
+	{
+		std::vector<std::string> new_input_filenames;
+		for (uint32_t i = 0; i < m_input_filenames.size(); i++)
+		{
+			if (m_input_filenames[i][0] == '@')
+			{
+				if (!load_listing_file(m_input_filenames[i], new_input_filenames))
+					return false;
+			}
+			else
+				new_input_filenames.push_back(m_input_filenames[i]);
+		}
+		new_input_filenames.swap(m_input_filenames);
+
+		std::vector<std::string> new_input_alpha_filenames;
+		for (uint32_t i = 0; i < m_input_alpha_filenames.size(); i++)
+		{
+			if (m_input_alpha_filenames[i][0] == '@')
+			{
+				if (!load_listing_file(m_input_alpha_filenames[i], new_input_alpha_filenames))
+					return false;
+			}
+			else
+				new_input_alpha_filenames.push_back(m_input_alpha_filenames[i]);
+		}
+		new_input_alpha_filenames.swap(m_input_alpha_filenames);
+		
 		return true;
 	}
 
@@ -390,6 +514,8 @@ public:
 	std::string m_multifile_printf;
 	uint32_t m_multifile_first;
 	uint32_t m_multifile_num;
+
+	bool m_individual;
 };
 
 static bool expand_multifile(command_line_params &opts)
@@ -399,7 +525,7 @@ static bool expand_multifile(command_line_params &opts)
 	
 	if (!opts.m_multifile_num)
 	{
-		error_printf("Error: -multifile_printf specified, but not -multifile_num\n");
+		error_printf("-multifile_printf specified, but not -multifile_num\n");
 		return false;
 	}
 	
@@ -410,7 +536,7 @@ static bool expand_multifile(command_line_params &opts)
 
 	if (string_find_right(fmt, '%') == -1)
 	{
-		error_printf("Error: Must include C-style printf() format character '%' in -multifile_printf string\n");
+		error_printf("Must include C-style printf() format character '%' in -multifile_printf string\n");
 		return false;
 	}
 		
@@ -445,73 +571,111 @@ static bool compress_mode(command_line_params &opts)
 				
 	basis_compressor_params &params = opts.m_comp_params;
 
-	params.m_source_filenames = opts.m_input_filenames;
-	params.m_source_alpha_filenames = opts.m_input_alpha_filenames;
-
 	params.m_read_source_images = true;
 	params.m_write_output_basis_files = true;
 	params.m_pSel_codebook = &sel_codebook;
 
-	if (opts.m_output_filename.size())
-		params.m_out_filename = opts.m_output_filename;
-	else 
+	for (size_t file_index = 0; file_index < (opts.m_individual ? opts.m_input_filenames.size() : 1U); file_index++)
 	{
-		std::string filename;
-		
-		string_get_filename(opts.m_input_filenames[0].c_str(), filename);
-		string_remove_extension(filename);
-		filename += ".basis";
-
-		if (opts.m_output_path.size())
-			string_combine_path(filename, opts.m_output_path.c_str(), filename.c_str());
-		
-		params.m_out_filename = filename;
-	}
-		
-	basis_compressor c;
-
-	if (!c.init(opts.m_comp_params))
-	{
-		error_printf("basis_compressor::init() failed!\n");
-		return false;
-	}
-
-	basis_compressor::error_code ec = c.process();
-	if (ec != basis_compressor::cECSuccess)
-	{
-		switch (ec)
+		if (opts.m_individual)
 		{
-			case basis_compressor::cECFailedReadingSourceImages:
-				error_printf("Compressor failed reading a source image!\n");
-				break;
-			case basis_compressor::cECFailedValidating:
-				error_printf("Compressor failed 2darray/cubemap/video validation checks!\n");
-				break;
-			case basis_compressor::cECFailedFrontEnd:
-				error_printf("Compressor frontend stage failed!\n");
-				break;
-			case basis_compressor::cECFailedFontendExtract:
-				error_printf("Compressor frontend data extraction failed!\n");
-				break;
-			case basis_compressor::cECFailedBackend:
-				error_printf("Compressor backend stage failed!\n");
-				break;
-			case basis_compressor::cECFailedCreateBasisFile:
-				error_printf("Compressor failed creating Basis file data!\n");
-				break;
-			case basis_compressor::cECFailedWritingOutput:
-				error_printf("Compressor failed writing to output Basis file!\n");
-				break;
-			default:
-				error_printf("basis_compress::process() failed!\n");
-				break;
+			params.m_source_filenames.resize(1);
+			params.m_source_filenames[0] = opts.m_input_filenames[file_index];
+
+			if (file_index < opts.m_input_alpha_filenames.size()) 
+			{
+				params.m_source_alpha_filenames.resize(1);
+				params.m_source_alpha_filenames[0] = opts.m_input_alpha_filenames[file_index];
+				
+				printf("Processing source file \"%s\", alpha file \"%s\"\n", params.m_source_filenames[0].c_str(), params.m_source_alpha_filenames[0].c_str());
+			}
+			else
+			{
+				params.m_source_alpha_filenames.resize(0);
+				
+				printf("Processing source file \"%s\"\n", params.m_source_filenames[0].c_str());
+			}
+		}
+		else
+		{
+			params.m_source_filenames = opts.m_input_filenames;
+			params.m_source_alpha_filenames = opts.m_input_alpha_filenames;
+		}
+				
+		if ((opts.m_output_filename.size()) && (!opts.m_individual))
+			params.m_out_filename = opts.m_output_filename;
+		else 
+		{
+			std::string filename;
+		
+			string_get_filename(opts.m_input_filenames[file_index].c_str(), filename);
+			string_remove_extension(filename);
+			filename += ".basis";
+
+			if (opts.m_output_path.size())
+				string_combine_path(filename, opts.m_output_path.c_str(), filename.c_str());
+		
+			params.m_out_filename = filename;
 		}
 		
-		return false;
-	}
+		basis_compressor c;
 
-	printf("Compression succeeded\n");
+		if (!c.init(opts.m_comp_params))
+		{
+			error_printf("basis_compressor::init() failed!\n");
+			return false;
+		}
 
+		basis_compressor::error_code ec = c.process();
+		if (ec == basis_compressor::cECSuccess)
+			printf("Compression succeeded\n");
+		else
+		{
+			bool exit_flag = true;
+
+			switch (ec)
+			{
+				case basis_compressor::cECFailedReadingSourceImages:
+				{
+					error_printf("Compressor failed reading a source image!\n");
+					
+					if (opts.m_individual)
+						exit_flag = false;
+
+					break;
+				}
+				case basis_compressor::cECFailedValidating:
+					error_printf("Compressor failed 2darray/cubemap/video validation checks!\n");
+					break;
+				case basis_compressor::cECFailedFrontEnd:
+					error_printf("Compressor frontend stage failed!\n");
+					break;
+				case basis_compressor::cECFailedFontendExtract:
+					error_printf("Compressor frontend data extraction failed!\n");
+					break;
+				case basis_compressor::cECFailedBackend:
+					error_printf("Compressor backend stage failed!\n");
+					break;
+				case basis_compressor::cECFailedCreateBasisFile:
+					error_printf("Compressor failed creating Basis file data!\n");
+					break;
+				case basis_compressor::cECFailedWritingOutput:
+					error_printf("Compressor failed writing to output Basis file!\n");
+					break;
+				default:
+					error_printf("basis_compress::process() failed!\n");
+					break;
+			}
+		
+			if (exit_flag)
+				return false;
+		}
+				
+		if (opts.m_individual)
+			printf("\n");
+
+	} // file_index
+		
 	return true;
 }
 
@@ -815,21 +979,24 @@ static bool compare_mode(command_line_params &opts)
 
 	image_metrics im;
 	im.calc(a, b, 0, 3);
-	im.print("RGB ");
+	im.print("RGB    ");
 
 	im.calc(a, b, 0, 1);
-	im.print("R   ");
+	im.print("R      ");
 
 	im.calc(a, b, 1, 1);
-	im.print("G   ");
+	im.print("G      ");
 
 	im.calc(a, b, 2, 1);
-	im.print("B   ");
+	im.print("B      ");
 
 	im.calc(a, b, 0, 0);
-	im.print("Y   " );
+	im.print("Y 709  " );
 
-	vec4F s_rgb(compute_ssim(a, b, false));
+	im.calc(a, b, 0, 0, true, true);
+	im.print("Y 601  " );
+
+	vec4F s_rgb(compute_ssim(a, b, false, false));
 
 	printf("R SSIM: %f\n", s_rgb[0]);
 	printf("G SSIM: %f\n", s_rgb[1]);
@@ -837,8 +1004,11 @@ static bool compare_mode(command_line_params &opts)
 	printf("RGB Avg SSIM: %f\n", (s_rgb[0] + s_rgb[1] + s_rgb[2]) / 3.0f);
 	printf("A SSIM: %f\n", s_rgb[3]);
 			
-	vec4F s_y(compute_ssim(a, b, true));
-	printf("Y SSIM: %f\n", s_y[0]);
+	vec4F s_y_709(compute_ssim(a, b, true, false));
+	printf("Y 709 SSIM: %f\n", s_y_709[0]);
+
+	vec4F s_y_601(compute_ssim(a, b, true, true));
+	printf("Y 601 SSIM: %f\n", s_y_601[0]);
 
 	image delta_img(a.get_width(), a.get_height());
 
@@ -873,11 +1043,15 @@ static bool compare_mode(command_line_params &opts)
 	return true;
 }
 
-int main(int argc, const char **argv)
+static int main_internal(int argc, const char **argv)
 {
 	basisu_encoder_init();
 		
 	printf("Basis Universal GPU Texture Compressor v" BASISU_TOOL_VERSION ", Copyright (C) 2017-2019 Binomial LLC, All rights reserved\n");
+
+#if defined(DEBUG) || defined(_DEBUG)
+	printf("DEBUG build\n");
+#endif
 
 	if (argc == 1)
 	{
@@ -891,6 +1065,9 @@ int main(int argc, const char **argv)
 		print_usage();
 		return EXIT_FAILURE;
 	}
+
+	if (!opts.process_listing_files())
+		return EXIT_FAILURE;
 
 	if (opts.m_mode == cDefault)
 	{
@@ -929,4 +1106,28 @@ int main(int argc, const char **argv)
 	}
 
 	return status ? EXIT_SUCCESS : EXIT_FAILURE;
+}
+
+int main(int argc, const char **argv)
+{
+	int status = EXIT_FAILURE;
+
+#if BASISU_CATCH_EXCEPTIONS
+	try
+	{
+		 status = main_internal(argc, argv);
+	}
+	catch (const std::exception &exc)
+	{
+		 fprintf(stderr, "Fatal error: Caught exception \"%s\"\n", exc.what());
+	}
+	catch (...)
+	{
+		fprintf(stderr, "Fatal error: Uncaught exception!\n");
+	}
+#else
+	status = main_internal(argc, argv);
+#endif
+
+	return status;
 }

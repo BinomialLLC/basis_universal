@@ -436,12 +436,6 @@ namespace basisu
 
 		if ((m_fmt == cPVRTC1_4_RGB) || (m_fmt == cPVRTC1_4_RGBA))
 		{
-			if (!is_pow2(m_width) || !is_pow2(m_height))
-			{
-				// PVRTC1 images must use power of 2 dimensions
-				return false;
-			}
-
 			pvrtc4_image pi(m_width, m_height, pvrtc_wrap_addressing);
 			
 			if (get_total_blocks() != pi.get_total_blocks())

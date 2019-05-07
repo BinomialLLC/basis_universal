@@ -90,10 +90,17 @@ namespace basist
 
 		const etc1_global_selector_codebook *m_pGlobal_sel_codebook;
 
-		huffman_decoding_table m_template_model, m_delta_endpoint_model, m_delta_selector_model, m_selector_history_buf_rle_model;
+		huffman_decoding_table m_endpoint_pred_model, m_delta_endpoint_model, m_selector_model, m_selector_history_buf_rle_model;
 
 		uint32_t m_selector_history_buf_size;
-		uint32_t m_selector_history_buf_rice_bits;
+
+		struct block_preds
+		{
+			uint16_t m_endpoint_index;
+			uint8_t m_pred_bits;
+		};
+
+		std::vector<block_preds> m_block_endpoint_preds[2];
 	};
 
 	struct basisu_slice_info
