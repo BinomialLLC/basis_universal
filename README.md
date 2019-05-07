@@ -1,11 +1,11 @@
 # basis_universal
 Basis Universal GPU Texture Compression Codec
 
-Basis Universal is a GPU texture compression system that outputs a highly compressed intermediate file format (.basis) that can be quickly transcoded to a wide variety of GPU texture compression formats: PVRTC1 4bpp RGB, BC7 mode 6 RGB, BC1-5, ETC1, and ETC2. We will be adding ASTC RGB or RGBA, BC7 mode 4/5 RGBA, and PVRTC1 4bpp RGBA next. Basis files support non-uniform texture arrays, so cubemaps, volume textures, texture arrays, mipmap levels, video sequences, or arbitrary texture "tiles" can be stored in a single file. The compressor is able to exploit color and pattern correlations across the entire file, so multiple images with mipmaps can be stored very efficiently in a single file.
+Basis Universal is a GPU supercompressed texture compression system that outputs a highly compressed intermediate file format (.basis) that can be quickly transcoded to a wide variety of GPU texture compression formats: PVRTC1 4bpp RGB, BC7 mode 6 RGB, BC1-5, ETC1, and ETC2. We will be adding ASTC RGB or RGBA, BC7 mode 4/5 RGBA, and PVRTC1 4bpp RGBA next. Basis files support non-uniform texture arrays, so cubemaps, volume textures, texture arrays, mipmap levels, video sequences, or arbitrary texture "tiles" can be stored in a single file. The compressor is able to exploit color and pattern correlations across the entire file, so multiple images with mipmaps can be stored very efficiently in a single file.
 
 So far, we've compiled the code using MSVS 2019, under Ubuntu x64 using cmake with either clang 3.8 or gcc 5.4, and emscripten 1.35 to asm.js. (Be sure to use this version of emcc, as earlier versions fail with internal errors/exceptions during compilation.) The compressor uses OpenMP for multithreading, but if you don't have OpenMP it'll still work (just much more slowly). The transcoder is currently single threaded (and doesn't use OpenMP).
 
-**Important:** I've changed the .basis file format today (4/2/19), to add some new fields (texture type and video framerate) to the header. Be sure to recompress any files you have. The file format will be stabilized by next week.
+**Important:** I've changed the .basis file format today (4/7/19). The format should now be hopefully stable unless bugs are found.
 
 ### 3rd party code dependencies
 
@@ -17,13 +17,13 @@ The encoder uses [lodepng](https://lodev.org/lodepng/) for loading and saving PN
 
 The command line tool is named "basisu". Run basisu without any parameters for help. 
 
-To compress an sRGB image to .basis:
+To compress a sRGB image to .basis:
 
-`basisu -srgb x.png`
+`basisu x.png`
 
-Note that basisu defaults to linear colorspace metrics, not sRGB. If the input is a photograph, or a diffuse/albedo/specular/etc. texture, you will definitely want to use sRGB metrics for less artifacts and better rate distortion performance.
+Note that basisu defaults to sRGB colorspace metrics. If the input is a normal map, or some other type of non-sRGB (non-photographic) texture content, be sure to use -linear to avoid extra unnecessary artifacts.
 
-To unpack a .basis file to .png/.ktx files:
+To unpack a .basis file to multiple .png/.ktx files:
 
 `basisu x.basis`
 
@@ -35,9 +35,9 @@ The mipmapped .KTX files will be in a variety of GPU formats (PVRTC1 4bpp, ETC1-
 
 [PVRTexTool](https://www.imgtec.com/developers/powervr-sdk-tools/pvrtextool/)
 
-For the maximum possible achievable quality with the current former and encoder, use (remove -srgb for non-photographic images):
+For the maximum possible achievable quality with the current former and encoder, use:
 
-`basisu x.png -srgb -slower -max_endpoint_clusters 8192 -max_selector_clusters 7936 -no_selector_rdo -no_auto_global_sel_pal`
+`basisu x.png -slower -max_endpoints 16128 -max_selectors 16128 -no_selector_rdo -no_auto_global_sel_pal`
 
 ### WebGL test 
 
@@ -83,11 +83,7 @@ Thanks to Colt McAnlis, for advertising one of my earlier open source texture co
 I first saw using precomputed tables for quickly computing optimal encodings of solid color blocks in ryg_dxt. The method that limits the canonical Huffman codelengths to a maximum codesize was used in Yoshizaki's lharc.
 
 ### Possible improvements
-The current max codebook sizes are 8K. 12-16K codebooks would result in higher quality, but changes would be needed to the way delta indices are compressed.
-
 The way the -q (quality) option is converted to codebook sizes is very simple (fixed formulas), and could be improved. 
-
-The compressor's front end doesn't support endpoint tiling, which purposely constrains adjacent ETC1S block to use the same endpoint colors/intensity levels. The file format already has tiling optimizations, but the frontend needs to be modified to better exploit it.
 
 The various Huffman codes could be divided up into groups (like Zstd), for much faster Huffman decoding in the transcoder. Also, larger slices could be divided up into multiple segments, and each segment transcoded using a different thread. Both of these changes would modify the format.
 
