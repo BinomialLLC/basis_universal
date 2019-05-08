@@ -3684,11 +3684,6 @@ namespace basist
 						selector_history_buf.add(selector_index);
 				}
 
-#if 0
-				if (k != selector_index)
-					printf("!");
-#endif
-
 				prev_selector_index = selector_index;
 
 				const endpoint *pEndpoint0 = &m_endpoints[endpoint_index];
