@@ -3757,9 +3757,9 @@ namespace basist
 					// Left
 					if (!block_x)
 					{
+						BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::transcode_slice: invalid datastream (0)\n");		
 						if (pPVRTC_work_mem)
 							free(pPVRTC_work_mem);
-						BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::transcode_slice: invalid datastream (0)\n");		
 						return false;
 					}
 
@@ -3770,9 +3770,9 @@ namespace basist
 					// Upper
 					if (!block_y)
 					{
+						BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::transcode_slice: invalid datastream (1)\n");		
 						if (pPVRTC_work_mem)
 							free(pPVRTC_work_mem);
-						BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::transcode_slice: invalid datastream (1)\n");		
 						return false;
 					}
 
@@ -3783,9 +3783,9 @@ namespace basist
 					// Upper left
 					if ((!block_x) || (!block_y))
 					{
+						BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::transcode_slice: invalid datastream (2)\n");		
 						if (pPVRTC_work_mem)
 							free(pPVRTC_work_mem);
-						BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::transcode_slice: invalid datastream (2)\n");		
 						return false;
 					}
 
@@ -3830,7 +3830,7 @@ namespace basist
 						if (cur_selector_rle_count > total_blocks)
 						{
 							// The file is corrupted or we've got a bug.
-							//console::error("rdo_etc1_lowlevel_decoder::transcode_slice: selector RLE value is too large!");
+							BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::transcode_slice: invalid datastream (3)\n");		
 							if (pPVRTC_work_mem)
 								free(pPVRTC_work_mem);
 							return false;
@@ -3851,7 +3851,7 @@ namespace basist
 					if (history_buf_index >= (int)selector_history_buf.size())
 					{
 						// The file is corrupted or we've got a bug.
-							//console::error("rdo_etc1_lowlevel_decoder::transcode_slice: selector RLE value is too large!");
+						BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::transcode_slice: invalid datastream (4)\n");		
 						if (pPVRTC_work_mem)
 							free(pPVRTC_work_mem);
 						return false;
@@ -3871,6 +3871,15 @@ namespace basist
 				}
 
 				prev_selector_index = selector_index;
+
+				if ((endpoint_index >= m_endpoints.size()) || (selector_index >= m_selectors.size()))
+				{
+					// The file is corrupted or we've got a bug.
+					BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::transcode_slice: invalid datastream (5)\n");		
+					if (pPVRTC_work_mem)
+						free(pPVRTC_work_mem);
+					return false;
+				}
 
 				const endpoint *pEndpoint0 = &m_endpoints[endpoint_index];
 												
