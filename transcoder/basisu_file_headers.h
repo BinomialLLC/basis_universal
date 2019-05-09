@@ -60,7 +60,9 @@ namespace basist
 		cBASISTexType2DArray = 1,			// An array of 2D RGB or RGBA images with optional mipmaps, array size = # images, each image has the same resolution and mipmap levels
 		cBASISTexTypeCubemapArray = 2,	// an array of cubemap levels, total # of images must be divisable by 6, in X+, X-, Y+, Y-, Z+, Z- order, with optional mipmaps
 		cBASISTexTypeVideoFrames = 3,		// An array of 2D video frames, with optional mipmaps, # frames = # images, each image has the same resolution and # of mipmap levels
-		cBASISTexTypeVolume = 4				// A 3D texture with optional mipmaps, Z dimension = # images, each image has the same resolution and # of mipmap levels
+		cBASISTexTypeVolume = 4,			// A 3D texture with optional mipmaps, Z dimension = # images, each image has the same resolution and # of mipmap levels
+
+		cBASISTexTypeTotal
 	};
 
 	enum

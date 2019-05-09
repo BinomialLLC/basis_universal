@@ -143,6 +143,9 @@ namespace basist
 				{
 					tree_cur -= ((rev_code >>= 1) & 1);
 
+					if ((-tree_cur - 1) >= (int)m_tree.size())
+						m_tree.resize((-tree_cur - 1) + 1);
+
 					if (!m_tree[-tree_cur - 1])
 					{
 						m_tree[-tree_cur - 1] = (int16_t)tree_next;
@@ -154,6 +157,10 @@ namespace basist
 				}
 
 				tree_cur -= ((rev_code >>= 1) & 1);
+				
+				if ((-tree_cur - 1) >= (int)m_tree.size())
+					m_tree.resize((-tree_cur - 1) + 1);
+
 				m_tree[-tree_cur - 1] = (int16_t)sym_index;
 			}
 
@@ -175,7 +182,9 @@ namespace basist
 	public:
 		bitwise_decoder() :
 			m_buf_size(0),
-			m_pBuf(0),
+			m_pBuf(nullptr),
+			m_pBuf_start(nullptr),
+			m_pBuf_end(nullptr),
 			m_bit_buf(0),
 			m_bit_buf_size(0)
 		{
@@ -184,15 +193,22 @@ namespace basist
 		void clear()
 		{
 			m_buf_size = 0;
-			m_pBuf = 0;
+			m_pBuf = nullptr;
+			m_pBuf_start = nullptr;
+			m_pBuf_end = nullptr;
 			m_bit_buf = 0;
 			m_bit_buf_size = 0;
 		}
 
 		bool init(const uint8_t *pBuf, uint32_t buf_size)
 		{
+			if ((!pBuf) && (buf_size))
+				return false;
+
 			m_buf_size = buf_size;
 			m_pBuf = pBuf;
+			m_pBuf_start = pBuf;
+			m_pBuf_end = pBuf + buf_size;
 			m_bit_buf = 0;
 			m_bit_buf_size = 0;
 			return true;
@@ -211,7 +227,10 @@ namespace basist
 
 			while (m_bit_buf_size < num_bits)
 			{
-				const uint32_t c = m_buf_size ? *m_pBuf++ : 0;
+				uint32_t c = 0;
+				if (m_pBuf < m_pBuf_end)
+					c = *m_pBuf++;
+
 				m_bit_buf |= (c << m_bit_buf_size);
 				m_bit_buf_size += 8;
 				assert(m_bit_buf_size <= 32);
@@ -331,7 +350,10 @@ namespace basist
 						
 			while (m_bit_buf_size < 16)
 			{
-				const uint32_t c = m_buf_size ? *m_pBuf++ : 0;
+				uint32_t c = 0;
+				if (m_pBuf < m_pBuf_end)
+					c = *m_pBuf++;
+
 				m_bit_buf |= (c << m_bit_buf_size);
 				m_bit_buf_size += 8;
 				assert(m_bit_buf_size <= 32);
@@ -410,7 +432,8 @@ namespace basist
 						l = get_bits(basisu::cHuffmanBigRepeatExtraBits) + basisu::cHuffmanBigRepeatSizeMin;
 
 					const uint8_t prev = code_sizes[cur - 1];
-					assert(prev != 0);
+					if (prev == 0)
+						return false;
 					do
 					{
 						if (cur >= total_used_syms)
@@ -429,6 +452,8 @@ namespace basist
 	private:
 		uint32_t m_buf_size;
 		const uint8_t *m_pBuf;
+		const uint8_t *m_pBuf_start;
+		const uint8_t *m_pBuf_end;
 
 		uint32_t m_bit_buf;
 		uint32_t m_bit_buf_size;

@@ -1034,7 +1034,7 @@ namespace basisu
 								total_endpoint_pred_bits += coder.put_code(sym, endpoint_pred_model);
 
 								endpoint_pred_repeat_count = endpoint_pred_syms[slice_index][cur_endpoint_pred_sym_ofs++];
-								assert(endpoint_pred_repeat_count >= basist::ENDPOINT_PRED_MIN_REPEAT_COUNT);
+								assert(endpoint_pred_repeat_count >= (int)basist::ENDPOINT_PRED_MIN_REPEAT_COUNT);
 								
 								total_endpoint_pred_bits += coder.put_vlc(endpoint_pred_repeat_count - basist::ENDPOINT_PRED_MIN_REPEAT_COUNT, basist::ENDPOINT_PRED_COUNT_VLC_BITS);	
 

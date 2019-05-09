@@ -1,5 +1,4 @@
 // basisu_transcoder.cpp
-// basisu_transcoder.cpp
 // Copyright (C) 2017-2019 Binomial LLC. All Rights Reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -20,6 +19,9 @@
 
 // The supported .basis file header version. Keep in sync with BASIS_FILE_VERSION.
 #define BASISD_SUPPORTED_BASIS_VERSION (0x13)
+
+// Set to 1 for fuzz testing. This will disable all CRC16 checks on headers and compressed data.
+#define BASISU_NO_HEADER_OR_DATA_CRC16_CHECKS 0
 
 #define BASISD_SUPPORT_DXT1			1
 #define BASISD_SUPPORT_DXT5A			1
@@ -3984,7 +3986,13 @@ namespace basist
 
 		} // block-y
 
-		assert(endpoint_pred_repeat_count == 0);
+		if (endpoint_pred_repeat_count != 0)
+		{
+			BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::transcode_slice: endpoint_pred_repeat_count != 0. The file is corrupted or this is a bug\n");		
+			return false;
+		}
+
+		//assert(endpoint_pred_repeat_count == 0);
 		
 		if (fmt == cPVRTC1_4_OPAQUE_ONLY)
 		{
@@ -4014,6 +4022,7 @@ namespace basist
 
 		const basis_file_header *pHeader = reinterpret_cast<const basis_file_header*>(pData);
 
+#if !BASISU_NO_HEADER_OR_DATA_CRC16_CHECKS
 		if (crc16(&pHeader->m_data_size, sizeof(basis_file_header) - BASISU_OFFSETOF(basis_file_header, m_data_size), 0) != pHeader->m_header_crc16)
 		{
 			BASISU_DEVEL_ERROR("basisu_transcoder::get_total_images: header CRC check failed\n");		
@@ -4028,7 +4037,8 @@ namespace basist
 				return false;
 			}
 		}
-		
+#endif		
+
 		return true;
 	}
 	
@@ -4051,7 +4061,21 @@ namespace basist
 			BASISU_DEVEL_ERROR("basisu_transcoder::get_total_images: source buffer is too small\n");		
 			return false;
 		}
-	
+
+		if ((!pHeader->m_total_slices) || (!pHeader->m_total_images))
+		{
+			BASISU_DEVEL_ERROR("basisu_transcoder::validate_header_quick: header is invalid\n");
+			return false;
+		}
+
+		if ( (pHeader->m_slice_desc_file_ofs >= data_size) ||
+			  ((data_size - pHeader->m_slice_desc_file_ofs) < (sizeof(basis_slice_desc) * pHeader->m_total_slices))
+			)
+		{
+			BASISU_DEVEL_ERROR("basisu_transcoder::validate_header_quick: passed in buffer is too small or data is corrupted\n");
+			return false;
+		}
+							
 		return true;
 	}
 
@@ -4092,18 +4116,30 @@ namespace basist
 
 		if (pHeader->m_flags & cBASISHeaderFlagHasAlphaSlices)
 		{
-			// Must have an even # of slices if the .basis file has alpha
-			if (pHeader->m_total_slices & 1)
+			if (pHeader->m_total_slices != pHeader->m_total_images * 2)
 			{
-				BASISU_DEVEL_ERROR("basisu_transcoder::get_total_images: invalid basis file (odd number of slices)\n");		
+				BASISU_DEVEL_ERROR("basisu_transcoder::get_total_images: invalid alpha basis file\n");		
 				return false;
 			}
+		}
+		else if (pHeader->m_total_slices != pHeader->m_total_images)
+		{
+			BASISU_DEVEL_ERROR("basisu_transcoder::get_total_images: invalid total_images field in header\n");		
+			return false;
 		}
 
 		if ((pHeader->m_flags & cBASISHeaderFlagETC1S) == 0)
 		{
 			// We only support ETC1S in basis universal
 			BASISU_DEVEL_ERROR("basisu_transcoder::get_total_images: invalid basis file (ETC1S flag check)\n");		
+			return false;
+		}
+
+		if ( (pHeader->m_slice_desc_file_ofs >= data_size) ||
+			  ((data_size - pHeader->m_slice_desc_file_ofs) < (sizeof(basis_slice_desc) * pHeader->m_total_slices))
+			)
+		{
+			BASISU_DEVEL_ERROR("basisu_transcoder::validate_header_quick: passed in buffer is too small or data is corrupted\n");
 			return false;
 		}
 
@@ -4120,7 +4156,15 @@ namespace basist
 
 		const basis_file_header *pHeader = static_cast<const basis_file_header *>(pData);
 
-		return static_cast<basis_texture_type>(static_cast<uint8_t>(pHeader->m_tex_type));
+		basis_texture_type btt = static_cast<basis_texture_type>(static_cast<uint8_t>(pHeader->m_tex_type));
+		
+		if (btt >= cBASISTexTypeTotal)
+		{
+			BASISU_DEVEL_ERROR("basisu_transcoder::validate_header_quick: header's texture type field is invalid\n");
+			return cBASISTexType2DArray;
+		}
+
+		return btt;
 	}
 
 	bool basisu_transcoder::get_userdata(const void *pData, uint32_t data_size, uint32_t &userdata0, uint32_t &userdata1) const
@@ -4318,10 +4362,10 @@ namespace basist
 			BASISU_DEVEL_ERROR("basisu_transcoder::get_file_info: validate_file_checksums failed\n");
 			return false;
 		}
-
+				
 		const basis_file_header* pHeader = static_cast<const basis_file_header*>(pData);
 		const basis_slice_desc* pSlice_descs = reinterpret_cast<const basis_slice_desc*>(static_cast<const uint8_t*>(pData) + pHeader->m_slice_desc_file_ofs);
-
+				
 		file_info.m_version = pHeader->m_ver;
 
 		file_info.m_total_header_size = sizeof(basis_file_header) + pHeader->m_total_slices * sizeof(basis_slice_desc);
@@ -4345,6 +4389,13 @@ namespace basist
 		file_info.m_slices_size = 0;
 
 		file_info.m_tex_type = static_cast<basis_texture_type>(static_cast<uint8_t>(pHeader->m_tex_type));
+
+		if (file_info.m_tex_type > cBASISTexTypeTotal)
+		{
+			BASISU_DEVEL_ERROR("basisu_transcoder::get_file_info: invalid texture type, file is corrupted\n");
+			return false;
+		}
+
 		file_info.m_us_per_frame = pHeader->m_us_per_frame;
 		file_info.m_userdata0 = pHeader->m_userdata0;
 		file_info.m_userdata1 = pHeader->m_userdata1;
@@ -4403,6 +4454,30 @@ namespace basist
 		const basis_file_header *pHeader = reinterpret_cast<const basis_file_header*>(pData);
 
 		const uint8_t *pDataU8 = static_cast<const uint8_t *>(pData);
+
+		if ((pHeader->m_endpoint_cb_file_ofs > data_size) || (pHeader->m_selector_cb_file_ofs > data_size) || (pHeader->m_tables_file_ofs > data_size))
+		{
+			BASISU_DEVEL_ERROR("basisu_transcoder::transcode_slice: file is corrupted or passed in buffer too small (1)\n");
+			return false;
+		}
+		
+		if (pHeader->m_endpoint_cb_file_size > (data_size - pHeader->m_endpoint_cb_file_ofs))
+		{
+			BASISU_DEVEL_ERROR("basisu_transcoder::transcode_slice: file is corrupted or passed in buffer too small (2)\n");
+			return false;
+		}
+
+		if (pHeader->m_selector_cb_file_size > (data_size - pHeader->m_selector_cb_file_ofs))
+		{
+			BASISU_DEVEL_ERROR("basisu_transcoder::transcode_slice: file is corrupted or passed in buffer too small (3)\n");
+			return false;
+		}
+
+		if (pHeader->m_tables_file_size > (data_size - pHeader->m_tables_file_ofs))
+		{
+			BASISU_DEVEL_ERROR("basisu_transcoder::transcode_slice: file is corrupted or passed in buffer too small (3)\n");
+			return false;
+		}
 
 		if (!m_lowlevel_decoder.decode_palettes(
 			pHeader->m_total_endpoints, pDataU8 + pHeader->m_endpoint_cb_file_ofs, pHeader->m_endpoint_cb_file_size,
@@ -4473,6 +4548,19 @@ namespace basist
 					return false;
 				}
 			}
+		}
+
+		if (slice_desc.m_file_ofs > data_size)
+		{
+			BASISU_DEVEL_ERROR("basisu_transcoder::transcode_slice: invalid slice_desc.m_file_ofs, or passed in buffer too small\n");
+			return false;
+		}
+
+		const uint32_t data_size_left = data_size - slice_desc.m_file_ofs;
+		if (data_size_left < slice_desc.m_file_size)
+		{
+			BASISU_DEVEL_ERROR("basisu_transcoder::transcode_slice: invalid slice_desc.m_file_size, or passed in buffer too small\n");
+			return false;
 		}
 				
 		return m_lowlevel_decoder.transcode_slice(pOutput_blocks, slice_desc.m_num_blocks_x, slice_desc.m_num_blocks_y,
@@ -4577,8 +4665,6 @@ namespace basist
 		transcoder_texture_format fmt,
 		uint32_t decode_flags) const
 	{
-
-	
 		if (!m_lowlevel_decoder.m_endpoints.size())
 		{
 			BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: must call start_transcoding() first\n");
