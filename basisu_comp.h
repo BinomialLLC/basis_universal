@@ -53,19 +53,20 @@ namespace basisu
 			m_width = 0;
 			m_height = 0;
 
-			m_basis_etc1_rgb_avg_psnr = 0.0f;
-			m_basis_etc1_luma_psnr = 0.0f;
-			m_basis_etc1_luma_ssim = 0.0f;
-			m_basis_bits_per_texel = 0.0f;
-			m_basis_orig_size = 0;
-			m_basis_compressed_size = 0;
+			m_basis_etc1s_rgb_avg_psnr = 0.0f;
+			m_basis_etc1s_luma_709_psnr = 0.0f;
+			m_basis_etc1s_luma_601_psnr = 0.0f;
+			m_basis_etc1s_luma_709_ssim = 0.0f;
+
+			m_basis_bc1_rgb_avg_psnr = 0.0f;
+			m_basis_bc1_luma_709_psnr = 0.0f;
+			m_basis_bc1_luma_601_psnr = 0.0f;
+			m_basis_bc1_luma_709_ssim = 0.0f;
 
 			m_best_rgb_avg_psnr = 0.0f;
-			m_best_luma_psnr = 0.0f;
-			m_best_luma_ssim = 0.0f;
-			m_best_bits_per_texel = 0.0f;
-			m_best_orig_size = 0;
-			m_best_compressed_size = 0;
+			m_best_luma_709_psnr = 0.0f;
+			m_best_luma_601_psnr = 0.0f;
+			m_best_luma_709_ssim = 0.0f;
 		}
 
 		std::string m_filename;
@@ -73,24 +74,21 @@ namespace basisu
 		uint32_t m_height;
 
 		// .basis compressed
-		float m_basis_etc1_rgb_avg_psnr;
-		float m_basis_etc1_luma_psnr;
-		float m_basis_etc1_luma_ssim;
-		float m_basis_bits_per_texel;
-		uint64_t m_basis_orig_size;
-		uint64_t m_basis_compressed_size;
-
+		float m_basis_etc1s_rgb_avg_psnr;
+		float m_basis_etc1s_luma_709_psnr;
+		float m_basis_etc1s_luma_601_psnr;
+		float m_basis_etc1s_luma_709_ssim;
+		
 		float m_basis_bc1_rgb_avg_psnr;
-		float m_basis_bc1_luma_psnr;
-		float m_basis_bc1_luma_ssim;
+		float m_basis_bc1_luma_709_psnr;
+		float m_basis_bc1_luma_601_psnr;
+		float m_basis_bc1_luma_709_ssim;
 
-		// Normal (highest quality) compressed (ETC1S, not full ETC1)
+		// Normal (highest quality) compressed ETC1S
 		float m_best_rgb_avg_psnr;
-		float m_best_luma_psnr;
-		float m_best_luma_ssim;
-		float m_best_bits_per_texel;
-		uint64_t m_best_orig_size;
-		uint64_t m_best_compressed_size;
+		float m_best_luma_709_psnr;
+		float m_best_luma_601_psnr;
+		float m_best_luma_709_ssim;
 	};
 
 	template<bool def>
@@ -369,6 +367,8 @@ namespace basisu
 
 		uint32_t get_basis_file_size() const { return m_basis_file_size; }
 		double get_basis_bits_per_texel() const { return m_basis_bits_per_texel; }
+
+		bool get_any_source_image_has_alpha() const { return m_any_source_image_has_alpha; }
 
 	private:
 		basis_compressor_params m_params;

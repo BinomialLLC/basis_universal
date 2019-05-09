@@ -1074,47 +1074,63 @@ namespace basisu
 
 				image_stats &s = m_stats[slice_index];
 
+				// TODO: We used to output SSIM (during heavy encoder development), but this slowed down compression too much. We'll be adding it back.
+
 				image_metrics em;
 
-				// best possible ETC1S stats
+				// ---- Nearly best possible ETC1S stats
 				em.calc(m_slice_images[slice_index], m_best_etc1s_images_unpacked[slice_index], 0, 0);
-				em.print("Unquantized ETC1S Luma:    ");
+				em.print("Unquantized ETC1S 709 Luma:    ");
 
-				s.m_best_luma_psnr = static_cast<float>(em.m_psnr);
-				s.m_best_luma_ssim = static_cast<float>(em.m_ssim);
+				s.m_best_luma_709_psnr = static_cast<float>(em.m_psnr);
+				s.m_best_luma_709_ssim = static_cast<float>(em.m_ssim);
 
+				em.calc(m_slice_images[slice_index], m_best_etc1s_images_unpacked[slice_index], 0, 0, true, true);
+				em.print("Unquantized ETC1S 601 Luma:    ");
+
+				s.m_best_luma_601_psnr = static_cast<float>(em.m_psnr);
+				
 				em.calc(m_slice_images[slice_index], m_best_etc1s_images_unpacked[slice_index], 0, 3);
-				em.print("Unquantized ETC1S RGB Avg: ");
+				em.print("Unquantized ETC1S RGB Avg:     ");
 
 				s.m_best_rgb_avg_psnr = static_cast<float>(em.m_psnr);
 
-				// .basis ETC1S stats
+				// ---- .basis ETC1S stats
 				em.calc(m_slice_images[slice_index], m_decoded_output_textures_unpacked[slice_index], 0, 0);
-				em.print(".basis ETC1S 709 Luma:     ");
+				em.print(".basis ETC1S 709 Luma:         ");
+								
+				s.m_basis_etc1s_luma_709_psnr = static_cast<float>(em.m_psnr);
+				s.m_basis_etc1s_luma_709_ssim = static_cast<float>(em.m_ssim);
 
 				em.calc(m_slice_images[slice_index], m_decoded_output_textures_unpacked[slice_index], 0, 0, true, true);
-				em.print(".basis ETC1S 601 Luma:     ");
+				em.print(".basis ETC1S 601 Luma:         ");
 
-				s.m_basis_etc1_luma_psnr = static_cast<float>(em.m_psnr);
-				s.m_basis_etc1_luma_ssim = static_cast<float>(em.m_ssim);
+				s.m_basis_etc1s_luma_601_psnr = static_cast<float>(em.m_psnr);
 
 				em.calc(m_slice_images[slice_index], m_decoded_output_textures_unpacked[slice_index], 0, 3);
-				em.print(".basis ETC1S RGB Avg:      ");
+				em.print(".basis ETC1S RGB Avg:          ");
 
-				//debug_printf(".basis ETC1 Luma SSIM per bit/texel*1000: %3.3f\n", 1000.0f * s.m_basis_etc1_luma_ssim / ((m_backend.get_output().get_output_size_estimate() * 8.0f) / (slice_desc.m_orig_width * slice_desc.m_orig_height)));
+				s.m_basis_etc1s_rgb_avg_psnr = em.m_psnr;
 
-				// .basis BC1 stats
+				if (m_slice_descs.size() == 1)
+				{
+					debug_printf(".basis Luma 709 PSNR per bit/texel*10000: %3.3f\n", 10000.0f * s.m_basis_etc1s_luma_709_psnr / ((m_backend.get_output().get_output_size_estimate() * 8.0f) / (slice_desc.m_orig_width * slice_desc.m_orig_height)));
+				}
+
+				// ---- .basis BC1 stats
 				em.calc(m_slice_images[slice_index], m_decoded_output_textures_unpacked_bc1[slice_index], 0, 0);
-				em.print(".basis BC1 709 Luma:       ");
+				em.print(".basis BC1 709 Luma:           ");
+								
+				s.m_basis_bc1_luma_709_psnr = static_cast<float>(em.m_psnr);
+				s.m_basis_bc1_luma_709_ssim = static_cast<float>(em.m_ssim);
 
 				em.calc(m_slice_images[slice_index], m_decoded_output_textures_unpacked_bc1[slice_index], 0, 0, true, true);
-				em.print(".basis BC1 601 Luma:       ");
+				em.print(".basis BC1 601 Luma:           ");
 
-				s.m_basis_bc1_luma_psnr = static_cast<float>(em.m_psnr);
-				s.m_basis_bc1_luma_ssim = static_cast<float>(em.m_ssim);
+				s.m_basis_bc1_luma_601_psnr = static_cast<float>(em.m_psnr);
 
 				em.calc(m_slice_images[slice_index], m_decoded_output_textures_unpacked_bc1[slice_index], 0, 3);
-				em.print(".basis BC1 RGB Avg:        ");
+				em.print(".basis BC1 RGB Avg:            ");
 
 				s.m_basis_bc1_rgb_avg_psnr = static_cast<float>(em.m_psnr);
 			}

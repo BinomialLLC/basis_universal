@@ -84,6 +84,7 @@ static void print_usage()
 		" -force_alpha: Always output alpha basis files, even if no inputs has alpha\n"
 		" -seperate_rg_to_color_alpha: Seperate input R and G channels to RGB and A (for tangent space XY normal maps)\n"
 		" -no_multithreading: Disable OpenMP multithreading\n"
+		" -no_ktx: Disable KTX writing when unpacking\n"
 		"\n"
 		"Mipmap generation options:\n"
 		" -mipmap: Generate mipmaps for each source image\n"
@@ -205,7 +206,8 @@ public:
 		m_mode(cDefault),
 		m_multifile_first(0),
 		m_multifile_num(0),
-		m_individual(false)
+		m_individual(false),
+		m_no_ktx(false)
 	{
 	}
 
@@ -326,6 +328,8 @@ public:
 			}
 			else if (strcasecmp(pArg, "-mipmap") == 0)
 				m_comp_params.m_mip_gen = true;
+			else if (strcasecmp(pArg, "-no_ktx") == 0)
+				m_no_ktx = true;
 			else if (strcasecmp(pArg, "-mip_scale") == 0)
 			{
 				REMAINING_ARGS_CHECK(1);
@@ -439,6 +443,14 @@ public:
 			}
 			else if (strcasecmp(pArg, "-individual") == 0)
 				m_individual = true;
+			else if (strcasecmp(pArg, "-csv_file") == 0)
+			{
+				REMAINING_ARGS_CHECK(1);
+				m_csv_file = arg_v[arg_index + 1];
+				m_comp_params.m_compute_stats = true;
+
+				arg_count++;
+			}
 			else if (pArg[0] == '-')
 			{
 				error_printf("Unrecognized command line option: %s\n", pArg);
@@ -515,7 +527,10 @@ public:
 	uint32_t m_multifile_first;
 	uint32_t m_multifile_num;
 
+	std::string m_csv_file;
+
 	bool m_individual;
+	bool m_no_ktx;
 };
 
 static bool expand_multifile(command_line_params &opts)
@@ -536,7 +551,7 @@ static bool expand_multifile(command_line_params &opts)
 
 	if (string_find_right(fmt, '%') == -1)
 	{
-		error_printf("Must include C-style printf() format character '%' in -multifile_printf string\n");
+		error_printf("Must include C-style printf() format character '%%' in -multifile_printf string\n");
 		return false;
 	}
 		
@@ -559,22 +574,38 @@ static bool expand_multifile(command_line_params &opts)
 static bool compress_mode(command_line_params &opts)
 {
 	basist::etc1_global_selector_codebook sel_codebook(basist::g_global_selector_cb_size, basist::g_global_selector_cb);
-
-	if (!expand_multifile(opts))
-		return false;
 		
+	if (!expand_multifile(opts))
+	{
+		error_printf("-multifile expansion failed!\n");
+		return false;
+	}
+
 	if (!opts.m_input_filenames.size())
 	{
 		error_printf("No input files to process!\n");
 		return false;
 	}
-				
+						
 	basis_compressor_params &params = opts.m_comp_params;
 
 	params.m_read_source_images = true;
 	params.m_write_output_basis_files = true;
 	params.m_pSel_codebook = &sel_codebook;
 
+	FILE *pCSV_file = nullptr;
+	if (opts.m_csv_file.size())
+	{
+		pCSV_file = fopen_safe(opts.m_csv_file.c_str(), "w");
+		if (!pCSV_file)
+		{
+			error_printf("Failed opening CVS file \"%s\"\n", opts.m_csv_file.c_str());
+			return false;
+		}
+	}
+
+	printf("Processing %u total files\n", (uint32_t)opts.m_input_filenames.size());
+	
 	for (size_t file_index = 0; file_index < (opts.m_individual ? opts.m_input_filenames.size() : 1U); file_index++)
 	{
 		if (opts.m_individual)
@@ -623,6 +654,13 @@ static bool compress_mode(command_line_params &opts)
 		if (!c.init(opts.m_comp_params))
 		{
 			error_printf("basis_compressor::init() failed!\n");
+
+			if (pCSV_file)
+			{
+				fclose(pCSV_file);
+				pCSV_file = nullptr;
+			}
+
 			return false;
 		}
 
@@ -668,13 +706,43 @@ static bool compress_mode(command_line_params &opts)
 			}
 		
 			if (exit_flag)
+			{
+				if (pCSV_file)
+				{
+					fclose(pCSV_file);
+					pCSV_file = nullptr;
+				}
+
 				return false;
+			}
+		}
+
+		if ((pCSV_file) && (c.get_stats().size()))
+		{
+			for (size_t slice_index = 0; slice_index < c.get_stats().size(); slice_index++)
+			{
+				fprintf(pCSV_file, "\"%s\", %u, %u, %u, %u, %u, %f, %f, %f, %f, %u\n",
+					params.m_out_filename.c_str(),
+					(uint32_t)slice_index, (uint32_t)c.get_stats().size(),
+					c.get_stats()[slice_index].m_width, c.get_stats()[slice_index].m_height, (uint32_t)c.get_any_source_image_has_alpha(),
+					c.get_basis_bits_per_texel(),
+					c.get_stats()[slice_index].m_best_luma_709_psnr,
+					c.get_stats()[slice_index].m_basis_etc1s_luma_709_psnr,
+					c.get_stats()[slice_index].m_basis_bc1_luma_709_psnr,
+					params.m_quality_level);
+			}
 		}
 				
 		if (opts.m_individual)
 			printf("\n");
 
 	} // file_index
+
+	if (pCSV_file)
+	{
+		fclose(pCSV_file);
+		pCSV_file = nullptr;
+	}
 		
 	return true;
 }
@@ -836,7 +904,7 @@ static bool unpack_and_validate_mode(command_line_params &opts, bool validate_fl
 			{
 				const basist::transcoder_texture_format transcoder_tex_fmt = static_cast<basist::transcoder_texture_format>(format_iter);
 
-				if (fileinfo.m_tex_type == basist::cBASISTexTypeCubemapArray)
+				if ((!opts.m_no_ktx) && (fileinfo.m_tex_type == basist::cBASISTexTypeCubemapArray))
 				{
 					// No KTX tool that we know of supports cubemap arrays, so write individual cubemap files.
 					for (uint32_t image_index = 0; image_index < fileinfo.m_total_images; image_index += 6)
@@ -870,7 +938,7 @@ static bool unpack_and_validate_mode(command_line_params &opts, bool validate_fl
 					if (level < gi.size())
 						continue;
 
-					if (fileinfo.m_tex_type != basist::cBASISTexTypeCubemapArray)
+					if ((!opts.m_no_ktx) && (fileinfo.m_tex_type != basist::cBASISTexTypeCubemapArray))
 					{
 						std::string ktx_filename(base_filename + string_format("_transcoded_%s_%u.ktx", basist::basis_get_format_name(transcoder_tex_fmt), image_index));
 						if (!write_compressed_texture_file(ktx_filename.c_str(), gi))

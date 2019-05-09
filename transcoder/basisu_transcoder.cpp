@@ -1,4 +1,5 @@
 // basisu_transcoder.cpp
+// basisu_transcoder.cpp
 // Copyright (C) 2017-2019 Binomial LLC. All Rights Reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -910,8 +911,9 @@ namespace basist
 		uint8_t m_lo;
 	};
 	static bc1_match_entry g_bc1_match5_equals_1[256], g_bc1_match6_equals_1[256]; // selector 1, allow equals hi/lo
+	static bc1_match_entry g_bc1_match5_equals_0[256], g_bc1_match6_equals_0[256]; // selector 0, allow equals hi/lo
 	
-	static void prepare_bc1_single_color_table(bc1_match_entry *pTable, const uint8_t *pExpand, int size, int sel, bool allow_equals)
+	static void prepare_bc1_single_color_table(bc1_match_entry *pTable, const uint8_t *pExpand, int size, int sel)
 	{
 		int total_e = 0;
 
@@ -924,13 +926,7 @@ namespace basist
 				{
 					const int lo_e = pExpand[lo], hi_e = pExpand[hi];
 					int e;
-
-					if (!allow_equals)
-					{
-						if (lo == hi)
-							continue;
-					}
-
+										
 					if (sel == 1)
 					{
 						// Selector 1
@@ -941,7 +937,7 @@ namespace basist
 						assert(sel == 0);
 
 						// Selector 0
-						e = abs(hi_e - i) + ((abs(hi_e - lo_e) >> 5));
+						e = abs(hi_e - i);
 					}
 
 					if (e < lowest_e)
@@ -955,11 +951,6 @@ namespace basist
 				} // hi
 			} // lo
 
-			if (!allow_equals)
-			{
-				assert(pTable[i].m_lo != pTable[i].m_hi);
-			}
-			
 			total_e += lowest_e;
 		}
 	}
@@ -1649,12 +1640,14 @@ namespace basist
 		uint8_t bc1_expand5[32];
 		for (int i = 0; i < 32; i++)
 			bc1_expand5[i] = static_cast<uint8_t>((i << 3) | (i >> 2));
-		prepare_bc1_single_color_table(g_bc1_match5_equals_1, bc1_expand5, 32, 1, true);
+		prepare_bc1_single_color_table(g_bc1_match5_equals_1, bc1_expand5, 32, 1);
+		prepare_bc1_single_color_table(g_bc1_match5_equals_0, bc1_expand5, 32, 0);
 			
 		uint8_t bc1_expand6[64];
 		for (int i = 0; i < 64; i++)
 			bc1_expand6[i] = static_cast<uint8_t>((i << 2) | (i >> 4));
-		prepare_bc1_single_color_table(g_bc1_match6_equals_1, bc1_expand6, 64, 1, true);
+		prepare_bc1_single_color_table(g_bc1_match6_equals_1, bc1_expand6, 64, 1);
+		prepare_bc1_single_color_table(g_bc1_match6_equals_0, bc1_expand6, 64, 0);
 						
 		for (uint32_t i = 0; i < NUM_ETC1_TO_DXT1_SELECTOR_RANGES; i++)
 		{
@@ -1772,6 +1765,72 @@ namespace basist
 			pDst_block->m_selectors[1] = static_cast<uint8_t>(mask);
 			pDst_block->m_selectors[2] = static_cast<uint8_t>(mask);
 			pDst_block->m_selectors[3] = static_cast<uint8_t>(mask);
+
+			return;
+		}
+		else if ((inten_table >= 7) && (pSelector->m_num_unique_selectors == 2) && (pSelector->m_lo_selector == 0) && (pSelector->m_hi_selector == 3))
+		{
+			color32 block_colors[4];
+
+			decoder_etc_block::get_block_colors5(block_colors, base_color, inten_table);
+
+			const uint32_t r0 = block_colors[0].r;
+			const uint32_t g0 = block_colors[0].g;
+			const uint32_t b0 = block_colors[0].b;
+
+			const uint32_t r1 = block_colors[3].r;
+			const uint32_t g1 = block_colors[3].g;
+			const uint32_t b1 = block_colors[3].b;
+
+			uint32_t max16 = (g_bc1_match5_equals_0[r0].m_hi << 11) | (g_bc1_match6_equals_0[g0].m_hi << 5) | g_bc1_match5_equals_0[b0].m_hi;
+			uint32_t min16 = (g_bc1_match5_equals_0[r1].m_hi << 11) | (g_bc1_match6_equals_0[g1].m_hi << 5) | g_bc1_match5_equals_0[b1].m_hi;
+
+			uint32_t l = 0, h = 1;
+
+			if (min16 == max16)
+			{
+				// Make l > h
+				if (min16 > 0)
+				{
+					min16--;
+
+					l = 0; 
+					h = 0;
+				}
+				else 
+				{
+					// l = h = 0
+					assert(min16 == max16 && max16 == 0);
+
+					max16 = 1;
+					min16 = 0;
+					
+					l = 1;
+					h = 1;
+				}
+			
+				assert(max16 > min16);
+			}
+
+			if (max16 < min16)
+			{
+				std::swap(max16, min16);
+				l = 1; 
+				h = 0;
+			}
+
+			pDst_block->set_low_color((uint16_t)max16);
+			pDst_block->set_high_color((uint16_t)min16);
+
+			// TODO: This can be further optimized (read of ETC1 selector bits)
+			for (uint32_t y = 0; y < 4; y++)
+			{
+				for (uint32_t x = 0; x < 4; x++)
+				{
+					uint32_t s = pSrc_block->get_selector(x, y);
+					pDst_block->set_selector(x, y, (s == 3) ? h : l);
+				}
+			}
 
 			return;
 		}
@@ -2975,13 +3034,94 @@ namespace basist
 #if !BASISD_WRITE_NEW_BC7_TABLES
 		const uint32_t low_selector = pSelector->m_lo_selector;
 		const uint32_t high_selector = pSelector->m_hi_selector;
-
+		
+		const uint32_t inten_table = pSrc_block->m_differential.m_cw1;
 		const uint32_t base_color_r = pSrc_block->m_differential.m_red1;
 		const uint32_t base_color_g = pSrc_block->m_differential.m_green1;
 		const uint32_t base_color_b = pSrc_block->m_differential.m_blue1;
 
-		const uint32_t inten_table = pSrc_block->m_differential.m_cw1;
+		if (pSelector->m_num_unique_selectors <= 2)
+		{
+			// Only two unique selectors so just switch to block truncation coding (BTC) to avoid quality issues on extreme blocks.
+			pDst_block->m_lo.m_mode = 64;
 
+			pDst_block->m_lo.m_a0 = 127;
+			pDst_block->m_lo.m_a1 = 127;
+
+			color32 block_colors[4];
+
+			decoder_etc_block::get_block_colors5(block_colors, color32(base_color_r, base_color_g, base_color_b, 255), inten_table);
+
+			const uint32_t r0 = block_colors[low_selector].r;
+			const uint32_t g0 = block_colors[low_selector].g;
+			const uint32_t b0 = block_colors[low_selector].b;
+			const uint32_t low_bits0 = (r0 & 1) + (g0 & 1) + (b0 & 1);
+			uint32_t p0 = low_bits0 >= 2;
+
+			const uint32_t r1 = block_colors[high_selector].r;
+			const uint32_t g1 = block_colors[high_selector].g;
+			const uint32_t b1 = block_colors[high_selector].b;
+			const uint32_t low_bits1 = (r1 & 1) + (g1 & 1) + (b1 & 1);
+			uint32_t p1 = low_bits1 >= 2;
+															
+			pDst_block->m_lo.m_r0 = r0 >> 1;
+			pDst_block->m_lo.m_g0 = g0 >> 1;
+			pDst_block->m_lo.m_b0 = b0 >> 1;
+			pDst_block->m_lo.m_p0 = p0;
+
+			pDst_block->m_lo.m_r1 = r1 >> 1;
+			pDst_block->m_lo.m_g1 = g1 >> 1;
+			pDst_block->m_lo.m_b1 = b1 >> 1;
+						
+			uint32_t output_low_selector = 0;
+			uint32_t output_bit_offset = 1;
+			uint64_t output_hi_bits = p1;
+
+			for (uint32_t y = 0; y < 4; y++)
+			{
+				for (uint32_t x = 0; x < 4; x++)
+				{
+					uint32_t s = pSrc_block->get_selector(x, y);
+					uint32_t os = (s == low_selector) ? output_low_selector : (15 ^ output_low_selector);
+					
+					uint32_t num_bits = 4;
+
+					if ((x | y) == 0)
+					{
+						if (os & 8)
+						{
+							pDst_block->m_lo.m_r0 = r1 >> 1;
+							pDst_block->m_lo.m_g0 = g1 >> 1;
+							pDst_block->m_lo.m_b0 = b1 >> 1;
+							pDst_block->m_lo.m_p0 = p1;
+
+							pDst_block->m_lo.m_r1 = r0 >> 1;
+							pDst_block->m_lo.m_g1 = g0 >> 1;
+							pDst_block->m_lo.m_b1 = b0 >> 1;
+
+							output_hi_bits &= ~1ULL;
+							output_hi_bits |= p0;
+							std::swap(p0, p1);
+												
+							output_low_selector = 15;
+							os = 0;
+						}
+
+						num_bits = 3;
+					}
+
+					output_hi_bits |= (static_cast<uint64_t>(os) << output_bit_offset);
+					output_bit_offset += num_bits;
+				}
+			}
+
+			pDst_block->m_hi_bits = output_hi_bits;
+			
+			assert(pDst_block->m_hi.m_p1 == p1);
+									
+			return;
+		}
+				
 		uint32_t selector_range_table = g_etc1_to_bc7_m6_selector_range_index[low_selector][high_selector];
 
 		const uint32_t* pTable_r = g_etc1_to_bc7_m6_table[base_color_r + inten_table * 32] + (selector_range_table * NUM_ETC1_TO_BC7_M6_SELECTOR_MAPPINGS);
@@ -3750,7 +3890,7 @@ namespace basist
 				{
 #if BASISD_SUPPORT_BC7
 					block.set_raw_selector_bits(pSelector->m_bytes[0], pSelector->m_bytes[1], pSelector->m_bytes[2], pSelector->m_bytes[3]);
-
+					
 					void* pDst_block = static_cast<uint8_t*>(pDst_blocks) + (block_x + block_y * num_blocks_x) * output_stride;
 					convert_etc1s_to_bc7_m6(static_cast<bc7_mode_6*>(pDst_block), &block, pSelector);
 #else	

@@ -2295,6 +2295,17 @@ namespace basisu
 			return *this;
 		}
 	};
+
+	inline FILE *fopen_safe(const char *pFilename, const char *pMode)
+	{
+#ifdef _WIN32
+		FILE *pFile = nullptr;
+		fopen_s(&pFile, pFilename, pMode);
+		return pFile;
+#else
+		return fopen(pFilename, pMode);
+#endif
+	}
 		
 } // namespace basisu
 
