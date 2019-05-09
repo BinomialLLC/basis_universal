@@ -54,7 +54,7 @@ static void print_usage()
 		"Important: By default, the compressor assumes the input is in the sRGB colorspace (like photos/albedo textures).\n"
 		"If the input is NOT sRGB (like a normal map), be sure to specify -linear for less artifacts.\n"
 		"\n"
-		"Filenames prefixed with a @ symbol are read as filename listing files.\n"
+		"Filenames prefixed with a @ symbol are read as filename listing files, specifying which filenames to actually process.\n"
 		"\n"
 		"Options:\n"
 		" -file filename.png: Input image filename, multiple images are OK, use -file X for each input filename (prefixing input filenames with -file is optional)\n"
@@ -74,6 +74,7 @@ static void print_usage()
 		"  (2d=arbitrary 2D images, 2darray=2D array, 3D=volume texture slices, video=video frames, cubemap=array of faces. For 2darray/3d/cubemaps/video, each source image's dimensions and # of mipmap levels must be the same.)\n"
 		" -framerate X: Set framerate in header to X/frames sec\n"
 		" -individual: Process input images individually and output multiple .basis files (not as a texture array)\n"
+		" -fuzz_testing: Use with -validate: Disables CRC16 validation of file contents before transcoding\n"
 		"\n"
 		"More options:\n"
 		" -max_endpoints X: Manually set the max number of color endpoint clusters from 1-16128, use instead of -q\n"
@@ -207,7 +208,8 @@ public:
 		m_multifile_first(0),
 		m_multifile_num(0),
 		m_individual(false),
-		m_no_ktx(false)
+		m_no_ktx(false),
+		m_fuzz_testing(false)
 	{
 	}
 
@@ -443,6 +445,8 @@ public:
 			}
 			else if (strcasecmp(pArg, "-individual") == 0)
 				m_individual = true;
+			else if (strcasecmp(pArg, "-fuzz_testing") == 0)
+				m_fuzz_testing = true;
 			else if (strcasecmp(pArg, "-csv_file") == 0)
 			{
 				REMAINING_ARGS_CHECK(1);
@@ -531,6 +535,7 @@ public:
 
 	bool m_individual;
 	bool m_no_ktx;
+	bool m_fuzz_testing;
 };
 
 static bool expand_multifile(command_line_params &opts)
@@ -790,22 +795,27 @@ static bool unpack_and_validate_mode(command_line_params &opts, bool validate_fl
 
 		basist::basisu_transcoder dec(&sel_codebook);
 
-		// Validate the file - note this isn't necessary for transcoding
-		if (!dec.validate_file_checksums(&basis_data[0], (uint32_t)basis_data.size(), true))
+		if (!opts.m_fuzz_testing)
 		{
-			error_printf("File version is unsupported, or file fail CRC checks!\n");
-			return false;
+			// Skip the full validation, which CRC16's the entire file.
+
+			// Validate the file - note this isn't necessary for transcoding
+			if (!dec.validate_file_checksums(&basis_data[0], (uint32_t)basis_data.size(), true))
+			{
+				error_printf("File version is unsupported, or file fail CRC checks!\n");
+				return false;
+			}
 		}
 
 		printf("File version and CRC checks succeeded\n");
-				
+		
 		basist::basisu_file_info fileinfo;
 		if (!dec.get_file_info(&basis_data[0], (uint32_t)basis_data.size(), fileinfo))
 		{
 			error_printf("Failed retrieving Basis file information!\n");
 			return false;
 		}
-
+		
 		assert(fileinfo.m_total_images == fileinfo.m_image_mipmap_levels.size());
 		assert(fileinfo.m_total_images == dec.get_total_images(&basis_data[0], (uint32_t)basis_data.size()));
 

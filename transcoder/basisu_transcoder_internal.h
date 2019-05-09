@@ -162,6 +162,8 @@ namespace basist
 
 		const basisu::uint8_vec &get_code_sizes() const { return m_code_sizes; }
 
+		bool is_valid() const { return m_code_sizes.size() > 0; }
+
 	private:
 		basisu::uint8_vec m_code_sizes;
 		basisu::int_vec m_lookup;

@@ -3336,8 +3336,14 @@ namespace basist
 			BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::decode_palettes: fail 2a\n");		
 			return false;
 		}
-
+				
 		if (!sym_codec.read_huffman_table(inten_delta_model))
+		{
+			BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::decode_palettes: fail 2b\n");		
+			return false;
+		}
+
+		if (!color5_delta_model0.is_valid() || !color5_delta_model1.is_valid() || !color5_delta_model2.is_valid() || !inten_delta_model.is_valid())
 		{
 			BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::decode_palettes: fail 2b\n");		
 			return false;
@@ -3408,6 +3414,11 @@ namespace basist
 					BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::decode_palettes: fail 6\n");		
 					return false;
 				}
+				if (!mod_model.is_valid())
+				{
+					BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::decode_palettes: fail 6a\n");		
+					return false;
+				}
 			}
 						
 			for (uint32_t i = 0; i < num_selectors; i++)
@@ -3445,6 +3456,11 @@ namespace basist
 					BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::decode_palettes: fail 7\n");		
 					return false;
 				}
+				if (!uses_global_cb_bitflags_model.is_valid())
+				{
+					BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::decode_palettes: fail 7a\n");		
+					return false;
+				}
 
 				basist::huffman_decoding_table global_mod_indices_model;
 				if (mod_bits)
@@ -3452,6 +3468,11 @@ namespace basist
 					if (!sym_codec.read_huffman_table(global_mod_indices_model))
 					{
 						BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::decode_palettes: fail 8\n");		
+						return false;
+					}
+					if (!global_mod_indices_model.is_valid())
+					{
+						BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::decode_palettes: fail 8a\n");		
 						return false;
 					}
 				}
@@ -3519,7 +3540,16 @@ namespace basist
 				else
 				{
 					if (!sym_codec.read_huffman_table(delta_selector_pal_model))
+					{
+						BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::decode_palettes: fail 10\n");		
 						return false;
+					}
+
+					if ((num_selectors > 1) && (!delta_selector_pal_model.is_valid()))
+					{
+						BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::decode_palettes: fail 10a\n");		
+						return false;
+					}
 
 					uint8_t prev_bytes[4] = { 0, 0, 0, 0 };
 					
@@ -3574,10 +3604,22 @@ namespace basist
 			BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::decode_tables: fail 1\n");		
 			return false;
 		}
+		
+		if (m_endpoint_pred_model.get_code_sizes().size() == 0)
+		{
+			BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::decode_tables: fail 1a\n");		
+			return false;
+		}
 
 		if (!sym_codec.read_huffman_table(m_delta_endpoint_model))
 		{
-			BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::decode_tables: fail 1\n");		
+			BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::decode_tables: fail 2\n");		
+			return false;
+		}
+
+		if (m_delta_endpoint_model.get_code_sizes().size() == 0)
+		{
+			BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::decode_tables: fail 2a\n");		
 			return false;
 		}
 
@@ -3587,9 +3629,21 @@ namespace basist
 			return false;
 		}
 
+		if (m_selector_model.get_code_sizes().size() == 0)
+		{
+			BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::decode_tables: fail 3a\n");		
+			return false;
+		}
+
 		if (!sym_codec.read_huffman_table(m_selector_history_buf_rle_model))
 		{
 			BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::decode_tables: fail 4\n");		
+			return false;
+		}
+
+		if (m_selector_history_buf_rle_model.get_code_sizes().size() == 0)
+		{
+			BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::decode_tables: fail 4a\n");		
 			return false;
 		}
 
@@ -3791,6 +3845,16 @@ namespace basist
 					assert(m_selector_history_buf_size > 0);
 
 					int history_buf_index = selector_sym - (int)m_selectors.size();
+
+					if (history_buf_index >= (int)selector_history_buf.size())
+					{
+						// The file is corrupted or we've got a bug.
+							//console::error("rdo_etc1_lowlevel_decoder::transcode_slice: selector RLE value is too large!");
+						if (pPVRTC_work_mem)
+							free(pPVRTC_work_mem);
+						return false;
+					}
+
 					selector_index = selector_history_buf[history_buf_index];
 
 					if (history_buf_index != 0)
@@ -4309,6 +4373,12 @@ namespace basist
 			slice_info.m_level_index = pSlice_descs[i].m_level_index;
 			slice_info.m_unpacked_slice_crc16 = pSlice_descs[i].m_slice_data_crc16;
 			slice_info.m_alpha_flag = (pSlice_descs[i].m_flags & cSliceDescFlagsIsAlphaData) != 0;
+
+			if (pSlice_descs[i].m_image_index >= pHeader->m_total_images)
+			{
+				BASISU_DEVEL_ERROR("basisu_transcoder::get_file_info: slice desc's image index is invalid\n");
+				return false;
+			}
 
 			file_info.m_image_mipmap_levels[pSlice_descs[i].m_image_index] = basisu::maximum<uint32_t>(file_info.m_image_mipmap_levels[pSlice_descs[i].m_image_index], pSlice_descs[i].m_level_index + 1);
 		}
