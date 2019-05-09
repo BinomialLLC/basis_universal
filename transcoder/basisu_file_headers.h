@@ -17,7 +17,8 @@
 
 namespace basist
 {
-	enum
+	// Slice desc header flags
+	enum basis_slice_desc_flags
 	{
 		cSliceDescFlagsIsAlphaData = 1,
 	};
@@ -26,31 +27,33 @@ namespace basist
 #pragma pack(1)
 	struct basis_slice_desc
 	{
-		basisu::packed_uint<3> m_image_index;  // the index of the source image provided to the encoder
-		basisu::packed_uint<1> m_level_index;	// the mipmap level index (mipmaps will always appear from largest to smallest)
-		basisu::packed_uint<1> m_flags;
+		basisu::packed_uint<3> m_image_index;  // The index of the source image provided to the encoder (will always appear in order from first to last, first image index is 0, no skipping allowed)
+		basisu::packed_uint<1> m_level_index;	// The mipmap level index (mipmaps will always appear from largest to smallest)
+		basisu::packed_uint<1> m_flags;			// enum basis_slice_desc_flags
 
-		basisu::packed_uint<2> m_orig_width;
-		basisu::packed_uint<2> m_orig_height;
+		basisu::packed_uint<2> m_orig_width;	// The original image width (may not be a multiple of 4 pixels)
+		basisu::packed_uint<2> m_orig_height;  // The original image height (may not be a multiple of 4 pixels)
 
-		basisu::packed_uint<2> m_num_blocks_x;
-		basisu::packed_uint<2> m_num_blocks_y;
+		basisu::packed_uint<2> m_num_blocks_x;	// The slice's block X dimensions. Each block is 4x4 pixels. The slice's pixel resolution may or may not be a power of 2.
+		basisu::packed_uint<2> m_num_blocks_y;	// The slice's block Y dimensions. 
 
-		basisu::packed_uint<4> m_file_ofs;
-		basisu::packed_uint<4> m_file_size;
+		basisu::packed_uint<4> m_file_ofs;		// Offset from the header to the start of the slice's data
+		basisu::packed_uint<4> m_file_size;		// The size of the compressed slice data in bytes
 
-		basisu::packed_uint<2> m_slice_data_crc16;
+		basisu::packed_uint<2> m_slice_data_crc16; // The CRC16 of the compressed slice data, for extra-paranoid use cases
 	};
 
+	// File header files
 	enum basis_header_flags
 	{
-		cBASISHeaderFlagETC1S = 1,
-		cBASISHeaderFlagYFlipped = 2,
-		cBASISHeaderFlagHasAlphaSlices = 4
+		cBASISHeaderFlagETC1S = 1,					// Always set for basis universal files
+		cBASISHeaderFlagYFlipped = 2,				// Set if the texture had to be Y flipped before encoding
+		cBASISHeaderFlagHasAlphaSlices = 4		// True if the odd slices contain alpha data
 	};
 
 	// The image type field attempts to describe how to interpret the image data in a Basis file.
-	// The encoder library doesn't really do anything special or different with these texture types, this is mostly here for the benefit of the user.
+	// The encoder library doesn't really do anything special or different with these texture types, this is mostly here for the benefit of the user. 
+	// We do make sure the various constraints are followed (2DArray/cubemap/videoframes/volume implies that each image has the same resolution and # of mipmap levels, etc., cubemap implies that the # of image slices is a multiple of 6)
 	enum basis_texture_type
 	{
 		cBASISTexType2D = 0,					// An arbitrary array of 2D RGB or RGBA images with optional mipmaps, array size = # images, each image may have a different resolution and # of mipmap levels
@@ -73,42 +76,42 @@ namespace basist
 			cBASISFirstVersion = 0x10
 		};
 
-		basisu::packed_uint<2>      m_sig;
-		basisu::packed_uint<2>      m_ver;
-		basisu::packed_uint<2>      m_header_size;
-		basisu::packed_uint<2>      m_header_crc16;
+		basisu::packed_uint<2>      m_sig;				// 2 byte file signature
+		basisu::packed_uint<2>      m_ver;				// Baseline file version
+		basisu::packed_uint<2>      m_header_size;	// Header size in bytes, sizeof(basis_file_header)
+		basisu::packed_uint<2>      m_header_crc16;	// crc16 of the remaining header data
 
-		basisu::packed_uint<4>      m_data_size;
-		basisu::packed_uint<2>      m_data_crc16;
+		basisu::packed_uint<4>      m_data_size;		// The total size of all data after the header
+		basisu::packed_uint<2>      m_data_crc16;		// The CRC16 of all data after the header
 
-		basisu::packed_uint<3>      m_total_slices;
+		basisu::packed_uint<3>      m_total_slices;	// The total # of compressed slices (1 slice per image, or 2 for alpha basis files)
 
-		basisu::packed_uint<3>      m_total_images;
+		basisu::packed_uint<3>      m_total_images;	// The total # of images
 				
 		basisu::packed_uint<1>      m_format;			// enum basist::block_format
 		basisu::packed_uint<2>      m_flags;			// enum basist::header_flags
 		basisu::packed_uint<1>      m_tex_type;		// enum basist::basis_texture_type
-		basisu::packed_uint<3>      m_us_per_frame;	// framerate of video, in microseconds per frame
+		basisu::packed_uint<3>      m_us_per_frame;	// Framerate of video, in microseconds per frame
 
-		basisu::packed_uint<4>      m_reserved;
-		basisu::packed_uint<4>      m_userdata0;
-		basisu::packed_uint<4>      m_userdata1;
+		basisu::packed_uint<4>      m_reserved;		// For future use
+		basisu::packed_uint<4>      m_userdata0;		// For client use
+		basisu::packed_uint<4>      m_userdata1;		// For client use
 
-		basisu::packed_uint<2>      m_total_endpoints;
-		basisu::packed_uint<4>      m_endpoint_cb_file_ofs;
-		basisu::packed_uint<3>      m_endpoint_cb_file_size;
+		basisu::packed_uint<2>      m_total_endpoints;			// The number of endpoints in the endpoint codebook 
+		basisu::packed_uint<4>      m_endpoint_cb_file_ofs;	// The compressed endpoint codebook's file offset relative to the header
+		basisu::packed_uint<3>      m_endpoint_cb_file_size;	// The compressed endpoint codebook's size in bytes
 
-		basisu::packed_uint<2>      m_total_selectors;
-		basisu::packed_uint<4>      m_selector_cb_file_ofs;
-		basisu::packed_uint<3>      m_selector_cb_file_size;
+		basisu::packed_uint<2>      m_total_selectors;			// The number of selectors in the endpoint codebook 
+		basisu::packed_uint<4>      m_selector_cb_file_ofs;	// The compressed selectors codebook's file offset relative to the header
+		basisu::packed_uint<3>      m_selector_cb_file_size;	// The compressed selector codebook's size in bytes
 
-		basisu::packed_uint<4>      m_tables_file_ofs;
-		basisu::packed_uint<4>      m_tables_file_size;
+		basisu::packed_uint<4>      m_tables_file_ofs;			// The file offset of the compressed Huffman codelength tables, for decompressing slices
+		basisu::packed_uint<4>      m_tables_file_size;			// The file size in bytes of the compressed huffman codelength tables
 
-		basisu::packed_uint<4>      m_slice_desc_file_ofs;
+		basisu::packed_uint<4>      m_slice_desc_file_ofs;		// The file offset to the slice description array, usually follows the header
 		
-		basisu::packed_uint<4>      m_extended_file_ofs;
-		basisu::packed_uint<4>      m_extended_file_size;
+		basisu::packed_uint<4>      m_extended_file_ofs;		// The file offset of the "extended" header and compressed data, for future use
+		basisu::packed_uint<4>      m_extended_file_size;		// The file size in bytes of the "extended" header and compressed data, for future use
 	};
 #pragma pack (pop)
 

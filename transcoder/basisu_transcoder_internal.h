@@ -51,9 +51,7 @@ namespace basist
 	const uint32_t SELECTOR_HISTORY_BUF_RLE_COUNT_TOTAL = (1 << SELECTOR_HISTORY_BUF_RLE_COUNT_BITS);
 		
 	uint16_t crc16(const void *r, size_t size, uint16_t crc);
-
-	extern uint8_t g_hamming_dist[256];
-
+		
 	class huffman_decoding_table
 	{
 		friend class bitwise_decoder;

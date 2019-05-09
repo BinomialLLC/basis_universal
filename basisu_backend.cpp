@@ -267,10 +267,10 @@ namespace basisu
 				int selector_index = remaining_selectors[j];
 				
 				uint32_t hamming_dist = 
-					basist::g_hamming_dist[m_selector_palette[prev_selector_index].get_byte(0) ^ m_selector_palette[selector_index].get_byte(0)] + 
-					basist::g_hamming_dist[m_selector_palette[prev_selector_index].get_byte(1) ^ m_selector_palette[selector_index].get_byte(1)] + 
-					basist::g_hamming_dist[m_selector_palette[prev_selector_index].get_byte(2) ^ m_selector_palette[selector_index].get_byte(2)] + 
-					basist::g_hamming_dist[m_selector_palette[prev_selector_index].get_byte(3) ^ m_selector_palette[selector_index].get_byte(3)];
+					g_hamming_dist[m_selector_palette[prev_selector_index].get_byte(0) ^ m_selector_palette[selector_index].get_byte(0)] + 
+					g_hamming_dist[m_selector_palette[prev_selector_index].get_byte(1) ^ m_selector_palette[selector_index].get_byte(1)] + 
+					g_hamming_dist[m_selector_palette[prev_selector_index].get_byte(2) ^ m_selector_palette[selector_index].get_byte(2)] + 
+					g_hamming_dist[m_selector_palette[prev_selector_index].get_byte(3) ^ m_selector_palette[selector_index].get_byte(3)];
 
 				if (hamming_dist < best_hamming_dist)
 				{

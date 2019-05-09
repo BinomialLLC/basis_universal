@@ -23,6 +23,8 @@
 
 namespace basisu
 {
+	extern uint8_t g_hamming_dist[256];
+
 	// Encoder library initialization
 	void basisu_encoder_init();
 

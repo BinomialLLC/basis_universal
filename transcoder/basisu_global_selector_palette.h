@@ -162,6 +162,7 @@ namespace basist
 			return dist;
 		}
 
+#if 0
 		uint32_t calc_hamming_dist(const etc1_selector_palette_entry &other) const
 		{
 			uint32_t dist = 0;
@@ -169,6 +170,7 @@ namespace basist
 				dist += g_hamming_dist[get_byte(i) ^ other.get_byte(i)];
 			return dist;
 		}
+#endif
 
 		etc1_selector_palette_entry get_inverted() const
 		{
