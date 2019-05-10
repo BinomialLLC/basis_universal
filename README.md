@@ -117,6 +117,44 @@ Currently, the PVRTC1 transcoder requires that the ETC1S texture's dimensions bo
 
 ASTC1: 4x4 is definitely coming and will be comparable to BC7's quality. We may also support fast conversion to ASTC 6x6 pixel blocks.
 
+### How to use the system 
+
+For color-only textures, you can deploy to whatever format your target device supports. Remember that PVRTC1 requires square power of 2 size textures, and there's nothing Basis can currently do to help you work around this limitation. (Basic supports non-square PVRTC1 textures, but iOS doesn't.) 
+
+For alpha textures, you can create .basis files with alpha channels, then deploy like this:
+
+ETC1 only devices/API's: Transcode to two ETC1 textures and sample them in a shader. You can either use one ETC1 texture that's twice as high, or two separate ETC1 textures.
+
+ETC2 devices/API's: Just transcode to ETC2 EAC RGBA, which the transcoder supports.
+
+PVRTC1 devices/API's: Transcode to two PVRTC1 4bpp textures, and sample twice. We're working on adding PVRTC1 transparency support to the transcoder ASAP (but quality will definitely suffer a bit)
+
+Devices/API's supporting only BC1-5: Use BC3, which the transcoder supports.
+
+Newer devices supporting BC6H/BC7: You still need to transcode to BC3. We will support BC7 with transparency very soon.
+
+For high quality tangent space normal maps, here's one suggested solution that should work well today:
+
+Compress with the -normal_map flag, which disables a lot of stuff that has interfered with normal maps in the past. Also compress with -slower, which creates the highest quality codebooks.
+
+Use 2 component XY normal maps encoded into the RG channels, where the Z component is computed in the shader after fetching). Put X in color, and Y in alpha. The command line tool and encoder class support the option "-seperate_rg_to_color_alpha" that helps with this.
+
+ETC1 only devices/API's: Transcode to two ETC1 textures and sample them in a shader. You can either use one ETC1 texture that's twice as high, or two separate ETC1 textures. The transcoder supports transcoding alpha slices to any color output format using a special flag: `basist::basisu_transcoder::cDecodeFlagsTranscodeAlphaDataToOpaqueFormats`. This will look good because each channel gets its own endpoints and selectors.
+
+ETC2 devices/API's: Transcode to a single ETC2 EAC RGBA. This should look good.
+
+PVRTC1 devices/API's: Transcode to two PVRTC1 opaque textures, sample each in the shader. This should look fairly good.
+
+Devices/API's supporting BC1-5, BC6H, BC7: Transcode to a single BC5 textures, which used to be called "ATI 3DC". It has two high quality BC4 blocks in there. Once BC7 alpha support comes online that will be the better option.
+
+### Next Major Steps - Higher Quality!
+
+Within the next couple months or so, we'll be adding ASTC 4x4 opaque and transparent (and maybe 6x6), PVRTC1 4bpp transparent, and BC7 transparent. Of these, PVRTC1 4bpp transparent will be the most challenging from a quality perspective, and ASTC will be the most challenging from a texture format perspective. The resulting quality will still be baseline ETC1S.
+
+We'll be upgrading the system's quality to something halfway in between BC1 and BC7 (but more towards BC7 than BC1). We're going to enlarge the codebooks with optional extended data, add 2 partitions so blocks can use multiple color endpoints, and add higher precision selectors and endpoints. We may allow codebook entries to be split up (with extra per-block data indicating which split codebook entry to use), creating larger codebooks that only the extended texture data references. We're going to leverage what we learned building our state of the art vectorized BC7 encoder (Basis BC7), and our open source [https://github.com/richgel999/bc7enc16](bc7enc16) encoder, while creating this. We currently think just BC7 modes 1 and 6 (and the ASTC equivalents) will be enough.
+
+We need a C-style API for the compressor class, and a bunch of compression/transcoding examples (native and WebGL). We also need to release a decent regression test.
+
 ### Improvements vs. our earlier work
 
 Basis supports up to 16K codebooks for both endpoints and selectors for significantly higher quality textures, uses much higher quality codebook generators, the format uses a new prediction scheme for block endpoints (replicate one of 3 neighbors or use DPCM+Huffman from left neighbor), the format uses a selector history buffer, and RLE codes are implemented for all symbol types for high efficiency on simpler textures. The encoder also implements several new rate distortion optimization stages on both endpoint and selectors, and in Basis the encoder backend can call back into the frontend to reoptimize endpoints or selectors after the RDO stages modify the block codebook indices for better rate distortion performance. 
