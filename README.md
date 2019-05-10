@@ -103,7 +103,7 @@ BC3/DXT5 - The color block is BC1, the alpha block is BC4. ETC1S->BC4 is nearly 
 
 BC4/DXT5A - ETC1S->BC4 conversion is nearly lossless.
 
-BC5/3DC/DXN - Two BC4 blocks.
+BC5/3DC/DXN - Two BC4 blocks. As the conversion from ETC1S->BC4 blocks is nearly lossless, we think this format (with large codebooks) will work well with high quality tangent space normal maps. Each channel gets its own ETC1S texture.
 
 BC7 - Currently we only output mode 6, for opaque only textures. The conversion from ETC1S->BC7 is nearly lossless. We'll soon be adding mode 4 or 5 support for alpha textures.
 
