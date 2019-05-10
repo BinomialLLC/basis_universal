@@ -47,7 +47,9 @@ The mipmapped .KTX files will be in a variety of GPU formats (PVRTC1 4bpp, ETC1-
 
 For the maximum possible achievable quality with the current former and encoder, use:
 
-`basisu x.png -slower -max_endpoints 16128 -max_selectors 16128 -no_selector_rdo -no_auto_global_sel_pal`
+`basisu x.png -slower -max_endpoints 16128 -max_selectors 16128 -no_selector_rdo -no_endpoint_rdo`
+
+Note that "-no_selector_rdo -no_endpoint_rdo" are optional. Using them hurts rate distortion performance, but increases quality. An alternative is to use -selector_rdo_thresh X and -endpoint_rdo_thresh, with X ranging from [1,2] (higher=lower quality/better compression - see the tool's help text).
 
 ### WebGL test 
 
@@ -83,9 +85,13 @@ Once the codebook and Huffman tables are decompressed, the slices are randomly a
 
 We currently only support CPU transcoding, but GPU assisted transcoding/format conversion is also possible by uploading the decompressed codebooks as textures and using compute shaders to convert the ETC1S codebook block indices to the desired output texture or pixel format.
 
+### Calling the encoder from C/C++
+
+I'm going to provide a simple C-style API to call the encoder directly. For now, you can call the C++ interface in basisu_comp.cpp/.h. See struct basis_compressor_params and class basis_compressor. Almost the entire command line tool's functionality is in basis_compressor. This class does support doing 100% in-memory compression with no file I/O.
+
 ### Improvements vs. our earlier work
 
-Basis supports up to 16K codebooks for both endpoints and selectors for significantly higher quality textures, uses much higher quality codebook generators, uses a new prediction scheme for block endpoints (replicate one of 3 neighbors or use DPCM from left neighbor), supports a selector history buffer, and RLE codes are implemented for all symbol types for high efficiency on simpler textures. The encoder also implements several new rate distortion optimization stages on both endpoint and selectors, and in Basis the encoder backend can call back into the frontend to reoptimize endpoints or selectors after the RDO stages modify the block codebook indices for better rate distortion performance. 
+Basis supports up to 16K codebooks for both endpoints and selectors for significantly higher quality textures, uses much higher quality codebook generators, the format uses a new prediction scheme for block endpoints (replicate one of 3 neighbors or use DPCM+Huffman from left neighbor), the format uses a selector history buffer, and RLE codes are implemented for all symbol types for high efficiency on simpler textures. The encoder also implements several new rate distortion optimization stages on both endpoint and selectors, and in Basis the encoder backend can call back into the frontend to reoptimize endpoints or selectors after the RDO stages modify the block codebook indices for better rate distortion performance. 
 
 The file format also supports very large non-uniform texture arrays, making the system usable as an RDO backend in specialized block-based video encoders. Internally, the encoder only handles blocks and all later RDO stages which assume a fixed 2D raster order of the blocks can be optionally disabled.
 
