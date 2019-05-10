@@ -4231,6 +4231,12 @@ namespace basist
 			else 
 				break;
 
+		if (total_levels > 16)
+		{
+			BASISU_DEVEL_ERROR("basisu_transcoder::get_image_info: invalid image_index\n");		
+			return false;
+		}
+
 		const basis_slice_desc &slice_desc = pSlice_descs[slice_index];
 
 		image_info.m_image_index = image_index;
@@ -4278,7 +4284,13 @@ namespace basist
 			if (pSlice_descs[i].m_image_index == image_index)
 				total_levels = basisu::maximum<uint32_t>(total_levels, pSlice_descs[i].m_level_index + 1);
 			else 
-				break;			
+				break;
+
+		if (total_levels > 16)
+		{
+			BASISU_DEVEL_ERROR("basisu_transcoder::get_total_image_levels: invalid image levels!\n");		
+			return false;
+		}
 				
 		return total_levels;
 	}
@@ -4436,6 +4448,12 @@ namespace basist
 			}
 
 			file_info.m_image_mipmap_levels[pSlice_descs[i].m_image_index] = basisu::maximum<uint32_t>(file_info.m_image_mipmap_levels[pSlice_descs[i].m_image_index], pSlice_descs[i].m_level_index + 1);
+
+			if (file_info.m_image_mipmap_levels[pSlice_descs[i].m_image_index] > 16)
+			{
+				BASISU_DEVEL_ERROR("basisu_transcoder::get_file_info: slice mipmap level is invalid\n");
+				return false;
+			}
 		}
 
 		return true;
@@ -4458,6 +4476,11 @@ namespace basist
 		const basis_file_header *pHeader = reinterpret_cast<const basis_file_header*>(pData);
 
 		const uint8_t *pDataU8 = static_cast<const uint8_t *>(pData);
+
+		if (!pHeader->m_endpoint_cb_file_size || !pHeader->m_selector_cb_file_size || !pHeader->m_tables_file_size)
+		{
+			BASISU_DEVEL_ERROR("basisu_transcoder::transcode_slice: file is corrupted (0)\n");
+		}
 
 		if ((pHeader->m_endpoint_cb_file_ofs > data_size) || (pHeader->m_selector_cb_file_ofs > data_size) || (pHeader->m_tables_file_ofs > data_size))
 		{
