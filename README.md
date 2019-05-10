@@ -119,9 +119,9 @@ ASTC1: 4x4 is definitely coming and will be comparable to BC7's quality. We may 
 
 ### How to use the system 
 
-For color-only textures, you can deploy to whatever format your target device supports. Remember that PVRTC1 requires square power of 2 size textures, and there's nothing Basis can currently do to help you work around this limitation. (Basic supports non-square PVRTC1 textures, but iOS doesn't.) 
+1. For color-only textures, you can transcode to whatever format your target device supports. Remember that PVRTC1 requires square power of 2 size textures, and there's nothing Basis can currently do to help you work around this limitation. (Basic supports non-square PVRTC1 textures, but iOS doesn't.) 
 
-For alpha textures, you can create .basis files with alpha channels, then deploy like this:
+2. For alpha textures, you can create .basis files with alpha channels, then deploy like this:
 
 ETC1 only devices/API's: Transcode to two ETC1 textures and sample them in a shader. You can either use one ETC1 texture that's twice as high, or two separate ETC1 textures.
 
@@ -133,7 +133,7 @@ Devices/API's supporting only BC1-5: Use BC3, which the transcoder supports.
 
 Newer devices supporting BC6H/BC7: You still need to transcode to BC3. We will support BC7 with transparency very soon.
 
-For high quality tangent space normal maps, here's one suggested solution that should work well today:
+3. For high quality tangent space normal maps, here's one suggested solution that should work well today:
 
 Compress with the -normal_map flag, which disables a lot of stuff that has interfered with normal maps in the past. Also compress with -slower, which creates the highest quality codebooks.
 
