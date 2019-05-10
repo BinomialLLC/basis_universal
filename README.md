@@ -97,13 +97,13 @@ ETC1 - The system's internal texture format is ETC1S, so outputting ETC1 texture
 
 ETC2 - The color block will be ETC1S, and the alpha block is EAC. Conversion from ETC1S->EAC is nearly lossless.
 
-BC1 - ETC1S->BC1 conversion loses approx. .3-.5 dB Y PSNR relative to the source ETC1S data. We don't currently use 3 color (punchthrough) blocks, but we could easy add them. 
+BC1/DXT1 - ETC1S->BC1 conversion loses approx. .3-.5 dB Y PSNR relative to the source ETC1S data. We don't currently use 3 color (punchthrough) blocks, but we could easily add them. 
 
-BC3 - The color block is BC1, the alpha block is BC4. ETC1S->BC4 is nearly lossless.
+BC3/DXT5 - The color block is BC1, the alpha block is BC4. ETC1S->BC4 is nearly lossless.
 
-BC4 - ETC1S->BC4 conversion is nearly lossless.
+BC4/DXT5A - ETC1S->BC4 conversion is nearly lossless.
 
-BC5 - Two BC4 blocks.
+BC5/3DC/DXN - Two BC4 blocks.
 
 BC7 - Currently we only output mode 6, for opaque only textures. The conversion from ETC1S->BC7 is nearly lossless. We'll soon be adding mode 4 or 5 support for alpha textures.
 
