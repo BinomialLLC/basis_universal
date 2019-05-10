@@ -27,11 +27,17 @@ To compress a sRGB image to .basis:
 
 Note that basisu defaults to sRGB colorspace metrics. If the input is a normal map, or some other type of non-sRGB (non-photographic) texture content, be sure to use -linear to avoid extra unnecessary artifacts.
 
+To add automatically generated mipmaps to the .basis file:
+
+`basisu -mipmap x.png`
+
+There are several mipmap options that allow you to change the filter kernel, the smallest mipmap dimension, etc. The tool also supports generating cubemap files, 2D/cubemap texture arrays, etc.
+
 To unpack a .basis file to multiple .png/.ktx files:
 
 `basisu x.basis`
 
-The mipmapped .KTX files will be in a variety of GPU formats (PVRTC1 4bpp, ETC1-2, BC1-5, BC7), and to my knowledge there is no single .KTX viewer tool that supports every GPU texture format. BC1-5 and BC7 files are viewable using AMD's Compressonator, ETC1/2 using Mali's Texture Compression Tool, and PVRTC1 using Imagination Tech's PVRTexTool. Links:
+The mipmapped .KTX files will be in a variety of GPU formats (PVRTC1 4bpp, ETC1-2, BC1-5, BC7), and to my knowledge there is no single .KTX viewer tool that supports every GPU texture format that we support. BC1-5 and BC7 files are viewable using AMD's Compressonator, ETC1/2 using Mali's Texture Compression Tool, and PVRTC1 using Imagination Tech's PVRTexTool. Links:
 
 [Mali Texture Compression Tool](https://duckduckgo.com/?q=mali+texture+compression+tool&atb=v146-1&ia=web)]
 
@@ -45,7 +51,7 @@ For the maximum possible achievable quality with the current former and encoder,
 
 ### WebGL test 
 
-The "WebGL" directory contains a very simple WebGL demo that uses the transcoder compiled to asm.js using emscripten. It currently only supports transcoding to the BC1 and BC3 texture formats. The file WebGL/basis_wrappers.cpp contains a simple C-style API that the Javascript code calsl to interface with the C++ Basis transcoder.
+The "WebGL" directory contains a very simple WebGL demo that uses the transcoder compiled to asm.js with [emscripten](https://emscripten.org/). It currently only supports transcoding to the BC1 and BC3 texture formats. The file WebGL/basis_wrappers.cpp contains a simple C-style API that the Javascript code calls to interface with the C++ Basis transcoder.
 
 On browsers that don't support BC1 (Firefox is one), there's a low-quality fallback code path for opaque textures (but no fallback for BC3 yet). Note that the fallback path only converts to 16-bit RGB images at the moment, so the quality isn't as good as it should be.
 
@@ -67,13 +73,13 @@ I will be simplifying the transcoder so the caller doesn't need to deal with etc
 
 ### Quick Basis file details
 
-Internally, Basis files are composed of a non-uniform texture array of one or more 2D ETC1S texture "slices". ETC1S is a simple subset of the ETC1 texture format popular on Android. ETC1S has no block flips, no 4x2 or 2x4 subblocks, and each block only uses 555 base colors. ETC1S is still 100% standard ETC1, so transcoding to ETC1 or the color block of ETC2 is a no-op. We choose ETC1S because it has the valuable property that it can be quickly transcoded to almost any other GPU texture format at high quality using only simple per-block operations with small 1D lookup tables. Transcoding to PVRTC1 involves only simple block level operations to compute the endpoints, and simple per-pixel scalar operations to compute the modulation values.
+Internally, Basis files are composed of a non-uniform texture array of one or more 2D ETC1S texture "slices". ETC1S is a simple subset of the ETC1 texture format popular on Android. ETC1S has no block flips, no 4x2 or 2x4 subblocks, and each block only uses 555 base colors. ETC1S is still 100% standard ETC1, so transcoding to ETC1 or the color block of ETC2 is a no-op. We choose ETC1S because it has the very valuable property that it can be quickly transcoded to almost any other GPU texture format at very high quality using only simple per-block operations with small 1D lookup tables. Transcoding ETC1S to BC1 usually only introduces around .3 dB Y PSNR quality loss, with less loss for ETC1S->BC7. Transcoding to PVRTC1 involves only simple block level operations to compute the endpoints, and simple per-pixel scalar operations to compute the modulation values.
 
-Basis files have a single set of compressed global endpoint/selector codebooks in ETC1S format, which all slices utilize. The ETC1S texture data is compressed using vector quantization (VQ) seperately on the endpoints and selectors, followed by DPCM/RLE/psuedo-MTF/canonical Huffman coding. Each ETC1S texture slice may be a different resolution. Mipmaps (if any) are always stored in order from largest to smallest level. The file format supports either storing the selector codebook directly (using DPCM+Huffman), or storing the selector codebook using a hierarchical virtual codebook scheme.
+Basis files have a single set of compressed global endpoint/selector codebooks in ETC1S format, which all slices utilize. The ETC1S texture data is compressed using vector quantization (VQ) seperately on the endpoints and selectors, followed by DPCM/RLE/psuedo-MTF/canonical Huffman coding. Each ETC1S texture slice may be a different resolution. Mipmaps (if any) are always stored in order from largest to smallest level. The file format supports either storing the selector codebook directly (using DPCM+Huffman), or storing the selector codebook using a hierarchical virtual codebook scheme. 
 
-One the codebook and Huffman tables are decompressed, the slices are randomly accessible in any order. Opaque files always have one slice per image, and files with alpha channels always have two slices per image (even if some images in the file don't have alpha channels, i.e. alpha is all or nothing). The transcoder abstracts these details away into a simple "image" API, which is what most callers will use. An image is either a single RGB slice, or two (RGB+A) slices. Internally, alpha slices are also in ETC1S format.
+Once the codebook and Huffman tables are decompressed, the slices are randomly accessible in any order. Opaque files always have one slice per image mipmap level, and files with alpha channels always have two slices per image mipmap level (even if some images in the file don't have alpha channels, i.e. alpha is all or nothing at the file level). The transcoder abstracts these details away into a simple "image" API, which is what most callers will use. An image is either one or more RGB slices (one per mipmap level), or one or more pairs of RGB/A slices (two per mipmap level). Internally, alpha slices are also stored in ETC1S format, like the color data, so selector correlations across color/alpha can be exploited.
 
-We currently only support CPU transcoding, but GPU assisted transcoding/format conversion is also possible by uploading the decompressed codebooks as textures and using compute shaders to convert the ETC1S data to the desired output format.
+We currently only support CPU transcoding, but GPU assisted transcoding/format conversion is also possible by uploading the decompressed codebooks as textures and using compute shaders to convert the ETC1S codebook block indices to the desired output texture or pixel format.
 
 ### Special thanks
 A big thanks to Google for partnering with us and enabling this code to be open sourced.
@@ -87,7 +93,7 @@ Thanks to Colt McAnlis, for advertising one of my earlier open source texture co
 I first saw using precomputed tables for quickly computing optimal encodings of solid color blocks in ryg_dxt. The method that limits the canonical Huffman codelengths to a maximum codesize was used in Yoshizaki's lharc.
 
 ### Possible improvements
-The way the -q (quality) option is converted to codebook sizes is very simple (fixed formulas), and could be improved. 
+The way the -q (quality) option is converted to codebook sizes is very simple (fixed formulas), and could be improved. It has a tendancy to plateue on some files.
 
 The various Huffman codes could be divided up into groups (like Zstd), for much faster Huffman decoding in the transcoder. Also, larger slices could be divided up into multiple segments, and each segment transcoded using a different thread. Both of these changes would modify the format.
 
@@ -99,3 +105,4 @@ The transcoder's BC7 tables are a bit large, and can be reduced, which would all
 
 3-bit selectors for alpha would greatly improve the quality of the alpha, but would break the file format and require extensive additions to the compressor/transcoder.
 
+Fast 6x6 ASTC support may be possibl.
