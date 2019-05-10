@@ -27,9 +27,9 @@ To compress a sRGB image to .basis:
 
 Note that basisu defaults to sRGB colorspace metrics. If the input is a normal map, or some other type of non-sRGB (non-photographic) texture content, be sure to use -linear to avoid extra unnecessary artifacts.
 
-To add automatically generated mipmaps to the .basis file:
+To add automatically generated mipmaps to the .basis file, at a higher than default quality level (which ranges from [1,255]):
 
-`basisu -mipmap x.png`
+`basisu -mipmap -q 190 x.png`
 
 There are several mipmap options that allow you to change the filter kernel, the smallest mipmap dimension, etc. The tool also supports generating cubemap files, 2D/cubemap texture arrays, etc.
 
