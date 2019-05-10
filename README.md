@@ -93,7 +93,7 @@ I'm going to provide a simple C-style API to call the encoder directly. For now,
 
 Internally, all ETC1S slices can be converted to any format. The transcoder's image API's supports converting alpha slices to color texture formats, which allows the user to transcode textures with alpha to two ETC1 images, etc.
 
-ETC1 - The internal file format is ETC1S, so outputting ETC1 texture data is a no-op. We only use differential encodings, each subblock uses the same base color (the differential color is always [0,0,0]), and flips are always enabled.
+ETC1 - The system's internal texture format is ETC1S, so outputting ETC1 texture data is a no-op. We only use differential encodings, each subblock uses the same base color (the differential color is always [0,0,0]), and flips are always enabled.
 
 ETC2 - The color block will be ETC1S, and the alpha block is EAC. Conversion from ETC1S->EAC is nearly lossless.
 
