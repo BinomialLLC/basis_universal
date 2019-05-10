@@ -81,6 +81,12 @@ Once the codebook and Huffman tables are decompressed, the slices are randomly a
 
 We currently only support CPU transcoding, but GPU assisted transcoding/format conversion is also possible by uploading the decompressed codebooks as textures and using compute shaders to convert the ETC1S codebook block indices to the desired output texture or pixel format.
 
+### Improvements vs. our earlier work
+
+Basis supports up to 16K codebooks for both endpoints and selectors for significantly higher quality textures, uses much higher quality codebook generators, uses a new prediction scheme for block endpoints (replicate one of 3 neighbors or use DPCM from left neighbor), supports a selector history buffer, and RLE codes are implemented for all symbol types for high efficiency on simpler textures. The encoder also implements several new rate distortion optimization stages on both endpoint and selectors, and in Basis the encoder backend can call back into the frontend to reoptimize endpoints or selectors after the RDO stages modify the block codebook indices for better rate distortion performance. 
+
+The file format also supports very large non-uniform texture arrays, making the system usable as an RDO backend in specialized block-based video encoders. Internally, the encoder only handles blocks and all later RDO stages which assume a fixed 2D raster order of the blocks can be optionally disabled.
+
 ### Special thanks
 A big thanks to Google for partnering with us and enabling this code to be open sourced.
 
