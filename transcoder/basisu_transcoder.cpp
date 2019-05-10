@@ -4125,16 +4125,11 @@ namespace basist
 
 		if (pHeader->m_flags & cBASISHeaderFlagHasAlphaSlices)
 		{
-			if (pHeader->m_total_slices != pHeader->m_total_images * 2)
+			if (pHeader->m_total_slices & 1)
 			{
 				BASISU_DEVEL_ERROR("basisu_transcoder::get_total_images: invalid alpha basis file\n");		
 				return false;
 			}
-		}
-		else if (pHeader->m_total_slices != pHeader->m_total_images)
-		{
-			BASISU_DEVEL_ERROR("basisu_transcoder::get_total_images: invalid total_images field in header\n");		
-			return false;
 		}
 
 		if ((pHeader->m_flags & cBASISHeaderFlagETC1S) == 0)
