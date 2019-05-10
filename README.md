@@ -89,6 +89,34 @@ We currently only support CPU transcoding, but GPU assisted transcoding/format c
 
 I'm going to provide a simple C-style API to call the encoder directly. For now, you can call the C++ interface in basisu_comp.cpp/.h. See struct basis_compressor_params and class basis_compressor. Almost the entire command line tool's functionality is in basis_compressor. This class does support doing 100% in-memory compression with no file I/O.
 
+### GPU texture format support details
+
+Internally, all ETC1S slices can be converted to any format. The transcoder's image API's supports converting alpha slices to color texture formats, which allows the user to transcode textures with alpha to two ETC1 images, etc.
+
+ETC1 - The internal file format is ETC1S, so outputting ETC1 texture data is a no-op. We only use differential encodings, each subblock uses the same base color (the differential color is always [0,0,0]), and flips are always enabled.
+
+ETC2 - The color block will be ETC1S, and the alpha block is EAC. Conversion from ETC1S->EAC is nearly lossless.
+
+BC1 - ETC1S->BC1 conversion loses approx. .3-.5 dB Y PSNR relative to the source ETC1S data. We don't currently use 3 color (punchthrough) blocks, but we could easy add them. 
+
+BC3 - The color block is BC1, the alpha block is BC4. ETC1S->BC4 is nearly lossless.
+
+BC4 - ETC1S->BC4 conversion is nearly lossless.
+
+BC5 - Two BC4 blocks.
+
+BC7 - Currently we only output mode 6, for opaque only textures. The conversion from ETC1S->BC7 is nearly lossless. We'll soon be adding mode 4 or 5 support for alpha textures.
+
+PVRTC1 4bpp - Currently we only support opaque textures. The conversion from ETC1S->PVRTC1 is a two step process. The first step finds the RGB bounding boxes of each ETC1S block, which is fast (we don't need to process the entire block's pixels, just the 1-4 used block colors). The first pass occurs during ETC1S transcoding. The second pass computes the per-pixel 2-bpp modulation values, which is fast because we can do this in a luma-like colorspace using simple scalar (not full RGB) operations. The second pass is highly optimized, and threading it would be easy. Quality is roughly the same as PVRTexTool's "Normal (Good Quality)" setting. ETC1S->PVRTC1 loses the most quality - several Y dB PSNR. (I'll be adding better statistics here soon.)
+
+Interestingly, the low pass filtering-like artifacts due to PVRTC1's unique block endpoint interpolation help obscure ETC1S chroma artifacts. 
+
+We will be adding PVRTC1 4bpp transparent support soon, and possibly PVRTC1 2bpp.
+
+Currently, the PVRTC1 transcoder requires that the ETC1S texture's dimensions both be a power of two (but non-square is OK, although I believe iOS doesn't support that). We will be adding the ability to transcode non-pow2 ETC1S textures to larger pow2 PVRTC1 textures soon.
+
+ASTC1: 4x4 is definitely coming and will be comparable to BC7's quality. We may also support fast conversion to ASTC 6x6 pixel blocks.
+
 ### Improvements vs. our earlier work
 
 Basis supports up to 16K codebooks for both endpoints and selectors for significantly higher quality textures, uses much higher quality codebook generators, the format uses a new prediction scheme for block endpoints (replicate one of 3 neighbors or use DPCM+Huffman from left neighbor), the format uses a selector history buffer, and RLE codes are implemented for all symbol types for high efficiency on simpler textures. The encoder also implements several new rate distortion optimization stages on both endpoint and selectors, and in Basis the encoder backend can call back into the frontend to reoptimize endpoints or selectors after the RDO stages modify the block codebook indices for better rate distortion performance. 
