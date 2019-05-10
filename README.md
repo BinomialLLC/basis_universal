@@ -119,6 +119,12 @@ ASTC1: 4x4 is definitely coming and will be comparable to BC7's quality. We may 
 
 ### How to use the system 
 
+First, become familiar with the exact compressed texture formats your device hardware *and* rendering API support. Just because your device supports a particular format (like PVRTC2) doesn't mean your OS or API does (iOS doesn't support PVRTC2, even though their hardware did). On Android, ETC1/2 are popular. iOS supports PVRTC1 (pretty much always) and possibly ETC1/2 (but absolutely don't bet on it), and on desktop BC1-5/BC7 are king.
+
+Also, become familiar with any texture size restrictions. For example, on iOS, you can only use square power of 2 texture dimensions for PVRTC1, and there's nothing Basis can do for you today that works around this limitation. (We will be supporting the ability to trancode smaller non-pow2 textures into larger power of 2 PVRTC1 textures soon.)
+
+Here are the major texturing scenarios we support today:
+
 1. For color-only textures, you can transcode to whatever format your target device supports. Remember that PVRTC1 requires square power of 2 size textures, and there's nothing Basis can currently do to help you work around this limitation. (Basic supports non-square PVRTC1 textures, but iOS doesn't.) 
 
 2. For alpha textures, you can create .basis files with alpha channels, then deploy like this:
@@ -131,21 +137,21 @@ PVRTC1 devices/API's: Transcode to two PVRTC1 4bpp textures, and sample twice. W
 
 Devices/API's supporting only BC1-5: Use BC3, which the transcoder supports.
 
-Newer devices supporting BC6H/BC7: You still need to transcode to BC3. We will support BC7 with transparency very soon.
+Newer devices supporting BC6H/BC7: You still need to transcode to BC3. We will support BC7 with transparency very soon, which will give you slightly higher quality.
 
 3. For high quality tangent space normal maps, here's one suggested solution that should work well today:
 
-Compress with the -normal_map flag, which disables a lot of stuff that has interfered with normal maps in the past. Also compress with -slower, which creates the highest quality codebooks.
+Compress with the -normal_map flag, which disables a lot of stuff that has interfered with normal maps in the past. Also compress with -slower, which creates the highest quality codebooks. Use larger codebooks (use the -max_endpoints and -max_selectors options directly, with larger values).
 
 Use 2 component XY normal maps encoded into the RG channels (where the Z component is computed in the shader after fetching). Put X in color, and Y in alpha. The command line tool and encoder class support the option "-seperate_rg_to_color_alpha" that helps with this.
 
-ETC1 only devices/API's: Transcode to two ETC1 textures and sample them in a shader. You can either use one ETC1 texture that's twice as high, or two separate ETC1 textures. The transcoder supports transcoding alpha slices to any color output format using a special flag: `basist::basisu_transcoder::cDecodeFlagsTranscodeAlphaDataToOpaqueFormats`. This will look good because each channel gets its own endpoints and selectors.
+ETC1 only devices/API's: Transcode to two ETC1 textures and sample them in a shader. You can either use one ETC1 texture that's twice as high, or two separate ETC1 textures. The transcoder supports transcoding alpha slices to any color output format using a special flag: `basist::basisu_transcoder::cDecodeFlagsTranscodeAlphaDataToOpaqueFormats`. This will look great because each channel gets its own endpoints and selectors.
 
-ETC2 devices/API's: Transcode to a single ETC2 EAC RGBA. This should look good.
+ETC2 devices/API's: Transcode to a single ETC2 EAC RGBA texture, sample once in shader. This should look great.
 
 PVRTC1 devices/API's: Transcode to two PVRTC1 opaque textures, sample each in the shader. This should look fairly good.
 
-Devices/API's supporting BC1-5, BC6H, BC7: Transcode to a single BC5 textures, which used to be called "ATI 3DC". It has two high quality BC4 blocks in there. Once BC7 alpha support comes online that will be the better option.
+Devices/API's supporting BC1-5, BC6H, BC7: Transcode to a single BC5 textures, which used to be called "ATI 3DC". It has two high quality BC4 blocks in there, so it'll look great. Once BC7 alpha support comes online that will be the better option.
 
 ### Next Major Steps - Higher Quality!
 
