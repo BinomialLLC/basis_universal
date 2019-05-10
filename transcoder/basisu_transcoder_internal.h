@@ -426,6 +426,9 @@ namespace basist
 			if (!code_length_table.init(basisu::cHuffmanTotalCodelengthCodes, code_length_code_sizes))
 				return false;
 
+			if (!code_length_table.is_valid())
+				return false;
+
 			basisu::uint8_vec code_sizes(total_used_syms);
 
 			uint32_t cur = 0;
