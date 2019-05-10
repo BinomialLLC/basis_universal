@@ -105,4 +105,4 @@ The transcoder's BC7 tables are a bit large, and can be reduced, which would all
 
 3-bit selectors for alpha would greatly improve the quality of the alpha, but would break the file format and require extensive additions to the compressor/transcoder.
 
-Fast 6x6 ASTC support may be possibl.
+Fast 6x6 ASTC support may be possible.
