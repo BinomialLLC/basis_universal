@@ -3432,6 +3432,12 @@ namespace basist
 				uint32_t mod_index = 0;
 				if (mod_bits)
 					mod_index = sym_codec.decode_huffman(mod_model);
+					
+				if (pal_index >= m_pGlobal_sel_codebook->size())
+				{
+					BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::decode_palettes: fail 7z\n");		
+					return false;
+				}
 
 				const etc1_selector_palette_entry e(m_pGlobal_sel_codebook->get_entry(pal_index, etc1_global_palette_entry_modifier(mod_index)));
 
@@ -3499,6 +3505,12 @@ namespace basist
 					{
 						const uint32_t pal_index = pal_bits ? sym_codec.get_bits(pal_bits) : 0;
 						const uint32_t mod_index = mod_bits ? sym_codec.decode_huffman(global_mod_indices_model) : 0;
+
+						if (pal_index >= m_pGlobal_sel_codebook->size())
+						{
+							BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::decode_palettes: fail 8b\n");		
+							return false;
+						}
 
 						const etc1_selector_palette_entry e(m_pGlobal_sel_codebook->get_entry(pal_index, etc1_global_palette_entry_modifier(mod_index)));
 
