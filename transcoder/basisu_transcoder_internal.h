@@ -123,6 +123,12 @@ namespace basist
 					uint32_t k = (code_size << 16) | sym_index;
 					while (rev_code < basisu::cHuffmanFastLookupSize)
 					{
+						if (m_lookup[rev_code] != 0)
+						{
+							// Supplied codesizes can't create a valid prefix code.
+							return false;
+						}
+
 						m_lookup[rev_code] = k;
 						rev_code += (1 << code_size);
 					}
@@ -132,7 +138,14 @@ namespace basist
 				int tree_cur;
 				if (0 == (tree_cur = m_lookup[rev_code & (basisu::cHuffmanFastLookupSize - 1)]))
 				{
-					m_lookup[rev_code & (basisu::cHuffmanFastLookupSize - 1)] = tree_next;
+					const uint32_t idx = rev_code & (basisu::cHuffmanFastLookupSize - 1);
+					if (m_lookup[idx] != 0)
+					{
+						// Supplied codesizes can't create a valid prefix code.
+						return false;
+					}
+
+					m_lookup[idx] = tree_next;
 					tree_cur = tree_next;
 					tree_next -= 2;
 				}
@@ -149,7 +162,7 @@ namespace basist
 				{
 					tree_cur -= ((rev_code >>= 1) & 1);
 
-					int idx = -tree_cur - 1;
+					const int idx = -tree_cur - 1;
 					if (idx < 0)
 						return false;
 					else if (idx >= (int)m_tree.size())
@@ -174,11 +187,17 @@ namespace basist
 
 				tree_cur -= ((rev_code >>= 1) & 1);
 
-				int idx = -tree_cur - 1;
+				const int idx = -tree_cur - 1;
 				if (idx < 0)
 					return false;
 				else if (idx >= (int)m_tree.size())
 					m_tree.resize(idx + 1);
+
+				if (m_tree[idx] != 0)
+				{
+					// Supplied codesizes can't create a valid prefix code.
+					return false;
+				}
 
 				m_tree[idx] = (int16_t)sym_index;
 			}
