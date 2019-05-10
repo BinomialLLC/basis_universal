@@ -155,6 +155,12 @@ PVRTC1 devices/API's: Transcode to two PVRTC1 opaque textures, sample each in th
 
 Devices/API's supporting BC1-5, BC6H, BC7: Transcode to a single BC5 textures, which used to be called "ATI 3DC". It has two high quality BC4 blocks in there, so it'll look great. Once BC7 alpha support comes online that will be the better option.
 
+### basisu Command Line Compression Tool
+
+The tool supports these major modes: compression to .basis files (the default), validation of .basis files with CRC16 checking of the transcoded ETC1S data, validation and unpacking to multiple .PNG and mipmapped/cubemapped .KTX files, and comparing two PNG's and computing various image quality metrics (PSNR, SSIM).
+
+I'll be adding detailed instructions about the command line tool to a Wiki soon.
+
 ### Next Major Steps - Higher Quality!
 
 Within the next couple months or so, we'll be adding ASTC 4x4 opaque and transparent (and maybe 6x6), PVRTC1 4bpp transparent, and BC7 transparent. Of these, PVRTC1 4bpp transparent will be the most challenging from a quality perspective, and ASTC will be the most challenging from a texture format perspective. The resulting quality will still be baseline ETC1S.
