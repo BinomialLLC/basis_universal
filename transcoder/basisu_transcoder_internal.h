@@ -162,7 +162,14 @@ namespace basist
 						tree_next -= 2;
 					}
 					else
+					{
 						tree_cur = m_tree[idx];
+						if (tree_cur >= 0)
+						{
+							// Supplied codesizes can't create a valid prefix code.
+							return false;
+						}
+					}
 				}
 
 				tree_cur -= ((rev_code >>= 1) & 1);
