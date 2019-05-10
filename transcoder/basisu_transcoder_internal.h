@@ -137,31 +137,43 @@ namespace basist
 					tree_next -= 2;
 				}
 
+				if (tree_cur >= 0)
+				{
+					// Supplied codesizes can't create a valid prefix code.
+					return false;
+				}
+
 				rev_code >>= (basisu::cHuffmanFastLookupBits - 1);
 
 				for (int j = code_size; j > (basisu::cHuffmanFastLookupBits + 1); j--)
 				{
 					tree_cur -= ((rev_code >>= 1) & 1);
 
-					if ((-tree_cur - 1) >= (int)m_tree.size())
-						m_tree.resize((-tree_cur - 1) + 1);
-
-					if (!m_tree[-tree_cur - 1])
+					int idx = -tree_cur - 1;
+					if (idx < 0)
+						return false;
+					else if (idx >= (int)m_tree.size())
+						m_tree.resize(idx + 1);
+										
+					if (!m_tree[idx])
 					{
-						m_tree[-tree_cur - 1] = (int16_t)tree_next;
+						m_tree[idx] = (int16_t)tree_next;
 						tree_cur = tree_next;
 						tree_next -= 2;
 					}
 					else
-						tree_cur = m_tree[-tree_cur - 1];
+						tree_cur = m_tree[idx];
 				}
 
 				tree_cur -= ((rev_code >>= 1) & 1);
-				
-				if ((-tree_cur - 1) >= (int)m_tree.size())
-					m_tree.resize((-tree_cur - 1) + 1);
 
-				m_tree[-tree_cur - 1] = (int16_t)sym_index;
+				int idx = -tree_cur - 1;
+				if (idx < 0)
+					return false;
+				else if (idx >= (int)m_tree.size())
+					m_tree.resize(idx + 1);
+
+				m_tree[idx] = (int16_t)sym_index;
 			}
 
 			return true;
