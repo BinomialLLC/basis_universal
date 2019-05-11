@@ -173,12 +173,6 @@ Note that you can directly control exactly how transcoding works at the block le
 
 2. To get uncompressed 16/24/32-bpp pixel data from a slice, the best format to transcode to is ETC1. Then unpack and convert the resulting ETC1S block data to pixels (each block will be 4x4 pixels). Internally, everything is actually just ETC1S in the baseline format. We will be adding new methods that support decompressing to a few uncompressed pixel formats as some point.
 
-### basisu Command Line Compression Tool
-
-The tool supports these major modes: compression to .basis files (the default), validation of .basis files with CRC16 checking of the transcoded ETC1S data, validation and unpacking to multiple .PNG and mipmapped/cubemapped .KTX files, and comparing two PNG's and computing various image quality metrics (PSNR, SSIM).
-
-I'll be adding detailed instructions about the command line tool to a Wiki soon.
-
 ### Next Major Steps - Higher Quality!
 
 Within the next couple months or so, we'll be adding ASTC 4x4 opaque and transparent (and maybe 6x6), PVRTC1 4bpp transparent, and BC7 transparent. Of these, PVRTC1 4bpp transparent will be the most challenging from a quality perspective, and ASTC will be the most challenging from a texture format perspective. The resulting quality will still be baseline ETC1S.
