@@ -45,6 +45,8 @@ The mipmapped .KTX files will be in a variety of compressed GPU texture formats 
 
 [PVRTexTool](https://www.imgtec.com/developers/powervr-sdk-tools/pvrtextool/)
 
+After compression, the compressor transcodes all slices in the output .basis file to validate that the file decompresses correctly. It also validates all header, compressed data, and slice data CRC16's.
+
 For the maximum possible achievable quality with the current format and encoder, use:
 
 `basisu x.png -slower -max_endpoints 16128 -max_selectors 16128 -no_selector_rdo -no_endpoint_rdo`
