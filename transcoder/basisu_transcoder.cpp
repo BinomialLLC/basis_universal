@@ -2362,7 +2362,7 @@ namespace basist
 		}
 	};
 
-	static void convert_etc1s_to_dxt5a(dxt5a_block * pDst_block, const decoder_etc_block * pSrc_block, const selector * pSelector)
+	static void convert_etc1s_to_dxt5a(dxt5a_block *pDst_block, const decoder_etc_block *pSrc_block, const selector *pSelector)
 	{
 		const uint32_t low_selector = pSelector->m_lo_selector;
 		const uint32_t high_selector = pSelector->m_hi_selector;
@@ -2376,10 +2376,10 @@ namespace basist
 
 			decoder_etc_block::get_block_colors5(block_colors, base_color, inten_table);
 
-			const uint32_t g = block_colors[low_selector].g;
+			const uint32_t r = block_colors[low_selector].r;
 
-			pDst_block->set_low_alpha(g);
-			pDst_block->set_high_alpha(g);
+			pDst_block->set_low_alpha(r);
+			pDst_block->set_high_alpha(r);
 			pDst_block->m_selectors[0] = 0;
 			pDst_block->m_selectors[1] = 0;
 			pDst_block->m_selectors[2] = 0;
@@ -2394,11 +2394,11 @@ namespace basist
 
 			decoder_etc_block::get_block_colors5(block_colors, base_color, inten_table);
 
-			const uint32_t g0 = block_colors[low_selector].g;
-			const uint32_t g1 = block_colors[high_selector].g;
+			const uint32_t r0 = block_colors[low_selector].r;
+			const uint32_t r1 = block_colors[high_selector].r;
 
-			pDst_block->set_low_alpha(g0);
-			pDst_block->set_high_alpha(g1);
+			pDst_block->set_low_alpha(r0);
+			pDst_block->set_high_alpha(r1);
 
 			// TODO: Optimize this
 			for (uint32_t y = 0; y < 4; y++)
@@ -2420,7 +2420,7 @@ namespace basist
 		if (selector_range_table >= NUM_DXT5A_SELECTOR_RANGES)
 			selector_range_table = 0;
 
-		const etc1_g_to_dxt5a_conversion * pTable_entry = &g_etc1_g_to_dxt5a[base_color.g + inten_table * 32][selector_range_table];
+		const etc1_g_to_dxt5a_conversion *pTable_entry = &g_etc1_g_to_dxt5a[base_color.r + inten_table * 32][selector_range_table];
 
 		pDst_block->set_low_alpha(pTable_entry->m_lo);
 		pDst_block->set_high_alpha(pTable_entry->m_hi);
@@ -3253,11 +3253,11 @@ namespace basist
 
 			decoder_etc_block::get_block_colors5(block_colors, base_color, inten_table);
 
-			const uint32_t g = block_colors[low_selector].g;
+			const uint32_t r = block_colors[low_selector].r;
 
 			// Constant color block
 			// Select table 13, use selector 4 (0), set multiplier to 1 and base color g
-			pDst_block->m_base = g;
+			pDst_block->m_base = r;
 			pDst_block->m_table = 13;
 			pDst_block->m_multiplier = 1;
 
@@ -3275,7 +3275,7 @@ namespace basist
 		if (selector_range_table >= NUM_ETC2_EAC_A8_SELECTOR_RANGES)
 			selector_range_table = 0;
 
-		const etc1_g_to_etc2_a8_conversion * pTable_entry = &s_etc1_g_to_etc2_a8[base_color.g + inten_table * 32][selector_range_table];
+		const etc1_g_to_etc2_a8_conversion *pTable_entry = &s_etc1_g_to_etc2_a8[base_color.r + inten_table * 32][selector_range_table];
 
 		pDst_block->m_base = pTable_entry->m_base;
 		pDst_block->m_table = pTable_entry->m_table_mul >> 4;
