@@ -157,9 +157,9 @@ PVRTC1 devices/API's: Transcode to two PVRTC1 opaque textures, sample each in th
 
 Devices/API's supporting BC1-5, BC6H, BC7: Transcode to a single BC5 textures, which used to be called "ATI 3DC". It has two high quality BC4 blocks in there, so it'll look great. Once BC7 alpha support comes online that will be the better option.
 
-### Special Transcoding Scenarios (treatment of alpha texture formats when transcoding from color-only .basis files)
+### Special Transcoding Scenarios
 
-Color-only .basis files don't have alpha slices, so here's what currently happens when you transcode them to various texture formats (we are open to feedback or adding more options here):
+1. Color-only .basis files don't have alpha slices, so here's what currently happens when you transcode them to various texture formats (we are open to feedback or adding more options here):
 
 BC3/DXT5 or ETC2 EAC: The color data gets transcoded to output color, as you would expect. You'll get all-255 blocks in the output alpha blocks, because the transcoder doesn't have any alpha slice data to convert to the output format. (Alternately, we could convert a single channel of the color data (like G) to output alpha, and assume the user will swizzle in the shader, which could provide a tiny gain in ETC1S conversion quality. But now output alpha would require special interpretation and we would need to invoke the block transcoders twice.)
 
@@ -168,6 +168,8 @@ BC4/DXT5A: This format is usually interpreted as holding single channel red-only
 BC5/3DC: This format has two BC4 blocks, and is usually used for XY (red/green) tangent space normal maps. The first block (output red/or X) will have the R channel of the color slice (which we assume is actually grayscale, but doesn't have to be), and the output green channel (or Y) will have all-255 blocks. We could support converting the first two color components of the color ETC1S texture slice to BC5, but doing so doesn't seem to have any practical benefits (just use BC1 or BC7). Alternately we could support allowing the user to select a source channel other than red.
 
 Note that you can directly control exactly how transcoding works at the block level by calling a lower level API, basisu_transcoder::transcode_slice(). The higher level API (transcode_image_level) uses this low-level API internally. find_slice() and get_file_info() return all the slice information you would need to call this lower level API. I would study transcode_image_level()'s implementation before using the slice API to get familar with it. The slice API was written first.
+
+2. To get uncompressed 16/24/32-bpp pixel data from a slice, the best format to transcode to is ETC1. Then unpack and convert the resulting ETC1S block data to pixels (each block will be 4x4 pixels). Internally, everything is actually just ETC1S in the baseline format. We will be adding new methods that support decompressing to a few uncompressed pixel formats as some point.
 
 ### basisu Command Line Compression Tool
 
