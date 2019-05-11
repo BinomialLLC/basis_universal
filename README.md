@@ -145,11 +145,11 @@ Newer devices supporting BC6H/BC7: You still need to transcode to BC3. We will s
 
 Compress with the -normal_map flag, which disables a lot of stuff that has interfered with normal maps in the past. Also compress with -slower, which creates the highest quality codebooks. Use larger codebooks (use the -max_endpoints and -max_selectors options directly, with larger values).
 
-Use 2 component XY normal maps encoded into the RG channels (where the Z component is computed in the shader after fetching). Put X in color, and Y in alpha. The command line tool and encoder class support the option "-seperate_rg_to_color_alpha" that helps with this.
+Start with 2 component normalized XY tangent space normal maps (where XY range from [-1,1]) and encode them into two 8-bit channels (where XY is packed into [0,255]). Now put X in color, and Y in alpha, and compress that 32-bit PNG using basisu. The command line tool and encoder class support the option "-seperate_rg_to_color_alpha" that swizzles 2 component RG normal maps to RRRG before compression, aiding this process.
 
 ETC1 only devices/API's: Transcode to two ETC1 textures and sample them in a shader. You can either use one ETC1 texture that's twice as high, or two separate ETC1 textures. The transcoder supports transcoding alpha slices to any color output format using a special flag: `basist::basisu_transcoder::cDecodeFlagsTranscodeAlphaDataToOpaqueFormats`. This will look great because each channel gets its own endpoints and selectors.
 
-ETC2 devices/API's: Transcode to a single ETC2 EAC RGBA texture, sample once in shader. This should look great.
+ETC2 devices/API's: Transcode to a single ETC2 EAC RGBA texture, sample once in shader, deswizzle to RG (XY). This should look great.
 
 PVRTC1 devices/API's: Transcode to two PVRTC1 opaque textures, sample each in the shader. This should look fairly good.
 
