@@ -17,9 +17,9 @@ The transcoder (in the "transcoder" directory) has no 3rd party code dependencie
 
 The encoder uses [lodepng](https://lodev.org/lodepng/) for loading and saving PNG images, which is Copyright (c) 2005-2019 Lode Vandevenne. It uses the zlib license.
 
-### Command Line Tool
+### Command Line Compression Tool
 
-The command line tool is named "basisu". Run basisu without any parameters for help. 
+The command line tool used to create, validate, and transcode/unpack .basis files is named "basisu". Run basisu without any parameters for help. 
 
 To compress a sRGB image to .basis:
 
