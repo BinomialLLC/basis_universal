@@ -155,7 +155,7 @@ PVRTC1 devices/API's: Transcode to two PVRTC1 opaque textures, sample each in th
 
 Devices/API's supporting BC1-5, BC6H, BC7: Transcode to a single BC5 textures, which used to be called "ATI 3DC". It has two high quality BC4 blocks in there, so it'll look great. Once BC7 alpha support comes online that will be the better option.
 
-### Special Transcoding Scenarios (treatment of alpha texture formats when trancoding from color-only .basis files)
+### Special Transcoding Scenarios (treatment of alpha texture formats when transcoding from color-only .basis files)
 
 Color-only .basis files don't have alpha slices, so here's what currently happens when you transcode them to various texture formats (we are open to feedback or adding more options here):
 
