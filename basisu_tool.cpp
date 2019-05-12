@@ -671,7 +671,9 @@ static bool compress_mode(command_line_params &opts)
 
 		basis_compressor::error_code ec = c.process();
 		if (ec == basis_compressor::cECSuccess)
-			printf("Compression succeeded\n");
+		{
+			printf("Compression succeeded to file \"%s\"\n", params.m_out_filename.c_str());
+		}
 		else
 		{
 			bool exit_flag = true;
