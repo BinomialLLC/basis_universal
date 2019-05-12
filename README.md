@@ -192,9 +192,9 @@ Basis supports up to 16K codebooks for both endpoints and selectors for signific
 The file format also supports very large non-uniform texture arrays, making the system usable as an RDO backend in specialized block-based video encoders. Internally, the encoder only handles blocks and all later RDO stages which assume a fixed 2D raster order of the blocks can be optionally disabled.
 
 ### Special thanks
-A big thanks to Google for partnering with us and enabling this code to be open sourced.
+A big thanks to Google for partnering with us and enabling this system to be open sourced.
 
-Thanks to a number of companies or groups who have supported Binomial over the years: Intel, SpaceX, Netflix, Forgotten Empires, Microsoft, Polystream, Hothead Games, BioDigital, Magic Leap, Activision, the Khronos Group, and the organizers at CppCon.
+Thanks to a number of companies or groups who have supported or helped out Binomial over the years: Intel, SpaceX, Netflix, Forgotten Empires, Microsoft, Polystream, Hothead Games, BioDigital, Magic Leap, Blizzard Entertainment, Insomniac Games, Rockstar Games, Facebook, Activision, the Khronos Group, and the organizers at CppCon.
 
 Thanks to John Brooks at Blue Shift, Inc. for inspiring this work by showing me his Dreamcast texture compression system around 2002, and for releasing etc2comp. I first saw the subblock flip estimation approach (used in basisu_etc.cpp) in etc2comp.
 
