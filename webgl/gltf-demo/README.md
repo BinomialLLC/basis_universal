@@ -3,8 +3,11 @@
 A WebGL demo rendering a glTF 3D model with `.basis` texture files transcoded into one of the following compressed texture format:
 
 * DTX (BC1)
+  * Tested in chrome on Linux PC 
 * ETC1
-* TODO: PVRTC
+  * Tested in chrome on Android Pixel 3 XL
+* PVRTC (COMPRESSED_RGB_PVRTC_4BPPV1_IMG)
+  * Tested in chrome/safari on iOS iPhone 6 Plus
 
 Note the glTF model is using a temperoray hypothetical extension at this moment. It should rely on a KTX2 wrapper when offically released.
 
@@ -33,9 +36,7 @@ Hit CTRL-C to stop the server
 
 Go to `100.99.17.28:8080` in your mobile browser (which should supports WebAssembly and WebGL).
 
-Or you can either: 
-* [Remote debugging your android devices](https://developers.google.com/web/tools/chrome-devtools/remote-debugging/)
-* TODO: iphone instructions
+Or you can [remote debugging your android devices](https://developers.google.com/web/tools/chrome-devtools/remote-debugging/)
 
 ## Build Transcoder locally
 
@@ -48,8 +49,6 @@ Run the following instructions under `webgl/gltf-demo/wasm/build/`
 emcmake cmake ../
 make
 ```
-
-
 
 ## Credits
 
