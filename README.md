@@ -17,9 +17,9 @@ The transcoder (in the "transcoder" directory) has no 3rd party code dependencie
 
 The encoder uses [lodepng](https://lodev.org/lodepng/) for loading and saving PNG images, which is Copyright (c) 2005-2019 Lode Vandevenne. It uses the zlib license.
 
-### Command Line Tool
+### Command Line Compression Tool
 
-The command line tool is named "basisu". Run basisu without any parameters for help. 
+The command line tool used to create, validate, and transcode/unpack .basis files is named "basisu". Run basisu without any parameters for help. 
 
 To compress a sRGB image to .basis:
 
@@ -37,19 +37,25 @@ To unpack a .basis file to multiple .png/.ktx files:
 
 `basisu x.basis`
 
-The mipmapped .KTX files will be in a variety of GPU formats (PVRTC1 4bpp, ETC1-2, BC1-5, BC7), and to my knowledge there is no single .KTX viewer tool that supports every GPU texture format that we support. BC1-5 and BC7 files are viewable using AMD's Compressonator, ETC1/2 using Mali's Texture Compression Tool, and PVRTC1 using Imagination Tech's PVRTexTool. Links:
+The mipmapped .KTX files will be in a variety of compressed GPU texture formats (PVRTC1 4bpp, ETC1-2, BC1-5, BC7), and to my knowledge there is no single .KTX viewer tool that correctly and reliably supports every GPU texture format that we support. BC1-5 and BC7 files are viewable using AMD's Compressonator, ETC1/2 using Mali's Texture Compression Tool, and PVRTC1 using Imagination Tech's PVRTexTool. Links:
 
-[Mali Texture Compression Tool](https://duckduckgo.com/?q=mali+texture+compression+tool&atb=v146-1&ia=web)]
+[Mali Texture Compression Tool](https://duckduckgo.com/?q=mali+texture+compression+tool&atb=v146-1&ia=web)
 
 [Compressonator](https://gpuopen.com/gaming-product/compressonator/)
 
 [PVRTexTool](https://www.imgtec.com/developers/powervr-sdk-tools/pvrtextool/)
 
-For the maximum possible achievable quality with the current former and encoder, use:
+After compression, the compressor transcodes all slices in the output .basis file to validate that the file decompresses correctly. It also validates all header, compressed data, and slice data CRC16's.
+
+For best quality, you must supply basisu with original uncompressed source images. Any other type of lossy compression applied before basisu (including ETC1/BC1-5, BC7, JPEG, etc.) will cause multi-generational artifacts to appear in the final output textures. 
+
+For the maximum possible achievable quality with the current format and encoder, use:
 
 `basisu x.png -slower -max_endpoints 16128 -max_selectors 16128 -no_selector_rdo -no_endpoint_rdo`
 
 Note that "-no_selector_rdo -no_endpoint_rdo" are optional. Using them hurts rate distortion performance, but increases quality. An alternative is to use -selector_rdo_thresh X and -endpoint_rdo_thresh, with X ranging from [1,2] (higher=lower quality/better compression - see the tool's help text).
+
+If you are doing rate distortion comparisons vs. other similar systems, be sure to experiment with increasing the endpoint RDO threshold (-endpoint_rdo_thresh X). This setting controls how aggressively the compressor's backend will combine together nearby blocks so they use the same block endpoint codebook vectors, for better coding efficiency. X defaults to a modest 1.5, which means the backend is allowed to increase the overall color distance by 1.5x while searching for merge candidates. The higher this setting, the better the compression, with the tradeoff of more block artifacts. Settings up to ~2.25 can work well, and make the codec more competitive.
 
 ### WebGL test 
 
@@ -63,7 +69,7 @@ Note that I was unable to disable assertions when compiling the transcoder in re
 
 The transcoder unpacks .basis files to various GPU texture formats, almost always without needing to decompress entire images at the pixel level (i.e. it only deals with arrays of blocks). The one exception is PVRTC1, where the transcoder needs to recompute the per-pixel selector ("modulation") values, but it does so using simple scalar operations.
 
-To use .basis files in an application, you only need the files in the "transcoder" directory. The entire transcoder lives in a single .cpp file: transcoder/basisu_transcoder.cpp. If compiling with gcc/clang, be sure strict aliasing is disabled when compiling this file, as I have not tested either the encoder or transcoder with strict aliasing enabled: -fno-strict-aliasing (The Linux kernel is also compiled with this option.)
+To use .basis files in an application, you only need the files in the "transcoder" directory. The entire transcoder lives in a single .cpp file: transcoder/basisu_transcoder.cpp. If compiling with gcc/clang, be sure strict aliasing is disabled when compiling this file, as I have not tested either the encoder or transcoder with strict aliasing enabled: -fno-strict-aliasing (The Linux kernel is also compiled with this option.) The transcoder can also be cross compiled using emscripten (emcc), for web use.
 
 To use the transcoder, #include "transcoder/basisu_transcoder.h". Call `basist::basisu_transcoder_init()` a single time (probably at startup). Also, ideally once at startup, you need to create a single instance of the `basist::etc1_global_selector_codebook` class, like this:
 
@@ -75,9 +81,11 @@ I will be simplifying the transcoder so the caller doesn't need to deal with etc
 
 `transcode_image_level()` and `transcode_slice()` are thread safe, i.e. you can decompress multiple images/slices from multiple threads. 
 
+To get development error messages printed to stdout when something goes wrong inside the transcoder, set the BASISU_DEVEL_MESSAGES macro to 1 in basisu_transcoder.h and recompile.
+
 ### Quick Basis file details
 
-Internally, Basis files are composed of a non-uniform texture array of one or more 2D ETC1S texture "slices". ETC1S is a simple subset of the ETC1 texture format popular on Android. ETC1S has no block flips, no 4x2 or 2x4 subblocks, and each block only uses 555 base colors. ETC1S is still 100% standard ETC1, so transcoding to ETC1 or the color block of ETC2 is a no-op. We choose ETC1S because it has the very valuable property that it can be quickly transcoded to almost any other GPU texture format at very high quality using only simple per-block operations with small 1D lookup tables. Transcoding ETC1S to BC1 usually only introduces around .3 dB Y PSNR quality loss, with less loss for ETC1S->BC7. Transcoding to PVRTC1 involves only simple block level operations to compute the endpoints, and simple per-pixel scalar operations to compute the modulation values.
+Internally, Basis files are composed of a non-uniform texture array of one or more 2D ETC1S texture "slices". ETC1S is a simple subset of the ETC1 texture format popular on Android. ETC1S has no block flips, no 4x2 or 2x4 subblocks, and each block only uses 555 base colors. ETC1S is still 100% standard ETC1, so transcoding to ETC1 or the color block of ETC2 is a no-op. We chose ETC1S because it has the very valuable property that it can be quickly transcoded to almost any other GPU texture format at very high quality using only simple per-block operations with small 1D lookup tables. Transcoding ETC1S to BC1 usually only introduces around .3 dB Y PSNR quality loss, with less loss for ETC1S->BC7. Transcoding to PVRTC1 involves only simple block level operations to compute the endpoints, and simple per-pixel scalar operations to compute the modulation values.
 
 Basis files have a single set of compressed global endpoint/selector codebooks in ETC1S format, which all slices utilize. The ETC1S texture data is compressed using vector quantization (VQ) seperately on the endpoints and selectors, followed by DPCM/RLE/psuedo-MTF/canonical Huffman coding. Each ETC1S texture slice may be a different resolution. Mipmaps (if any) are always stored in order from largest to smallest level. The file format supports either storing the selector codebook directly (using DPCM+Huffman), or storing the selector codebook using a hierarchical virtual codebook scheme. 
 
@@ -87,11 +95,11 @@ We currently only support CPU transcoding, but GPU assisted transcoding/format c
 
 ### Calling the encoder from C/C++
 
-I'm going to provide a simple C-style API to call the encoder directly. For now, you can call the C++ interface in basisu_comp.cpp/.h. See struct basis_compressor_params and class basis_compressor. Almost the entire command line tool's functionality is in basis_compressor. This class does support doing 100% in-memory compression with no file I/O.
+I'm going to provide a simple C-style API to call the encoder directly. For now, you can call the C++ interface in basisu_comp.cpp/.h. See struct basis_compressor_params and class basis_compressor. Almost the entire command line tool's functionality is in basis_compressor. This class supports 100% in-memory compression with no file I/O.
 
 ### GPU texture format support details
 
-Internally, all ETC1S slices can be converted to any format. The transcoder's image API's supports converting alpha slices to color texture formats, which allows the user to transcode textures with alpha to two ETC1 images, etc.
+Internally, all ETC1S slices can be converted to any format, and the system is very flexible. The transcoder's image API supports converting alpha slices to color texture formats, which allows the user to transcode textures with alpha to two ETC1 images, etc.
 
 ETC1 - The system's internal texture format is ETC1S, so outputting ETC1 texture data is a no-op. We only use differential encodings, each subblock uses the same base color (the differential color is always [0,0,0]), and flips are always enabled.
 
@@ -145,27 +153,35 @@ Newer devices supporting BC6H/BC7: You still need to transcode to BC3. We will s
 
 Compress with the -normal_map flag, which disables a lot of stuff that has interfered with normal maps in the past. Also compress with -slower, which creates the highest quality codebooks. Use larger codebooks (use the -max_endpoints and -max_selectors options directly, with larger values).
 
-Use 2 component XY normal maps encoded into the RG channels (where the Z component is computed in the shader after fetching). Put X in color, and Y in alpha. The command line tool and encoder class support the option "-seperate_rg_to_color_alpha" that helps with this.
+Start with 2 component normalized XY tangent space normal maps (where XY range from [-1,1]) and encode them into two 8-bit channels (where XY is packed into [0,255]). Now put X in color, and Y in alpha, and compress that 32-bit PNG using basisu. The command line tool and encoder class support the option "-seperate_rg_to_color_alpha" that swizzles 2 component RG normal maps to RRRG before compression, aiding this process.
 
 ETC1 only devices/API's: Transcode to two ETC1 textures and sample them in a shader. You can either use one ETC1 texture that's twice as high, or two separate ETC1 textures. The transcoder supports transcoding alpha slices to any color output format using a special flag: `basist::basisu_transcoder::cDecodeFlagsTranscodeAlphaDataToOpaqueFormats`. This will look great because each channel gets its own endpoints and selectors.
 
-ETC2 devices/API's: Transcode to a single ETC2 EAC RGBA texture, sample once in shader. This should look great.
+ETC2 devices/API's: Transcode to a single ETC2 EAC RGBA texture, sample once in shader, deswizzle to RG (XY). This should look great.
 
 PVRTC1 devices/API's: Transcode to two PVRTC1 opaque textures, sample each in the shader. This should look fairly good.
 
 Devices/API's supporting BC1-5, BC6H, BC7: Transcode to a single BC5 textures, which used to be called "ATI 3DC". It has two high quality BC4 blocks in there, so it'll look great. Once BC7 alpha support comes online that will be the better option.
 
-### basisu Command Line Compression Tool
+### Special Transcoding Scenarios
 
-The tool supports these major modes: compression to .basis files (the default), validation of .basis files with CRC16 checking of the transcoded ETC1S data, validation and unpacking to multiple .PNG and mipmapped/cubemapped .KTX files, and comparing two PNG's and computing various image quality metrics (PSNR, SSIM).
+1. Color-only .basis files don't have alpha slices, so here's what currently happens when you transcode them to various texture formats (we are open to feedback or adding more options here):
 
-I'll be adding detailed instructions about the command line tool to a Wiki soon.
+BC3/DXT5 or ETC2 EAC: The color data gets transcoded to output color, as you would expect. You'll get all-255 blocks in the output alpha blocks, because the transcoder doesn't have any alpha slice data to convert to the output format. (Alternately, we could convert a single channel of the color data (like G) to output alpha, and assume the user will swizzle in the shader, which could provide a tiny gain in ETC1S conversion quality. But now output alpha would require special interpretation and we would need to invoke the block transcoders twice.)
+
+BC4/DXT5A: This format is usually interpreted as holding single channel red-only data. We invoke the ETC1S->BC4 transcoder, which takes the red channel of the color slice (which we assume is grayscale, but doesn't have to be) and converts that to BC4/DXT5A blocks. (We could allow the user to select the source channel, if that is useful.)
+
+BC5/3DC: This format has two BC4 blocks, and is usually used for XY (red/green) tangent space normal maps. The first block (output red/or X) will have the R channel of the color slice (which we assume is actually grayscale, but doesn't have to be), and the output green channel (or Y) will have all-255 blocks. We could support converting the first two color components of the color ETC1S texture slice to BC5, but doing so doesn't seem to have any practical benefits (just use BC1 or BC7). Alternately we could support allowing the user to select a source channel other than red.
+
+Note that you can directly control exactly how transcoding works at the block level by calling a lower level API, basisu_transcoder::transcode_slice(). The higher level API (transcode_image_level) uses this low-level API internally. find_slice() and get_file_info() return all the slice information you would need to call this lower level API. I would study transcode_image_level()'s implementation before using the slice API to get familar with it. The slice API was written first.
+
+2. To get uncompressed 16/24/32-bpp pixel data from a slice, the best format to transcode to is ETC1. Then unpack and convert the resulting ETC1S block data to pixels (each block will be 4x4 pixels). Internally, everything is actually just ETC1S in the baseline format. We will be adding new methods that support decompressing to a few uncompressed pixel formats as some point.
 
 ### Next Major Steps - Higher Quality!
 
 Within the next couple months or so, we'll be adding ASTC 4x4 opaque and transparent (and maybe 6x6), PVRTC1 4bpp transparent, and BC7 transparent. Of these, PVRTC1 4bpp transparent will be the most challenging from a quality perspective, and ASTC will be the most challenging from a texture format perspective. The resulting quality will still be baseline ETC1S.
 
-We'll be upgrading the system's quality to something halfway in between BC1 and BC7 (but more towards BC7 than BC1). We're going to enlarge the codebooks with optional extended data, add 2 partitions so blocks can use multiple color endpoints, and add higher precision selectors and endpoints. We may allow codebook entries to be split up (with extra per-block data indicating which split codebook entry to use), creating larger codebooks that only the extended texture data references. We're going to leverage what we learned building our state of the art vectorized BC7 encoder (Basis BC7), and our open source [https://github.com/richgel999/bc7enc16](bc7enc16) encoder, while creating this. We currently think just BC7 modes 1 and 6 (and the ASTC equivalents) will be enough.
+We'll be upgrading the system's quality to something halfway in between BC1 and BC7 (but more towards BC7 than BC1). We're going to enlarge the codebooks with optional extended data, add 2 partitions so blocks can use multiple color endpoints, and add higher precision selectors and endpoints. We may allow codebook entries to be split up (with extra per-block data indicating which split codebook entry to use), creating larger codebooks that only the extended texture data references. We're going to leverage what we learned building our state of the art vectorized BC7 encoder (Basis BC7), and our open source [bc7enc16](https://github.com/richgel999/bc7enc16) encoder, while creating this. We currently think just BC7 modes 1 and 6 (and the ASTC equivalents) will be enough.
 
 We need a C-style API for the compressor class, and a bunch of compression/transcoding examples (native and WebGL). We also need to release a decent regression test.
 
@@ -176,9 +192,9 @@ Basis supports up to 16K codebooks for both endpoints and selectors for signific
 The file format also supports very large non-uniform texture arrays, making the system usable as an RDO backend in specialized block-based video encoders. Internally, the encoder only handles blocks and all later RDO stages which assume a fixed 2D raster order of the blocks can be optionally disabled.
 
 ### Special thanks
-A big thanks to Google for partnering with us and enabling this code to be open sourced.
+A big thanks to Google for partnering with us and enabling this system to be open sourced.
 
-Thanks to a number of companies or groups who have supported Binomial over the years: Intel, SpaceX, Netflix, Forgotten Empires, Microsoft, Polystream, Hothead Games, BioDigital, Magic Leap, Activision, the Khronos Group, and the organizers at CppCon.
+Thanks to a number of companies or groups who have supported or helped out Binomial over the years: Intel, SpaceX, Netflix, Forgotten Empires, Microsoft, Polystream, Hothead Games, BioDigital, Magic Leap, Blizzard Entertainment, Insomniac Games, Rockstar Games, Facebook, Activision, the Khronos Group, and the organizers at CppCon.
 
 Thanks to John Brooks at Blue Shift, Inc. for inspiring this work by showing me his Dreamcast texture compression system around 2002, and for releasing etc2comp. I first saw the subblock flip estimation approach (used in basisu_etc.cpp) in etc2comp.
 

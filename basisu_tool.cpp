@@ -671,7 +671,9 @@ static bool compress_mode(command_line_params &opts)
 
 		basis_compressor::error_code ec = c.process();
 		if (ec == basis_compressor::cECSuccess)
-			printf("Compression succeeded\n");
+		{
+			printf("Compression succeeded to file \"%s\"\n", params.m_out_filename.c_str());
+		}
 		else
 		{
 			bool exit_flag = true;
@@ -837,6 +839,22 @@ static bool unpack_and_validate_mode(command_line_params &opts, bool validate_fl
 		printf("  Per-image mipmap levels: ");
 		for (uint32_t i = 0; i < fileinfo.m_total_images; i++)
 			printf("%u ", fileinfo.m_image_mipmap_levels[i]);
+		printf("\n");
+
+		printf("\nImage info:\n");
+		for (uint32_t i = 0; i < fileinfo.m_total_images; i++)
+		{
+			basist::basisu_image_info ii;
+			if (!dec.get_image_info(&basis_data[0], (uint32_t)basis_data.size(), ii, i))
+			{
+				error_printf("get_image_info() failed!\n");
+				return false;
+			}
+
+			printf("Image %u: MipLevels: %u OrigDim: %ux%u, BlockDim: %ux%u, FirstSlice: %u, HasAlpha: %u\n", i, ii.m_total_levels, ii.m_orig_width, ii.m_orig_height, 
+				ii.m_num_blocks_x, ii.m_num_blocks_y, ii.m_first_slice_index, (uint32_t)ii.m_alpha_flag);
+		}
+
 		printf("\n");
 
 		if (!dec.start_transcoding(&basis_data[0], (uint32_t)basis_data.size()))

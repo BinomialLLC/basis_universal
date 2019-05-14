@@ -16,7 +16,7 @@
 #pragma once
 
 // Set BASISU_DEVEL_MESSAGES to 1 to enable debug printf()'s whenever an error occurs, for easier debugging during development.
-//#define BASISU_DEVEL_MESSAGES 0
+//#define BASISU_DEVEL_MESSAGES 1
 
 #include "basisu_transcoder_internal.h"
 #include "basisu_global_selector_palette.h"

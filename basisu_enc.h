@@ -1676,22 +1676,25 @@ namespace basisu
 
 		image &crop_dup_borders(uint32_t w, uint32_t h)
 		{
-			uint32_t orig_w = m_width, orig_h = m_height;
+			const uint32_t orig_w = m_width, orig_h = m_height;
 
 			crop(w, h);
 
-			if ((m_width > orig_w) && (orig_w))
+			if (orig_w && orig_h)
 			{
-				for (uint32_t x = orig_w; x < m_width; x++)
-					for (uint32_t y = 0; y < m_height; y++)
-						set_clipped(x, y, get_clamped(x, y));
-			}
+				if (m_width > orig_w)
+				{
+					for (uint32_t x = orig_w; x < m_width; x++)
+						for (uint32_t y = 0; y < m_height; y++)
+							set_clipped(x, y, get_clamped(minimum(x, orig_w - 1U), minimum(y, orig_h - 1U)));
+				}
 
-			if ((m_height > orig_h) && (orig_h))
-			{
-				for (uint32_t y = orig_h; y < m_height; y++)
-					for (uint32_t x = 0; x < m_width; x++)
-						set_clipped(x, y, get_clamped(x, y));
+				if (m_height > orig_h)
+				{
+					for (uint32_t y = orig_h; y < m_height; y++)
+						for (uint32_t x = 0; x < m_width; x++)
+							set_clipped(x, y, get_clamped(minimum(x, orig_w - 1U), minimum(y, orig_h - 1U)));
+				}
 			}
 			return *this;
 		}
