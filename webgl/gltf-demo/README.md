@@ -6,6 +6,8 @@ A WebGL demo rendering a glTF 3D model with `.basis` texture files transcoded in
 * ETC1
 * TODO: PVRTC
 
+Note the glTF model is using a temperoray hypothetical extension at this moment. It should rely on a KTX2 wrapper when offically released.
+
 ## Run on PC
 
 Launuch an http server under `webgl/gltf-demo/`. For example if you have node installed you can install `http-server` globally and run

@@ -92,8 +92,14 @@
 
         const etcSupported = renderer.context.getExtension('WEBGL_compressed_texture_etc1');
         const dxtSupported = renderer.context.getExtension('WEBGL_compressed_texture_s3tc');
+        const pvrtcSupported = renderer.context.getExtension('WEBGL_compressed_texture_pvrtc');
 
-        let format = etcSupported ? BASIS_FORMAT.cTFETC1 : BASIS_FORMAT.cTFBC1;
+        if (!etcSupported && !dxtSupported && !pvrtcSupported) {
+          log('No suitable compressed texture format supported!!');
+          return;
+        }
+
+        let format = etcSupported ? BASIS_FORMAT.cTFETC1 : (dxtSupported ? BASIS_FORMAT.cTFBC1 : BASIS_FORMAT.cTFPVRTC1_4_OPAQUE_ONLY);
 
         log('Transcode to Compressed Texture Format: <strong>' + BASIS_FORMAT_NAMES[format] + '</strong>');
 
@@ -152,14 +158,14 @@
 
               const mipmaps = [ { data: dst, width, height } ];
               let texture;
-              if (!etcSupported) {
-                const type = dxtSupported ? THREE.UnsignedByteType : THREE.UnsignedShort565Type;
-
-                const f = dxtSupported ? DXT_FORMAT_MAP[ format ] : THREE.RGBFormat;
-
-                texture = new THREE.CompressedTexture( mipmaps, width, height, f, type );
-              } else {
+              if (etcSupported) {
                 texture = new THREE.CompressedTexture( mipmaps, width, height, THREE.RGB_ETC1_Format );
+              } else if (dxtSupported) {
+                const type = dxtSupported ? THREE.UnsignedByteType : THREE.UnsignedShort565Type;
+                const f = dxtSupported ? DXT_FORMAT_MAP[ format ] : THREE.RGBFormat;
+                texture = new THREE.CompressedTexture( mipmaps, width, height, f, type );
+              } else if (pvrtcSupported) {
+                texture = new THREE.CompressedTexture( mipmaps, width, height, THREE.THREE.RGB_PVRTC_4BPPV1_Format );
               }
 
               texture.minFilter = THREE.LinearFilter;
