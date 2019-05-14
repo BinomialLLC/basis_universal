@@ -3,220 +3,118 @@
 <head>
   <script src="https://cdn.jsdelivr.net/npm/three@v0.104.0"></script>
   <script src="GLTFLoader.js"></script>
+  <script src="BasisTextureLoader.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@v0.104.0/examples/js/controls/OrbitControls.js"></script>
   <style>
     html, body { width:100%; height:100%; margin:0; padding:0; }
     canvas { display:block; }
-    #pannel { position: absolute; top: 10px; left: 10px; color: white; background-color:rgba(0.3, 0.3, 0.3, 0.3); padding: 0.5em; max-width: 25%;}
+    #panel { position: absolute; top: 10px; left: 10px; color: white; background-color:rgba(0.3, 0.3, 0.3, 0.3); padding: 0.5em; max-width: 400px;}
   </style>
 </head>
 
 <body>
   <script src="./wasm/build/basis_transcoder.js"></script>
   <script>
-    function log(s) {
-      var div = document.createElement('div');
-      div.innerHTML = s;
-      document.getElementById('log').appendChild(div);
-    }
-
-    function logTime(desc, t) {
-      log(desc + t.toFixed(1) + ' ms');
-    }
-
+    /**
+     * Demo created by donmccurdy@, austin@, shrekshao@, with thanks to the Cesium team for
+     * providing the sample model.
+     */
     Module.onRuntimeInitialized = () => {
+
       const { BasisFile, initializeBasis } = Module;
 
-      // DXT formats, from:
-      // http://www.khronos.org/registry/webgl/extensions/WEBGL_compressed_texture_s3tc/
-      COMPRESSED_RGB_S3TC_DXT1_EXT  = 0x83F0;
-      COMPRESSED_RGBA_S3TC_DXT1_EXT = 0x83F1;
-      COMPRESSED_RGBA_S3TC_DXT3_EXT = 0x83F2;
-      COMPRESSED_RGBA_S3TC_DXT5_EXT = 0x83F3;
-
-      const BASIS_FORMAT = {
-        cTFETC1: 0,
-        cTFBC1: 1,
-        cTFBC4: 2,
-        cTFPVRTC1_4_OPAQUE_ONLY: 3,
-        cTFBC7_M6_OPAQUE_ONLY: 4,
-        cTFETC2: 5,
-        cTFBC3: 6,
-        cTFBC5: 7,
-      };
-
-      BASIS_FORMAT_NAMES = {};
-      for (var name in BASIS_FORMAT) {
-        BASIS_FORMAT_NAMES[BASIS_FORMAT[name]] = name;
-      }
-
-      DXT_FORMAT_MAP = {};
-      DXT_FORMAT_MAP[BASIS_FORMAT.cTFBC1] = COMPRESSED_RGB_S3TC_DXT1_EXT;
-      DXT_FORMAT_MAP[BASIS_FORMAT.cTFBC3] = COMPRESSED_RGBA_S3TC_DXT5_EXT;
+      window.BasisFile = BasisFile;
 
       initializeBasis();
 
+      // Initialize three.js scene and renderer.
 
-      /**
-      * ThreeJS glTF demo created by donmccurdy@, austin@, shrekshao@ below.
-      */
+      const renderer = new THREE.WebGLRenderer( { antialias: true } );
+      renderer.setSize( window.innerWidth, window.innerHeight );
+      renderer.gammaOutput = true;
+      renderer.gammaFactor = 2.2;
 
-      (function () {
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color( 0xf0f0f0 );
 
-        const renderer = new THREE.WebGLRenderer({ antialias: true });
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.gammaOutput = true;
-        renderer.gammaFactor = 2.2;
+      const light = new THREE.AmbientLight();
+      scene.add( light );
 
-        const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0xf0f0f0);
+      const light2 = new THREE.PointLight();
+      scene.add( light2 );
 
-        const light = new THREE.AmbientLight();
-        scene.add(light);
+      const camera = new THREE.PerspectiveCamera( 60, window.innerWidth / window.innerHeight, 0.1, 100 );
+      camera.position.set( 8, 6, 5 );
+      camera.lookAt( new THREE.Vector3( 0, -2, 0 ) );
 
-        const light2 = new THREE.PointLight();
-        scene.add(light2);
+      const controls = new THREE.OrbitControls( camera, renderer.domElement );
+      controls.autoRotate = true;
 
-        const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100);
-        camera.position.set(12, 8, 10);
-        camera.lookAt(new THREE.Vector3(0, -2, 0));
+      // Create BasisTextureLoader and detect supported target formats.
 
-        const controls = new THREE.OrbitControls( camera, renderer.domElement );
-        controls.autoRotate = true;
+      const basisLoader = new THREE.BasisTextureLoader();
+      basisLoader.detectSupport( renderer );
 
-        window.addEventListener('resize', () => {
-          camera.aspect = window.innerWidth / window.innerHeight;
-          camera.updateProjectionMatrix();
-          renderer.setSize(window.innerWidth, window.innerHeight);
-        }, false);
+      const formatName = basisLoader.etcSupported
+        ? 'ETC1'
+        : ( basisLoader.dxtSupported ? 'BC1' : 'PVRTC' );
+      log(`Transcode to: <strong>${formatName}</strong>`);
 
-        const etcSupported = renderer.context.getExtension('WEBGL_compressed_texture_etc1');
-        const dxtSupported = renderer.context.getExtension('WEBGL_compressed_texture_s3tc');
-        const pvrtcSupported = renderer.context.getExtension('WEBGL_compressed_texture_pvrtc') ||
-                            renderer.context.getExtension('WEBKIT_WEBGL_compressed_texture_pvrtc');
+      // Register BasisTextureLoader for .basis extension.
 
-        if (!etcSupported && !dxtSupported && !pvrtcSupported) {
-          log('No suitable compressed texture format supported!!');
-          return;
-        }
+      THREE.Loader.Handlers.add( /\.basis$/, basisLoader );
 
-        let format = etcSupported ? BASIS_FORMAT.cTFETC1 : (dxtSupported ? BASIS_FORMAT.cTFBC1 : BASIS_FORMAT.cTFPVRTC1_4_OPAQUE_ONLY);
+      // Create GLTFLoader, load model, and render.
 
-        log('Transcode to Compressed Texture Format: <strong>' + BASIS_FORMAT_NAMES[format] + '</strong>');
+      const loader = new THREE.GLTFLoader();
 
-        class BasisTextureLoader {
-          constructor() {
-            this.count = 0;
-          }
+      loader.load( 'AGI_HQ/AgiHQ.gltf', ( gltf ) => {
 
-          load(url, onLoad, onProgress, onError) {
+        const model = gltf.scene;
+        model.scale.set( 0.01, 0.01, 0.01 );
 
-            fetch(url).then(res => res.arrayBuffer()).then(buf => {
+        scene.add( model );
 
-              log('<strong> Texture ' + (this.count++) + '</strong>');
+        document.body.appendChild( renderer.domElement );
 
-              const startTime = performance.now();
+        animate();
 
-              const basisFile = new BasisFile(new Uint8Array(buf));
+      }, undefined, ( e ) => console.error( e ) );
 
-              const width = basisFile.getImageWidth(0, 0);
-              const height = basisFile.getImageHeight(0, 0);
-              const images = basisFile.getNumImages();
-              const levels = basisFile.getNumLevels(0);
+      // Main render loop.
 
-              if (!width || !height || !images || !levels) {
-                console.warn('Invalid .basis file');
-                basisFile.close();
-                basisFile.delete();
-                return;
-              }
+      function animate() {
 
-              if (!basisFile.startTranscoding()) {
-                console.warn('startTranscoding failed');
-                basisFile.close();
-                basisFile.delete();
-                return;
-              }
+        requestAnimationFrame( animate );
+        controls.update();
+        renderer.render( scene, camera );
 
-              const dst = new Uint8Array(basisFile.getImageTranscodedSizeInBytes(0, 0, format));
+      }
 
-              if (!basisFile.transcodeImage(dst, 0, 0, format, etcSupported ? 0 : (dxtSupported ? 1 : 0), 0)) {
-                console.warn('transcodeImage failed');
-                basisFile.close();
-                basisFile.delete();
-                return;
-              }
+      // Support viewport resizing.
 
-              const elapsed = performance.now() - startTime;
+      window.addEventListener( 'resize', () => {
 
-              basisFile.close();
-              basisFile.delete();
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize( window.innerWidth, window.innerHeight );
 
-              console.log('Transcode success!', dst);
-              console.log('Time:', elapsed, 'ms');
+      }, false );
 
-              logTime('Transcode Time: ', elapsed);
+    }
 
-              const mipmaps = [ { data: dst, width, height } ];
-              let texture;
-              if (etcSupported) {
-                texture = new THREE.CompressedTexture( mipmaps, width, height, THREE.RGB_ETC1_Format );
-              } else if (dxtSupported) {
-                const type = dxtSupported ? THREE.UnsignedByteType : THREE.UnsignedShort565Type;
-                const f = dxtSupported ? DXT_FORMAT_MAP[ format ] : THREE.RGBFormat;
-                texture = new THREE.CompressedTexture( mipmaps, width, height, f, type );
-              } else if (pvrtcSupported) {
-                texture = new THREE.CompressedTexture( mipmaps, width, height, THREE.RGB_PVRTC_4BPPV1_Format );
-              }
+    function log(s) {
 
-              texture.minFilter = THREE.LinearFilter;
-              texture.magFilter = THREE.LinearFilter;
-              texture.encoding = THREE.sRGBEncoding;
-              texture.generateMipmaps = false;
-              texture.flipY = false;
-              texture.needsUpdate = true;
+      const div = document.createElement('div');
+      div.innerHTML = s;
+      document.getElementById('log').appendChild(div);
 
-              onLoad( texture );
-              
-            });
-
-          }
-        }
-
-        THREE.Loader.Handlers.add(/\.basis$/, new BasisTextureLoader());
-
-        const loader = new THREE.GLTFLoader();
-
-        function animate() {
-          requestAnimationFrame(animate);
-          controls.update();
-          renderer.render(scene, camera);
-        }
-
-        loader.load('AGI_HQ/AgiHQ.gltf', (gltf) => {
-
-          const model = gltf.scene;
-          model.scale.set(0.01, 0.01, 0.01);
-
-          const bbox = new THREE.Box3();
-          bbox.setFromObject(model);
-          console.log(bbox);
-
-          scene.add(model);
-
-          document.body.appendChild(renderer.domElement);
-
-          animate();
-
-        }, undefined, (e) => console.error(e));
-
-      }());
     }
   </script>
-  <div id="pannel">
+  <div id="panel">
     <strong>Basis Texture Transcoder glTF Demo</strong>
     <div id="log"></div>
-    
+
   </div>
 </body>
 

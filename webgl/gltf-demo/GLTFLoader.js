@@ -1,4 +1,9 @@
 /**
+ * Copyright 2019 the three.js authors
+ * SPDX-License-Identifier: MIT
+ */
+
+/**
  * @author Rich Tibbett / https://github.com/richtr
  * @author mrdoob / http://mrdoob.com/
  * @author Tony Parisi / http://www.tonyparisi.com/
@@ -6,6 +11,12 @@
  * @author Don McCurdy / https://www.donmccurdy.com
  */
 
+/**
+ * A modified version of THREE.GLTFLoader, with support for the (hypothetical)
+ * GOOGLE_texture_basis extension. This extension is defined for the sake of
+ * example only – the glTF format will officially reference Basis files within
+ * a KTX2 wrapper.
+ */
 THREE.GLTFLoader = ( function () {
 
   function GLTFLoader( manager ) {
