@@ -38,6 +38,13 @@ make
 
 ## Credits
 
-* Contributions: @donmccurdy, @austinEng, @shrekshao
-* Three.js
+ * @author Don McCurdy / https://www.donmccurdy.com
+ * @author Austin Eng / https://github.com/austinEng
+ * @author Shrek Shao / https://github.com/shrekshao
+
+* Authors:
+  * [Don McCurdy](https://www.donmccurdy.com)
+  * [Austin Eng](https://github.com/austinEng)
+  * [Shrek Shao](https://github.com/shrekshao)
+* Made with three.js.
 * Thanks to AGI for providing the glTF model.
