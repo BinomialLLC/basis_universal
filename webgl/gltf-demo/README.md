@@ -24,14 +24,12 @@ npx serve
 
 The console will display a `localhost` URL for local testing, and (on supported WiFi networks and devices) may also display an IP address accessible by other devices on the same network. Note that mobile devices must support WebAssembly to run this demo. Learn more about [remote debugging your android devices](https://developers.google.com/web/tools/chrome-devtools/remote-debugging/).
 
-## Build transcoder locally
+## Building transcoder locally
 
-Prebuilt versions of `basis_transcoder.js` and `basis_transcoder.wasm` are included in the `wasm/build/` folder, and are sufficient for local demos.
+Prebuilt versions of `basis_transcoder.js` and `basis_transcoder.wasm` are included in the `wasm/build/` folder, and are sufficient for local demos. To build the transcoder yourself, first install emscripten ([tutorial](https://webassembly.org/getting-started/developers-guide/)) and cmake ([download](https://cmake.org/download/)). Then run:
 
-To build the transcoder yourself, first install emscripten ([tutorial](https://webassembly.org/getting-started/developers-guide/)) and cmake ([download](https://cmake.org/download/)).
-
-Run the following instructions under `webgl/gltf-demo/wasm/build/`
 ```shell
+cd webgl/gltf-demo/wasm/build/
 emcmake cmake ../
 make
 ```
