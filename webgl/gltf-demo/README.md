@@ -1,48 +1,34 @@
 # glTF Demo
 
-A WebGL demo rendering a glTF 3D model with `.basis` texture files transcoded into one of the following compressed texture format:
+A WebGL demo rendering a glTF 3D model with `.basis` texture files, transcoded into one of the following compressed texture formats:
 
 * DTX (BC1)
-  * Tested in chrome on Linux PC 
+  * Tested in Chrome (Linux and macOS) and Firefox (macOS).
 * ETC1
-  * Tested in chrome on Android Pixel 3 XL
+  * Tested in Chrome on Android, Pixel 3 XL.
 * PVRTC (COMPRESSED_RGB_PVRTC_4BPPV1_IMG)
-  * Tested in chrome/safari on iOS iPhone 6 Plus
+  * Tested in Chrome and Safari on iOS iPhone 6 Plus.
 
-Note the glTF model is using a temperoray hypothetical extension at this moment. It should rely on a KTX2 wrapper when offically released.
+Requires WebAssembly and WebGL support.
 
-## Run on PC
+The glTF model in this demo uses a hypothetical `GOOGLE_texture_basis` extension. That extension is defined for the sake of example only – the glTF format will officially embed Basis files within a KTX2 wrapper, through a new
+extension that is currently in development.
 
-Launuch an http server under `webgl/gltf-demo/`. For example if you have node installed you can install `http-server` globally and run
+## Testing locally
+
+See [how to run things locally](https://threejs.org/docs/#manual/en/introduction/How-to-run-things-locally), or (with [Node.js](https://nodejs.org/en/) installed), run:
+
 ```
-http-server
-```
-
-Go to `localhost:8080` in your browser (which should supports WebAssembly and WebGL).
-
-## Run on mobile
-
-If you connect your mobile and PC (hosting the http server) to the same Wifi, you might be able to access the http server directly from the browser on your mobile.
-
-For example:
-```
-$ http-server
-Starting up http-server, serving ./
-Available on:
-  http://127.0.0.1:8080
-  http://100.99.17.28:8080
-Hit CTRL-C to stop the server
+npx serve
 ```
 
-Go to `100.99.17.28:8080` in your mobile browser (which should supports WebAssembly and WebGL).
+The console will display a `localhost` URL for local testing, and (on supported WiFi networks and devices) may also display an IP address accessible by other devices on the same network. Note that mobile devices must support WebAssembly to run this demo. Learn more about [remote debugging your android devices](https://developers.google.com/web/tools/chrome-devtools/remote-debugging/).
 
-Or you can [remote debugging your android devices](https://developers.google.com/web/tools/chrome-devtools/remote-debugging/)
+## Build transcoder locally
 
-## Build Transcoder locally
+Prebuilt versions of `basis_transcoder.js` and `basis_transcoder.wasm` are included in the `wasm/build/` folder, and are sufficient for local demos.
 
-A prebuild of `basis_transcoder.js` and `basis_transcoder.wasm` is already included to run the demo. You only want to follow this part if you want to build the basis transcoder locally.
-
-Install emscripten ([tutorial](https://webassembly.org/getting-started/developers-guide/)) and cmake ([download](https://cmake.org/download/)) if you haven't yet.
+To build the transcoder yourself, first install emscripten ([tutorial](https://webassembly.org/getting-started/developers-guide/)) and cmake ([download](https://cmake.org/download/)).
 
 Run the following instructions under `webgl/gltf-demo/wasm/build/`
 ```shell
@@ -54,4 +40,4 @@ make
 
 * Contributions: @donmccurdy, @austinEng, @shrekshao
 * Three.js
-* Thanks AGI for providing the glTF model.
+* Thanks to AGI for providing the glTF model.

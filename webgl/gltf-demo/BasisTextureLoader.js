@@ -1,6 +1,6 @@
 /**
  * @author Don McCurdy / https://www.donmccurdy.com
- * @author Austin Eng / ?
+ * @author Austin Eng / https://github.com/austinEng
  * @author Shrek Shao / https://github.com/shrekshao
  */
 
