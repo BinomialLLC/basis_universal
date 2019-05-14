@@ -92,7 +92,8 @@
 
         const etcSupported = renderer.context.getExtension('WEBGL_compressed_texture_etc1');
         const dxtSupported = renderer.context.getExtension('WEBGL_compressed_texture_s3tc');
-        const pvrtcSupported = renderer.context.getExtension('WEBGL_compressed_texture_pvrtc');
+        const pvrtcSupported = renderer.context.getExtension('WEBGL_compressed_texture_pvrtc') ||
+                            renderer.context.getExtension('WEBKIT_WEBGL_compressed_texture_pvrtc');
 
         if (!etcSupported && !dxtSupported && !pvrtcSupported) {
           log('No suitable compressed texture format supported!!');
@@ -165,7 +166,7 @@
                 const f = dxtSupported ? DXT_FORMAT_MAP[ format ] : THREE.RGBFormat;
                 texture = new THREE.CompressedTexture( mipmaps, width, height, f, type );
               } else if (pvrtcSupported) {
-                texture = new THREE.CompressedTexture( mipmaps, width, height, THREE.THREE.RGB_PVRTC_4BPPV1_Format );
+                texture = new THREE.CompressedTexture( mipmaps, width, height, THREE.RGB_PVRTC_4BPPV1_Format );
               }
 
               texture.minFilter = THREE.LinearFilter;
