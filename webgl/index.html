@@ -1,8 +1,8 @@
 <html>
 <head>
-<script src="basis.js"></script>
 <script src="renderer.js"></script>
 <script src="dxt-to-rgb565.js"></script>
+<script src="./gltf-demo/wasm/build/basis_transcoder.js"></script>
 <script type="text/javascript">
 function log(s) {
   var div = document.createElement('div');
@@ -86,9 +86,8 @@ COMPRESSED_RGBA_S3TC_DXT1_EXT = 0x83F1;
 COMPRESSED_RGBA_S3TC_DXT3_EXT = 0x83F2;
 COMPRESSED_RGBA_S3TC_DXT5_EXT = 0x83F3;
 
-BASIS_FORMAT = {
-   
-   	cTFETC1: 0,
+BASIS_FORMAT = { 
+  cTFETC1: 0,
 	cTFBC1: 1,
 	cTFBC4: 2,
 	cTFPVRTC1_4_OPAQUE_ONLY: 3,
@@ -135,54 +134,66 @@ function dataLoaded(data)
 {
   log('Done loading .basis file, decoded header:');
   
-  Module._basis_init();
-
-  var srcSize = data.byteLength;
-  var bytes = new Uint8Array(data);
-  var src = Module._malloc(srcSize);
-  arrayBufferCopy(bytes, Module.HEAPU8, src, srcSize);
+  const { BasisFile, initializeBasis } = Module;
+  initializeBasis();
   
-  var basisHandle = Module._basis_open(src, srcSize);
-  if (!basisHandle)
-  {
-	log('Failed opening basis file!');
-	width = 0;
-    return;  
+  const startTime = performance.now();
+
+  const basisFile = new BasisFile(new Uint8Array(data));
+
+  width = basisFile.getImageWidth(0, 0);
+  height = basisFile.getImageHeight(0, 0);
+  images = basisFile.getNumImages();
+  levels = basisFile.getNumLevels(0);
+  has_alpha = basisFile.getHasAlpha();
+
+  if (!width || !height || !images || !levels) {
+    console.warn('Invalid .basis file');
+    basisFile.close();
+    basisFile.delete();
+    return;
   }
 
-  width = Module._basis_get_image_width(basisHandle, 0, 0);
-  height = Module._basis_get_image_height(basisHandle, 0, 0);
-  images = Module._basis_get_num_images(basisHandle, 0);
-  levels = Module._basis_get_num_levels(basisHandle, 0);
-  has_alpha = Module._basis_get_has_alpha(basisHandle);
-  
-  if (!width || !height || !images || !levels)
-  {
-  	Module._basis_close(basisHandle);
-	Module._free(src);
-	width = 0;
-	
-	log('Failed getting info from basis file!');
-    return;    
-  }
-    
   format = BASIS_FORMAT.cTFBC1;
   if (has_alpha)
   {
   	format = BASIS_FORMAT.cTFBC3;
 
-	log('Decoding .basis data to BC3');
+    log('Decoding .basis data to BC3');
   }
   else
   {
   	log('Decoding .basis data to BC1');
   }
 
+  if (!basisFile.startTranscoding()) {
+    console.warn('startTranscoding failed');
+    basisFile.close();
+    basisFile.delete();
+    return;
+  }
+
+  const dstSize = basisFile.getImageTranscodedSizeInBytes(0, 0, format);
+  const dst = new Uint8Array(dstSize);
+
+  if (!basisFile.transcodeImage(dst, 0, 0, format, 1, 0)) {
+    console.warn('transcodeImage failed');
+    basisFile.close();
+    basisFile.delete();
+    return;
+  }
+
+  const elapsed = performance.now() - startTime;
+
+  basisFile.close();
+  basisFile.delete();
+
   log('width: ' + width);
   log('height: ' + height);
   log('images: ' + images);
   log('first image mipmap levels: ' + levels);
   log('has_alpha: ' + has_alpha);
+  logTime('transcoding time', elapsed.toFixed(2));
 
   alignedWidth = (width + 3) & ~3;
   alignedHeight = (height + 3) & ~3;
@@ -190,93 +201,24 @@ function dataLoaded(data)
   var canvas = elem('canvas');
   canvas.width = alignedWidth;
   canvas.height = alignedHeight;
-  
-  var status = Module._basis_start_transcoding(basisHandle);
-  if (!status)
-  {
-	Module._basis_close(basisHandle);
-	Module._free(src);
-	width = 0;
-	
-    log('basis_start_transcoding() failed!');
-    return;
-  }  
-  
-  var dstSize = Module._basis_get_image_transcoded_size_in_bytes(basisHandle, 0, 0, format);
-  var dst = Module._malloc(dstSize);
-
-  if (!Module._basis_transcode_image(basisHandle, dst, dstSize, 0, 0, format, 1, 0))
-  {
-	  Module._basis_close(basisHandle);
-	  Module._free(src);
-	  Module._free(dst);
-	  width = 0;
-
- 	  log('basis_transcode_image() failed!');
- 	  return;	
-  }
-
-  var dxtData = new Uint8Array(Module.HEAPU8.buffer, dst, dstSize);
 
   if (dxtSupported)
   {  
-	  tex = renderer.createDxtTexture(dxtData, alignedWidth, alignedHeight, DXT_FORMAT_MAP[format]);  
+	  tex = renderer.createDxtTexture(dst, alignedWidth, alignedHeight, DXT_FORMAT_MAP[format]);  
   }
   else
   {
-  	  var rgb565Data = dxtToRgb565(Module.HEAPU16, dst / 2, alignedWidth, alignedHeight);
+  	var rgb565Data = dxtToRgb565(new Uint16Array(dst.buffer), 0, alignedWidth, alignedHeight);
 	  
 	  tex = renderer.createRgb565Texture(rgb565Data, alignedWidth, alignedHeight);
   }
  
   redraw();
-  
-  Module._free(dst);
-  Module._basis_close(basisHandle);
-  Module._free(src);
 }
 
-/**
- * @param {Uint8Array} src
- * @param {Uint8Array} dst
- */
-function arrayBufferCopy(src, dst, dstByteOffset, numBytes) {
-  dst32Offset = dstByteOffset / 4;
-  var tail = (numBytes % 4);
-  var src32 = new Uint32Array(src.buffer, 0, (numBytes - tail) / 4);
-  var dst32 = new Uint32Array(dst.buffer);
-  for (var i = 0; i < src32.length; i++) {
-    dst32[dst32Offset + i] = src32[i];
-  }
-  for (var i = numBytes - tail; i < numBytes; i++) {
-    dst[dstByteOffset + i] = src[i];
-  }
-}
-
-
-function run() {
+function runLoadFile() {
   elem('logger').innerHTML = '';
   loadArrayBuffer(elem('file').value, dataLoaded);
-}
-
-
-function initialize() {
-  var gl = elem('canvas').getContext('experimental-webgl');
-  // Load the DXT extension, and verify it exists.
-  if (!gl.getExtension('WEBKIT_WEBGL_compressed_texture_s3tc')) {
-    dxtSupported = false;
-    elem('nodxt').style.display = 'block';
-  }
-
-  window.renderer = new Renderer(gl);
-
-  elem('file').addEventListener('keydown', function(e) {
-    if (e.keyCode == 13) {
-      run();
-    }
-  }, false);
-    
-  run();
 }
 
 function alphaBlend() { drawMode = 0; redraw(); }
@@ -285,7 +227,7 @@ function viewAlpha() { drawMode = 2; redraw(); }
 
 </script>
 </head>
-<body onload="initialize()">
+<body>
   <br>
   <div style="font-size: 24pt; font-weight: bold">
     .basis->BC1/BC3 transcoder test
@@ -297,7 +239,7 @@ function viewAlpha() { drawMode = 2; redraw(); }
   <br>
       .basis file:
       <input id="file" type="text" size=30 value="kodim20.basis"></input>
-      <input type="button" value="Run!" onclick="run()"></input>
+      <input type="button" value="Run!" onclick="runLoadFile()"></input>
   <br>
   <br>
       <input type="button" value="Alpha blend" onclick="alphaBlend()"></input>
@@ -315,4 +257,24 @@ function viewAlpha() { drawMode = 2; redraw(); }
   <br><br>
   <div id='logger'></div>
 </body>
+<script>
+  Module.onRuntimeInitialized = () => {
+    var gl = elem('canvas').getContext('webgl');
+    // Load the DXT extension, and verify it exists.
+    if (!gl.getExtension('WEBKIT_WEBGL_compressed_texture_s3tc')) {
+      dxtSupported = false;
+      elem('nodxt').style.display = 'block';
+    }
+
+    window.renderer = new Renderer(gl);
+
+    elem('file').addEventListener('keydown', function(e) {
+      if (e.keyCode == 13) {
+        runLoadFile();
+      }
+    }, false);
+
+    runLoadFile();
+  }
+</script>
 </html>
