@@ -7,7 +7,7 @@ if (EMSCRIPTEN)
 
   add_executable(basis_transcoder.js
     ../../transcoder/basisu_transcoder.cpp
-    ../basis_wrappers.cpp
+    basis_wrappers.cpp
   )
 
   target_include_directories(basis_transcoder.js PRIVATE ../../transcoder)
