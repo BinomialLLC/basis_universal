@@ -59,12 +59,10 @@ If you are doing rate distortion comparisons vs. other similar systems, be sure 
 
 ### WebGL test 
 
-The "WebGL" directory contains two very simple WebGL demos that use the transcoder compiled to wasm with [emscripten](https://emscripten.org/). 
+The "WebGL" directory contains two very simple WebGL demos that use the transcoder compiled to wasm with [emscripten](https://emscripten.org/). See more details [here](webgl/README.md).
 
-See more details [here](webgl/README.md).
-
-![](texture-demo.png)
-![](model-demo.png)
+![Screenshot of 'texture' example running in a browser.](webgl/texture/preview.png)
+![Screenshot of 'gltf' example running in a browser.](webgl/gltf/preview.png)
 
 ### Transcoder details
 
