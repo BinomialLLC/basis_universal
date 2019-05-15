@@ -8,6 +8,8 @@
 
 On browsers that don't support BC1 (Firefox is one), there's a low-quality fallback code path for opaque textures (but no fallback for BC3 yet). Note that the fallback path only converts to 16-bit RGB images at the moment, so the quality isn't as good as it should be.
 
+![](texture-demo.png)
+
 ### glTF 3D Model Demo
 `gltf-demo/index.html` renders a glTF 3D model with `.basis` texture files, transcoded into one of the following compressed texture formats:
 * DTX (BC1)
@@ -19,6 +21,8 @@ On browsers that don't support BC1 (Firefox is one), there's a low-quality fallb
 
 The glTF model in this demo uses a hypothetical `GOOGLE_texture_basis` extension. That extension is defined for the sake of example only – the glTF format will officially embed Basis files within a KTX2 wrapper, through a new
 extension that is currently in development.
+
+![](model-demo.png)
 
 Both demos requires WebAssembly and WebGL support.
 

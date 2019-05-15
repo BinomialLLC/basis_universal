@@ -63,6 +63,9 @@ The "WebGL" directory contains two very simple WebGL demos that use the transcod
 
 See more details [here](webgl/README.md).
 
+![](texture-demo.png)
+![](model-demo.png)
+
 ### Transcoder details
 
 The transcoder unpacks .basis files to various GPU texture formats, almost always without needing to decompress entire images at the pixel level (i.e. it only deals with arrays of blocks). The one exception is PVRTC1, where the transcoder needs to recompute the per-pixel selector ("modulation") values, but it does so using simple scalar operations.
