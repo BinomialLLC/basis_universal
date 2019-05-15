@@ -6,11 +6,11 @@ if (EMSCRIPTEN)
   set(CMAKE_CXX_STANDARD 11)
 
   add_executable(basis_transcoder.js
-    ../../../transcoder/basisu_transcoder.cpp
-    basis_wrappers.cpp
+    ../../transcoder/basisu_transcoder.cpp
+    ../basis_wrappers.cpp
   )
 
-  target_include_directories(basis_transcoder.js PRIVATE ../../../transcoder)
+  target_include_directories(basis_transcoder.js PRIVATE ../../transcoder)
 
   set_target_properties(basis_transcoder.js PROPERTIES
       OUTPUT_NAME "basis_transcoder"
