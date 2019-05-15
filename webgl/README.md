@@ -1,6 +1,8 @@
 # WebGL Demo
 
-### Texture Demo
+Both demos require WebAssembly and WebGL support.
+
+## Texture Demo
 
 `texture/index.html` renders a single texture, using the transcoder (compiled to WASM with emscripten) to generate one of the following compressed texture formats:
 
@@ -11,7 +13,7 @@ On browsers that don't support BC1 (Firefox is one), there's a low-quality fallb
 
 ![Screenshot showing a basis texture rendered as a 2D image in a webpage.](texture/preview.png)
 
-### glTF 3D Model Demo
+## glTF 3D Model Demo
 
 `gltf/index.html` renders a glTF 3D model with `.basis` texture files, transcoded into one of the following compressed texture formats:
 
@@ -27,8 +29,6 @@ extension that is currently in development.
 
 ![Screenshot showing a basis texture rendered as the base color texture for a 3D model in a webpage.](gltf/preview.png)
 
-Both demos require WebAssembly and WebGL support.
-
 ## Testing locally
 
 See [how to run things locally](https://threejs.org/docs/#manual/en/introduction/How-to-run-things-locally), or (with [Node.js](https://nodejs.org/en/) installed), run:
@@ -38,22 +38,3 @@ npx serve
 ```
 
 The console will display a `localhost` URL for local testing, and (on supported WiFi networks and devices) may also display an IP address accessible by other devices on the same network. Note that mobile devices must support WebAssembly to run this demo. Learn more about [remote debugging your android devices](https://developers.google.com/web/tools/chrome-devtools/remote-debugging/).
-
-## Building transcoder locally
-
-Prebuilt versions of `basis_transcoder.js` and `basis_transcoder.wasm` are included in the `transcoder/build/` folder, and are sufficient for local demos. To build the transcoder yourself, first install emscripten ([tutorial](https://webassembly.org/getting-started/developers-guide/)) and cmake ([download](https://cmake.org/download/)). Then run:
-
-```shell
-cd webgl/transcoder/build/
-emcmake cmake ../
-make
-```
-
-## Credits
-
-* Contributors:
-  * [Don McCurdy](https://www.donmccurdy.com)
-  * [Austin Eng](https://github.com/austinEng)
-  * [Shrek Shao](https://github.com/shrekshao)
-* Made with [three.js](https://threejs.org/).
-* Thanks to [AGI](http://agi.com/) for providing the glTF model.
