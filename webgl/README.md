@@ -2,16 +2,19 @@
 
 ### Texture Demo
 
-`index.html` uses the transcoder compiled to wasm with emscripten and renders the texture. Currently supporting following texture formats:
+`texture/index.html` renders a single texture, using the transcoder (compiled to WASM with emscripten) to generate one of the following compressed texture formats:
+
 * BC1
 * BC3
 
 On browsers that don't support BC1 (Firefox is one), there's a low-quality fallback code path for opaque textures (but no fallback for BC3 yet). Note that the fallback path only converts to 16-bit RGB images at the moment, so the quality isn't as good as it should be.
 
-![](texture-demo.png)
+![Screenshot showing a basis texture rendered as a 2D image in a webpage.](texture/preview.png)
 
 ### glTF 3D Model Demo
-`gltf-demo/index.html` renders a glTF 3D model with `.basis` texture files, transcoded into one of the following compressed texture formats:
+
+`gltf/index.html` renders a glTF 3D model with `.basis` texture files, transcoded into one of the following compressed texture formats:
+
 * DTX (BC1)
   * Tested in Chrome (Linux and macOS) and Firefox (macOS).
 * ETC1
@@ -22,9 +25,9 @@ On browsers that don't support BC1 (Firefox is one), there's a low-quality fallb
 The glTF model in this demo uses a hypothetical `GOOGLE_texture_basis` extension. That extension is defined for the sake of example only – the glTF format will officially embed Basis files within a KTX2 wrapper, through a new
 extension that is currently in development.
 
-![](model-demo.png)
+![Screenshot showing a basis texture rendered as the base color texture for a 3D model in a webpage.](gltf/preview.png)
 
-Both demos requires WebAssembly and WebGL support.
+Both demos require WebAssembly and WebGL support.
 
 ## Testing locally
 
@@ -38,10 +41,10 @@ The console will display a `localhost` URL for local testing, and (on supported 
 
 ## Building transcoder locally
 
-Prebuilt versions of `basis_transcoder.js` and `basis_transcoder.wasm` are included in the `wasm/build/` folder, and are sufficient for local demos. To build the transcoder yourself, first install emscripten ([tutorial](https://webassembly.org/getting-started/developers-guide/)) and cmake ([download](https://cmake.org/download/)). Then run:
+Prebuilt versions of `basis_transcoder.js` and `basis_transcoder.wasm` are included in the `transcoder/build/` folder, and are sufficient for local demos. To build the transcoder yourself, first install emscripten ([tutorial](https://webassembly.org/getting-started/developers-guide/)) and cmake ([download](https://cmake.org/download/)). Then run:
 
 ```shell
-cd webgl/wasm/build/
+cd webgl/transcoder/build/
 emcmake cmake ../
 make
 ```
