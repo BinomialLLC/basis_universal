@@ -1,0 +1,89 @@
+- URL/license of image 
+https://unsplash.com/photos/sAGXVK6bNFc
+Photo by Amar Yashlaha
+
+License: 
+"All photos published on Unsplash can be used for free. You can use them for commercial and noncommercial purposes. You do not need to ask permission from or provide credit to the photographer or Unsplash, although it is appreciated when possible.
+More precisely, Unsplash grants you an irrevocable, nonexclusive, worldwide copyright license to download, copy, modify, distribute, perform, and use photos from Unsplash for free, including for commercial purposes, without permission from or attributing the photographer or Unsplash. This license does not include the right to compile photos from Unsplash to replicate a similar or competing service."
+
+- Size of uncompressed file and the original image
+Original JPEG image: 1951x1300, 891,721 bytes (1.7 bits/pixel)
+We cropped it to 2048x2048 using Paint Shop Pro, due to PVRTC1 power of 2 texture limitations, and saved to PNG: 4,896,491 bytes (9.34 bits/pixel)
+
+- Size of compressed file using GPU format + lossless, for each GPU format, the resulting image, and PSNR/SSIM quality rating
+
+Error metric details: All error metrics are computed in REC 709 Y (Luma).
+SSIM computed using OpenCV and http://mehdi.rabah.free.fr/SSIM/SSIM.cpp
+PSNR-HVSM computed using code from https://github.com/Rolinh/VQMT
+LZMA is 7-zip Ultra LZMA 
+
+ETC1 (Mali Texture Tool, "fast" setting): 
+	KTX: 2,097,220 bytes (4 bits/texel)
+	KTX+LZMA: 1,001,797 bytes (1.911 bits/texel)
+	PSNR: 38.989 	PSNR-HVSM: 45.396	SSIM: .982527
+
+PVRTC1 4bpp (PVRTexTool, normal/good setting):
+	PVR: 2,097,219 bytes (4 bits/texel)
+	PVR+LZMA: 890,812 bytes (1.7 bits/texel)
+	PSNR: 37.262	PSNR-HVSM: 41.833	SSIM: .976158
+
+BC1 (AMD Compressonator default settings):
+	KTX: 2,097,220 bytes (4 bits/texel)
+	KTX+LZMA: 959,831 bytes (1.831 bits/texel)
+	PSNR: 38.658	PSNR-HVSM: 46.206   SSIM: .982236
+	
+BC7 (AMD Compressonator default settings):
+	KTX: 4,194,372 bytes (8 bits/texel)
+	KTX+LZMA: 2,161,666 bytes (4.123 bits/texel)
+	PSNR: 49.204    PSNR-HVSM: 60.193   SSIM: .998305
+
+- Basis Universal Baseline at 4 different quality settings, transcoded to each major texture format:
+
+---- .basis quality 16 (very low quality):
+.basis file size: 190,706 (.364 bits/texel)
+.basis losslessly unpacked to ETC1S .KTX, then compressed with LZMA: 278,826 (.532 bits/texel)
+
+				PSNR		PSNR-HVSM		SSIM
+ETC1:			28.825	    30.956			.786465
+PVRTC1 4bpp:    28.347		29.596			.770552
+BC1:			28.825		30.954			.787366
+BC7: 			28.823      30.944          .786056
+
+---- .basis quality 64 (low quality):
+.basis file size: 238,919 (.456 bits/texel)
+.basis losslessly unpacked to ETC1S .KTX, then compressed with LZMA: 333,106 (.635 bits/texel)
+
+				PSNR		PSNR-HVSM		SSIM
+ETC1:			29.526	    31.972			.822336
+PVRTC1 4bpp:    28.873		30.195		    .804267
+BC1:			29.517		31.936			.822921
+BC7: 			29.526      31.968			.82164
+
+---- .basis quality 128 (default quality):
+.basis file size: 307,307 (.586 bits/texel)
+.basis losslessly unpacked to ETC1S .KTX, then compressed with LZMA: 406,677 (.776 bits/texel)
+
+				PSNR		PSNR-HVSM		SSIM
+ETC1:			30.557      33.168			.863934
+PVRTC1 4bpp:    29.682		30.927			.843242
+BC1:			30.533		33.087			.86426
+BC7: 			30.555		33.159			.86302
+
+---- .basis highest achievable quality:
+basisu -slower -max_selectors 16128 -max_endpoints 16128 -endpoint_rdo_thresh 1.00 -selector_rdo_thresh 1.00
+
+.basis file size: 469,119 (.895 bits/texel)
+.basis losslessly unpacked to ETC1S .KTX, then compressed with LZMA: 542,338 (1.034 bits/texel)
+
+				PSNR		PSNR-HVSM		SSIM
+ETC1:			32.878 		36.865			.918791
+PVRTC1 4bpp:    31.196		32.571			.892816
+BC1:			32.782		36.616			.918009
+BC7: 			32.876 		36.855			.918128
+
+- Compare VRAM consumed by the original uncompressed and then the Basis-encoded-and-transcoded into a compressed texture
+
+The 2K texture stored uncompressed in VRAM would be 16,777,216 bytes (16MB) using 32-bit RGBA (few if any GPU's support 24-bpp uncompressed textures).
+Uncompressed 16-bpp 565: 8,388,608 bytes (8MB).
+BC1/ETC1/PVRTC1: 2,097,152 bytes (2MB)
+BC7: 4,194,304 bytes (4MB)

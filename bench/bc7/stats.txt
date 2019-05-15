@@ -1,0 +1,21 @@
+C:\dev\basis_universal-master\bin\bc7>C:\dev\basis_repo2\bin\ssim lion_photo-1470848051974-964b789cb6fa_PNG_BC7_1_view.png c:\dev\test_images\lion_photo-1470848051974-964b789cb6fa.png
+OpenCV SSIM:
+R:     0.9971
+G:     0.997848
+B:     0.996443
+Avg:   0.997131
+709 L: 0.998305
+
+basislib:
+RGB Total   Error: Max:  25, Mean: 1.891, MSE: 4.422, RMSE: 2.103, PSNR: 41.675, CRCA: 0x92C75040 CRCB: 0x51B2976A
+RGB Average Error: Max:  25, Mean: 0.630, MSE: 1.474, RMSE: 1.214, PSNR: 46.446, SSIM: 0.999999, CRCA: 0x92C75040 CRCB: 0x51B2976A
+Luma        Error: Max:  13, Mean: 0.446, MSE: 0.781, RMSE: 0.884, PSNR: 49.204, SSIM: 1.000000, CRCA: 0x282AB56B CRCB: 0x02E146BE
+Red         Error: Max:  25, Mean: 0.666, MSE: 1.604, RMSE: 1.267, PSNR: 46.078, SSIM: 1.000000, CRCA: 0xC7D2AB95 CRCB: 0x136610E3
+Green       Error: Max:  14, Mean: 0.545, MSE: 1.109, RMSE: 1.053, PSNR: 47.680, SSIM: 1.000000, CRCA: 0xF6EB599F CRCB: 0x0544399F
+Blue        Error: Max:  22, Mean: 0.680, MSE: 1.708, RMSE: 1.307, PSNR: 45.805, SSIM: 0.999998, CRCA: 0x92C75040 CRCB: 0x51B2976A
+
+PSNR-HVSM Y    : 60.192661
+PSNR-HVSM Red  : 52.682346
+PSNR-HVSM Green: 55.557362
+PSNR-HVSM Blue : 50.865295
+PSNR-HVSM Avg  : 53.035004
