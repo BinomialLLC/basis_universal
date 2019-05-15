@@ -1,8 +1,8 @@
-# WebGL Demo
+# WebGL Examples
 
-Both demos require WebAssembly and WebGL support.
+Requires WebAssembly and WebGL support.
 
-## Texture Demo
+## Texture
 
 `texture/index.html` renders a single texture, using the transcoder (compiled to WASM with emscripten) to generate one of the following compressed texture formats:
 
@@ -13,7 +13,7 @@ On browsers that don't support BC1 (Firefox is one), there's a low-quality fallb
 
 ![Screenshot showing a basis texture rendered as a 2D image in a webpage.](texture/preview.png)
 
-## glTF 3D Model Demo
+## glTF 3D Model
 
 `gltf/index.html` renders a glTF 3D model with `.basis` texture files, transcoded into one of the following compressed texture formats:
 
