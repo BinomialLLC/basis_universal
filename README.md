@@ -59,11 +59,10 @@ If you are doing rate distortion comparisons vs. other similar systems, be sure 
 
 ### WebGL test 
 
-The "WebGL" directory contains a very simple WebGL demo that uses the transcoder compiled to asm.js with [emscripten](https://emscripten.org/). It currently only supports transcoding to the BC1 and BC3 texture formats. The file `WebGL/basis_wrappers.cpp` contains a simple C-style API that the Javascript code calls to interface with the C++ Basis transcoder.
+The "WebGL" directory contains two very simple WebGL demos that use the transcoder compiled to wasm with [emscripten](https://emscripten.org/). See more details [here](webgl/README.md).
 
-On browsers that don't support BC1 (Firefox is one), there's a low-quality fallback code path for opaque textures (but no fallback for BC3 yet). Note that the fallback path only converts to 16-bit RGB images at the moment, so the quality isn't as good as it should be.
-
-Note that I was unable to disable assertions when compiling the transcoder in release (-O2), and I'm not sure why yet. Currently, basisu.h forcefully #undef's the assert() macro, which is ugly but works. Including assert()'s in release will slow transcoding down.
+![Screenshot of 'texture' example running in a browser.](webgl/texture/preview.png)
+![Screenshot of 'gltf' example running in a browser.](webgl/gltf/preview.png)
 
 ### Transcoder details
 
