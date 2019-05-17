@@ -19,7 +19,7 @@ The encoder uses [lodepng](https://lodev.org/lodepng/) for loading and saving PN
 
 ### Command Line Compression Tool
 
-The command line tool used to create, validate, and transcode/unpack .basis files is named "basisu". Run basisu without any parameters for help. Note this tool uses the reference encoder. It's possible to create much faster encoders, including real-time systems.
+The command line tool used to create, validate, and transcode/unpack .basis files is named "basisu". Run basisu without any parameters for help. Note this tool uses the reference encoder.
 
 To compress a sRGB image to .basis:
 
