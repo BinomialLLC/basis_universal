@@ -19,7 +19,7 @@ The encoder uses [lodepng](https://lodev.org/lodepng/) for loading and saving PN
 
 ### Command Line Compression Tool
 
-The command line tool used to create, validate, and transcode/unpack .basis files is named "basisu". Run basisu without any parameters for help. 
+The command line tool used to create, validate, and transcode/unpack .basis files is named "basisu". Run basisu without any parameters for help. Note this tool uses the reference encoder. It's possible to create much faster encoders, including real-time systems.
 
 To compress a sRGB image to .basis:
 
@@ -191,7 +191,7 @@ Basis supports up to 16K codebooks for both endpoints and selectors for signific
 The file format also supports very large non-uniform texture arrays, making the system usable as an RDO backend in specialized block-based video encoders. Internally, the encoder only handles blocks and all later RDO stages which assume a fixed 2D raster order of the blocks can be optionally disabled.
 
 ### Special thanks
-A big thanks to Google for partnering with us and enabling this system to be open sourced.
+A huge thanks to Google for partnering with us and enabling this system to be open sourced.
 
 Thanks to a number of companies or groups who have supported or helped out Binomial over the years: Intel, SpaceX, Netflix, Forgotten Empires, Microsoft, Polystream, Hothead Games, BioDigital, Magic Leap, Blizzard Entertainment, Insomniac Games, Rockstar Games, Facebook, Activision, the Khronos Group, and the organizers at CppCon.
 
