@@ -33,6 +33,10 @@ To add automatically generated mipmaps to the .basis file, at a higher than defa
 
 There are several mipmap options that allow you to change the filter kernel, the smallest mipmap dimension, etc. The tool also supports generating cubemap files, 2D/cubemap texture arrays, etc.
 
+To create a higher quality .basis file (one with better codebooks):
+
+`basisu -slower x.png`
+
 To unpack a .basis file to multiple .png/.ktx files:
 
 `basisu x.basis`
