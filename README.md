@@ -67,6 +67,8 @@ The reference encoder will take a LONG time and a lot of CPU to encode video, es
 
 The .basis file will contain multiple images (all using the same global codebooks), which you can retrieve using the transcoder's image API. This initial release doesn't support [conditional replenisment](https://en.wikipedia.org/wiki/MPEG-1) (CR), but we have a branch in the works that does that doesn't change the file format itself. CR can reduce the bitrate of some videos (highly dependent on how dynamic the content is) by over 50%. For videos using CR, the images must be requested from the transcoder in sequence from first to last, and random access is only allowed to I-Frames. (More on this once we release it.) 
 
+The latest version of the encoder is in the "video" branch, but it's still a work in progress and hasn't been fully tested yet. The video branch supports I-Frames, and simple P-Frames using conditional replenishment (CR).
+
 If you are doing rate distortion comparisons vs. other similar systems, be sure to experiment with increasing the endpoint RDO threshold (-endpoint_rdo_thresh X). This setting controls how aggressively the compressor's backend will combine together nearby blocks so they use the same block endpoint codebook vectors, for better coding efficiency. X defaults to a modest 1.5, which means the backend is allowed to increase the overall color distance by 1.5x while searching for merge candidates. The higher this setting, the better the compression, with the tradeoff of more block artifacts. Settings up to ~2.25 can work well, and make the codec more competitive.
 
 ### WebGL test 
