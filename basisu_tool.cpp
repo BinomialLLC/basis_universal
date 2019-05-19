@@ -30,7 +30,7 @@
 
 using namespace basisu;
 
-#define BASISU_TOOL_VERSION "1.05.00"
+#define BASISU_TOOL_VERSION "1.06.00"
 
 enum tool_mode
 {
@@ -71,8 +71,9 @@ static void print_usage()
 		" -stats: Compute and display image quality metrics (slightly slower).\n"
 		" -slower: Enable optional stages in the compressor for slower but higher quality compression using better codebooks.\n"
 		" -tex_type <2d, 2darray, 3d, video, cubemap>: Set Basis file header's texture type field. Cubemap arrays require multiples of 6 images, in X+, X-, Y+, Y-, Z+, Z- order, each image must be the same resolutions.\n"
-		"  2d=arbitrary 2D images, 2darray=2D array, 3D=volume texture slices, video=video frames, cubemap=array of faces. For 2darray/3d/cubemaps/video, each source image's dimensions and # of mipmap levels must be the same.\n"
-		" -framerate X: Set framerate in header to X/frames sec\n"
+		"  (2d=arbitrary 2D images, 2darray=2D array, 3D=volume texture slices, video=video frames, cubemap=array of faces. For 2darray/3d/cubemaps/video, each source image's dimensions and # of mipmap levels must be the same.)\n"
+		" For video, the .basis file will be written with the first frame being an I-Frame, and subsequent frames being P-Frames (using conditional replenishment). Playback must always occur in order from first to last image.\n"
+		" -framerate X: Set framerate in header to X/frames sec.\n"
 		" -individual: Process input images individually and output multiple .basis files (not as a texture array)\n"
 		" -fuzz_testing: Use with -validate: Disables CRC16 validation of file contents before transcoding\n"
 		"\n"
@@ -124,8 +125,12 @@ static void print_usage()
 		"basisu -q 255 -file x.png -mipmap -debug -stats : Compress sRGB x.png to x.basis at quality level 255 with compressor debug output/statistics\n"
 		"basisu -linear -max_endpoints 16128 -max_selectors 16128 -file x.png : Compress non-sRGB x.png to x.basis using the largest supported manually specified codebook sizes\n"
 		"basisu -linear -global_sel_pal -no_hybrid_sel_cb -file x.png : Compress a non-sRGB image, use virtual selector codebooks for improved compression (but slower encoding)\n"
-		"basisu -linear -global_sel_pal -file x.png: Compress a non-sRGB image, use hybrid selector codebooks for slightly improved compression (but slower encoding)\n"
-		"basisu -tex_type video -framerate 20 -multifile_printf \"x%02u.png\" -multifile_first 1 -multifile_count 20 : Compress a 20 sRGB source image video sequence (x01.png, x02.png, x03.png, etc.) to x01.basis\n"
+		"basisu -linear -global_sel_pal -file x.png : Compress a non-sRGB image, use hybrid selector codebooks for slightly improved compression (but slower encoding)\n"
+		"basisu -tex_type video -framerate 20 -slower -multifile_printf \"x%02u.png\" -multifile_first 1 -multifile_count 99 : Compress a 99 frame sRGB source image video sequence (x01.png, x02.png, x03.png, etc.) to x01.basis\n"
+		"\n"
+		"Note: For video use, it's recommended you use a very powerful machine with many cores. Use -slower for better codebook generation, specify very large codebooks using -max_endpoints and -max_selectors, and reduce\n"
+		"the default endpoint RDO threshold (-endpoint_rdo_thresh) to around 1.25. Videos may have mipmaps and alpha channels. Videos must always be played back by the transcoder in first to last image order.\n"
+		"Video files currently use I-Frames on the first image, and P-Frames using conditional replenishment on subsequent frames.\n"
 	);
 }
 
@@ -876,20 +881,20 @@ static bool unpack_and_validate_mode(command_line_params &opts, bool validate_fl
 		}
 								
 		// Now transcode the file to all supported texture formats and save mipmapped KTX files
-		for (uint32_t image_index = 0; image_index < fileinfo.m_total_images; image_index++)
+		for (int format_iter = 0; format_iter < basist::cTFTotalTextureFormats; format_iter++)
 		{
-			for (uint32_t level_index = 0; level_index < fileinfo.m_image_mipmap_levels[image_index]; level_index++)
+			for (uint32_t image_index = 0; image_index < fileinfo.m_total_images; image_index++)
 			{
-				basist::basisu_image_level_info level_info;
-
-				if (!dec.get_image_level_info(&basis_data[0], (uint32_t)basis_data.size(), level_info, image_index, level_index))
+				for (uint32_t level_index = 0; level_index < fileinfo.m_image_mipmap_levels[image_index]; level_index++)
 				{
-					error_printf("Failed retrieving image level information (%u %u)!\n", image_index, level_index);
-					return false;
-				}
+					basist::basisu_image_level_info level_info;
 
-				for (int format_iter = 0; format_iter < basist::cTFTotalTextureFormats; format_iter++)
-				{
+					if (!dec.get_image_level_info(&basis_data[0], (uint32_t)basis_data.size(), level_info, image_index, level_index))
+					{
+						error_printf("Failed retrieving image level information (%u %u)!\n", image_index, level_index);
+						return false;
+					}
+				
 					const basist::transcoder_texture_format transcoder_tex_fmt = static_cast<basist::transcoder_texture_format>(format_iter);
 
 					if (transcoder_tex_fmt == basist::cTFPVRTC1_4_OPAQUE_ONLY)
@@ -968,7 +973,7 @@ static bool unpack_and_validate_mode(command_line_params &opts, bool validate_fl
 
 					if ((!opts.m_no_ktx) && (fileinfo.m_tex_type != basist::cBASISTexTypeCubemapArray))
 					{
-						std::string ktx_filename(base_filename + string_format("_transcoded_%s_%u.ktx", basist::basis_get_format_name(transcoder_tex_fmt), image_index));
+						std::string ktx_filename(base_filename + string_format("_transcoded_%s_%04u.ktx", basist::basis_get_format_name(transcoder_tex_fmt), image_index));
 						if (!write_compressed_texture_file(ktx_filename.c_str(), gi))
 						{
 							error_printf("Failed writing KTX file \"%s\"!\n", ktx_filename.c_str());
@@ -995,7 +1000,12 @@ static bool unpack_and_validate_mode(command_line_params &opts, bool validate_fl
 						}
 						//u.crop(level_info.m_orig_width, level_info.m_orig_height);
 					
-						std::string rgb_filename(base_filename + string_format("_unpacked_rgb_%s_%u_%u.png", basist::basis_get_format_name(transcoder_tex_fmt), image_index, level_index));
+						std::string rgb_filename;
+						if (gi.size() > 1)
+							rgb_filename = base_filename + string_format("_unpacked_rgb_%s_%u_%04u.png", basist::basis_get_format_name(transcoder_tex_fmt), level_index, image_index);
+						else
+							rgb_filename = base_filename + string_format("_unpacked_rgb_%s_%04u.png", basist::basis_get_format_name(transcoder_tex_fmt), image_index);
+
 						if (!save_png(rgb_filename, u, cImageSaveIgnoreAlpha))
 						{
 							error_printf("Failed writing to PNG file \"%s\"\n", rgb_filename.c_str());
@@ -1005,7 +1015,12 @@ static bool unpack_and_validate_mode(command_line_params &opts, bool validate_fl
 
 						if (basis_transcoder_format_has_alpha(transcoder_tex_fmt))
 						{
-							std::string a_filename(base_filename + string_format("_unpacked_a_%s_%u_%u.png", basist::basis_get_format_name(transcoder_tex_fmt), image_index, level_index));
+							std::string a_filename;
+							if (gi.size() > 1)
+								a_filename = base_filename + string_format("_unpacked_a_%s_%u_%04u.png", basist::basis_get_format_name(transcoder_tex_fmt), level_index, image_index);
+							else
+								a_filename = base_filename + string_format("_unpacked_a_%s_%04u.png", basist::basis_get_format_name(transcoder_tex_fmt), image_index);
+
 							if (!save_png(a_filename, u, cImageSaveGrayscale, 3))
 							{
 								error_printf("Failed writing to PNG file \"%s\"\n", a_filename.c_str());

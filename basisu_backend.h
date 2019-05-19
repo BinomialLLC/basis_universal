@@ -36,6 +36,8 @@ namespace basisu
 
 		int m_selector_history_buf_index;
 
+		bool m_is_cr_target;
+				
 		void clear()
 		{
 			m_endpoint_predictor = 0;
@@ -44,6 +46,8 @@ namespace basisu
 			m_selector_index = 0;
 						
 			m_selector_history_buf_index = 0;
+
+			m_is_cr_target = false;
 		}
 	};
 
@@ -103,6 +107,16 @@ namespace basisu
 
 	struct basisu_backend_slice_desc
 	{
+		basisu_backend_slice_desc()
+		{
+			clear();
+		}
+
+		void clear()
+		{
+			clear_obj(*this);
+		}
+
 		uint32_t m_first_block_index;
 
 		uint32_t m_orig_width;
@@ -119,7 +133,9 @@ namespace basisu
 
 		uint32_t m_source_file_index;		// also the basis image index
 		uint32_t m_mip_index;
+
 		bool m_alpha;
+		bool m_iframe;
 	};
 
 	typedef std::vector<basisu_backend_slice_desc> basisu_backend_slice_desc_vec;
@@ -306,6 +322,8 @@ namespace basisu
 		bool encode_image();
 		bool encode_endpoint_palette();
 		bool encode_selector_palette();
+		int find_video_frame(int slice_index, int delta);
+		void check_for_valid_cr_blocks();
 	};
 
 } // namespace basisu

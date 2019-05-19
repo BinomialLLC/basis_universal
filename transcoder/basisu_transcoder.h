@@ -73,7 +73,8 @@ namespace basist
 
 		bool decode_tables(const uint8_t *pTable_data, uint32_t table_data_size);
 
-		bool transcode_slice(void *pDst_blocks, uint32_t num_blocks_x, uint32_t num_blocks_y, const uint8_t *pImage_data, uint32_t image_data_size, block_format fmt, uint32_t output_stride, bool wrap_addressing, bool bc1_allow_threecolor_blocks);
+		bool transcode_slice(void *pDst_blocks, uint32_t num_blocks_x, uint32_t num_blocks_y, const uint8_t *pImage_data, uint32_t image_data_size, block_format fmt, uint32_t output_stride, 
+			bool wrap_addressing, bool bc1_allow_threecolor_blocks, const basis_file_header &header, const basis_slice_desc& slice_desc);
 
 	private:
 		struct endpoint
@@ -101,6 +102,10 @@ namespace basist
 		};
 
 		std::vector<block_preds> m_block_endpoint_preds[2];
+
+		// Only used when decoding videos, for conditional replenishment.
+		enum { cMaxPrevFrameLevels = 16 };
+		std::vector<uint32_t> m_prev_frame_indices[2][cMaxPrevFrameLevels]; // [alpha_flag][level_index] 
 	};
 
 	struct basisu_slice_info

@@ -3669,9 +3669,29 @@ namespace basist
 	}
 			
 	bool basisu_lowlevel_transcoder::transcode_slice(void *pDst_blocks, uint32_t num_blocks_x, uint32_t num_blocks_y, const uint8_t *pImage_data, uint32_t image_data_size, block_format fmt, 
-		uint32_t output_stride, bool pvrtc_wrap_addressing, bool bc1_allow_threecolor_blocks)
+		uint32_t output_stride, bool pvrtc_wrap_addressing, bool bc1_allow_threecolor_blocks, const basis_file_header &header, const basis_slice_desc &slice_desc)
 	{
+		const bool is_video = (header.m_tex_type == cBASISTexTypeVideoFrames);
+
 		const uint32_t total_blocks = num_blocks_x * num_blocks_y;
+
+		std::vector<uint32_t>* pPrevFrameIndices = nullptr;
+		if (is_video)
+		{
+			// TODO: Add check to make sure the caller hasn't tried skipping past p-frames
+			const bool alpha_flag = (slice_desc.m_flags & cSliceDescFlagsIsAlphaData) != 0;
+			const uint32_t level_index = slice_desc.m_level_index;
+
+			if (level_index >= cMaxPrevFrameLevels)
+			{
+				assert(0);
+				return false;
+			}
+
+			pPrevFrameIndices = &m_prev_frame_indices[alpha_flag][level_index];
+			if (pPrevFrameIndices->size() < total_blocks)
+				pPrevFrameIndices->resize(total_blocks);
+		}
 
 		basist::bitwise_decoder sym_codec;
 				
@@ -3683,8 +3703,6 @@ namespace basist
 		
 		approx_move_to_front selector_history_buf(m_selector_history_buf_size);
 				
-		int prev_selector_index = 0;
-
 		const uint32_t SELECTOR_HISTORY_BUF_FIRST_SYMBOL_INDEX = (uint32_t)m_selectors.size();
 		const uint32_t SELECTOR_HISTORY_BUF_RLE_SYMBOL_INDEX = m_selector_history_buf_size + SELECTOR_HISTORY_BUF_FIRST_SYMBOL_INDEX;
 		uint32_t cur_selector_rle_count = 0;
@@ -3759,7 +3777,7 @@ namespace basist
 				}
 
 				// Decode endpoint index
-				uint32_t endpoint_index;
+				uint32_t endpoint_index, selector_index = 0;
 
 				const uint32_t pred = cur_pred_bits & 3;
 				cur_pred_bits >>= 2;
@@ -3792,16 +3810,29 @@ namespace basist
 				}
 				else if (pred == 2)
 				{
-					// Upper left
-					if ((!block_x) || (!block_y))
+					if (is_video)
 					{
-						BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::transcode_slice: invalid datastream (2)\n");		
-						if (pPVRTC_work_mem)
-							free(pPVRTC_work_mem);
-						return false;
-					}
+						assert(pred == CR_ENDPOINT_PRED_INDEX);
 
-					endpoint_index = m_block_endpoint_preds[cur_block_endpoint_pred_array ^ 1][block_x - 1].m_endpoint_index;
+						// Conditional replenishment
+						endpoint_index = (*pPrevFrameIndices)[block_x + block_y * num_blocks_x];
+
+						selector_index = endpoint_index >> 16;
+						endpoint_index &= 0xFFFFU;
+					}
+					else
+					{
+						// Upper left
+						if ((!block_x) || (!block_y))
+						{
+							BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::transcode_slice: invalid datastream (2)\n");
+							if (pPVRTC_work_mem)
+								free(pPVRTC_work_mem);
+							return false;
+						}
+
+						endpoint_index = m_block_endpoint_preds[cur_block_endpoint_pred_array ^ 1][block_x - 1].m_endpoint_index;
+					}
 				}
 				else
 				{
@@ -3818,71 +3849,71 @@ namespace basist
 				prev_endpoint_index = endpoint_index;
 				
 				// Decode selector index
-				uint32_t selector_index;
-				int selector_sym;
-				if (cur_selector_rle_count > 0)
+				if ((!is_video) || (pred != CR_ENDPOINT_PRED_INDEX))
 				{
-					cur_selector_rle_count--;
-
-					selector_sym = (int)m_selectors.size();
-				}
-				else
-				{
-					selector_sym = sym_codec.decode_huffman(m_selector_model);
-
-					if (selector_sym == static_cast<int>(SELECTOR_HISTORY_BUF_RLE_SYMBOL_INDEX))
+					int selector_sym;
+					if (cur_selector_rle_count > 0)
 					{
-						int run_sym = sym_codec.decode_huffman(m_selector_history_buf_rle_model);
+						cur_selector_rle_count--;
 
-						if (run_sym == (SELECTOR_HISTORY_BUF_RLE_COUNT_TOTAL - 1))
-							cur_selector_rle_count = sym_codec.decode_vlc(7) + SELECTOR_HISTORY_BUF_RLE_COUNT_THRESH;
-						else
-							cur_selector_rle_count = run_sym + SELECTOR_HISTORY_BUF_RLE_COUNT_THRESH;
+						selector_sym = (int)m_selectors.size();
+					}
+					else
+					{
+						selector_sym = sym_codec.decode_huffman(m_selector_model);
 
-						if (cur_selector_rle_count > total_blocks)
+						if (selector_sym == static_cast<int>(SELECTOR_HISTORY_BUF_RLE_SYMBOL_INDEX))
+						{
+							int run_sym = sym_codec.decode_huffman(m_selector_history_buf_rle_model);
+
+							if (run_sym == (SELECTOR_HISTORY_BUF_RLE_COUNT_TOTAL - 1))
+								cur_selector_rle_count = sym_codec.decode_vlc(7) + SELECTOR_HISTORY_BUF_RLE_COUNT_THRESH;
+							else
+								cur_selector_rle_count = run_sym + SELECTOR_HISTORY_BUF_RLE_COUNT_THRESH;
+
+							if (cur_selector_rle_count > total_blocks)
+							{
+								// The file is corrupted or we've got a bug.
+								BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::transcode_slice: invalid datastream (3)\n");
+								if (pPVRTC_work_mem)
+									free(pPVRTC_work_mem);
+								return false;
+							}
+
+							selector_sym = (int)m_selectors.size();
+
+							cur_selector_rle_count--;
+						}
+					}
+
+					if (selector_sym >= (int)m_selectors.size())
+					{
+						assert(m_selector_history_buf_size > 0);
+
+						int history_buf_index = selector_sym - (int)m_selectors.size();
+
+						if (history_buf_index >= (int)selector_history_buf.size())
 						{
 							// The file is corrupted or we've got a bug.
-							BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::transcode_slice: invalid datastream (3)\n");		
+							BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::transcode_slice: invalid datastream (4)\n");
 							if (pPVRTC_work_mem)
 								free(pPVRTC_work_mem);
 							return false;
 						}
 
-						selector_sym = (int)m_selectors.size();
+						selector_index = selector_history_buf[history_buf_index];
 
-						cur_selector_rle_count--;
+						if (history_buf_index != 0)
+							selector_history_buf.use(history_buf_index);
 					}
-				}
-
-				if (selector_sym >= (int)m_selectors.size())
-				{
-					assert(m_selector_history_buf_size > 0);
-
-					int history_buf_index = selector_sym - (int)m_selectors.size();
-
-					if (history_buf_index >= (int)selector_history_buf.size())
+					else
 					{
-						// The file is corrupted or we've got a bug.
-						BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::transcode_slice: invalid datastream (4)\n");		
-						if (pPVRTC_work_mem)
-							free(pPVRTC_work_mem);
-						return false;
+						selector_index = selector_sym;
+
+						if (m_selector_history_buf_size)
+							selector_history_buf.add(selector_index);
 					}
-
-					selector_index = selector_history_buf[history_buf_index];
-
-					if (history_buf_index != 0)
-						selector_history_buf.use(history_buf_index);
 				}
-				else
-				{
-					selector_index = selector_sym;
-
-					if (m_selector_history_buf_size)
-						selector_history_buf.add(selector_index);
-				}
-
-				prev_selector_index = selector_index;
 
 				if ((endpoint_index >= m_endpoints.size()) || (selector_index >= m_selectors.size()))
 				{
@@ -3892,6 +3923,19 @@ namespace basist
 						free(pPVRTC_work_mem);
 					return false;
 				}
+
+				if (is_video)
+					(*pPrevFrameIndices)[block_x + block_y * num_blocks_x] = endpoint_index | (selector_index << 16);
+
+#if 0
+				// Visualize CR's
+				if ((is_video) && (pred == 2))
+				{
+					decoder_etc_block* pDst_block = reinterpret_cast<decoder_etc_block*>(static_cast<uint8_t*>(pDst_blocks) + (block_x + block_y * num_blocks_x) * output_stride);
+					memset(pDst_block, 0xFF, 8);
+					continue;
+				}
+#endif					
 
 				const endpoint *pEndpoint0 = &m_endpoints[endpoint_index];
 												
@@ -4005,7 +4049,7 @@ namespace basist
 
 			} // block_x
 
-		} // block-y
+		} // block_y
 
 		if (endpoint_pred_repeat_count != 0)
 		{
@@ -4604,7 +4648,7 @@ namespace basist
 				
 		return m_lowlevel_decoder.transcode_slice(pOutput_blocks, slice_desc.m_num_blocks_x, slice_desc.m_num_blocks_y,
 			pDataU8 + slice_desc.m_file_ofs, slice_desc.m_file_size,
-			fmt, output_stride, (decode_flags & cDecodeFlagsPVRTCWrapAddressing) != 0, (decode_flags & cDecodeFlagsBC1ForbidThreeColorBlocks) == 0);
+			fmt, output_stride, (decode_flags & cDecodeFlagsPVRTCWrapAddressing) != 0, (decode_flags & cDecodeFlagsBC1ForbidThreeColorBlocks) == 0, *pHeader, slice_desc);
 	}
 
 	int basisu_transcoder::find_first_slice_index(const void *pData, uint32_t data_size, uint32_t image_index, uint32_t level_index) const

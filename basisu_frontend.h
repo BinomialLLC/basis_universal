@@ -17,6 +17,7 @@
 #include "basisu_etc.h"
 #include "basisu_gpu_texture.h"
 #include "basisu_global_selector_palette_helpers.h"
+#include "transcoder/basisu_file_headers.h"
 
 namespace basisu
 {
@@ -70,7 +71,8 @@ namespace basisu
 				m_num_global_sel_codebook_mod_bits(0),
 				m_use_hybrid_selector_codebooks(false),
 				m_hybrid_codebook_quality_thresh(0.0f),
-				m_validate(false)
+				m_validate(false),
+				m_tex_type(basist::cBASISTexType2D)
 			{
 			}
 
@@ -93,6 +95,8 @@ namespace basisu
 			uint32_t m_num_global_sel_codebook_mod_bits;
 			bool m_use_hybrid_selector_codebooks;
 			float m_hybrid_codebook_quality_thresh;
+
+			basist::basis_texture_type m_tex_type;
 		};
 
 		bool init(const params &p);

@@ -17,7 +17,8 @@
 #include <unordered_set>
 
 #define BASISU_USE_STB_IMAGE_RESIZE_FOR_MIPMAP_GEN 0
-#define DEBUG_RESIZE_TEXTURE_TO_64x64 (0)
+#define DEBUG_CROP_TEXTURE_TO_64x64 (0)
+#define DEBUG_RESIZE_TEXTURE (0)
 #define DEBUG_EXTRACT_SINGLE_BLOCK (0)
 
 namespace basisu
@@ -301,8 +302,6 @@ namespace basisu
 
 			if (has_alpha)
 				m_any_source_image_has_alpha = true;
-
-			debug_printf("Source image index %u filename %s %ux%u has alpha: %u\n", source_file_index, pSource_filename, file_image.get_width(), file_image.get_height(), has_alpha);
 												
 			if (m_params.m_y_flip)
 				file_image.flip_y();
@@ -315,9 +314,17 @@ namespace basisu
 			file_image = block_image;
 #endif
 
-#if DEBUG_RESIZE_TEXTURE_TO_64x64
+#if DEBUG_CROP_TEXTURE_TO_64x64
 			file_image.resize(64, 64);
 #endif
+
+#if DEBUG_RESIZE_TEXTURE
+			image temp_img((file_image.get_width() + 3) / 4, (file_image.get_height() + 3) / 4);
+			image_resample(file_image, temp_img, m_params.m_perceptual, "kaiser");
+			temp_img.swap(file_image);
+#endif
+
+			debug_printf("Source image index %u filename %s %ux%u has alpha: %u\n", source_file_index, pSource_filename, file_image.get_width(), file_image.get_height(), has_alpha);
 
 			if ((!file_image.get_width()) || (!file_image.get_height()))
 			{
@@ -445,6 +452,15 @@ namespace basisu
 				slice_desc.m_mip_index = mip_indices[slice_index];
 
 				slice_desc.m_alpha = is_alpha_slice;
+				
+				slice_desc.m_iframe = false;
+
+				if (m_params.m_tex_type == basist::cBASISTexTypeVideoFrames)
+				{
+					// TODO: For now, only the first frame is an i-frame in videos.
+					// We should allow the caller to specify the i-frame frequency, for fast seeking.
+					slice_desc.m_iframe = (source_file_index == 0);
+				}
 
 				m_total_blocks += slice_desc.m_num_blocks_x * slice_desc.m_num_blocks_y;
 				total_macroblocks += slice_desc.m_num_macroblocks_x * slice_desc.m_num_macroblocks_y;
@@ -488,8 +504,8 @@ namespace basisu
 		{
 			const basisu_backend_slice_desc &slice_desc = m_slice_descs[i];
 
-			printf("Slice: %u, alpha: %u, orig width/height: %ux%u, width/height: %ux%u, first_block: %u, image_index: %u, mip_level: %u\n", 
-				i, slice_desc.m_alpha, slice_desc.m_orig_width, slice_desc.m_orig_height, slice_desc.m_width, slice_desc.m_height, slice_desc.m_first_block_index, slice_desc.m_source_file_index, slice_desc.m_mip_index);
+			printf("Slice: %u, alpha: %u, orig width/height: %ux%u, width/height: %ux%u, first_block: %u, image_index: %u, mip_level: %u, iframe: %u\n", 
+				i, slice_desc.m_alpha, slice_desc.m_orig_width, slice_desc.m_orig_height, slice_desc.m_width, slice_desc.m_height, slice_desc.m_first_block_index, slice_desc.m_source_file_index, slice_desc.m_mip_index, slice_desc.m_iframe);
 
 			if (m_any_source_image_has_alpha)
 			{
@@ -523,6 +539,13 @@ namespace basisu
 
 			if ((slice_desc.m_orig_width > slice_desc.m_width) || (slice_desc.m_orig_height > slice_desc.m_height))
 				return false;
+
+			if ((slice_desc.m_source_file_index == 0) && (m_params.m_tex_type == basist::cBASISTexTypeVideoFrames))
+			{
+				// First image in the basis video file must be an i-frame.
+				if (!slice_desc.m_iframe)
+					return false;
+			}
 		}
 
 		return true;
@@ -780,6 +803,7 @@ namespace basisu
 		p.m_debug_stats = m_params.m_debug;
 		p.m_debug_images = m_params.m_debug_images;
 		p.m_faster = m_params.m_faster;
+		p.m_tex_type = m_params.m_tex_type;
 
 		if ((m_params.m_global_sel_pal) || (m_auto_global_sel_pal))
 		{
