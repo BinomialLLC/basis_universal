@@ -129,7 +129,7 @@ namespace basist
 		uint32_t m_unpacked_slice_crc16;
 		
 		bool m_alpha_flag;		// true if the slice has alpha data
-		bool m_iframe_flag;
+		bool m_iframe_flag;		// true if the slice is an I-Frame
 	};
 
 	typedef std::vector<basisu_slice_info> basisu_slice_info_vec;
@@ -152,7 +152,7 @@ namespace basist
 		uint32_t m_first_slice_index;	
 								
 		bool m_alpha_flag;		// true if the image has alpha data
-		bool m_iframe_flag;
+		bool m_iframe_flag;		// true if the image is an I-Frame
 	};
 
 	struct basisu_image_level_info
@@ -173,7 +173,7 @@ namespace basist
 		uint32_t m_first_slice_index;	
 								
 		bool m_alpha_flag;		// true if the image has alpha data
-		bool m_iframe_flag;
+		bool m_iframe_flag;		// true if the image is an I-Frame
 	};
 
 	struct basisu_file_info
