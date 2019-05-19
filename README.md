@@ -69,6 +69,8 @@ The .basis file will contain multiple images (all using the same global codebook
 
 There's a very simple video playback demo in the "webgl_videotest" directory. Note this example currently uses asm.js, not WebAssembly, but video is fully compatible with WebAssembly.
 
+Note that P-Frames are only enabled for "video" texture types. For all other types, the .basis file will only contain I-Frames.
+
 If you are doing rate distortion comparisons vs. other similar systems, be sure to experiment with increasing the endpoint RDO threshold (-endpoint_rdo_thresh X). This setting controls how aggressively the compressor's backend will combine together nearby blocks so they use the same block endpoint codebook vectors, for better coding efficiency. X defaults to a modest 1.5, which means the backend is allowed to increase the overall color distance by 1.5x while searching for merge candidates. The higher this setting, the better the compression, with the tradeoff of more block artifacts. Settings up to ~2.25 can work well, and make the codec more competitive.
 
 ### WebGL test 
