@@ -4298,6 +4298,7 @@ namespace basist
 		image_info.m_image_index = image_index;
 		image_info.m_total_levels = total_levels;
 		image_info.m_alpha_flag = (pHeader->m_flags & cBASISHeaderFlagHasAlphaSlices) != 0;
+		image_info.m_iframe_flag = (slice_desc.m_flags & cSliceDescFlagsFrameIsIFrame) != 0;
 		image_info.m_width = slice_desc.m_num_blocks_x * 4;
 		image_info.m_height = slice_desc.m_num_blocks_y * 4;
 		image_info.m_orig_width = slice_desc.m_orig_width;
@@ -4342,7 +4343,8 @@ namespace basist
 			else 
 				break;
 
-		if (total_levels > 16)
+		const uint32_t cMaxSupportedLevels = 16;
+		if (total_levels > cMaxSupportedLevels)
 		{
 			BASISU_DEVEL_ERROR("basisu_transcoder::get_total_image_levels: invalid image levels!\n");		
 			return false;
@@ -4415,6 +4417,7 @@ namespace basist
 		image_info.m_image_index = image_index;
 		image_info.m_level_index = level_index;
 		image_info.m_alpha_flag = (pHeader->m_flags & cBASISHeaderFlagHasAlphaSlices) != 0;
+		image_info.m_iframe_flag = (slice_desc.m_flags & cSliceDescFlagsFrameIsIFrame) != 0;
 		image_info.m_width = slice_desc.m_num_blocks_x * 4;
 		image_info.m_height = slice_desc.m_num_blocks_y * 4;
 		image_info.m_orig_width = slice_desc.m_orig_width;
@@ -4496,6 +4499,7 @@ namespace basist
 			slice_info.m_level_index = pSlice_descs[i].m_level_index;
 			slice_info.m_unpacked_slice_crc16 = pSlice_descs[i].m_slice_data_crc16;
 			slice_info.m_alpha_flag = (pSlice_descs[i].m_flags & cSliceDescFlagsIsAlphaData) != 0;
+			slice_info.m_iframe_flag = (pSlice_descs[i].m_flags & cSliceDescFlagsFrameIsIFrame) != 0;
 
 			if (pSlice_descs[i].m_image_index >= pHeader->m_total_images)
 			{

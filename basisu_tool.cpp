@@ -860,6 +860,23 @@ static bool unpack_and_validate_mode(command_line_params &opts, bool validate_fl
 				ii.m_num_blocks_x, ii.m_num_blocks_y, ii.m_first_slice_index, (uint32_t)ii.m_alpha_flag);
 		}
 
+		printf("\nSlice info:\n");
+		for (uint32_t i = 0; i < fileinfo.m_slice_info.size(); i++)
+		{
+			const basist::basisu_slice_info &sliceinfo = fileinfo.m_slice_info[i];
+
+			printf("%u: OrigWidthHeight: %ux%u, BlockDim: %ux%u, TotalBlocks: %u, Compressed size: %u, Image: %u, Level: %u, UnpackedCRC16: 0x%X, alpha: %u, iframe: %i\n",
+				i,
+				sliceinfo.m_orig_width, sliceinfo.m_orig_height,
+				sliceinfo.m_num_blocks_x, sliceinfo.m_num_blocks_y,
+				sliceinfo.m_total_blocks,
+				sliceinfo.m_compressed_size,
+				sliceinfo.m_image_index, sliceinfo.m_level_index,
+				sliceinfo.m_unpacked_slice_crc16,
+				(uint32_t)sliceinfo.m_alpha_flag,
+				(uint32_t)sliceinfo.m_iframe_flag);
+		}
+
 		printf("\n");
 
 		if (!dec.start_transcoding(&basis_data[0], (uint32_t)basis_data.size()))
