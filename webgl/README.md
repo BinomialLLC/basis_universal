@@ -4,7 +4,9 @@ Requires WebAssembly and WebGL support.
 
 ## Texture
 
-`texture/index.html` renders a single texture, using the transcoder (compiled to WASM with emscripten) to generate one of the following compressed texture formats:
+[Live demo: `texture/index.html`](https://basis-universal-webgl.now.sh/texture/)
+
+Renders a single texture, using the transcoder (compiled to WASM with emscripten) to generate one of the following compressed texture formats:
 
 * BC1
 * BC3
@@ -15,7 +17,9 @@ On browsers that don't support BC1 (Firefox is one), there's a low-quality fallb
 
 ## glTF 3D Model
 
-`gltf/index.html` renders a glTF 3D model with `.basis` texture files, transcoded into one of the following compressed texture formats:
+[Live demo: `gltf/index.html`](https://basis-universal-webgl.now.sh/gltf/)
+
+Renders a glTF 3D model with `.basis` texture files, transcoded into one of the following compressed texture formats:
 
 * DTX (BC1)
   * Tested in Chrome (Linux and macOS) and Firefox (macOS).
