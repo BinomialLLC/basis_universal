@@ -12,7 +12,7 @@ So far, we've compiled the code using MSVS 2019, under Ubuntu x64 using cmake wi
 Note: The video branch contains many important optimizations for videos, such as P-frames with conditional replenishment (CR) support and I-Frames. We'll be merging this branch into master in a week or two, after testing. One expected use case for Basis texture video are for highly dynamic UI's written with WebAssembly and WebGL which need to display many dozens (perhaps a few hundred) smaller (preview) videos simultaneously with low CPU overhead. Modern video codecs won't perform well in WebAssembly until it supports [SIMD](https://www.chromestatus.com/feature/6533147810332672), so texture video can be usable where regular video wouldn't. Texture video costs more bits, but has very different tradeoffs vs. traditional video codecs.
 
 ### 3rd party code dependencies
-u
+
 The transcoder (in the "transcoder" directory) has no 3rd party code dependencies.
 
 The encoder uses [lodepng](https://lodev.org/lodepng/) for loading and saving PNG images, which is Copyright (c) 2005-2019 Lode Vandevenne. It uses the zlib license.
