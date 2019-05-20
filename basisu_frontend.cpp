@@ -156,6 +156,8 @@ namespace basisu
 
 			find_optimal_selector_clusters_for_each_block();
 
+			introduce_special_selector_clusters();
+
 			if (!m_params.m_faster)
 			{
 				if (!refine_block_endpoints_given_selectors())
@@ -179,6 +181,80 @@ namespace basisu
 		debug_printf("basisu_frontend::compress: Done\n");
 
 		return true;
+	}
+
+	void basisu_frontend::introduce_special_selector_clusters()
+	{
+		debug_printf("optimize_selector_codebook\n");
+
+		if (m_params.m_pGlobal_sel_codebook)
+			return;
+
+		uint32_t total_blocks_relocated = 0;
+
+		// Make sure the selector codebook always has pure flat blocks for each possible selector, to avoid obvious artifacts.
+		// optimize_selector_codebook() will clean up any redundant clusters we create here.
+		for (uint32_t sel = 0; sel < 4; sel++)
+		{
+			etc_block blk;
+			clear_obj(blk);
+			for (uint32_t j = 0; j < 16; j++)
+				blk.set_selector(j & 3, j >> 2, sel);
+
+			int k;
+			for (k = 0; k < m_optimized_cluster_selectors.size(); k++)
+				if (m_optimized_cluster_selectors[k].get_raw_selector_bits() == blk.get_raw_selector_bits())
+					break;
+			if (k < m_optimized_cluster_selectors.size())
+				continue;
+
+			const uint32_t new_selector_cluster_index = (uint32_t)m_optimized_cluster_selectors.size();
+
+			m_optimized_cluster_selectors.push_back(blk);
+			
+			vector_ensure_element_is_valid(m_selector_cluster_indices, new_selector_cluster_index);
+			
+			for (uint32_t block_index = 0; block_index < m_total_blocks; block_index++)
+			{
+				if (m_orig_encoded_blocks[block_index].get_raw_selector_bits() != blk.get_raw_selector_bits())
+					continue;
+
+				// See if using flat selectors actually decreases the block's error.
+				const uint32_t old_selector_cluster_index = m_block_selector_cluster_index[block_index];
+				
+				etc_block cur_blk;
+				const uint32_t endpoint_cluster_index = get_subblock_endpoint_cluster_index(block_index, 0);
+				cur_blk.set_block_color5_etc1s(get_endpoint_cluster_unscaled_color(endpoint_cluster_index, false));
+				cur_blk.set_inten_tables_etc1s(get_endpoint_cluster_inten_table(endpoint_cluster_index, false));
+				cur_blk.set_raw_selector_bits(get_selector_cluster_selector_bits(old_selector_cluster_index).get_raw_selector_bits());
+
+				const uint64_t cur_err = cur_blk.evaluate_etc1_error(get_source_pixel_block(block_index).get_ptr(), m_params.m_perceptual);
+
+				cur_blk.set_raw_selector_bits(blk.get_raw_selector_bits());
+
+				const uint64_t new_err = cur_blk.evaluate_etc1_error(get_source_pixel_block(block_index).get_ptr(), m_params.m_perceptual);
+
+				if (new_err >= cur_err)
+					continue;
+				
+				// Change the block to use the new cluster
+				m_block_selector_cluster_index[block_index] = new_selector_cluster_index;
+				
+				m_selector_cluster_indices[new_selector_cluster_index].push_back(block_index);
+
+				int j = vector_find(m_selector_cluster_indices[old_selector_cluster_index], block_index);
+				if (j >= 0)
+					m_selector_cluster_indices[old_selector_cluster_index].erase(m_selector_cluster_indices[old_selector_cluster_index].begin() + j);
+
+				total_blocks_relocated++;
+
+				m_encoded_blocks[block_index].set_raw_selector_bits(blk.get_raw_selector_bits());
+
+			} // block_index
+
+		} // sel
+
+		debug_printf("Total blocks relocated to new flat selector clusters: %u\n", total_blocks_relocated);
 	}
 
 	void basisu_frontend::optimize_selector_codebook()
@@ -233,20 +309,22 @@ namespace basisu
 			if (m_optimized_cluster_selector_global_cb_ids.size())
 				new_optimized_cluster_selector_global_cb_ids[i] = m_optimized_cluster_selector_global_cb_ids[new_to_old[i]];
 
-			if (m_selector_cluster_indices.size())
-				new_selector_cluster_indices[i] = m_selector_cluster_indices[new_to_old[i]];
-
 			if (m_selector_cluster_uses_global_cb.size())
 				new_selector_cluster_uses_global_cb[i] = m_selector_cluster_uses_global_cb[new_to_old[i]];
+		}
+
+		for (uint32_t i = 0; i < m_block_selector_cluster_index.size(); i++)
+		{
+			m_block_selector_cluster_index[i] = old_to_new[m_block_selector_cluster_index[i]];
+		
+			if (m_selector_cluster_indices.size())
+				new_selector_cluster_indices[m_block_selector_cluster_index[i]].push_back(i);
 		}
 
 		m_optimized_cluster_selectors.swap(new_optimized_cluster_selectors);
 		m_optimized_cluster_selector_global_cb_ids.swap(new_optimized_cluster_selector_global_cb_ids);
 		m_selector_cluster_indices.swap(new_selector_cluster_indices);
 		m_selector_cluster_uses_global_cb.swap(new_selector_cluster_uses_global_cb);
-
-		for (uint32_t i = 0; i < m_block_selector_cluster_index.size(); i++)
-			m_block_selector_cluster_index[i] = old_to_new[m_block_selector_cluster_index[i]];
 
 		debug_printf("optimize_selector_codebook: Before: %u After: %u\n", orig_total_selector_clusters, total_new_entries);
 	}
@@ -1722,7 +1800,8 @@ namespace basisu
 
 		for (uint32_t block_index = 0; block_index < m_total_blocks; block_index++)
 		{
-#define CHECK(x) do { if (!(x)) return false; } while(0)
+//#define CHECK(x) do { if (!(x)) { DebugBreak(); return false; } } while(0)
+#define CHECK(x) BASISU_FRONTEND_VERIFY(x);
 
 			CHECK(get_output_block(block_index).get_flip_bit() == true);
 			

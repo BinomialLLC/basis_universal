@@ -290,6 +290,7 @@ namespace basisu
 		uint32_t refine_block_endpoints_given_selectors();
 		void finalize();
 		bool validate_output() const;
+		void introduce_special_selector_clusters();
 		void optimize_selector_codebook();
 		bool check_etc1s_constraints() const;
 	};

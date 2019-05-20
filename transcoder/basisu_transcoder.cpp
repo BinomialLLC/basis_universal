@@ -33,10 +33,12 @@
 #define BASISD_WRITE_NEW_DXT1_TABLES			0
 #define BASISD_WRITE_NEW_ETC2_EAC_A8_TABLES	0
 
+#define BASISD_ENABLE_DEBUG_FLAGS	1
+
 namespace basisu
 {
 	static bool g_debug_printf;
-
+	
 	void enable_debug_printf(bool enabled)
 	{
 		g_debug_printf = enabled;
@@ -60,7 +62,28 @@ namespace basisu
 namespace basist
 {
 	#include "basisu_transcoder_tables_bc7_m6.inc"
-				
+			
+#if BASISD_ENABLE_DEBUG_FLAGS
+	static uint32_t g_debug_flags = 0;
+#endif
+
+	uint32_t get_debug_flags()
+	{
+#if BASISD_ENABLE_DEBUG_FLAGS
+		return g_debug_flags;
+#else
+		return 0;
+#endif
+	}
+
+	void set_debug_flags(uint32_t f)
+	{
+		(void)f;
+#if BASISD_ENABLE_DEBUG_FLAGS
+		g_debug_flags = f;
+#endif
+	}
+
 	uint16_t crc16(const void *r, size_t size, uint16_t crc)
 	{
 		crc = ~crc;
@@ -1718,7 +1741,7 @@ namespace basist
 
 		const color32 base_color(pSrc_block->get_base5_color_unscaled());
 		const uint32_t inten_table = pSrc_block->get_inten_table(0);
-
+				
 		if (low_selector == high_selector)
 		{
 			color32 block_colors[4];
@@ -1742,7 +1765,7 @@ namespace basist
 				// Make l > h
 				if (min16 > 0)
 					min16--;
-				else 
+				else
 				{
 					// l = h = 0
 					assert(min16 == max16 && max16 == 0);
@@ -1751,7 +1774,7 @@ namespace basist
 					min16 = 0;
 					mask = 0x55;
 				}
-			
+
 				assert(max16 > min16);
 			}
 
@@ -1760,7 +1783,7 @@ namespace basist
 				std::swap(max16, min16);
 				mask ^= 0x55;
 			}
-						
+
 			pDst_block->set_low_color(static_cast<uint16_t>(max16));
 			pDst_block->set_high_color(static_cast<uint16_t>(min16));
 			pDst_block->m_selectors[0] = static_cast<uint8_t>(mask);
@@ -1796,28 +1819,28 @@ namespace basist
 				{
 					min16--;
 
-					l = 0; 
+					l = 0;
 					h = 0;
 				}
-				else 
+				else
 				{
 					// l = h = 0
 					assert(min16 == max16 && max16 == 0);
 
 					max16 = 1;
 					min16 = 0;
-					
+
 					l = 1;
 					h = 1;
 				}
-			
+
 				assert(max16 > min16);
 			}
 
 			if (max16 < min16)
 			{
 				std::swap(max16, min16);
-				l = 1; 
+				l = 1;
 				h = 0;
 			}
 
@@ -1966,6 +1989,28 @@ namespace basist
 		pDst_block->m_selectors[3] = (uint8_t)dxt1_sels3;
 #endif
 	}
+
+#if BASISD_ENABLE_DEBUG_FLAGS
+	static void convert_etc1s_to_dxt1_vis(dxt1_block* pDst_block, const decoder_etc_block* pSrc_block, const selector* pSelector, bool use_threecolor_blocks)
+	{
+		convert_etc1s_to_dxt1(pDst_block, pSrc_block, pSelector, use_threecolor_blocks);
+
+		if (g_debug_flags & cDebugFlagVisBC1Sels)
+		{
+			uint32_t l = dxt1_block::pack_unscaled_color(31, 63, 31);
+			uint32_t h = dxt1_block::pack_unscaled_color(0, 0, 0);
+
+			pDst_block->set_low_color(static_cast<uint16_t>(l));
+			pDst_block->set_high_color(static_cast<uint16_t>(h));
+		}
+		else if (g_debug_flags & cDebugFlagVisBC1Endpoints)
+		{
+			for (uint32_t y = 0; y < 4; y++)
+				for (uint32_t x = 0; x < 4; x++)
+					pDst_block->set_selector(x, y, (y < 2) ? 0 : 1);
+		}
+	}
+#endif
 #endif
 
 	static dxt_selector_range s_dxt5a_selector_ranges[] =
@@ -3927,15 +3972,18 @@ namespace basist
 				if (is_video)
 					(*pPrevFrameIndices)[block_x + block_y * num_blocks_x] = endpoint_index | (selector_index << 16);
 
-#if 0
-				// Visualize CR's
-				if ((is_video) && (pred == 2))
+#if BASISD_ENABLE_DEBUG_FLAGS
+				if ((g_debug_flags & cDebugFlagVisCRs) && ((fmt == cETC1) || (fmt == cBC1)))
 				{
-					decoder_etc_block* pDst_block = reinterpret_cast<decoder_etc_block*>(static_cast<uint8_t*>(pDst_blocks) + (block_x + block_y * num_blocks_x) * output_stride);
-					memset(pDst_block, 0xFF, 8);
-					continue;
+					// Visualize CR's
+					if ((is_video) && (pred == 2))
+					{
+						decoder_etc_block* pDst_block = reinterpret_cast<decoder_etc_block*>(static_cast<uint8_t*>(pDst_blocks) + (block_x + block_y * num_blocks_x) * output_stride);
+						memset(pDst_block, 0xFF, 8);
+						continue;
+					}
 				}
-#endif					
+#endif
 
 				const endpoint *pEndpoint0 = &m_endpoints[endpoint_index];
 												
@@ -3964,8 +4012,15 @@ namespace basist
 					block.set_raw_selector_bits(pSelector->m_bytes[0], pSelector->m_bytes[1], pSelector->m_bytes[2], pSelector->m_bytes[3]);
 
 					void* pDst_block = static_cast<uint8_t*>(pDst_blocks) + (block_x + block_y * num_blocks_x) * output_stride;
+
 #if BASISD_SUPPORT_DXT1
-					convert_etc1s_to_dxt1(static_cast<dxt1_block*>(pDst_block), &block, pSelector, bc1_allow_threecolor_blocks);
+
+#if BASISD_ENABLE_DEBUG_FLAGS
+					if (g_debug_flags & (cDebugFlagVisBC1Sels | cDebugFlagVisBC1Endpoints))
+						convert_etc1s_to_dxt1_vis(static_cast<dxt1_block*>(pDst_block), &block, pSelector, bc1_allow_threecolor_blocks);
+					else
+#endif
+						convert_etc1s_to_dxt1(static_cast<dxt1_block*>(pDst_block), &block, pSelector, bc1_allow_threecolor_blocks);
 #else
 					assert(0);
 #endif

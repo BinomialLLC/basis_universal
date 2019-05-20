@@ -18,7 +18,7 @@
 
 #define BASISU_USE_STB_IMAGE_RESIZE_FOR_MIPMAP_GEN 0
 #define DEBUG_CROP_TEXTURE_TO_64x64 (0)
-#define DEBUG_RESIZE_TEXTURE (0)
+#define DEBUG_RESIZE_TEXTURE (1)
 #define DEBUG_EXTRACT_SINGLE_BLOCK (0)
 
 namespace basisu
@@ -319,7 +319,7 @@ namespace basisu
 #endif
 
 #if DEBUG_RESIZE_TEXTURE
-			image temp_img((file_image.get_width() + 3) / 4, (file_image.get_height() + 3) / 4);
+			image temp_img((file_image.get_width() + 1) / 2, (file_image.get_height() + 1) / 2);
 			image_resample(file_image, temp_img, m_params.m_perceptual, "kaiser");
 			temp_img.swap(file_image);
 #endif

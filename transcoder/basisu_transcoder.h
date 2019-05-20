@@ -304,4 +304,13 @@ namespace basist
 	// basisu_transcoder_init() must be called before a .basis file can be transcoded.
 	void basisu_transcoder_init();
 
+	enum debug_flags_t
+	{
+		cDebugFlagVisCRs = 1,
+		cDebugFlagVisBC1Sels = 2,
+		cDebugFlagVisBC1Endpoints = 4
+	};
+	uint32_t get_debug_flags();
+	void set_debug_flags(uint32_t f);
+
 } // namespace basisu

@@ -98,6 +98,12 @@ BASIS_FORMAT = {
 	cTFBC5: 7,		
 };
 
+BASIS_DEBUG_FLAGS = {
+	DEBUG_FLAG_VIS_CR: 1,
+	DEBUG_FLAG_VIS_SELS: 2,
+   	DEBUG_FLAG_VIS_ENDPOINTS: 4
+};
+
 BASIS_FORMAT_NAMES = {};
 for (var name in BASIS_FORMAT) {
   BASIS_FORMAT_NAMES[BASIS_FORMAT[name]] = name;
@@ -190,9 +196,9 @@ function frame(now)
   		redraw()
 		
 		timeSinceLastFrame += deltaTime;
-		if (timeSinceLastFrame > 1.0/25.0)
+		if (timeSinceLastFrame > 1.0/24.0)
 		{
-			timeSinceLastFrame -= 1.0/25.0;
+			timeSinceLastFrame -= 1.0/24.0;
 			
 			curImageIndex++;
 			if (curImageIndex == images)
@@ -265,6 +271,9 @@ function dataLoaded(data)
   	log('Decoding .basis data to BC1');
   }
 
+  log('.basis file size: ' + srcSize);
+  if (levels == 1)
+  	log('average bits/texel: ' + ((srcSize * 8.0) / (width * height * images)));
   log('width: ' + width);
   log('height: ' + height);
   log('images: ' + images);
@@ -347,6 +356,27 @@ function alphaBlend() { drawMode = 0; redraw(); }
 function viewRGB() { drawMode = 1; redraw(); }
 function viewAlpha() { drawMode = 2; redraw(); }
 
+function visCR() 
+{ 
+    var i = Module._basis_get_debug_flags();
+	i = i ^ BASIS_DEBUG_FLAGS.DEBUG_FLAG_VIS_CR;
+	Module._basis_set_debug_flags(i);
+}
+
+function visSels() 
+{ 
+    var i = Module._basis_get_debug_flags();
+	i = i ^ BASIS_DEBUG_FLAGS.DEBUG_FLAG_VIS_SELS;
+	Module._basis_set_debug_flags(i);
+}
+
+function visEndpoints() 
+{ 
+    var i = Module._basis_get_debug_flags();
+	i ^= BASIS_DEBUG_FLAGS.DEBUG_FLAG_VIS_ENDPOINTS;
+	Module._basis_set_debug_flags(i);
+}
+
 </script>
 </head>
 <body onload="initialize()">
@@ -360,14 +390,19 @@ function viewAlpha() { drawMode = 2; redraw(); }
   <br>
   <br>
       .basis file:
-      <input id="file" type="text" size=30 value="pic0001.basis"></input>
+      <input id="file" type="text" size=30 value="2010_2.basis"></input>
       <input type="button" value="Run!" onclick="run()"></input>
   <br>
   <br>
       <input type="button" value="Alpha blend" onclick="alphaBlend()"></input>
       <input type="button" value="View RGB" onclick="viewRGB()"></input>
 	  <input type="button" value="View Alpha" onclick="viewAlpha()"></input>
-	  
+  <br>
+  <br>	  
+	  <input type="button" value="Visualize CR's" onclick="visCR()"></input>
+	  <input type="button" value="Visualize Selectors" onclick="visSels()"></input>
+	  <input type="button" value="Visualize Endpoints" onclick="visEndpoints()"></input>
+  
   <div style="position:absolute; left: 525px; top:130px; font-size: 20pt; font-weight: bold; color: red">
     <div id="nodxt" style="display: none; width: 768px; font-size: 20pt; font-weight: bold; color: red">
       NOTE: Your browser does not support DXT, so using RGB565

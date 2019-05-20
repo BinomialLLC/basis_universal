@@ -29,6 +29,9 @@ extern "C"
   uint basis_transcode_image(void *h, void *dst, uint dst_size_in_bytes, 
   uint image_index, uint level_index, uint format, 
   uint pvrtc_wrap_addressing, uint get_alpha_for_opaque_formats);
+  
+  void basis_set_debug_flags(uint f) { basist::set_debug_flags(f); }
+  uint basis_get_debug_flags() { return basist::get_debug_flags(); }
 }
 
 void basis_init()
