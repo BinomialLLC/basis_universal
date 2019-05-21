@@ -61,11 +61,11 @@ Note that "-no_selector_rdo -no_endpoint_rdo" are optional. Using them hurts rat
 
 To compress small video sequences, say using tools like ffmpeg and VirtualDub:
 
-'basisu -slower -tex_type video -framerate 25 -stats -debug -multifile_printf "pic%04u.png" -multifile_num 200 -multifile_first 1 -max_selectors 16128 -max_endpoints 16128'
+'basisu -slower -tex_type video -framerate 25 -stats -debug -multifile_printf "pic%04u.png" -multifile_num 200 -multifile_first 1 -max_selectors 16128 -max_endpoints 16128 -endpoint_rdo_thresh 1.25'
 
-The "-tex_type video" option is critical: Without it you don't get P-Frames using CR (conditional replenishment). It switches the codec into video mode.
+The "-tex_type video" option is critical: Without it you don't get P-Frames using CR (conditional replenishment). It switches the codec into video mode. Note that the reference encoder loads the entire video into memory, so you may need a system with 32GB or more of RAM to process larger videos.
 
-We just added video to the system, and please be aware that we're still tuning and optimizing the system for this use. The reference encoder will take a LONG time and a lot of CPU to encode video, especially with -slower. (-slower is needed to generate better codebooks, which many videos need.) The more cores your machine has, the better. Basis is intended for smaller videos of a few dozen seconds or so. If you are very patient and have a Threadripper or Xeon workstation, you should be able to encode up to a few thousand 720P frames. Over time, we will be optimizing the codebook generators for higher performance, especially with video.
+We just added video to the system, and please be aware that we're still tuning and optimizing the system for this use. The reference encoder will take a LONG time and a lot of CPU to encode video, especially with -slower. (-slower is needed to generate better codebooks, which many videos greatly benefit from.) The more cores your machine has, the better. Basis is intended for smaller videos of a few dozen seconds or so. If you are very patient and have a Threadripper or Xeon workstation, you should be able to encode up to a few thousand 720P frames. Over time, we will be optimizing the codebook generators for higher performance, especially with video.
 
 The .basis file will contain multiple images (all using the same global codebooks), which you can retrieve using the transcoder's image API. For videos, the images must be requested from the transcoder in sequence from first to last, and random access is only allowed to I-Frames. Currently, the first image is always an I-Frame, and all subsequent images are P-Frames that can use CR. Videos can optionally contain mipmaps and alpha channels.
 
