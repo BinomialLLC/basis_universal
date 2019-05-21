@@ -11,8 +11,6 @@ The transcoder has been fuzz tested using [zzuf](https://www.linux.com/news/fuzz
 
 So far, we've compiled the code using MSVS 2019, under Ubuntu x64 using cmake with either clang 3.8 or gcc 5.4, and emscripten 1.35 to asm.js. (Be sure to use this version of emcc, as earlier versions fail with internal errors/exceptions during compilation.) The compressor uses OpenMP for multithreading, but if you don't have OpenMP it'll still work (just much more slowly). The transcoder is currently single threaded (and doesn't use OpenMP).
 
-**Important:** I've changed the .basis file format today (4/7/19). The format should now be hopefully stable unless bugs are found.
-
 ### 3rd party code dependencies
 
 The transcoder (in the "transcoder" directory) has no 3rd party code dependencies.
