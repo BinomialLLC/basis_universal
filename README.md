@@ -226,7 +226,7 @@ I first saw using precomputed tables for quickly computing optimal encodings of 
 ### Possible improvements
 The codebook generation process is basically a high quality, but slow and brute force reference. It's possible to massively speed up codebook gen in several ways. One way is to not throw away the tree structures constructed during the creation of the initial codebooks. 
 
-The way the -q (quality) option is converted to codebook sizes is very simple (fixed formulas), and could be improved. It has a tendancy to plateue on some files.
+The way the -q (quality) option is converted to codebook sizes is very simple (fixed formulas), and could be improved. It has a tendency to plateau on some files.
 
 The various Huffman codes could be divided up into groups (like Zstd), for much faster Huffman decoding in the transcoder. Also, larger slices could be divided up into multiple segments, and each segment transcoded using a different thread. Both of these changes would modify the format.
 
