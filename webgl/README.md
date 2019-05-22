@@ -29,7 +29,7 @@ Renders a glTF 3D model with `.basis` texture files, transcoded into one of the 
   * Tested in Chrome and Safari on iOS iPhone 6 Plus.
 
 The glTF model in this demo uses a hypothetical `GOOGLE_texture_basis` extension. That extension is defined for the sake of example only – the glTF format will officially embed Basis files within a KTX2 wrapper, through a new
-extension that is currently in development.
+extension that is [currently in development](https://github.com/KhronosGroup/glTF/pull/1612).
 
 ![Screenshot showing a basis texture rendered as the base color texture for a 3D model in a webpage.](gltf/preview.png)
 
