@@ -11,7 +11,9 @@ Renders a single texture, using the transcoder (compiled to WASM with emscripten
 * BC1
 * BC3
 
-On browsers that don't support BC1 (Firefox is one), there's a low-quality fallback code path for opaque textures (but no fallback for BC3 yet). Note that the fallback path only converts to 16-bit RGB images at the moment, so the quality isn't as good as it should be.
+Please note that both Firefox and Chrome support BC1, but due to an implementation issue in the code it doesn't work on Firefox yet. (It doesn't test for the "WEBGL_compressed_texture_s3tc" extension.)
+
+On browsers that don't support BC1, there's a low-quality fallback code path for opaque textures (but no fallback for BC3 yet). Note that the fallback path only converts to 16-bit RGB images at the moment, so the quality isn't as good as it should be.
 
 ![Screenshot showing a basis texture rendered as a 2D image in a webpage.](texture/preview.png)
 
