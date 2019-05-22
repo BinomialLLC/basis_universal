@@ -219,6 +219,8 @@ Thanks to John Brooks at Blue Shift, Inc. for inspiring this work by showing me 
 
 Thanks to Colt McAnlis, for advertising one of my earlier open source texture compression libraries at GDC, and Won Chun, who originally suggested making a universal system.
 
+Thanks to Chas Boyd (Microsoft), for inspiring us to work on texture compression full-time.
+
 I first saw using precomputed tables for quickly computing optimal encodings of solid color blocks in ryg_dxt. The method that limits the canonical Huffman codelengths to a maximum codesize was used in Yoshizaki's lharc. The canonical Huffman codelength compression system is similar to Katz's Deflate method.
 
 ### Possible improvements
