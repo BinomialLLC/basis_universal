@@ -13,6 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+
 #include "basisu_transcoder_internal.h"
 #include <algorithm>
 
@@ -611,8 +612,10 @@ namespace basist
 
 	typedef std::vector<etc1_selector_palette_entry> etc1_selector_palette_entry_vec;
 
-	extern const uint32_t g_global_selector_cb[];
-	extern const uint32_t g_global_selector_cb_size;
+	const uint32_t g_global_selector_cb[] =
+#include "basisu_global_selector_cb.h"
+		;
+	const uint32_t g_global_selector_cb_size = sizeof(g_global_selector_cb) / sizeof(g_global_selector_cb[0]);
 
 #define ETC1_GLOBAL_SELECTOR_CODEBOOK_MAX_PAL_BITS (12)
 

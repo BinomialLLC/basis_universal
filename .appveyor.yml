@@ -1,0 +1,46 @@
+version: 1.0.5{build}
+
+clone_depth: 5
+
+build:
+  parallel: true
+  verbosity: minimal
+
+environment:
+  matrix:
+    - APPVEYOR_BUILD_WORKER_IMAGE: Visual Studio 2017
+      ARCHITECTURE: x64
+      GEN: "Visual Studio 15 2017 Win64"
+      CFG: Debug
+      BUILD_OUT: "x64-Debug"
+    - APPVEYOR_BUILD_WORKER_IMAGE: Visual Studio 2017
+      ARCHITECTURE: x64
+      GEN: "Visual Studio 15 2017 Win64"
+      CFG: Release
+      BUILD_OUT: "x64-Release"
+    - APPVEYOR_BUILD_WORKER_IMAGE: Visual Studio 2017
+      ARCHITECTURE: x86
+      GEN: "Visual Studio 15 2017"
+      CFG: Debug
+      BUILD_OUT: "x86-Debug"
+    - APPVEYOR_BUILD_WORKER_IMAGE: Visual Studio 2017
+      ARCHITECTURE: x86
+      GEN: "Visual Studio 15 2017"
+      CFG: Release
+      BUILD_OUT: "x86-Release"
+  NINJA_URL: https://github.com/ninja-build/ninja/releases/download/v1.9.0/ninja-win.zip
+  MSVC_HOME: "C:\\Program Files (x86)\\Microsoft Visual Studio\\2017\\Community"
+
+install:
+  - git submodule update --init --recursive
+  # Get Ninja
+  - appveyor DownloadFile %NINJA_URL% -FileName ninja.zip
+  - 7z x ninja.zip -oC:\ninja > nul
+  - set PATH=C:\ninja;%PATH%
+  - ninja --version
+
+build_script:
+  - call "%MSVC_HOME%\VC\Auxiliary\Build\vcvarsall.bat" %ARCHITECTURE%
+  - mkdir bin\%BUILD_OUT% && cd bin\%BUILD_OUT%
+  - cmake -DCMAKE_BUILD_TYPE=%CFG% -GNinja ../../
+  - ninja

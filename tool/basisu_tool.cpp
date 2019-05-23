@@ -11,17 +11,17 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-#include "transcoder/basisu.h"
-#include "transcoder/basisu_transcoder_internal.h"
-#include "basisu_enc.h"
-#include "basisu_etc.h"
-#include "basisu_gpu_texture.h"
-#include "basisu_frontend.h"
-#include "basisu_backend.h"
-#include "transcoder/basisu_global_selector_palette.h"
-#include "basisu_comp.h"
-#include "transcoder/basisu_transcoder.h"
-#include "basisu_ssim.h"
+#include <transcoder/basisu.h>
+#include <transcoder/basisu_transcoder_internal.h>
+#include <transcoder/basisu_global_selector_palette.h>
+#include <transcoder/basisu_transcoder.h>
+#include <basisu_enc.h>
+#include <basisu_etc.h>
+#include <basisu_gpu_texture.h>
+#include <basisu_frontend.h>
+#include <basisu_backend.h>
+#include <basisu_comp.h>
+#include <basisu_ssim.h>
 #if defined(_OPENMP)
 #include <omp.h>
 #endif
