@@ -15,5 +15,5 @@ if (EMSCRIPTEN)
   set_target_properties(basis_transcoder.js PROPERTIES
       OUTPUT_NAME "basis_transcoder"
       SUFFIX ".js"
-      LINK_FLAGS "--bind -s ALLOW_MEMORY_GROWTH=1 -O3 -s ASSERTIONS=0 -DNDEBUG -DBASISD_SUPPORT_BC7=0")
+      LINK_FLAGS "--bind -s ALLOW_MEMORY_GROWTH=1 -O3 -s ASSERTIONS=0 -s MALLOC=emmalloc -DNDEBUG -DBASISD_SUPPORT_BC7=0")
 endif()
