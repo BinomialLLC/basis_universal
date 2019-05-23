@@ -23,11 +23,25 @@
 // Set to 1 for fuzz testing. This will disable all CRC16 checks on headers and compressed data.
 #define BASISU_NO_HEADER_OR_DATA_CRC16_CHECKS 0
 
-#define BASISD_SUPPORT_DXT1			1
-#define BASISD_SUPPORT_DXT5A			1
-#define BASISD_SUPPORT_BC7				1
-#define BASISD_SUPPORT_PVRTC1			1
-#define BASISD_SUPPORT_ETC2_EAC_A8	1
+#ifndef BASISD_SUPPORT_DXT1
+#define BASISD_SUPPORT_DXT1 1
+#endif
+
+#ifndef BASISD_SUPPORT_DXT5A
+#define BASISD_SUPPORT_DXT5A 1
+#endif
+
+#ifndef BASISD_SUPPORT_BC7
+#define BASISD_SUPPORT_BC7 1
+#endif
+
+#ifndef BASISD_SUPPORT_PVRTC1
+#define BASISD_SUPPORT_PVRTC1 1
+#endif
+
+#ifndef BASISD_SUPPORT_ETC2_EAC_A8
+#define BASISD_SUPPORT_ETC2_EAC_A8 1
+#endif
 
 #define BASISD_WRITE_NEW_BC7_TABLES				0
 #define BASISD_WRITE_NEW_DXT1_TABLES			0
