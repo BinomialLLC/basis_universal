@@ -23,6 +23,23 @@ The encoder uses [lodepng](https://lodev.org/lodepng/) for loading and saving PN
 
 The command line tool used to create, validate, and transcode/unpack .basis files is named "basisu". Run basisu without any parameters for help. Note this tool uses the reference encoder.
 
+To build basisu:
+
+```
+cmake CMakeLists.txt
+make
+```
+
+On macOS it's currently necessary to build with gcc instead of the system default clang.
+
+```
+#only if you don't have gcc installed
+brew install gcc
+
+cmake -DCMAKE_CXX_COMPILER=g++-9 CMakeLists.txt
+make
+```
+
 To compress a sRGB image to .basis:
 
 `basisu x.png`
@@ -72,6 +89,39 @@ The .basis file will contain multiple images (all using the same global codebook
 The latest version of the encoder is in the "video" branch, but it's still a work in progress and hasn't been fully tested yet. The video branch supports I-Frames, and simple P-Frames using conditional replenishment (CR).
 
 If you are doing rate distortion comparisons vs. other similar systems, be sure to experiment with increasing the endpoint RDO threshold (-endpoint_rdo_thresh X). This setting controls how aggressively the compressor's backend will combine together nearby blocks so they use the same block endpoint codebook vectors, for better coding efficiency. X defaults to a modest 1.5, which means the backend is allowed to increase the overall color distance by 1.5x while searching for merge candidates. The higher this setting, the better the compression, with the tradeoff of more block artifacts. Settings up to ~2.25 can work well, and make the codec more competitive.
+
+### More detailed examples
+
+`basisu x.png`\
+Compress sRGB image x.png to x.basis using default settings (multiple filenames OK)
+
+`basisu x.basis`\
+Unpack x.basis to PNG/KTX files (multiple filenames OK)
+
+`basisu -file x.png -mipmap -y_flip`\
+Compress a mipmapped x.basis file from an sRGB image named x.png, Y flip each source image
+
+`basisu -validate -file x.basis`\
+Validate x.basis (check header, check file CRC's, attempt to transcode all slices)
+
+`basisu -unpack -file x.basis`\
+Validates, transcodes and unpacks x.basis to mipmapped .KTX and RGB/A .PNG files (transcodes to all supported GPU texture formats)
+
+`basisu -q 255 -file x.png -mipmap -debug -stats`\
+Compress sRGB x.png to x.basis at quality level 255 with compressor debug output/statistics
+
+`basisu -linear -max_endpoints 16128 -max_selectors 16128 -file x.png`\
+Compress non-sRGB x.png to x.basis using the largest supported manually specified codebook sizes
+
+`basisu -linear -global_sel_pal -no_hybrid_sel_cb -file x.png`\
+Compress a non-sRGB image, use virtual selector codebooks for improved compression (but slower encoding)
+
+`basisu -linear -global_sel_pal -file x.png`\
+Compress a non-sRGB image, use hybrid selector codebooks for slightly improved compression (but slower encoding)
+
+`basisu -tex_type video -framerate 20 -multifile_printf "x%02u.png" -multifile_first 1 -multifile_count 20`\
+Compress a 20 sRGB source image video sequence (x01.png, x02.png, x03.png, etc.) to x01.basis
+
 
 ### WebGL test 
 
