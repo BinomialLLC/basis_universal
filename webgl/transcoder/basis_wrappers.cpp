@@ -2,8 +2,6 @@
 #include "basisu_transcoder.h"
 #include <emscripten/bind.h>
 
-#include <iostream>
-
 using namespace emscripten;
 using namespace basist;
 
@@ -39,7 +37,6 @@ struct basis_file
 
     if (!m_transcoder.validate_header(m_file.data(), m_file.size())) {
       m_file.clear();
-      std::cerr << "Invalid Basis header" << std::endl;
     }
 
     // Initialized after validation
