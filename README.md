@@ -48,7 +48,7 @@ Note that basisu defaults to sRGB colorspace metrics. If the input is a normal m
 
 To add automatically generated mipmaps to the .basis file, at a higher than default quality level (which ranges from [1,255]):
 
-`basisu -mipmap -q 190 x.png`
+`basisu -mipmap -mip_srgb -q 190 x.png`
 
 There are several mipmap options that allow you to change the filter kernel, the smallest mipmap dimension, etc. The tool also supports generating cubemap files, 2D/cubemap texture arrays, etc.
 
@@ -98,7 +98,7 @@ Compress sRGB image x.png to x.basis using default settings (multiple filenames 
 `basisu x.basis`\
 Unpack x.basis to PNG/KTX files (multiple filenames OK)
 
-`basisu -file x.png -mipmap -y_flip`\
+`basisu -file x.png -mipmap -mip_srgb -y_flip`\
 Compress a mipmapped x.basis file from an sRGB image named x.png, Y flip each source image
 
 `basisu -validate -file x.basis`\
@@ -107,7 +107,7 @@ Validate x.basis (check header, check file CRC's, attempt to transcode all slice
 `basisu -unpack -file x.basis`\
 Validates, transcodes and unpacks x.basis to mipmapped .KTX and RGB/A .PNG files (transcodes to all supported GPU texture formats)
 
-`basisu -q 255 -file x.png -mipmap -debug -stats`\
+`basisu -q 255 -file x.png -mipmap -mip_srgb -debug -stats`\
 Compress sRGB x.png to x.basis at quality level 255 with compressor debug output/statistics
 
 `basisu -linear -max_endpoints 16128 -max_selectors 16128 -file x.png`\
