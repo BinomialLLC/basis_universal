@@ -50,13 +50,6 @@
 #include <assert.h>
 #include <random>
 
-#if defined(__EMSCRIPTEN__) && !defined(_DEBUG) && !defined(DEBUG)
-// HUGE HACK: I've been unable to disable assertions using emcc -O2 -s ASSERTIONS=0, no idea why. 
-// We definitely don't want them enabled in release.
-#undef assert
-#define assert(x) ((void)0)
-#endif
-
 #ifdef max
 #undef max
 #endif
