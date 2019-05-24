@@ -261,7 +261,7 @@ function viewAlpha() { drawMode = 2; redraw(); }
   Module.onRuntimeInitialized = () => {
     var gl = elem('canvas').getContext('webgl');
     // Load the DXT extension, and verify it exists.
-    if (!gl.getExtension('WEBKIT_WEBGL_compressed_texture_s3tc')) {
+    if (!gl.getExtension('WEBKIT_WEBGL_compressed_texture_s3tc') && !gl.getExtension('WEBGL_compressed_texture_s3tc')) {
       dxtSupported = false;
       elem('nodxt').style.display = 'block';
     }
