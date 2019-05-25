@@ -20,11 +20,6 @@ find_package(Threads REQUIRED)
 
 add_subdirectory(src)
 
-if(BASISU_BUILD_TOOL)
-	add_subdirectory(tool)
-	#add_subdirectory(webgl/transcoder)
-endif()
-
 if(BUILD_TESTS)
 	include(CTest)
 endif()

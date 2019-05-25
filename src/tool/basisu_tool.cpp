@@ -15,13 +15,13 @@
 #include <transcoder/basisu_transcoder_internal.h>
 #include <transcoder/basisu_global_selector_palette.h>
 #include <transcoder/basisu_transcoder.h>
-#include <basisu_enc.h>
-#include <basisu_etc.h>
-#include <basisu_gpu_texture.h>
-#include <basisu_frontend.h>
-#include <basisu_backend.h>
-#include <basisu_comp.h>
-#include <basisu_ssim.h>
+#include <encoder/basisu_enc.h>
+#include <encoder/basisu_etc.h>
+#include <encoder/basisu_gpu_texture.h>
+#include <encoder/basisu_frontend.h>
+#include <encoder/basisu_backend.h>
+#include <encoder/basisu_comp.h>
+#include <encoder/basisu_ssim.h>
 #if defined(_OPENMP)
 #include <omp.h>
 #endif
