@@ -4,7 +4,7 @@ project(basisu VERSION 1.0.5 LANGUAGES C CXX)
 # Add property to allow making folders for basis in IDEs.
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)  
 
-option(BUILD_SHARED_LIBS "Build Shared Libraries" ON)
+option(BUILD_SHARED_LIBS "Build Shared Libraries" OFF)
 option(BUILD_TESTS "Build test applications" ON)
 option(BASISU_BUILD_TOOL "Build the tool" ON)
 option(BASISU_INSTALL "Installs basis universal" ON)
