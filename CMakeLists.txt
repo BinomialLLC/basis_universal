@@ -22,6 +22,6 @@ if(BASISU_BUILD_TOOL)
 	#add_subdirectory(webgl/transcoder)
 endif()
 
-include(CTest)
 if(BUILD_TESTS)
+	include(CTest)
 endif()
