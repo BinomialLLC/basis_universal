@@ -1,5 +1,4 @@
 add_executable(basisu_tool ${BASISU_TOOL_SOURCES})
-add_dependencies(basisu_tool basisu_encoder)
 
 target_sources(basisu_tool
 		PRIVATE
