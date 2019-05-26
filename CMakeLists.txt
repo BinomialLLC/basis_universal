@@ -1,7 +1,10 @@
-cmake_minimum_required(VERSION 3.0 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.8.2 FATAL_ERROR)
 project(basisu VERSION 1.0.5 LANGUAGES C CXX)
 
-option(BUILD_SHARED_LIBS "Build Shared Libraries" ON)
+# Add property to allow making folders for basis in IDEs.
+set_property(GLOBAL PROPERTY USE_FOLDERS ON)  
+
+option(BUILD_SHARED_LIBS "Build Shared Libraries" OFF)
 option(BUILD_TESTS "Build test applications" ON)
 option(BASISU_BUILD_TOOL "Build the tool" ON)
 option(BASISU_INSTALL "Installs basis universal" ON)
@@ -17,11 +20,6 @@ find_package(Threads REQUIRED)
 
 add_subdirectory(src)
 
-if(BASISU_BUILD_TOOL)
-	add_subdirectory(tool)
-	#add_subdirectory(webgl/transcoder)
-endif()
-
-include(CTest)
 if(BUILD_TESTS)
+	include(CTest)
 endif()
