@@ -80,7 +80,7 @@ Note that "-no_selector_rdo -no_endpoint_rdo" are optional. Using them hurts rat
 
 To compress small video sequences, say using tools like ffmpeg and VirtualDub:
 
-'basisu -slower -tex_type video -stats -debug -multifile_printf "pic%04u.png" -multifile_num 200 -multifile_first 1 -max_selectors 16128 -max_endpoints 16128'
+`basisu -slower -tex_type video -stats -debug -multifile_printf "pic%04u.png" -multifile_num 200 -multifile_first 1 -max_selectors 16128 -max_endpoints 16128`
 
 The reference encoder will take a LONG time and a lot of CPU to encode video, especially with -slower. The more cores your machine has, the better. Basis is intended for smaller videos of a few dozen seconds or so. If you are very patient and have a Threadripper or Xeon workstation, you should be able to encode up to a few thousand 720P frames.
 
