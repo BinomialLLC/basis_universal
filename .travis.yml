@@ -71,6 +71,6 @@ script:
       make all -j$(nproc)
     else
       cmake .. -G "Xcode" -DCMAKE_BUILD_TYPE=$BUILD_TYPE
-      xcodebuild -quiet -parallelizeTargets -jobs $(sysctl -n hw.physicalcpu) -target basisu -configuration $BUILD_TYPE
+      xcodebuild -quiet -parallelizeTargets -jobs $(sysctl -n hw.physicalcpu) -target basisu_tool -configuration $BUILD_TYPE
     fi
 - cd ../
