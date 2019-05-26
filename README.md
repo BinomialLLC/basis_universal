@@ -1,4 +1,8 @@
 # basis_universal
+
+[![Build status](https://ci.appveyor.com/api/projects/status/vj7gnik7fo6indw7?svg=true)](https://ci.appveyor.com/project/Mattparks/basis-universal)
+[![Build Status](https://travis-ci.org/mattparks/basis_universal.svg?branch=master)](https://travis-ci.org/mattparks/basis_universal)
+
 Basis Universal GPU Texture and Texture Video Compression Reference Codec
 
 Basis Universal is a ["supercompressed"](http://gamma.cs.unc.edu/GST/gst.pdf) GPU texture and texture video compression system that outputs a highly compressed intermediate file format (.basis) that can be quickly transcoded to a wide variety of GPU texture compression formats: PVRTC1 4bpp RGB, BC7 mode 6 RGB, BC1-5, ETC1, and ETC2. We will be adding ASTC RGB or RGBA, BC7 mode 4/5 RGBA, and PVRTC1 4bpp RGBA next. Basis files support non-uniform texture arrays, so cubemaps, volume textures, texture arrays, mipmap levels, video sequences, or arbitrary texture "tiles" can be stored in a single file. The compressor is able to exploit color and pattern correlations across the entire file, so multiple images with mipmaps can be stored very efficiently in a single file.
@@ -21,12 +25,13 @@ The encoder uses [lodepng](https://lodev.org/lodepng/) for loading and saving PN
 
 ### Command Line Compression Tool
 
-The command line tool used to create, validate, and transcode/unpack .basis files is named "basisu". Run basisu without any parameters for help. Note this tool uses the reference encoder.
+The command line tool used to create, validate, and transcode/unpack .basis files is named "basisuTool". Run basisuTool without any parameters for help. Note this tool uses the reference encoder.
 
 To build basisu:
 
 ```
-cmake CMakeLists.txt
+mkdir bin && cd bin
+cmake ..
 make
 ```
 
@@ -42,23 +47,23 @@ make
 
 To compress a sRGB image to .basis:
 
-`basisu x.png`
+`basisuTool x.png`
 
 Note that basisu defaults to sRGB colorspace metrics. If the input is a normal map, or some other type of non-sRGB (non-photographic) texture content, be sure to use -linear to avoid extra unnecessary artifacts.
 
 To add automatically generated mipmaps to the .basis file, at a higher than default quality level (which ranges from [1,255]):
 
-`basisu -mipmap -mip_srgb -q 190 x.png`
+`basisuTool -mipmap -mip_srgb -q 190 x.png`
 
 There are several mipmap options that allow you to change the filter kernel, the smallest mipmap dimension, etc. The tool also supports generating cubemap files, 2D/cubemap texture arrays, etc.
 
 To create a higher quality .basis file (one with better codebooks):
 
-`basisu -slower x.png`
+`basisuTool -slower x.png`
 
 To unpack a .basis file to multiple .png/.ktx files:
 
-`basisu x.basis`
+`basisuTool x.basis`
 
 The mipmapped .KTX files will be in a variety of compressed GPU texture formats (PVRTC1 4bpp, ETC1-2, BC1-5, BC7), and to my knowledge there is no single .KTX viewer tool that correctly and reliably supports every GPU texture format that we support. BC1-5 and BC7 files are viewable using AMD's Compressonator, ETC1/2 using Mali's Texture Compression Tool, and PVRTC1 using Imagination Tech's PVRTexTool. Links:
 
@@ -74,13 +79,13 @@ For best quality, you must supply basisu with original uncompressed source image
 
 For the maximum possible achievable quality with the current format and encoder, use:
 
-`basisu x.png -slower -max_endpoints 16128 -max_selectors 16128 -no_selector_rdo -no_endpoint_rdo`
+`basisuTool x.png -slower -max_endpoints 16128 -max_selectors 16128 -no_selector_rdo -no_endpoint_rdo`
 
 Note that "-no_selector_rdo -no_endpoint_rdo" are optional. Using them hurts rate distortion performance, but increases quality. An alternative is to use -selector_rdo_thresh X and -endpoint_rdo_thresh, with X ranging from [1,2] (higher=lower quality/better compression - see the tool's help text).
 
 To compress small video sequences, say using tools like ffmpeg and VirtualDub:
 
-'basisu -slower -tex_type video -stats -debug -multifile_printf "pic%04u.png" -multifile_num 200 -multifile_first 1 -max_selectors 16128 -max_endpoints 16128'
+'basisuTool -slower -tex_type video -stats -debug -multifile_printf "pic%04u.png" -multifile_num 200 -multifile_first 1 -max_selectors 16128 -max_endpoints 16128'
 
 The reference encoder will take a LONG time and a lot of CPU to encode video, especially with -slower. The more cores your machine has, the better. Basis is intended for smaller videos of a few dozen seconds or so. If you are very patient and have a Threadripper or Xeon workstation, you should be able to encode up to a few thousand 720P frames.
 
@@ -92,34 +97,34 @@ If you are doing rate distortion comparisons vs. other similar systems, be sure 
 
 ### More detailed examples
 
-`basisu x.png`\
+`basisuTool x.png`\
 Compress sRGB image x.png to x.basis using default settings (multiple filenames OK)
 
-`basisu x.basis`\
+`basisuTool x.basis`\
 Unpack x.basis to PNG/KTX files (multiple filenames OK)
 
-`basisu -file x.png -mipmap -mip_srgb -y_flip`\
+`basisuTool -file x.png -mipmap -mip_srgb -y_flip`\
 Compress a mipmapped x.basis file from an sRGB image named x.png, Y flip each source image
 
-`basisu -validate -file x.basis`\
+`basisuTool -validate -file x.basis`\
 Validate x.basis (check header, check file CRC's, attempt to transcode all slices)
 
-`basisu -unpack -file x.basis`\
+`basisuTool -unpack -file x.basis`\
 Validates, transcodes and unpacks x.basis to mipmapped .KTX and RGB/A .PNG files (transcodes to all supported GPU texture formats)
 
-`basisu -q 255 -file x.png -mipmap -mip_srgb -debug -stats`\
+`basisuTool -q 255 -file x.png -mipmap -mip_srgb -debug -stats`\
 Compress sRGB x.png to x.basis at quality level 255 with compressor debug output/statistics
 
-`basisu -linear -max_endpoints 16128 -max_selectors 16128 -file x.png`\
+`basisuTool -linear -max_endpoints 16128 -max_selectors 16128 -file x.png`\
 Compress non-sRGB x.png to x.basis using the largest supported manually specified codebook sizes
 
-`basisu -linear -global_sel_pal -no_hybrid_sel_cb -file x.png`\
+`basisuTool -linear -global_sel_pal -no_hybrid_sel_cb -file x.png`\
 Compress a non-sRGB image, use virtual selector codebooks for improved compression (but slower encoding)
 
-`basisu -linear -global_sel_pal -file x.png`\
+`basisuTool -linear -global_sel_pal -file x.png`\
 Compress a non-sRGB image, use hybrid selector codebooks for slightly improved compression (but slower encoding)
 
-`basisu -tex_type video -framerate 20 -multifile_printf "x%02u.png" -multifile_first 1 -multifile_count 20`\
+`basisuTool -tex_type video -framerate 20 -multifile_printf "x%02u.png" -multifile_first 1 -multifile_count 20`\
 Compress a 20 sRGB source image video sequence (x01.png, x02.png, x03.png, etc.) to x01.basis
 
 

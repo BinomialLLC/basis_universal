@@ -90,12 +90,6 @@ namespace basist
 		return static_cast<uint16_t>(~crc);
 	}
 		
-	const uint32_t g_global_selector_cb[] =
-#include "basisu_global_selector_cb.h"
-		;
-
-	const uint32_t g_global_selector_cb_size = sizeof(g_global_selector_cb) / sizeof(g_global_selector_cb[0]);
-
 	void etc1_global_selector_codebook::init(uint32_t N, const uint32_t *pEntries)
 	{
 		m_palette.resize(N);

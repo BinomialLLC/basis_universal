@@ -1,0 +1,76 @@
+matrix:
+  include:
+  # GCC 7
+  - os: linux
+    dist: xenial
+    sudo: required
+    addons: &gcc7
+      apt:
+        sources:
+        - ubuntu-toolchain-r-test
+        packages:
+        - pkg-config
+        - cmake
+        - g++-7
+    language: cpp
+    compiler: gcc
+    env:
+    - COMPILER=g++-7
+    - GSL_CXX_STANDARD=17
+    - BUILD_TYPE=Release
+    before_install:
+    - sudo apt-get update -qq
+    - sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-7 90
+  # Clang 6.0
+  - os: linux
+    dist: xenial
+    sudo: required
+    addons: &clang60
+      apt:
+        sources:
+        - ubuntu-toolchain-r-test
+        - llvm-toolchain-xenial-6.0
+        - sourceline: 'deb http://apt.llvm.org/xenial/ llvm-toolchain-xenial-6.0 main'
+          key_url: 'https://apt.llvm.org/llvm-snapshot.gpg.key'
+        packages:
+        - pkg-config
+        - cmake
+        - clang-6.0
+        - g++-7
+    language: cpp
+    compiler: clang
+    env:
+    - COMPILER=clang++-6.0
+    - GSL_CXX_STANDARD=17
+    - BUILD_TYPE=Release
+    before_install:
+    - sudo apt-get update -qq
+    - sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-6.0 1000
+    - sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-6.0 1000
+    - clang --version
+  # XCode 10.2
+  - os: osx
+    osx_image: xcode10.2
+    sudo: required
+    language: cpp
+    compiler: clang
+    env:
+    - COMPILER=clang++
+    - GSL_CXX_STANDARD=17
+    - BUILD_TYPE=Release
+    before_install:
+    - brew update
+    - brew install pkg-config
+
+script:
+- git submodule update --init --recursive
+- mkdir bin && cd bin
+- |
+    if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then
+      cmake .. -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=$BUILD_TYPE
+      make all -j$(nproc)
+    else
+      cmake .. -G "Xcode" -DCMAKE_BUILD_TYPE=$BUILD_TYPE
+      xcodebuild -quiet -parallelizeTargets -jobs $(sysctl -n hw.physicalcpu) -target basisu_tool -configuration $BUILD_TYPE
+    fi
+- cd ../
