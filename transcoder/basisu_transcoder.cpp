@@ -3683,9 +3683,12 @@ namespace basist
 	}
 			
 	bool basisu_lowlevel_transcoder::transcode_slice(void *pDst_blocks, uint32_t num_blocks_x, uint32_t num_blocks_y, const uint8_t *pImage_data, uint32_t image_data_size, block_format fmt, 
-		uint32_t output_stride, bool pvrtc_wrap_addressing, bool bc1_allow_threecolor_blocks)
+		uint32_t output_block_stride_in_bytes, bool pvrtc_wrap_addressing, bool bc1_allow_threecolor_blocks, uint32_t output_row_pitch_in_blocks)
 	{
 		const uint32_t total_blocks = num_blocks_x * num_blocks_y;
+
+		if (!output_row_pitch_in_blocks)
+			output_row_pitch_in_blocks = num_blocks_x;
 
 		basist::bitwise_decoder sym_codec;
 				
@@ -3920,10 +3923,7 @@ namespace basist
 				{
 				case cETC1:
 				{
-					//block.set_raw_selector_bits(pSelector->m_bytes[0], pSelector->m_bytes[1], pSelector->m_bytes[2], pSelector->m_bytes[3]);
-					//memcpy(pDst_block, &block, sizeof(block));
-
-					decoder_etc_block* pDst_block = reinterpret_cast<decoder_etc_block*>(static_cast<uint8_t*>(pDst_blocks) + (block_x + block_y * num_blocks_x) * output_stride);
+					decoder_etc_block* pDst_block = reinterpret_cast<decoder_etc_block*>(static_cast<uint8_t*>(pDst_blocks) + (block_x + block_y * output_row_pitch_in_blocks) * output_block_stride_in_bytes);
 					pDst_block->m_uint32[0] = block.m_uint32[0];
 					pDst_block->set_raw_selector_bits(pSelector->m_bytes[0], pSelector->m_bytes[1], pSelector->m_bytes[2], pSelector->m_bytes[3]);
 
@@ -3933,7 +3933,7 @@ namespace basist
 				{
 					block.set_raw_selector_bits(pSelector->m_bytes[0], pSelector->m_bytes[1], pSelector->m_bytes[2], pSelector->m_bytes[3]);
 
-					void* pDst_block = static_cast<uint8_t*>(pDst_blocks) + (block_x + block_y * num_blocks_x) * output_stride;
+					void* pDst_block = static_cast<uint8_t*>(pDst_blocks) + (block_x + block_y * output_row_pitch_in_blocks) * output_block_stride_in_bytes;
 #if BASISD_SUPPORT_DXT1
 					convert_etc1s_to_dxt1(static_cast<dxt1_block*>(pDst_block), &block, pSelector, bc1_allow_threecolor_blocks);
 #else
@@ -3945,7 +3945,7 @@ namespace basist
 				{
 					block.set_raw_selector_bits(pSelector->m_bytes[0], pSelector->m_bytes[1], pSelector->m_bytes[2], pSelector->m_bytes[3]);
 
-					void* pDst_block = static_cast<uint8_t*>(pDst_blocks) + (block_x + block_y * num_blocks_x) * output_stride;
+					void* pDst_block = static_cast<uint8_t*>(pDst_blocks) + (block_x + block_y * output_row_pitch_in_blocks) * output_block_stride_in_bytes;
 #if BASISD_SUPPORT_DXT5A
 					convert_etc1s_to_dxt5a(static_cast<dxt5a_block*>(pDst_block), &block, pSelector);
 #else
@@ -3992,7 +3992,7 @@ namespace basist
 #if BASISD_SUPPORT_BC7
 					block.set_raw_selector_bits(pSelector->m_bytes[0], pSelector->m_bytes[1], pSelector->m_bytes[2], pSelector->m_bytes[3]);
 					
-					void* pDst_block = static_cast<uint8_t*>(pDst_blocks) + (block_x + block_y * num_blocks_x) * output_stride;
+					void* pDst_block = static_cast<uint8_t*>(pDst_blocks) + (block_x + block_y * output_row_pitch_in_blocks) * output_block_stride_in_bytes;
 					convert_etc1s_to_bc7_m6(static_cast<bc7_mode_6*>(pDst_block), &block, pSelector);
 #else	
 					assert(0);
@@ -4002,7 +4002,7 @@ namespace basist
 				case cETC2_EAC_A8:
 				{
 					block.set_raw_selector_bits(pSelector->m_bytes[0], pSelector->m_bytes[1], pSelector->m_bytes[2], pSelector->m_bytes[3]);
-					void* pDst_block = static_cast<uint8_t*>(pDst_blocks) + (block_x + block_y * num_blocks_x) * output_stride;
+					void* pDst_block = static_cast<uint8_t*>(pDst_blocks) + (block_x + block_y * output_row_pitch_in_blocks) * output_block_stride_in_bytes;
 #if BASISD_SUPPORT_ETC2_EAC_A8
 					convert_etc1s_to_etc2_eac_a8(static_cast<eac_a8_block*>(pDst_block), &block, pSelector);
 #else
@@ -4550,7 +4550,7 @@ namespace basist
 	}
 
 	bool basisu_transcoder::transcode_slice(const void *pData, uint32_t data_size, uint32_t slice_index, void *pOutput_blocks, uint32_t output_blocks_buf_size_in_blocks, block_format fmt, 
-		uint32_t output_stride, uint32_t decode_flags) const
+		uint32_t output_block_stride_in_bytes, uint32_t decode_flags, uint32_t output_row_pitch_in_blocks) const
 	{
 		if (!m_lowlevel_decoder.m_endpoints.size())
 		{
@@ -4618,7 +4618,7 @@ namespace basist
 				
 		return m_lowlevel_decoder.transcode_slice(pOutput_blocks, slice_desc.m_num_blocks_x, slice_desc.m_num_blocks_y,
 			pDataU8 + slice_desc.m_file_ofs, slice_desc.m_file_size,
-			fmt, output_stride, (decode_flags & cDecodeFlagsPVRTCWrapAddressing) != 0, (decode_flags & cDecodeFlagsBC1ForbidThreeColorBlocks) == 0);
+			fmt, output_block_stride_in_bytes, (decode_flags & cDecodeFlagsPVRTCWrapAddressing) != 0, (decode_flags & cDecodeFlagsBC1ForbidThreeColorBlocks) == 0, output_row_pitch_in_blocks);
 	}
 
 	int basisu_transcoder::find_first_slice_index(const void *pData, uint32_t data_size, uint32_t image_index, uint32_t level_index) const
@@ -4672,11 +4672,16 @@ namespace basist
 		return -1;
 	}
 
-	static void write_opaque_alpha_blocks(uint32_t total_slice_blocks, void *pOutput_blocks, uint32_t output_blocks_buf_size_in_blocks, block_format fmt, uint32_t stride)
+	static void write_opaque_alpha_blocks(
+		uint32_t num_blocks_x, uint32_t num_blocks_y, 
+		void *pOutput_blocks, uint32_t output_blocks_buf_size_in_blocks, block_format fmt, 
+		uint32_t block_stride_in_bytes, uint32_t output_row_pitch_in_blocks)
 	{
 		BASISU_NOTE_UNUSED(output_blocks_buf_size_in_blocks);
-		assert(total_slice_blocks <= output_blocks_buf_size_in_blocks);
 
+		if (!output_row_pitch_in_blocks)
+			output_row_pitch_in_blocks = num_blocks_x;
+		
 		if (fmt == cETC2_EAC_A8)
 		{
 #if BASISD_SUPPORT_ETC2_EAC_A8
@@ -4689,9 +4694,14 @@ namespace basist
 			static const uint8_t s_etc2_eac_a8_sel4[6] = { 0x92, 0x49, 0x24, 0x92, 0x49, 0x24 };
 			memcpy(&blk.m_selectors, s_etc2_eac_a8_sel4, sizeof(s_etc2_eac_a8_sel4));
 
-			for (uint32_t i = 0; i < total_slice_blocks; i++)
+			for (uint32_t y = 0; y < num_blocks_y; y++)
 			{
-				memcpy((uint8_t *)pOutput_blocks + stride * i, &blk, sizeof(blk));
+				uint32_t dst_ofs = y * output_row_pitch_in_blocks * block_stride_in_bytes;
+				for (uint32_t x = 0; x < num_blocks_x; x++)
+				{
+					memcpy((uint8_t *)pOutput_blocks + dst_ofs, &blk, sizeof(blk));
+					dst_ofs += block_stride_in_bytes;
+				}
 			}
 #endif
 		}
@@ -4703,9 +4713,14 @@ namespace basist
 			blk.m_endpoints[1] = 255;
 			memset(blk.m_selectors, 0, sizeof(blk.m_selectors));
 			
-			for (uint32_t i = 0; i < total_slice_blocks; i++)
+			for (uint32_t y = 0; y < num_blocks_y; y++)
 			{
-				memcpy((uint8_t *)pOutput_blocks + stride * i, &blk, sizeof(blk));
+				uint32_t dst_ofs = y * output_row_pitch_in_blocks * block_stride_in_bytes;
+				for (uint32_t x = 0; x < num_blocks_x; x++)
+				{
+					memcpy((uint8_t *)pOutput_blocks + dst_ofs, &blk, sizeof(blk));
+					dst_ofs += block_stride_in_bytes;
+				}
 			}
 #endif
 		}
@@ -4716,7 +4731,7 @@ namespace basist
 		uint32_t image_index, uint32_t level_index, 
 		void *pOutput_blocks, uint32_t output_blocks_buf_size_in_blocks,
 		transcoder_texture_format fmt,
-		uint32_t decode_flags) const
+		uint32_t decode_flags, uint32_t output_row_pitch_in_blocks) const
 	{
 		if (!m_lowlevel_decoder.m_endpoints.size())
 		{
@@ -4829,7 +4844,7 @@ namespace basist
 			if ((basis_file_has_alpha_slices) && (transcode_alpha_data_to_opaque_formats))
 				slice_index_to_decode++;
 
-			status = transcode_slice(pData, data_size, slice_index_to_decode, pOutput_blocks, output_blocks_buf_size_in_blocks, cETC1, bytes_per_block, decode_flags);
+			status = transcode_slice(pData, data_size, slice_index_to_decode, pOutput_blocks, output_blocks_buf_size_in_blocks, cETC1, bytes_per_block, decode_flags, output_row_pitch_in_blocks);
 			if (!status)
 			{
 				BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: transcode_slice() to ETC1 failed\n");
@@ -4848,7 +4863,7 @@ namespace basist
 			if ((basis_file_has_alpha_slices) && (transcode_alpha_data_to_opaque_formats))
 				slice_index_to_decode++;
 
-			status = transcode_slice(pData, data_size, slice_index_to_decode, pOutput_blocks, output_blocks_buf_size_in_blocks, cBC1, bytes_per_block, decode_flags);
+			status = transcode_slice(pData, data_size, slice_index_to_decode, pOutput_blocks, output_blocks_buf_size_in_blocks, cBC1, bytes_per_block, decode_flags, output_row_pitch_in_blocks);
 			if (!status)
 			{
 				BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: transcode_slice() to BC1 failed\n");
@@ -4867,7 +4882,7 @@ namespace basist
 			if ((basis_file_has_alpha_slices) && (transcode_alpha_data_to_opaque_formats))
 				slice_index_to_decode++;
 
-			status = transcode_slice(pData, data_size, slice_index_to_decode, pOutput_blocks, output_blocks_buf_size_in_blocks, cBC4, bytes_per_block, decode_flags);
+			status = transcode_slice(pData, data_size, slice_index_to_decode, pOutput_blocks, output_blocks_buf_size_in_blocks, cBC4, bytes_per_block, decode_flags, output_row_pitch_in_blocks);
 			if (!status)
 			{
 				BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: transcode_slice() to BC4 failed\n");
@@ -4886,7 +4901,8 @@ namespace basist
 			if ((basis_file_has_alpha_slices) && (transcode_alpha_data_to_opaque_formats))
 				slice_index_to_decode++;
 
-			status = transcode_slice(pData, data_size, slice_index_to_decode, pOutput_blocks, output_blocks_buf_size_in_blocks, cPVRTC1_4_OPAQUE_ONLY, bytes_per_block, decode_flags);
+			// output_row_pitch_in_blocks is actually ignored because we're transcoding to PVRTC1. (Print a dev warning if it's != 0?)
+			status = transcode_slice(pData, data_size, slice_index_to_decode, pOutput_blocks, output_blocks_buf_size_in_blocks, cPVRTC1_4_OPAQUE_ONLY, bytes_per_block, decode_flags, output_row_pitch_in_blocks);
 			if (!status)
 			{
 				BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: transcode_slice() to PVRTC1 4 opaque only failed\n");
@@ -4905,7 +4921,7 @@ namespace basist
 			if ((basis_file_has_alpha_slices) && (transcode_alpha_data_to_opaque_formats))
 				slice_index_to_decode++;
 
-			status = transcode_slice(pData, data_size, slice_index_to_decode, pOutput_blocks, output_blocks_buf_size_in_blocks, cBC7_M6_OPAQUE_ONLY, bytes_per_block, decode_flags);
+			status = transcode_slice(pData, data_size, slice_index_to_decode, pOutput_blocks, output_blocks_buf_size_in_blocks, cBC7_M6_OPAQUE_ONLY, bytes_per_block, decode_flags, output_row_pitch_in_blocks);
 			if (!status)
 			{
 				BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: transcode_slice() to BC7 m6 opaque only failed\n");
@@ -4922,18 +4938,18 @@ namespace basist
 			if (basis_file_has_alpha_slices)
 			{
 				// First decode the alpha data 
-				status = transcode_slice(pData, data_size, slice_index + 1, pOutput_blocks, output_blocks_buf_size_in_blocks, cETC2_EAC_A8, 16, decode_flags);
+				status = transcode_slice(pData, data_size, slice_index + 1, pOutput_blocks, output_blocks_buf_size_in_blocks, cETC2_EAC_A8, 16, decode_flags, output_row_pitch_in_blocks);
 			}
 			else
 			{
-				write_opaque_alpha_blocks(total_slice_blocks, pOutput_blocks, output_blocks_buf_size_in_blocks, cETC2_EAC_A8, 16);
+				write_opaque_alpha_blocks(pSlice_descs[slice_index].m_num_blocks_x, pSlice_descs[slice_index].m_num_blocks_y, pOutput_blocks, output_blocks_buf_size_in_blocks, cETC2_EAC_A8, 16, output_row_pitch_in_blocks);
 				status = true;
 			}
 
 			if (status)
 			{
 				// Now decode the color data
-				status = transcode_slice(pData, data_size, slice_index, (uint8_t*)pOutput_blocks + 8, output_blocks_buf_size_in_blocks, cETC1, 16, decode_flags);
+				status = transcode_slice(pData, data_size, slice_index, (uint8_t*)pOutput_blocks + 8, output_blocks_buf_size_in_blocks, cETC1, 16, decode_flags, output_row_pitch_in_blocks);
 				if (!status)
 				{
 					BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: transcode_slice() to ETC2 RGB failed\n");
@@ -4958,18 +4974,18 @@ namespace basist
 			// First decode the alpha data 
 			if (basis_file_has_alpha_slices)
 			{
-				status = transcode_slice(pData, data_size, slice_index + 1, pOutput_blocks, output_blocks_buf_size_in_blocks, cBC4, 16, decode_flags);
+				status = transcode_slice(pData, data_size, slice_index + 1, pOutput_blocks, output_blocks_buf_size_in_blocks, cBC4, 16, decode_flags, output_row_pitch_in_blocks);
 			}
 			else
 			{
-				write_opaque_alpha_blocks(total_slice_blocks, pOutput_blocks, output_blocks_buf_size_in_blocks, cBC4, 16);
+				write_opaque_alpha_blocks(pSlice_descs[slice_index].m_num_blocks_x, pSlice_descs[slice_index].m_num_blocks_y, pOutput_blocks, output_blocks_buf_size_in_blocks, cBC4, 16, output_row_pitch_in_blocks);
 				status = true;
 			}
 
 			if (status)
 			{
 				// Now decode the color data. Forbid 3 color blocks, which aren't allowed in BC3.
-				status = transcode_slice(pData, data_size, slice_index, (uint8_t*)pOutput_blocks + 8, output_blocks_buf_size_in_blocks, cBC1, 16, decode_flags | cDecodeFlagsBC1ForbidThreeColorBlocks);
+				status = transcode_slice(pData, data_size, slice_index, (uint8_t*)pOutput_blocks + 8, output_blocks_buf_size_in_blocks, cBC1, 16, decode_flags | cDecodeFlagsBC1ForbidThreeColorBlocks, output_row_pitch_in_blocks);
 				if (!status)
 				{
 					BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: transcode_slice() to BC3 RGB failed\n");
@@ -4989,13 +5005,13 @@ namespace basist
 #endif
 			assert(total_slices == 2);
 			// Decode the R data (actually the green channel of the color data slice in the basis file)
-			status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks, cBC4, 16, decode_flags);
+			status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks, cBC4, 16, decode_flags, output_row_pitch_in_blocks);
 			if (status)
 			{
 				if (basis_file_has_alpha_slices)
 				{
 					// Decode the G data (actually the green channel of the alpha data slice in the basis file)
-					status = transcode_slice(pData, data_size, slice_index + 1, (uint8_t*)pOutput_blocks + 8, output_blocks_buf_size_in_blocks, cBC4, 16, decode_flags);
+					status = transcode_slice(pData, data_size, slice_index + 1, (uint8_t*)pOutput_blocks + 8, output_blocks_buf_size_in_blocks, cBC4, 16, decode_flags, output_row_pitch_in_blocks);
 					if (!status)
 					{
 						BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: transcode_slice() to BC5 1 failed\n");
@@ -5003,7 +5019,7 @@ namespace basist
 				}
 				else
 				{
-					write_opaque_alpha_blocks(total_slice_blocks, (uint8_t*)pOutput_blocks + 8, output_blocks_buf_size_in_blocks, cBC4, 16);
+					write_opaque_alpha_blocks(pSlice_descs[slice_index].m_num_blocks_x, pSlice_descs[slice_index].m_num_blocks_y, (uint8_t*)pOutput_blocks + 8, output_blocks_buf_size_in_blocks, cBC4, 16, output_row_pitch_in_blocks);
 					status = true;
 				}
 			}

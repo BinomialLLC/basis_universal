@@ -1177,4 +1177,24 @@ namespace basisu
 		m_psnr = m_rms ? (float)clamp<double>(log10(255.0 / m_rms) * 20.0, 0.0f, 300.0f) : 1e+10f;
 	}
 
+	void fill_buffer_with_random_bytes(void *pBuf, size_t size, uint32_t seed)
+	{
+		rand r(seed);
+
+		uint8_t *pDst = static_cast<uint8_t *>(pBuf);
+
+		while (size >= sizeof(uint32_t))
+		{
+			*(uint32_t *)pDst = r.urand32();
+			pDst += sizeof(uint32_t);
+			size -= sizeof(uint32_t);
+		}
+
+		while (size)
+		{
+			*pDst++ = r.byte();
+			size--;
+		}
+	}
+
 } // namespace basisu

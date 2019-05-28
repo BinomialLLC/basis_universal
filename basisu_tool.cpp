@@ -910,11 +910,42 @@ static bool unpack_and_validate_mode(command_line_params &opts, bool validate_fl
 					gpu_image &gi = gpu_images[transcoder_tex_fmt][image_index][level_index];
 					gi.init(tex_fmt, level_info.m_orig_width, level_info.m_orig_height);
 
+					// Fill the buffer with psuedo-random bytes, to help more visibly detect cases where the transcoder fails to write to part of the output.
+					fill_buffer_with_random_bytes(gi.get_ptr(), gi.get_size_in_bytes());
+
+#if 1
 					if (!dec.transcode_image_level(&basis_data[0], (uint32_t)basis_data.size(), image_index, level_index, gi.get_ptr(), gi.get_total_blocks(), transcoder_tex_fmt, 0))
 					{
 						error_printf("Failed transcoding image level (%u %u %u)!\n", image_index, level_index, format_iter);
 						return false;
 					}
+#else
+					// quick and dirty row pitch parameter test, to be moved into a unit test
+					uint8_vec temp;
+					uint32_t block_pitch_to_test = level_info.m_num_blocks_x;
+					if (transcoder_tex_fmt != basist::cTFPVRTC1_4_OPAQUE_ONLY)
+						block_pitch_to_test += 5;
+
+					temp.resize(level_info.m_num_blocks_y * block_pitch_to_test * gi.get_bytes_per_block());
+					fill_buffer_with_random_bytes(&temp[0], temp.size());
+
+					if (!dec.transcode_image_level(&basis_data[0], (uint32_t)basis_data.size(), image_index, level_index, &temp[0], (uint32_t)(temp.size() / gi.get_bytes_per_block()), transcoder_tex_fmt, 0, block_pitch_to_test))
+					{
+						error_printf("Failed transcoding image level (%u %u %u)!\n", image_index, level_index, format_iter);
+						return false;
+					}
+
+					if (transcoder_tex_fmt == basist::cTFPVRTC1_4_OPAQUE_ONLY)
+					{
+						assert(temp.size() == gi.get_size_in_bytes());
+						memcpy(gi.get_ptr(), &temp[0], gi.get_size_in_bytes());
+					}
+					else
+					{
+						for (uint32_t y = 0; y < level_info.m_num_blocks_y; y++)
+							memcpy(gi.get_block_ptr(0, y), &temp[y * block_pitch_to_test * gi.get_bytes_per_block()], gi.get_row_pitch_in_bytes());
+					}
+#endif
 
 					printf("Transcode of image %u level %u res %ux%u format %s succeeded\n", image_index, level_index, level_info.m_orig_width, level_info.m_orig_height, basist::basis_get_format_name(transcoder_tex_fmt));
 

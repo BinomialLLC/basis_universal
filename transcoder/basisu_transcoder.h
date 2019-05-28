@@ -73,7 +73,8 @@ namespace basist
 
 		bool decode_tables(const uint8_t *pTable_data, uint32_t table_data_size);
 
-		bool transcode_slice(void *pDst_blocks, uint32_t num_blocks_x, uint32_t num_blocks_y, const uint8_t *pImage_data, uint32_t image_data_size, block_format fmt, uint32_t output_stride, bool wrap_addressing, bool bc1_allow_threecolor_blocks);
+		bool transcode_slice(void *pDst_blocks, uint32_t num_blocks_x, uint32_t num_blocks_y, const uint8_t *pImage_data, uint32_t image_data_size, block_format fmt, 
+			uint32_t output_stride, bool wrap_addressing, bool bc1_allow_threecolor_blocks, uint32_t output_row_pitch_in_blocks = 0);
 
 	private:
 		struct endpoint
@@ -263,12 +264,13 @@ namespace basist
 		// Currently, to decode to PVRTC1 the basis texture's dimensions in pixels must be a power of 2, due to PVRTC1 format requirements. 
 		// output_blocks_buf_size_in_blocks should be at least the image level's total_blocks (num_blocks_x * num_blocks_y)
 		// If fmt isn't cETC1, basisu_transcoder_init() must have been called first to initialize the transcoder lookup tables.
+		// output_row_pitch_in_blocks: Number of blocks per row. If 0, the transcoder uses the slice's num_blocks_x. Ignored for PVRTC1 (due to texture swizzling).
 		bool transcode_image_level(
 			const void *pData, uint32_t data_size, 
 			uint32_t image_index, uint32_t level_index, 
 			void *pOutput_blocks, uint32_t output_blocks_buf_size_in_blocks,
 			transcoder_texture_format fmt,
-			uint32_t decode_flags = cDecodeFlagsPVRTCWrapAddressing) const;
+			uint32_t decode_flags = cDecodeFlagsPVRTCWrapAddressing, uint32_t output_row_pitch_in_blocks = 0) const;
 
 		// Finds the basis slice corresponding to the specified image/level/alpha params, or -1 if the slice can't be found.
 		int find_slice(const void *pData, uint32_t data_size, uint32_t image_index, uint32_t level_index, bool alpha_data) const;
@@ -278,9 +280,11 @@ namespace basist
 		// output_blocks_buf_size_in_blocks is just used for verification to make sure the output buffer is large enough.
 		// output_blocks_buf_size_in_blocks should be at least the slice's total_blocks (num_blocks_x * num_blocks_y)
 		// If fmt isn't cETC1, basisu_transcoder_init() must have been called first to initialize the transcoder lookup tables.
+		// output_block_stride_in_bytes: Number of bytes between each output block.
+		// output_row_pitch_in_blocks: Number of blocks per row. If 0, the transcoder uses the slice's num_blocks_x. Ignored for PVRTC1 (due to texture swizzling).
 		bool transcode_slice(const void *pData, uint32_t data_size, uint32_t slice_index, 
 			void *pOutput_blocks, uint32_t output_blocks_buf_size_in_blocks, 
-			block_format fmt, uint32_t output_stride, uint32_t decode_flags = cDecodeFlagsPVRTCWrapAddressing) const;
+			block_format fmt, uint32_t output_block_stride_in_bytes, uint32_t decode_flags = cDecodeFlagsPVRTCWrapAddressing, uint32_t output_row_pitch_in_blocks = 0) const;
 
 	private:
 		const void *m_pFile_data;

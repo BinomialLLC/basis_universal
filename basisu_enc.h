@@ -2309,6 +2309,8 @@ namespace basisu
 		return fopen(pFilename, pMode);
 #endif
 	}
+
+	void fill_buffer_with_random_bytes(void *pBuf, size_t size, uint32_t seed = 1);
 		
 } // namespace basisu
 

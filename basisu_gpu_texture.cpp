@@ -428,7 +428,7 @@ namespace basisu
 
 	bool gpu_image::unpack(image& img, bool pvrtc_wrap_addressing) const
 	{
-		img.resize(get_width(), get_height());
+		img.resize(get_pixel_width(), get_pixel_height());
 		img.set_all(g_black_color);
 
 		if (!img.get_width() || !img.get_height())
@@ -549,15 +549,15 @@ namespace basisu
 
 			if (!array_index)
 			{
-				width = levels[0].get_width();
-				height = levels[0].get_height();
+				width = levels[0].get_pixel_width();
+				height = levels[0].get_pixel_height();
 				total_levels = (uint32_t)levels.size();
 				fmt = levels[0].get_format();
 			}
 			else
 			{
-				if ((width != levels[0].get_width()) ||
-				    (height != levels[0].get_height()) ||
+				if ((width != levels[0].get_pixel_width()) ||
+				    (height != levels[0].get_pixel_height()) ||
 				    (total_levels != levels.size()))
 				{
 					// All cubemap/texture array faces must be the same dimension
@@ -570,8 +570,8 @@ namespace basisu
 			{
 				if (level_index)
 				{
-					if ( (levels[level_index].get_width() != maximum<uint32_t>(1, levels[0].get_width() >> level_index)) ||
-							(levels[level_index].get_height() != maximum<uint32_t>(1, levels[0].get_height() >> level_index)) )
+					if ( (levels[level_index].get_pixel_width() != maximum<uint32_t>(1, levels[0].get_pixel_width() >> level_index)) ||
+							(levels[level_index].get_pixel_height() != maximum<uint32_t>(1, levels[0].get_pixel_height() >> level_index)) )
 					{
 						// Malformed mipmap chain
 						assert(0);

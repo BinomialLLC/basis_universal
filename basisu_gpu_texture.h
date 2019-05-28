@@ -49,14 +49,23 @@ namespace basisu
 		}
 
 		inline texture_format get_format() const { return m_fmt; }
-		inline uint32_t get_width() const { return m_width; }
-		inline uint32_t get_height() const { return m_height; }
+		
+		// Width/height in pixels
+		inline uint32_t get_pixel_width() const { return m_width; }
+		inline uint32_t get_pixel_height() const { return m_height; }
+		
+		// Width/height in blocks, row pitch is assumed to be m_blocks_x.
 		inline uint32_t get_blocks_x() const { return m_blocks_x; }
 		inline uint32_t get_blocks_y() const { return m_blocks_y; }
+
+		// Size of each block in pixels
 		inline uint32_t get_block_width() const { return m_block_width; }
 		inline uint32_t get_block_height() const { return m_block_height; }
+
 		inline uint32_t get_qwords_per_block() const { return m_qwords_per_block; }
 		inline uint32_t get_total_blocks() const { return m_blocks_x * m_blocks_y; }
+		inline uint32_t get_bytes_per_block() const { return get_qwords_per_block() * sizeof(uint64_t); }
+		inline uint32_t get_row_pitch_in_bytes() const { return get_bytes_per_block() * get_blocks_x(); }
 
 		inline const uint64_vec &get_blocks() const { return m_blocks; }
 		
