@@ -30,7 +30,7 @@ cmake CMakeLists.txt
 make
 ```
 
-On macOS it's currently necessary to build with gcc instead of the system default clang.
+On OSX it's currently necessary to build with gcc instead of the system default clang (due to OpenMP usage in the encoder).
 
 ```
 #only if you don't have gcc installed
