@@ -266,7 +266,7 @@ namespace basisu
 			etc1_optimizer optimizer;
 			etc1_optimizer::params optimizer_params;
 			etc1_optimizer::results optimizer_results;
-
+						
 			optimizer_params.m_num_src_pixels = 16;
 			optimizer_params.m_pSrc_pixels = source_blk.get_ptr();
 			optimizer_params.m_perceptual = m_params.m_perceptual;
@@ -283,6 +283,10 @@ namespace basisu
 			blk.set_block_color5_etc1s(optimizer_results.m_block_color_unscaled);
 			blk.set_inten_tables_etc1s(optimizer_results.m_block_inten_table);
 			blk.set_flip_bit(true);
+
+			for (uint32_t y = 0; y < 4; y++)
+				for (uint32_t x = 0; x < 4; x++)
+					blk.set_selector(x, y, selectors[x + y * 4]);
 			
 			unpack_etc1(m_etc1_blocks_etc1s[block_index], m_etc1_blocks_etc1s_unpacked[block_index].get_ptr());
 		}
