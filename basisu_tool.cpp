@@ -30,7 +30,7 @@
 
 using namespace basisu;
 
-#define BASISU_TOOL_VERSION "1.05.00"
+#define BASISU_TOOL_VERSION "1.06.00"
 
 enum tool_mode
 {
@@ -50,9 +50,10 @@ static void print_usage()
 		" -unpack: Use transcoder to unpack .basis file to one or more .ktx/.png files\n"
 		" -validate: Validate and display information about a .basis file\n"
 		" -compare: Compare two PNG images specified with -file, output PSNR and SSIM statistics and RGB/A delta images\n"
+		"Unless an explicit mode is specified, if one or more files have the .basis extension this tool defaults to unpack mode.\n"
 		"\n"
 		"Important: By default, the compressor assumes the input is in the sRGB colorspace (like photos/albedo textures).\n"
-		"If the input is NOT sRGB (like a normal map), be sure to specify -linear for less artifacts.\n"
+		"If the input is NOT sRGB (like a normal map), be sure to specify -linear for less artifacts. Depending on the content type, some experimentation may be needed.\n"
 		"\n"
 		"Filenames prefixed with a @ symbol are read as filename listing files. Listing text files specify which actual filenames to process (one filename per line).\n"
 		"\n"
@@ -62,8 +63,8 @@ static void print_usage()
 		" -multifile_printf: printf() format strint to use to compose multiple filenames\n"
 		" -multifile_first: The index of the first file to process, default is 0 (must specify -multifile_printf and -multifile_num)\n"
 		" -multifile_num: The total number of files to process.\n"
-		" -linear: Use linear colorspace metrics (instead of the default sRGB).\n"
-		" -q X: Set quality level, 1-255, default is 128, lower=better compression/lower quality/faster, higher=less compression/higher quality/slower, default is 128\n"
+		" -linear: Use linear colorspace metrics (instead of the default sRGB), and by default linear (not sRGB) mipmap filtering.\n"
+		" -q X: Set quality level, 1-255, default is 128, lower=better compression/lower quality/faster, higher=less compression/higher quality/slower, default is 128. For even higher quality, use -max_endpoints/-max_selectors.\n"
 		" -output_file filename: Output .basis/.ktx filename\n"
 		" -output_path: Output .basis/.ktx files to specified directory.\n"
 		" -debug: Enable codec debug print to stdout (slightly slower).\n"
@@ -72,7 +73,7 @@ static void print_usage()
 		" -slower: Enable optional stages in the compressor for slower but higher quality compression using better codebooks.\n"
 		" -tex_type <2d, 2darray, 3d, video, cubemap>: Set Basis file header's texture type field. Cubemap arrays require multiples of 6 images, in X+, X-, Y+, Y-, Z+, Z- order, each image must be the same resolutions.\n"
 		"  2d=arbitrary 2D images, 2darray=2D array, 3D=volume texture slices, video=video frames, cubemap=array of faces. For 2darray/3d/cubemaps/video, each source image's dimensions and # of mipmap levels must be the same.\n"
-		" -framerate X: Set framerate in header to X/frames sec\n"
+		" -framerate X: Set framerate in header to X/frames sec.\n"
 		" -individual: Process input images individually and output multiple .basis files (not as a texture array)\n"
 		" -fuzz_testing: Use with -validate: Disables CRC16 validation of file contents before transcoding\n"
 		"\n"
@@ -85,16 +86,18 @@ static void print_usage()
 		" -force_alpha: Always output alpha basis files, even if no inputs has alpha\n"
 		" -seperate_rg_to_color_alpha: Seperate input R and G channels to RGB and A (for tangent space XY normal maps)\n"
 		" -no_multithreading: Disable OpenMP multithreading\n"
-		" -no_ktx: Disable KTX writing when unpacking\n"
+		" -no_ktx: Disable KTX writing when unpacking (faster)\n"
 		"\n"
 		"Mipmap generation options:\n"
 		" -mipmap: Generate mipmaps for each source image\n"
 		" -mip_srgb: Convert image to linear before filtering, then back to sRGB\n"
+		" -mip_linear: Keep image in linear light during mipmap filtering\n"
 		" -mip_scale X: Set mipmap filter kernel's scale, lower=sharper, higher=more blurry, default is 1.0\n"
 		" -mip_filter X: Set mipmap filter kernel, default is kaiser, filters: box, tent, bell, blackman, catmullrom, mitchell, etc.\n"
 		" -mip_renorm: Renormalize normal map to unit length vectors after filtering\n"
 		" -mip_clamp: Use clamp addressing on borders, instead of wrapping\n"
 		" -mip_smallest X: Set smallest pixel dimension for generated mipmaps, default is 1 pixel\n"
+		"By default, mipmap filtering will occur in sRGB space (for the RGB color channels) unless -linear is specified. You can override this behavior with -mip_srgb/-mip_linear.\n"
 		"\n"
 		"Backend endpoint/selector RDO codec options:\n"
 		" -no_selector_rdo: Disable backend's selector rate distortion optimizations (slightly faster, less noisy output, but lower quality per output bit)\n"
@@ -357,6 +360,8 @@ public:
 			}
 			else if (strcasecmp(pArg, "-mip_srgb") == 0)
 				m_comp_params.m_mip_srgb = true;
+			else if (strcasecmp(pArg, "-mip_linear") == 0)
+				m_comp_params.m_mip_srgb = false;
 			else if (strcasecmp(pArg, "-no_selector_rdo") == 0)
 				m_comp_params.m_no_selector_rdo = true;
 			else if (strcasecmp(pArg, "-selector_rdo_thresh") == 0)
@@ -481,6 +486,15 @@ public:
 			m_comp_params.m_max_selector_clusters = 0;
 
 			m_comp_params.m_quality_level = 128;
+		}
+
+		if (!m_comp_params.m_mip_srgb.was_changed())
+		{
+			// They didn't specify what colorspace to do mipmap filtering in, so choose sRGB if they've specified that the texture is sRGB.
+			if (m_comp_params.m_perceptual)
+				m_comp_params.m_mip_srgb = true;
+			else
+				m_comp_params.m_mip_srgb = false;
 		}
 				
 		return true;
