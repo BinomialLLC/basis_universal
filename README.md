@@ -48,9 +48,9 @@ Note that basisu defaults to sRGB colorspace metrics. If the input is a normal m
 
 To add automatically generated mipmaps to the .basis file, at a higher than default quality level (which ranges from [1,255]):
 
-`basisu -mipmap -mip_srgb -q 190 x.png`
+`basisu -mipmap -q 190 x.png`
 
-There are several mipmap options that allow you to change the filter kernel, the smallest mipmap dimension, etc. The tool also supports generating cubemap files, 2D/cubemap texture arrays, etc.
+There are several mipmap options that allow you to change the filter kernel, the filter colorspace for the RGB channels (linear vs. sRGB), the smallest mipmap dimension, etc. The tool also supports generating cubemap files, 2D/cubemap texture arrays, etc.
 
 To create a higher quality .basis file (one with better codebooks):
 
@@ -60,7 +60,7 @@ To unpack a .basis file to multiple .png/.ktx files:
 
 `basisu x.basis`
 
-The mipmapped .KTX files will be in a variety of compressed GPU texture formats (PVRTC1 4bpp, ETC1-2, BC1-5, BC7), and to my knowledge there is no single .KTX viewer tool that correctly and reliably supports every GPU texture format that we support. BC1-5 and BC7 files are viewable using AMD's Compressonator, ETC1/2 using Mali's Texture Compression Tool, and PVRTC1 using Imagination Tech's PVRTexTool. Links:
+The mipmapped or cubemap .KTX files will be in a variety of compressed GPU texture formats (PVRTC1 4bpp, ETC1-2, BC1-5, BC7), and to my knowledge there is no single .KTX viewer tool that correctly and reliably supports every GPU texture format that we support. BC1-5 and BC7 files are viewable using AMD's Compressonator, ETC1/2 using Mali's Texture Compression Tool, and PVRTC1 using Imagination Tech's PVRTexTool. Links:
 
 [Mali Texture Compression Tool](https://duckduckgo.com/?q=mali+texture+compression+tool&atb=v146-1&ia=web)
 
@@ -98,7 +98,7 @@ Compress sRGB image x.png to x.basis using default settings (multiple filenames 
 `basisu x.basis`\
 Unpack x.basis to PNG/KTX files (multiple filenames OK)
 
-`basisu -file x.png -mipmap -mip_srgb -y_flip`\
+`basisu -file x.png -mipmap -y_flip`\
 Compress a mipmapped x.basis file from an sRGB image named x.png, Y flip each source image
 
 `basisu -validate -file x.basis`\
@@ -107,7 +107,7 @@ Validate x.basis (check header, check file CRC's, attempt to transcode all slice
 `basisu -unpack -file x.basis`\
 Validates, transcodes and unpacks x.basis to mipmapped .KTX and RGB/A .PNG files (transcodes to all supported GPU texture formats)
 
-`basisu -q 255 -file x.png -mipmap -mip_srgb -debug -stats`\
+`basisu -q 255 -file x.png -mipmap -debug -stats`\
 Compress sRGB x.png to x.basis at quality level 255 with compressor debug output/statistics
 
 `basisu -linear -max_endpoints 16128 -max_selectors 16128 -file x.png`\
