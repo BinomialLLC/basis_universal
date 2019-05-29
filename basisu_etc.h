@@ -470,6 +470,32 @@ namespace basisu
 			return dc;
 		}
 
+		bool get_block_low_high_colors(color_rgba* pBlock_colors, uint32_t subblock_index) const
+		{
+			color_rgba b;
+
+			if (get_diff_bit())
+			{
+				if (subblock_index)
+					unpack_color5(b, get_base5_color(), get_delta3_color(), true);
+				else
+					unpack_color5(b, get_base5_color(), true);
+			}
+			else
+			{
+				b = unpack_color4(get_base4_color(subblock_index), true);
+			}
+
+			const int* pInten_table = g_etc1_inten_tables[get_inten_table(subblock_index)];
+
+			bool dc = false;
+
+			pBlock_colors[0].set(clamp255(b.r + pInten_table[0], dc), clamp255(b.g + pInten_table[0], dc), clamp255(b.b + pInten_table[0], dc), 255);
+			pBlock_colors[1].set(clamp255(b.r + pInten_table[3], dc), clamp255(b.g + pInten_table[3], dc), clamp255(b.b + pInten_table[3], dc), 255);
+
+			return dc;
+		}
+
 		static void get_block_colors5(color_rgba *pBlock_colors, const color_rgba &base_color5, uint32_t inten_table, bool scaled = false)
 		{
 			color_rgba b(base_color5);

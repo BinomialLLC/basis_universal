@@ -263,37 +263,12 @@ namespace basisu
 		{
 			const pixel_block &source_blk = get_source_pixel_block(block_index);
 
-			pack_etc1_block_context pack_context;
-
-			basis_etc1_pack_params etc1_pack_params;
-			etc1_pack_params.m_perceptual = m_params.m_perceptual;
-			etc1_pack_params.m_force_etc1s = true;
-			etc1_pack_params.m_flip_bias = 0.0f;
-
-			pack_etc1_block(m_etc1_blocks_etc1s[block_index], source_blk.get_ptr(), etc1_pack_params, pack_context, NULL);
-			assert(m_etc1_blocks_etc1s[block_index].get_flip_bit());
-
-			unpack_etc1(m_etc1_blocks_etc1s[block_index], m_etc1_blocks_etc1s_unpacked[block_index].get_ptr());
-		}
-	}
-
-	void basisu_frontend::init_endpoint_training_vectors()
-	{
-		debug_printf("init_endpoint_training_vectors\n");
-								
-		std::vector<vec6F> training_vecs(m_total_blocks);
-
-#pragma omp parallel for
-		for (int block_index = 0; block_index < (int)m_total_blocks; block_index++)
-		{
-			const color_rgba *pSource_pixels = get_source_pixel_block(block_index).get_ptr();
-						
 			etc1_optimizer optimizer;
 			etc1_optimizer::params optimizer_params;
 			etc1_optimizer::results optimizer_results;
 
 			optimizer_params.m_num_src_pixels = 16;
-			optimizer_params.m_pSrc_pixels = pSource_pixels;
+			optimizer_params.m_pSrc_pixels = source_blk.get_ptr();
 			optimizer_params.m_perceptual = m_params.m_perceptual;
 
 			uint8_t selectors[16];
@@ -302,29 +277,40 @@ namespace basisu
 
 			optimizer.init(optimizer_params, optimizer_results);
 			optimizer.compute();
+			
+			etc_block &blk = m_etc1_blocks_etc1s[block_index];
 
-			color_rgba block_colors[4];
-			etc_block::get_block_colors5(block_colors, optimizer_results.m_block_color_unscaled, optimizer_results.m_block_inten_table, false);
+			blk.set_block_color5_etc1s(optimizer_results.m_block_color_unscaled);
+			blk.set_inten_tables_etc1s(optimizer_results.m_block_inten_table);
+			blk.set_flip_bit(true);
+			
+			unpack_etc1(m_etc1_blocks_etc1s[block_index], m_etc1_blocks_etc1s_unpacked[block_index].get_ptr());
+		}
+	}
+
+	void basisu_frontend::init_endpoint_training_vectors()
+	{
+		debug_printf("init_endpoint_training_vectors\n");
+								
+		for (int block_index = 0; block_index < (int)m_total_blocks; block_index++)
+		{
+			const etc_block &blk = m_etc1_blocks_etc1s[block_index];
+
+			color_rgba block_colors[2];
+			blk.get_block_low_high_colors(block_colors, 0);
 
 			vec6F v;
 			v[0] = block_colors[0].r * (1.0f / 255.0f);
 			v[1] = block_colors[0].g * (1.0f / 255.0f);
 			v[2] = block_colors[0].b * (1.0f / 255.0f);
-			v[3] = block_colors[3].r * (1.0f / 255.0f);
-			v[4] = block_colors[3].g * (1.0f / 255.0f);
-			v[5] = block_colors[3].b * (1.0f / 255.0f);
+			v[3] = block_colors[1].r * (1.0f / 255.0f);
+			v[4] = block_colors[1].g * (1.0f / 255.0f);
+			v[5] = block_colors[1].b * (1.0f / 255.0f);
+			
+			m_endpoint_clusterizer.add_training_vec(v, 1);
+			m_endpoint_clusterizer.add_training_vec(v, 1);
 
-			training_vecs[block_index] = v;
-									
 		} // block_index
-
-		for (int block_index = 0; block_index < (int)m_total_blocks; block_index++)
-		{
-			const vec6F &v = training_vecs[block_index];
-
-			m_endpoint_clusterizer.add_training_vec(v, 1);
-			m_endpoint_clusterizer.add_training_vec(v, 1);
-		}
 	}
 
 	void basisu_frontend::generate_endpoint_clusters()
