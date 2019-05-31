@@ -54,7 +54,7 @@ There are several mipmap options that allow you to change the filter kernel, the
 
 To create a higher quality .basis file (one with better codebooks):
 
-`basisu -slower x.png`
+`basisu -level 2 x.png`
 
 To unpack a .basis file to multiple .png/.ktx files:
 
@@ -74,21 +74,33 @@ For best quality, you must supply basisu with original uncompressed source image
 
 For the maximum possible achievable quality with the current format and encoder, use:
 
-`basisu x.png -slower -max_endpoints 16128 -max_selectors 16128 -no_selector_rdo -no_endpoint_rdo`
+`basisu x.png -level 5 -max_endpoints 16128 -max_selectors 16128 -no_selector_rdo -no_endpoint_rdo`
+
+Level 5 is extremely slow, so unless you have a very powerful machine, levels 2-4 are recommended.
 
 Note that "-no_selector_rdo -no_endpoint_rdo" are optional. Using them hurts rate distortion performance, but increases quality. An alternative is to use -selector_rdo_thresh X and -endpoint_rdo_thresh, with X ranging from [1,2] (higher=lower quality/better compression - see the tool's help text).
 
 To compress small video sequences, say using tools like ffmpeg and VirtualDub:
 
-`basisu -slower -tex_type video -stats -debug -multifile_printf "pic%04u.png" -multifile_num 200 -multifile_first 1 -max_selectors 16128 -max_endpoints 16128`
+`basisu -level 2 -tex_type video -stats -debug -multifile_printf "pic%04u.png" -multifile_num 200 -multifile_first 1 -max_selectors 16128 -max_endpoints 16128`
 
-The reference encoder will take a LONG time and a lot of CPU to encode video, especially with -slower. The more cores your machine has, the better. Basis is intended for smaller videos of a few dozen seconds or so. If you are very patient and have a Threadripper or Xeon workstation, you should be able to encode up to a few thousand 720P frames.
+The reference encoder will take a LONG time and a lot of CPU to encode video. The more cores your machine has, the better. Basis is intended for smaller videos of a few dozen seconds or so. If you are very patient and have a Threadripper or Xeon workstation, you should be able to encode up to a few thousand 720P frames.
 
 The .basis file will contain multiple images (all using the same global codebooks), which you can retrieve using the transcoder's image API. This initial release doesn't support [conditional replenisment](https://en.wikipedia.org/wiki/MPEG-1) (CR), but we have a branch in the works that does that doesn't change the file format itself. CR can reduce the bitrate of some videos (highly dependent on how dynamic the content is) by over 50%. For videos using CR, the images must be requested from the transcoder in sequence from first to last, and random access is only allowed to I-Frames. (More on this once we release it.) 
 
 The latest version of the encoder is in the "video" branch, but it's still a work in progress and hasn't been fully tested yet. The video branch supports I-Frames, and simple P-Frames using conditional replenishment (CR).
 
 If you are doing rate distortion comparisons vs. other similar systems, be sure to experiment with increasing the endpoint RDO threshold (-endpoint_rdo_thresh X). This setting controls how aggressively the compressor's backend will combine together nearby blocks so they use the same block endpoint codebook vectors, for better coding efficiency. X defaults to a modest 1.5, which means the backend is allowed to increase the overall color distance by 1.5x while searching for merge candidates. The higher this setting, the better the compression, with the tradeoff of more block artifacts. Settings up to ~2.25 can work well, and make the codec more competitive. "-endpoint_rdo_thresh 1.75" is a good setting on many textures.
+
+### Compression levels
+
+The encoder supports multiple encoding speed vs. quality levels, which (along with -q or setting the codebook sizes) controls the tradeoff between quality and encoding time. The default is level 1, which is the best overall balance between encoding speed vs. quality. Here's a graph showing the encoding time and quality across 59 images for each quality level:
+
+![Encoder Level vs. Time/Quality Graph](https://github.com/BinomialLLC/basis_universal/blob/master/encoder_lvl_vs_perf.png "Encoder Level vs. Encoding Time/Quality")
+
+This benchmark was done on a 20 core Xeon workstation. The results will be different on less powerful machines.
+
+Note that -level 2 is equivalent to the initial release's quality, and -level 4 is equivalent to the initial release's -slower. Also, -slower is now equivalent to level 2 (not 4).
 
 ### More detailed examples
 
@@ -224,7 +236,7 @@ Newer devices supporting BC6H/BC7: You still need to transcode to BC3. We will s
 
 3. For high quality tangent space normal maps, here's one suggested solution that should work well today:
 
-Compress with the -normal_map flag, which disables a lot of stuff that has interfered with normal maps in the past. Also compress with -slower, which creates the highest quality codebooks. Use larger codebooks (use the -max_endpoints and -max_selectors options directly, with larger values).
+Compress with the -normal_map flag, which disables a lot of stuff that has interfered with normal maps in the past. Also compress with -level 2-4, which creates the highest quality codebooks. Use larger codebooks (use the -max_endpoints and -max_selectors options directly, with larger values).
 
 Start with 2 component normalized XY tangent space normal maps (where XY range from [-1,1]) and encode them into two 8-bit channels (where XY is packed into [0,255]). Now put X in color, and Y in alpha, and compress that 32-bit PNG using basisu. The command line tool and encoder class support the option "-seperate_rg_to_color_alpha" that swizzles 2 component RG normal maps to RRRG before compression, aiding this process.
 
