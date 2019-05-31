@@ -185,7 +185,8 @@ namespace basisu
 			m_max_selector_clusters(512),
 			m_quality_level(-1),
 			m_mip_scale(1.0f, .000125f, 4.0f),
-			m_mip_smallest_dimension(1, 1, 16384)
+			m_mip_smallest_dimension(1, 1, 16384),
+			m_compression_level((int)BASISU_DEFAULT_COMPRESSION_LEVEL, 0, (int)BASISU_MAX_COMPRESSION_LEVEL)
 		{
 			clear();
 		}
@@ -206,14 +207,13 @@ namespace basisu
 			m_debug_images.clear();
 			m_global_sel_pal.clear();
 			m_no_auto_global_sel_pal.clear();
-			m_no_endpoint_refinement.clear();
 			m_no_hybrid_sel_cb.clear();
 			m_perceptual.clear();
 			m_no_selector_rdo.clear();
 			m_selector_rdo_thresh.clear();
 			m_read_source_images.clear();
 			m_write_output_basis_files.clear();
-			m_faster.clear();
+			m_compression_level.clear();
 			m_compute_stats.clear();
 			m_check_for_alpha.clear();
 			m_force_alpha.clear();
@@ -270,11 +270,13 @@ namespace basisu
 		// m_debug_images is pretty slow
 		bool_param<false> m_debug_images;
 
+		// Compression level, from 0 to BASISU_MAX_COMPRESSION_LEVEL (higher is slower)
+		param<int> m_compression_level;
+
 		bool_param<false> m_global_sel_pal;
 		bool_param<false> m_no_auto_global_sel_pal;
 
 		// Frontend/backend codec parameters
-		bool_param<false> m_no_endpoint_refinement;
 		bool_param<false> m_no_hybrid_sel_cb;
 		
 		// Use perceptual sRGB colorspace metrics (for normal maps, etc.)
@@ -292,10 +294,7 @@ namespace basisu
 
 		// Write the output basis file to disk using m_out_filename
 		bool_param<false> m_write_output_basis_files;
-
-		// If true, the compressor disables some optional but slower refinement stages
-		bool_param<true> m_faster;
-
+				
 		// Compute and display image metrics 
 		bool_param<false> m_compute_stats;
 		

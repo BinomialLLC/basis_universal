@@ -57,14 +57,13 @@ namespace basisu
 			PRINT_BOOL_VALUE(m_debug_images);
 			PRINT_BOOL_VALUE(m_global_sel_pal);
 			PRINT_BOOL_VALUE(m_no_auto_global_sel_pal);
-			PRINT_BOOL_VALUE(m_no_endpoint_refinement);
+			PRINT_BOOL_VALUE(m_compression_level);
 			PRINT_BOOL_VALUE(m_no_hybrid_sel_cb);
 			PRINT_BOOL_VALUE(m_perceptual);
 			PRINT_BOOL_VALUE(m_no_endpoint_rdo);
 			PRINT_BOOL_VALUE(m_no_selector_rdo);
 			PRINT_BOOL_VALUE(m_read_source_images);
 			PRINT_BOOL_VALUE(m_write_output_basis_files);
-			PRINT_BOOL_VALUE(m_faster);
 			PRINT_BOOL_VALUE(m_compute_stats);
 			PRINT_BOOL_VALUE(m_check_for_alpha)
 			PRINT_BOOL_VALUE(m_force_alpha)
@@ -776,11 +775,10 @@ namespace basisu
 		p.m_max_endpoint_clusters = endpoint_clusters;
 		p.m_max_selector_clusters = selector_clusters;
 		p.m_perceptual = m_params.m_perceptual;
-		p.m_endpoint_refinement = !m_params.m_no_endpoint_refinement;
 		p.m_debug_stats = m_params.m_debug;
 		p.m_debug_images = m_params.m_debug_images;
-		p.m_faster = m_params.m_faster;
-
+		p.m_compression_level = m_params.m_compression_level;
+		
 		if ((m_params.m_global_sel_pal) || (m_auto_global_sel_pal))
 		{
 			p.m_pGlobal_sel_codebook = m_params.m_pSel_codebook;
@@ -874,6 +872,7 @@ namespace basisu
 		backend_params.m_debug = m_params.m_debug;
 		backend_params.m_debug_images = m_params.m_debug_images;
 		backend_params.m_etc1s = true;
+		backend_params.m_compression_level = m_params.m_compression_level;
 		
 		if (!m_params.m_no_endpoint_rdo)
 			backend_params.m_endpoint_rdo_quality_thresh = m_params.m_endpoint_rdo_thresh;
@@ -1077,24 +1076,7 @@ namespace basisu
 				// TODO: We used to output SSIM (during heavy encoder development), but this slowed down compression too much. We'll be adding it back.
 
 				image_metrics em;
-
-				// ---- Nearly best possible ETC1S stats
-				em.calc(m_slice_images[slice_index], m_best_etc1s_images_unpacked[slice_index], 0, 0);
-				em.print("Unquantized ETC1S 709 Luma:    ");
-
-				s.m_best_luma_709_psnr = static_cast<float>(em.m_psnr);
-				s.m_best_luma_709_ssim = static_cast<float>(em.m_ssim);
-
-				em.calc(m_slice_images[slice_index], m_best_etc1s_images_unpacked[slice_index], 0, 0, true, true);
-				em.print("Unquantized ETC1S 601 Luma:    ");
-
-				s.m_best_luma_601_psnr = static_cast<float>(em.m_psnr);
-				
-				em.calc(m_slice_images[slice_index], m_best_etc1s_images_unpacked[slice_index], 0, 3);
-				em.print("Unquantized ETC1S RGB Avg:     ");
-
-				s.m_best_rgb_avg_psnr = static_cast<float>(em.m_psnr);
-
+								
 				// ---- .basis ETC1S stats
 				em.calc(m_slice_images[slice_index], m_decoded_output_textures_unpacked[slice_index], 0, 0);
 				em.print(".basis ETC1S 709 Luma:         ");
@@ -1133,6 +1115,23 @@ namespace basisu
 				em.print(".basis BC1 RGB Avg:            ");
 
 				s.m_basis_bc1_rgb_avg_psnr = static_cast<float>(em.m_psnr);
+
+				// ---- Nearly best possible ETC1S stats
+				em.calc(m_slice_images[slice_index], m_best_etc1s_images_unpacked[slice_index], 0, 0);
+				em.print("Unquantized ETC1S 709 Luma:    ");
+
+				s.m_best_luma_709_psnr = static_cast<float>(em.m_psnr);
+				s.m_best_luma_709_ssim = static_cast<float>(em.m_ssim);
+
+				em.calc(m_slice_images[slice_index], m_best_etc1s_images_unpacked[slice_index], 0, 0, true, true);
+				em.print("Unquantized ETC1S 601 Luma:    ");
+
+				s.m_best_luma_601_psnr = static_cast<float>(em.m_psnr);
+				
+				em.calc(m_slice_images[slice_index], m_best_etc1s_images_unpacked[slice_index], 0, 3);
+				em.print("Unquantized ETC1S RGB Avg:     ");
+
+				s.m_best_rgb_avg_psnr = static_cast<float>(em.m_psnr);
 			}
 		
 			if (m_frontend.get_params().m_debug_images)

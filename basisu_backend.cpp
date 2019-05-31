@@ -27,7 +27,7 @@ namespace basisu
 	{
 		if (!condition)
 		{
-			fprintf(stderr, "basisu_backend: verify() failed at line %i!\n", line);
+			fprintf(stderr, "ERROR: basisu_backend: verify() failed at line %i!\n", line);
 			abort();
 		}
 	}
@@ -179,7 +179,7 @@ namespace basisu
 	{
 		basisu_frontend &r = *m_pFront_end;
 
-		if (total_block_endpoints_remapped)
+		if ((total_block_endpoints_remapped) && (m_params.m_compression_level > 0))
 		{
 			// We're changed the block endpoint indices, so we need to go and adjust the endpoint codebook (remove unused entries, optimize existing entries that have changed)
 			uint_vec new_block_endpoints(get_total_blocks());
@@ -251,6 +251,10 @@ namespace basisu
 		for (uint32_t i = 1; i < r.get_total_selector_clusters(); i++)
 			remaining_selectors.push_back(i);
 
+		uint_vec selector_palette_bytes(m_selector_palette.size());
+		for (uint32_t i = 0; i < m_selector_palette.size(); i++)
+			selector_palette_bytes[i] = m_selector_palette[i].get_byte(0) | (m_selector_palette[i].get_byte(1) << 8) |(m_selector_palette[i].get_byte(2) << 16) |(m_selector_palette[i].get_byte(3) << 24);
+
 		// This is the traveling salesman problem.
 		for (uint32_t i = 1; i < r.get_total_selector_clusters(); i++)
 		{
@@ -266,12 +270,9 @@ namespace basisu
 			{
 				int selector_index = remaining_selectors[j];
 				
-				uint32_t hamming_dist = 
-					g_hamming_dist[m_selector_palette[prev_selector_index].get_byte(0) ^ m_selector_palette[selector_index].get_byte(0)] + 
-					g_hamming_dist[m_selector_palette[prev_selector_index].get_byte(1) ^ m_selector_palette[selector_index].get_byte(1)] + 
-					g_hamming_dist[m_selector_palette[prev_selector_index].get_byte(2) ^ m_selector_palette[selector_index].get_byte(2)] + 
-					g_hamming_dist[m_selector_palette[prev_selector_index].get_byte(3) ^ m_selector_palette[selector_index].get_byte(3)];
-
+				uint32_t k = selector_palette_bytes[prev_selector_index] ^ selector_palette_bytes[selector_index];
+				uint32_t hamming_dist = g_hamming_dist[k & 0xFF] + g_hamming_dist[(k >> 8) & 0xFF] + g_hamming_dist[(k >> 16) & 0xFF] + g_hamming_dist[k >> 24];
+				
 				if (hamming_dist < best_hamming_dist)
 				{
 					best_hamming_dist = hamming_dist;
@@ -923,7 +924,7 @@ namespace basisu
 			total_selector_indices_remapped, total_selector_indices_remapped * 100.0f / get_total_blocks(),
 			total_used_selector_history_buf, total_used_selector_history_buf * 100.0f / get_total_blocks());
 
-		if (total_endpoint_indices_remapped)
+		if ((total_endpoint_indices_remapped) && (m_params.m_compression_level > 0))
 		{
 			int_vec unused;
 			r.reoptimize_remapped_endpoints(block_endpoint_indices, unused, false, &block_selector_indices);

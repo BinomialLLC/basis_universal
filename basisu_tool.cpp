@@ -30,7 +30,7 @@
 
 using namespace basisu;
 
-#define BASISU_TOOL_VERSION "1.06.00"
+#define BASISU_TOOL_VERSION "1.07.00"
 
 enum tool_mode
 {
@@ -63,14 +63,14 @@ static void print_usage()
 		" -multifile_printf: printf() format strint to use to compose multiple filenames\n"
 		" -multifile_first: The index of the first file to process, default is 0 (must specify -multifile_printf and -multifile_num)\n"
 		" -multifile_num: The total number of files to process.\n"
-		" -linear: Use linear colorspace metrics (instead of the default sRGB), and by default linear (not sRGB) mipmap filtering.\n"
+		" -level X: Set encoding speed vs. quality tradeoff. Range is 0-5, default is 1. Higher values=slower, but higher quality.\n"
 		" -q X: Set quality level, 1-255, default is 128, lower=better compression/lower quality/faster, higher=less compression/higher quality/slower, default is 128. For even higher quality, use -max_endpoints/-max_selectors.\n"
+		" -linear: Use linear colorspace metrics (instead of the default sRGB), and by default linear (not sRGB) mipmap filtering.\n"
 		" -output_file filename: Output .basis/.ktx filename\n"
 		" -output_path: Output .basis/.ktx files to specified directory.\n"
 		" -debug: Enable codec debug print to stdout (slightly slower).\n"
 		" -debug_images: Enable codec debug images (much slower).\n"
 		" -stats: Compute and display image quality metrics (slightly slower).\n"
-		" -slower: Enable optional stages in the compressor for slower but higher quality compression using better codebooks.\n"
 		" -tex_type <2d, 2darray, 3d, video, cubemap>: Set Basis file header's texture type field. Cubemap arrays require multiples of 6 images, in X+, X-, Y+, Y-, Z+, Z- order, each image must be the same resolutions.\n"
 		"  2d=arbitrary 2D images, 2darray=2D array, 3D=volume texture slices, video=video frames, cubemap=array of faces. For 2darray/3d/cubemaps/video, each source image's dimensions and # of mipmap levels must be the same.\n"
 		" -framerate X: Set framerate in header to X/frames sec.\n"
@@ -87,6 +87,7 @@ static void print_usage()
 		" -seperate_rg_to_color_alpha: Seperate input R and G channels to RGB and A (for tangent space XY normal maps)\n"
 		" -no_multithreading: Disable OpenMP multithreading\n"
 		" -no_ktx: Disable KTX writing when unpacking (faster)\n"
+		" -etc1_only: Only unpack to ETC1, skipping the other texture formats during -unpack\n"
 		"\n"
 		"Mipmap generation options:\n"
 		" -mipmap: Generate mipmaps for each source image\n"
@@ -111,7 +112,6 @@ static void print_usage()
 		" -no_hybrid_sel_cb: Don't automatically use hybrid virtual selector codebooks (for higher quality, only active when -global_sel_pal is specified)\n"
 		" -global_pal_bits X: Set virtual selector codebook palette bits, range is [0,12], default is 8, higher is slower/better quality\n"
 		" -global_mod_bits X: Set virtual selector codebook modifier bits, range is [0,15], defualt is 8, higher is slower/better quality\n"
-		" -no_endpoint_refinement: Disable endpoint codebook refinement stage (slightly faster, but lower quality)\n"
 		" -hybrid_sel_cb_quality_thresh X: Set hybrid selector codebook quality threshold, default is 2.0, try 1.5-3, higher is lower quality/smaller codebooks\n"
 		"\n"
 		"Set various fields in the Basis file header:\n"
@@ -119,16 +119,24 @@ static void print_usage()
 		" -userdata1 X: Set 32-bit userdata1 field in Basis file header to X (X is a signed 32-bit int)\n"
 		"\n"
 		"Various command line examples:\n"
-		"basisu x.png : Compress sRGB image x.png to x.basis using default settings (multiple filenames OK)\n"
-		"basisu x.basis : Unpack x.basis to PNG/KTX files (multiple filenames OK)\n"
-		"basisu -file x.png -mipmap -y_flip : Compress a mipmapped x.basis file from an sRGB image named x.png, Y flip each source image\n"
-		"basisu -validate -file x.basis : Validate x.basis (check header, check file CRC's, attempt to transcode all slices)\n"
-		"basisu -unpack -file x.basis : Validates, transcodes and unpacks x.basis to mipmapped .KTX and RGB/A .PNG files (transcodes to all supported GPU texture formats)\n"
-		"basisu -q 255 -file x.png -mipmap -debug -stats : Compress sRGB x.png to x.basis at quality level 255 with compressor debug output/statistics\n"
-		"basisu -linear -max_endpoints 16128 -max_selectors 16128 -file x.png : Compress non-sRGB x.png to x.basis using the largest supported manually specified codebook sizes\n"
-		"basisu -linear -global_sel_pal -no_hybrid_sel_cb -file x.png : Compress a non-sRGB image, use virtual selector codebooks for improved compression (but slower encoding)\n"
-		"basisu -linear -global_sel_pal -file x.png: Compress a non-sRGB image, use hybrid selector codebooks for slightly improved compression (but slower encoding)\n"
-		"basisu -tex_type video -framerate 20 -multifile_printf \"x%02u.png\" -multifile_first 1 -multifile_count 20 : Compress a 20 sRGB source image video sequence (x01.png, x02.png, x03.png, etc.) to x01.basis\n"
+		" basisu x.png : Compress sRGB image x.png to x.basis using default settings (multiple filenames OK)\n"
+		" basisu x.basis : Unpack x.basis to PNG/KTX files (multiple filenames OK)\n"
+		" basisu -file x.png -mipmap -y_flip : Compress a mipmapped x.basis file from an sRGB image named x.png, Y flip each source image\n"
+		" basisu -validate -file x.basis : Validate x.basis (check header, check file CRC's, attempt to transcode all slices)\n"
+		" basisu -unpack -file x.basis : Validates, transcodes and unpacks x.basis to mipmapped .KTX and RGB/A .PNG files (transcodes to all supported GPU texture formats)\n"
+		" basisu -q 255 -file x.png -mipmap -debug -stats : Compress sRGB x.png to x.basis at quality level 255 with compressor debug output/statistics\n"
+		" basisu -linear -max_endpoints 16128 -max_selectors 16128 -file x.png : Compress non-sRGB x.png to x.basis using the largest supported manually specified codebook sizes\n"
+		" basisu -linear -global_sel_pal -no_hybrid_sel_cb -file x.png : Compress a non-sRGB image, use virtual selector codebooks for improved compression (but slower encoding)\n"
+		" basisu -linear -global_sel_pal -file x.png: Compress a non-sRGB image, use hybrid selector codebooks for slightly improved compression (but slower encoding)\n"
+		" basisu -tex_type video -framerate 20 -multifile_printf \"x%02u.png\" -multifile_first 1 -multifile_count 20 : Compress a 20 sRGB source image video sequence (x01.png, x02.png, x03.png, etc.) to x01.basis\n"
+		"\n"
+		"Compression level details:\n"
+		" Level 0: Fastest, but has marginal quality and is a work in progress. Brittle on complex images. Avg. Y dB: 35.45\n"
+		" Level 1: Hierarchical codebook searching. 36.87 dB, ~1.4x slower vs. level 0. (This is the default setting.)\n"
+		" Level 2: Full codebook searching. 37.13 dB, ~1.8x slower vs. level 0. (Equivalent the the initial release's default settings.)\n"
+		" Level 3: Hierarchical codebook searching, codebook k-means iterations. 37.15 dB, ~4x slower vs. level 0\n"
+		" Level 4: Full codebook searching, codebook k-means iterations. 37.41 dB, ~5.5x slower vs. level 0. (Equivalent to the initial release's -slower setting.)\n"
+		" Level 5: Full codebook searching, twice as many codebook k-means iterations, best ETC1 endpoint opt. 37.43 dB, ~12x slower vs. level 0\n"
 	);
 }
 
@@ -212,6 +220,7 @@ public:
 		m_multifile_num(0),
 		m_individual(false),
 		m_no_ktx(false),
+		m_etc1_only(false),
 		m_fuzz_testing(false)
 	{
 	}
@@ -296,8 +305,17 @@ public:
 				m_comp_params.m_debug_images = true;
 			else if (strcasecmp(pArg, "-stats") == 0)
 				m_comp_params.m_compute_stats = true;
+			else if (strcasecmp(pArg, "-level") == 0)
+			{
+				REMAINING_ARGS_CHECK(1);
+				m_comp_params.m_compression_level = atoi(arg_v[arg_index + 1]);
+				arg_count++;
+			}
 			else if (strcasecmp(pArg, "-slower") == 0)
-				m_comp_params.m_faster = false;
+			{
+				// This option is gone, but we'll do something reasonable with it anyway. Level 4 is equivalent to the original release's -slower, but let's just go to level 2.
+				m_comp_params.m_compression_level = 2;
+			}
 			else if (strcasecmp(pArg, "-max_endpoints") == 0)
 			{
 				REMAINING_ARGS_CHECK(1);
@@ -335,6 +353,8 @@ public:
 				m_comp_params.m_mip_gen = true;
 			else if (strcasecmp(pArg, "-no_ktx") == 0)
 				m_no_ktx = true;
+			else if (strcasecmp(pArg, "-etc1_only") == 0)
+				m_etc1_only = true;
 			else if (strcasecmp(pArg, "-mip_scale") == 0)
 			{
 				REMAINING_ARGS_CHECK(1);
@@ -380,8 +400,6 @@ public:
 			}
 			else if (strcasecmp(pArg, "-global_sel_pal") == 0)
 				m_comp_params.m_global_sel_pal = true;
-			else if (strcasecmp(pArg, "-no_endpoint_refinement") == 0)
-				m_comp_params.m_no_endpoint_refinement = true;
 			else if (strcasecmp(pArg, "-no_auto_global_sel_pal") == 0)
 				m_comp_params.m_no_auto_global_sel_pal = true;
 			else if (strcasecmp(pArg, "-global_pal_bits") == 0)
@@ -549,6 +567,7 @@ public:
 
 	bool m_individual;
 	bool m_no_ktx;
+	bool m_etc1_only;
 	bool m_fuzz_testing;
 };
 
@@ -615,7 +634,7 @@ static bool compress_mode(command_line_params &opts)
 	FILE *pCSV_file = nullptr;
 	if (opts.m_csv_file.size())
 	{
-		pCSV_file = fopen_safe(opts.m_csv_file.c_str(), "w");
+		pCSV_file = fopen_safe(opts.m_csv_file.c_str(), "a");
 		if (!pCSV_file)
 		{
 			error_printf("Failed opening CVS file \"%s\"\n", opts.m_csv_file.c_str());
@@ -683,10 +702,16 @@ static bool compress_mode(command_line_params &opts)
 			return false;
 		}
 
+		interval_timer tm;
+		tm.start();
+
 		basis_compressor::error_code ec = c.process();
+
+		tm.stop();
+
 		if (ec == basis_compressor::cECSuccess)
 		{
-			printf("Compression succeeded to file \"%s\"\n", params.m_out_filename.c_str());
+			printf("Compression succeeded to file \"%s\" in %3.3f secs\n", params.m_out_filename.c_str(), tm.get_elapsed_secs());
 		}
 		else
 		{
@@ -742,7 +767,7 @@ static bool compress_mode(command_line_params &opts)
 		{
 			for (size_t slice_index = 0; slice_index < c.get_stats().size(); slice_index++)
 			{
-				fprintf(pCSV_file, "\"%s\", %u, %u, %u, %u, %u, %f, %f, %f, %f, %u\n",
+				fprintf(pCSV_file, "\"%s\", %u, %u, %u, %u, %u, %f, %f, %f, %f, %u, %u, %f\n",
 					params.m_out_filename.c_str(),
 					(uint32_t)slice_index, (uint32_t)c.get_stats().size(),
 					c.get_stats()[slice_index].m_width, c.get_stats()[slice_index].m_height, (uint32_t)c.get_any_source_image_has_alpha(),
@@ -750,7 +775,8 @@ static bool compress_mode(command_line_params &opts)
 					c.get_stats()[slice_index].m_best_luma_709_psnr,
 					c.get_stats()[slice_index].m_basis_etc1s_luma_709_psnr,
 					c.get_stats()[slice_index].m_basis_bc1_luma_709_psnr,
-					params.m_quality_level);
+					params.m_quality_level, (int)params.m_compression_level, tm.get_elapsed_secs());
+				fflush(pCSV_file);
 			}
 		}
 				
@@ -879,7 +905,16 @@ static bool unpack_and_validate_mode(command_line_params &opts, bool validate_fl
 
 		std::vector< gpu_image_vec > gpu_images[basist::cTFTotalTextureFormats];
 
-		for (int format_iter = 0; format_iter < basist::cTFTotalTextureFormats; format_iter++)
+		int first_format = 0;
+		int last_format = basist::cTFTotalTextureFormats;
+
+		if (opts.m_etc1_only)
+		{
+			first_format = basist::cTFETC1;
+			last_format = first_format + 1;
+		}
+
+		for (int format_iter = first_format; format_iter < last_format; format_iter++)
 		{
 			basist::transcoder_texture_format tex_fmt = static_cast<basist::transcoder_texture_format>(format_iter);
 			
@@ -902,7 +937,7 @@ static bool unpack_and_validate_mode(command_line_params &opts, bool validate_fl
 					return false;
 				}
 
-				for (int format_iter = 0; format_iter < basist::cTFTotalTextureFormats; format_iter++)
+				for (int format_iter = first_format; format_iter < last_format; format_iter++)
 				{
 					const basist::transcoder_texture_format transcoder_tex_fmt = static_cast<basist::transcoder_texture_format>(format_iter);
 
@@ -973,7 +1008,7 @@ static bool unpack_and_validate_mode(command_line_params &opts, bool validate_fl
 		{
 			// Now write KTX files and unpack them to individual PNG's
 				
-			for (int format_iter = 0; format_iter < basist::cTFTotalTextureFormats; format_iter++)
+			for (int format_iter = first_format; format_iter < last_format; format_iter++)
 			{
 				const basist::transcoder_texture_format transcoder_tex_fmt = static_cast<basist::transcoder_texture_format>(format_iter);
 
@@ -1187,7 +1222,7 @@ static bool compare_mode(command_line_params &opts)
 static int main_internal(int argc, const char **argv)
 {
 	basisu_encoder_init();
-		
+				
 	printf("Basis Universal GPU Texture Compressor Reference Encoder v" BASISU_TOOL_VERSION ", Copyright (C) 2017-2019 Binomial LLC, All rights reserved\n");
 
 #if defined(DEBUG) || defined(_DEBUG)

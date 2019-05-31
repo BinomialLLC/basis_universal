@@ -33,6 +33,9 @@ namespace basisu
 		uint32_t &operator[] (uint32_t i) { assert(i < 2); return m_comps[i]; }
 	};
 
+	const uint32_t BASISU_DEFAULT_COMPRESSION_LEVEL = 1;
+	const uint32_t BASISU_MAX_COMPRESSION_LEVEL = 5;
+
 	class basisu_frontend
 	{
 		BASISU_NO_EQUALS_OR_COPY_CONSTRUCT(basisu_frontend);
@@ -41,7 +44,12 @@ namespace basisu
 
 		basisu_frontend() :
 			m_total_blocks(0),
-			m_total_pixels(0)
+			m_total_pixels(0),
+			m_endpoint_refinement(false),
+			m_use_hierarchical_endpoint_codebooks(false),
+			m_use_hierarchical_selector_codebooks(false),
+			m_num_endpoint_codebook_iterations(0),
+			m_num_selector_codebook_iterations(0)
 		{
 		}
 
@@ -59,12 +67,11 @@ namespace basisu
 				m_pSource_blocks(NULL),
 				m_max_endpoint_clusters(256),
 				m_max_selector_clusters(256),
-				m_endpoint_refinement(true),
+				m_compression_level(BASISU_DEFAULT_COMPRESSION_LEVEL),
 				m_perceptual(true),
 				m_debug_stats(false),
 				m_debug_images(false),
 				m_dump_endpoint_clusterization(false),
-				m_faster(false),
 				m_pGlobal_sel_codebook(NULL),
 				m_num_global_sel_codebook_pal_bits(0),
 				m_num_global_sel_codebook_mod_bits(0),
@@ -80,8 +87,8 @@ namespace basisu
 			uint32_t m_max_endpoint_clusters;
 			uint32_t m_max_selector_clusters;
 
-			bool m_faster;
-			bool m_endpoint_refinement;
+			uint32_t m_compression_level;
+
 			bool m_perceptual;
 			bool m_debug_stats;
 			bool m_debug_images;
@@ -144,22 +151,44 @@ namespace basisu
 		uint32_t m_total_blocks;
 		uint32_t m_total_pixels;
 
+		bool m_endpoint_refinement;
+		bool m_use_hierarchical_endpoint_codebooks;
+		bool m_use_hierarchical_selector_codebooks;
+
+		uint32_t m_num_endpoint_codebook_iterations;
+		uint32_t m_num_selector_codebook_iterations;
+
+		// Source pixels for each blocks
 		pixel_block_vec m_source_blocks;
 
+		// The quantized ETC1S texture.
 		etc_block_vec m_encoded_blocks;
-		etc_block_vec m_orig_encoded_blocks; // encoded blocks after endpoint quant, but before selector quant
+		
+		// Quantized blocks after endpoint quant, but before selector quant
+		etc_block_vec m_orig_encoded_blocks; 
 				
+		// Full quality ETC1S texture
 		etc_block_vec m_etc1_blocks_etc1s;
-		pixel_block_vec m_etc1_blocks_etc1s_unpacked;
-
+				
 		typedef vec<6, float> vec6F;
-
+		
+		// Endpoint clusterizer
 		typedef tree_vector_quant<vec6F> vec6F_quantizer;
 		vec6F_quantizer m_endpoint_clusterizer;
 
 		// For each endpoint cluster: An array of which subblock indices (block_index*2+subblock) are located in that cluster.
-		std::vector<uint_vec> m_endpoint_clusters;
+		// Array of block indices for each endpoint cluster
+		std::vector<uint_vec> m_endpoint_clusters; 
 
+		// Array of block indices for each parent endpoint cluster
+		std::vector<uint_vec> m_endpoint_parent_clusters;  
+		
+		// Each block's parent cluster index
+		uint8_vec m_block_parent_endpoint_cluster; 
+
+		// Array of endpoint cluster indices for each parent endpoint cluster
+		std::vector<uint_vec> m_endpoint_clusters_within_each_parent_cluster; 
+				
 		struct endpoint_cluster_etc_params
 		{
 			endpoint_cluster_etc_params()
@@ -229,17 +258,33 @@ namespace basisu
 		};
 
 		typedef std::vector<endpoint_cluster_etc_params> cluster_subblock_etc_params_vec;
+		
+		// Each endpoint cluster's ETC1S parameters 
 		cluster_subblock_etc_params_vec m_endpoint_cluster_etc_params;
 
+		// The endpoint cluster index used by each ETC1 subblock.
 		std::vector<vec2U> m_block_endpoint_clusters_indices;
 				
+		// The block(s) within each selector cluster
 		// Note: If you add anything here that uses selector cluster indicies, be sure to update optimize_selector_codebook()!
 		std::vector<uint_vec> m_selector_cluster_indices;
 
+		// The selector bits for each selector cluster.
 		std::vector<etc_block> m_optimized_cluster_selectors;
+
+		// The block(s) within each parent selector cluster.
+		std::vector<uint_vec> m_selector_parent_cluster_indices;
+		
+		// Each block's parent selector cluster
+		uint8_vec m_block_parent_selector_cluster;
+
+		// Array of selector cluster indices for each parent selector cluster
+		std::vector<uint_vec> m_selector_clusters_within_each_parent_cluster; 
+
 		basist::etc1_global_selector_codebook_entry_id_vec m_optimized_cluster_selector_global_cb_ids;
 		bool_vec m_selector_cluster_uses_global_cb;
 
+		// Each block's selector cluster index
 		std::vector<uint32_t> m_block_selector_cluster_index;
 
 		struct subblock_endpoint_quant_err
@@ -265,6 +310,7 @@ namespace basisu
 			}
 		};
 
+		// The sorted subblock endpoint quant error for each endpoint cluster
 		std::vector<subblock_endpoint_quant_err> m_subblock_endpoint_quant_err_vec;
 
 		//-----------------------------------------------------------------------------
@@ -279,6 +325,8 @@ namespace basisu
 		uint32_t refine_endpoint_clusterization();
 		void eliminate_redundant_or_empty_endpoint_clusters();
 		void generate_block_endpoint_clusters();
+		void compute_endpoint_clusters_within_each_parent_cluster();
+		void compute_selector_clusters_within_each_parent_cluster();
 		void create_initial_packed_texture();
 		void create_selector_clusters();
 		void create_optimized_selector_codebook(uint32_t iter);

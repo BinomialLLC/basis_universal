@@ -75,6 +75,7 @@ namespace basisu
 		bool m_debug, m_debug_images;
 		float m_endpoint_rdo_quality_thresh;
 		float m_selector_rdo_quality_thresh;
+		uint32_t m_compression_level;
 
 		bool m_use_global_sel_codebook;
 		uint32_t m_global_sel_codebook_pal_bits;
@@ -93,6 +94,7 @@ namespace basisu
 			m_debug_images = false;
 			m_endpoint_rdo_quality_thresh = 0.0f;
 			m_selector_rdo_quality_thresh = 0.0f;
+			m_compression_level = 0;
 
 			m_use_global_sel_codebook = false;
 			m_global_sel_codebook_pal_bits = ETC1_GLOBAL_SELECTOR_CODEBOOK_MAX_PAL_BITS;

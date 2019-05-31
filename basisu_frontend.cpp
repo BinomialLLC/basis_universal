@@ -20,6 +20,7 @@
 #include "transcoder/basisu.h"
 #include "basisu_frontend.h"
 #include <unordered_set>
+#include <unordered_map>
 
 #define BASISU_FRONTEND_VERIFY(c) verify(c, __LINE__);
 
@@ -28,12 +29,15 @@ namespace basisu
 	const uint32_t BASISU_MAX_ENDPOINT_REFINEMENT_STEPS = 3;
 	const uint32_t BASISU_MAX_SELECTOR_REFINEMENT_STEPS = 3;
 
+	const uint32_t BASISU_ENDPOINT_PARENT_CODEBOOK_SIZE = 16;
+	const uint32_t BASISU_SELECTOR_PARENT_CODEBOOK_SIZE = 16;
+
 	// TODO - How to handle internal verifies in the basisu lib
 	static inline void verify(bool condition, int line)
 	{
 		if (!condition)
 		{
-			fprintf(stderr, "basisu_frontend: verify check failed at line %i!\n", line);
+			fprintf(stderr, "ERROR: basisu_frontend: verify check failed at line %i!\n", line);
 			abort();
 		}
 	}
@@ -49,15 +53,15 @@ namespace basisu
 			}
 		}
 
-		debug_printf("basisu_frontend::init: NumEndpointClusters: %u, NumSelectorClusters: %u, EndpointRefinement: %u, Perceptual: %u, Faster: %u\n",
-			p.m_max_endpoint_clusters, p.m_max_selector_clusters, p.m_endpoint_refinement, p.m_perceptual, p.m_faster);
+		debug_printf("basisu_frontend::init: NumEndpointClusters: %u, NumSelectorClusters: %u, Perceptual: %u, CompressionLevel: %u\n",
+			p.m_max_endpoint_clusters, p.m_max_selector_clusters, p.m_perceptual, p.m_compression_level);
 
 		debug_printf("Global sel codebook pal bits: %u, Global sel codebook mod bits: %u, Use hybrid selector codebook: %u, Hybrid codebook quality thresh: %f\n",
 			p.m_num_global_sel_codebook_pal_bits,
 			p.m_num_global_sel_codebook_mod_bits,
 			p.m_use_hybrid_selector_codebooks,
 			p.m_hybrid_codebook_quality_thresh);
-
+				
 		if ((p.m_max_endpoint_clusters < 1) || (p.m_max_endpoint_clusters > cMaxEndpointClusters))
 			return false;
 		if ((p.m_max_selector_clusters < 1) || (p.m_max_selector_clusters > cMaxSelectorClusters))
@@ -70,6 +74,65 @@ namespace basisu
 
 		m_encoded_blocks.resize(m_params.m_num_source_blocks);
 		memset(&m_encoded_blocks[0], 0, m_encoded_blocks.size() * sizeof(m_encoded_blocks[0]));
+			
+		m_num_endpoint_codebook_iterations = 1;
+		m_num_selector_codebook_iterations = 1;
+
+		switch (p.m_compression_level)
+		{
+		case 0:
+		{
+			m_endpoint_refinement = false;
+			m_use_hierarchical_endpoint_codebooks = true;
+			m_use_hierarchical_selector_codebooks = true;
+			break;
+		}
+		case 1:
+		{
+			m_endpoint_refinement = true;
+			m_use_hierarchical_endpoint_codebooks = true;
+			m_use_hierarchical_selector_codebooks = true;
+			break;
+		}
+		case 2:
+		{
+			m_endpoint_refinement = true;
+			m_use_hierarchical_endpoint_codebooks = false;
+			m_use_hierarchical_selector_codebooks = false;
+			break;
+		}
+		case 3:
+		{
+			m_endpoint_refinement = true;
+			m_use_hierarchical_endpoint_codebooks = true;
+			m_use_hierarchical_selector_codebooks = true;
+			m_num_endpoint_codebook_iterations = BASISU_MAX_ENDPOINT_REFINEMENT_STEPS;
+			m_num_selector_codebook_iterations = BASISU_MAX_ENDPOINT_REFINEMENT_STEPS;
+			break;
+		}
+		case 4:
+		{
+			m_endpoint_refinement = true;
+			m_use_hierarchical_endpoint_codebooks = false;
+			m_use_hierarchical_selector_codebooks = false;
+			m_num_endpoint_codebook_iterations = BASISU_MAX_ENDPOINT_REFINEMENT_STEPS;
+			m_num_selector_codebook_iterations = BASISU_MAX_ENDPOINT_REFINEMENT_STEPS;
+			break;
+		}
+		case 5:
+		{
+			m_endpoint_refinement = true;
+			m_use_hierarchical_endpoint_codebooks = false;
+			m_use_hierarchical_selector_codebooks = false;
+			m_num_endpoint_codebook_iterations = BASISU_MAX_ENDPOINT_REFINEMENT_STEPS*2;
+			m_num_selector_codebook_iterations = BASISU_MAX_ENDPOINT_REFINEMENT_STEPS*2;
+			break;
+		}
+
+		}
+
+		debug_printf("Endpoint refinement: %u, Hierarchical endpoint codebooks: %u, Hierarchical selector codebooks: %u, Endpoint codebook iters: %u, Selector codebook iters: %u\n", 
+			m_endpoint_refinement, m_use_hierarchical_endpoint_codebooks, m_use_hierarchical_selector_codebooks, m_num_endpoint_codebook_iterations, m_num_selector_codebook_iterations);
 
 		return true;
 	}
@@ -86,10 +149,8 @@ namespace basisu
 		init_endpoint_training_vectors();
 
 		generate_endpoint_clusters();
-
-		const uint32_t num_refine_endpoint_steps = m_params.m_endpoint_refinement ? (m_params.m_faster ? 1 : BASISU_MAX_ENDPOINT_REFINEMENT_STEPS) : 1;
-
-		for (uint32_t refine_endpoint_step = 0; refine_endpoint_step < num_refine_endpoint_steps; refine_endpoint_step++)
+				
+		for (uint32_t refine_endpoint_step = 0; refine_endpoint_step < m_num_endpoint_codebook_iterations; refine_endpoint_step++)
 		{
 			BASISU_FRONTEND_VERIFY(check_etc1s_constraints());
 
@@ -113,7 +174,7 @@ namespace basisu
 
 			bool early_out = false;
 
-			if (m_params.m_endpoint_refinement)
+			if (m_endpoint_refinement)
 			{
 				//dump_endpoint_clusterization_visualization("endpoint_clusters_before_refinement.png");
 
@@ -149,17 +210,29 @@ namespace basisu
 
 		create_selector_clusters();
 
-		const uint32_t num_refine_selector_steps = m_params.m_pGlobal_sel_codebook ? 1 : (m_params.m_faster ? 1 : BASISU_MAX_SELECTOR_REFINEMENT_STEPS);
-		for (uint32_t refine_selector_steps = 0; refine_selector_steps < num_refine_selector_steps; refine_selector_steps++)
+		if (m_use_hierarchical_selector_codebooks)
+			compute_selector_clusters_within_each_parent_cluster();
+				
+		if (m_params.m_compression_level == 0)
 		{
-			create_optimized_selector_codebook(refine_selector_steps);
+			create_optimized_selector_codebook(0);
 
 			find_optimal_selector_clusters_for_each_block();
-
-			if (!m_params.m_faster)
+		}
+		else
+		{
+			const uint32_t num_refine_selector_steps = m_params.m_pGlobal_sel_codebook ? 1 : m_num_selector_codebook_iterations;
+			for (uint32_t refine_selector_steps = 0; refine_selector_steps < num_refine_selector_steps; refine_selector_steps++)
 			{
-				if (!refine_block_endpoints_given_selectors())
-					break;
+				create_optimized_selector_codebook(refine_selector_steps);
+
+				find_optimal_selector_clusters_for_each_block();
+
+				if (m_params.m_compression_level >= 3)
+				{
+					if (!refine_block_endpoints_given_selectors())
+						break;
+				}
 			}
 		}
 
@@ -195,6 +268,8 @@ namespace basisu
 		int_vec new_to_old;
 		uint32_t total_new_entries = 0;
 
+		std::unordered_map<uint32_t, uint32_t> selector_hashmap;
+
 		for (int i = 0; i < static_cast<int>(m_optimized_cluster_selectors.size()); i++)
 		{
 			if (!selector_cluster_was_used[i])
@@ -203,21 +278,23 @@ namespace basisu
 				continue;
 			}
 
-			int j;
-			for (j = 0; j < i; j++)
-			{
-				if (m_optimized_cluster_selectors[i].get_raw_selector_bits() == m_optimized_cluster_selectors[j].get_raw_selector_bits())
-					break;
-			}
+			const uint32_t raw_selector_bits = m_optimized_cluster_selectors[i].get_raw_selector_bits();
 
-			if (j < i)
+			auto find_res = selector_hashmap.insert(std::make_pair(raw_selector_bits, total_new_entries));
+			if (!find_res.second)
 			{
-				old_to_new[i] = old_to_new[j];
+				old_to_new[i] = (find_res.first)->second;
 				continue;
 			}
-
+						
 			old_to_new[i] = total_new_entries++;
 			new_to_old.push_back(i);
+		}
+
+		for (uint32_t i = 0; i < m_block_selector_cluster_index.size(); i++)
+		{
+			BASISU_FRONTEND_VERIFY((old_to_new[m_block_selector_cluster_index[i]] >= 0) && (old_to_new[m_block_selector_cluster_index[i]] < (int)total_new_entries));
+			m_block_selector_cluster_index[i] = old_to_new[m_block_selector_cluster_index[i]];
 		}
 
 		std::vector<etc_block> new_optimized_cluster_selectors(m_optimized_cluster_selectors.size() ? total_new_entries : 0);
@@ -244,10 +321,7 @@ namespace basisu
 		m_optimized_cluster_selector_global_cb_ids.swap(new_optimized_cluster_selector_global_cb_ids);
 		m_selector_cluster_indices.swap(new_selector_cluster_indices);
 		m_selector_cluster_uses_global_cb.swap(new_selector_cluster_uses_global_cb);
-
-		for (uint32_t i = 0; i < m_block_selector_cluster_index.size(); i++)
-			m_block_selector_cluster_index[i] = old_to_new[m_block_selector_cluster_index[i]];
-
+				
 		debug_printf("optimize_selector_codebook: Before: %u After: %u\n", orig_total_selector_clusters, total_new_entries);
 	}
 
@@ -256,7 +330,6 @@ namespace basisu
 		debug_printf("basisu_frontend::init_etc1_images\n");
 				
 		m_etc1_blocks_etc1s.resize(m_total_blocks);
-		m_etc1_blocks_etc1s_unpacked.resize(m_total_blocks);
 
 #pragma omp parallel for
 		for (int block_index = 0; block_index < static_cast<int>(m_total_blocks); block_index++)
@@ -266,6 +339,11 @@ namespace basisu
 			etc1_optimizer optimizer;
 			etc1_optimizer::params optimizer_params;
 			etc1_optimizer::results optimizer_results;
+			
+			if (m_params.m_compression_level == 0)
+				optimizer_params.m_quality = cETCQualityFast;
+			else if (m_params.m_compression_level == BASISU_MAX_COMPRESSION_LEVEL)
+				optimizer_params.m_quality = cETCQualityUber;
 						
 			optimizer_params.m_num_src_pixels = 16;
 			optimizer_params.m_pSrc_pixels = source_blk.get_ptr();
@@ -280,6 +358,7 @@ namespace basisu
 			
 			etc_block &blk = m_etc1_blocks_etc1s[block_index];
 
+			memset(&blk, 0, sizeof(blk));
 			blk.set_block_color5_etc1s(optimizer_results.m_block_color_unscaled);
 			blk.set_inten_tables_etc1s(optimizer_results.m_block_inten_table);
 			blk.set_flip_bit(true);
@@ -287,8 +366,6 @@ namespace basisu
 			for (uint32_t y = 0; y < 4; y++)
 				for (uint32_t x = 0; x < 4; x++)
 					blk.set_selector(x, y, selectors[x + y * 4]);
-			
-			unpack_etc1(m_etc1_blocks_etc1s[block_index], m_etc1_blocks_etc1s_unpacked[block_index].get_ptr());
 		}
 	}
 
@@ -325,8 +402,58 @@ namespace basisu
 
 		m_endpoint_clusterizer.retrieve(m_endpoint_clusters);
 
+		if (m_use_hierarchical_endpoint_codebooks)
+		{
+			if (m_endpoint_clusters.size() < BASISU_ENDPOINT_PARENT_CODEBOOK_SIZE)
+			{
+				m_endpoint_parent_clusters.resize(0);
+				m_endpoint_parent_clusters.resize(1);
+				for (uint32_t i = 0; i < m_total_blocks; i++)
+				{
+					m_endpoint_parent_clusters[0].push_back(i*2);
+					m_endpoint_parent_clusters[0].push_back(i*2+1);
+				}
+			}
+			else
+				m_endpoint_clusterizer.retrieve(BASISU_ENDPOINT_PARENT_CODEBOOK_SIZE, m_endpoint_parent_clusters);
+
+			BASISU_ASSUME(BASISU_ENDPOINT_PARENT_CODEBOOK_SIZE <= UINT8_MAX);
+
+			m_block_parent_endpoint_cluster.resize(0);
+			m_block_parent_endpoint_cluster.resize(m_total_blocks);
+			for (uint32_t parent_cluster_index = 0; parent_cluster_index < m_endpoint_parent_clusters.size(); parent_cluster_index++)
+			{
+				const uint_vec &cluster = m_endpoint_parent_clusters[parent_cluster_index];
+				for (uint32_t j = 0; j < cluster.size(); j++)
+				{
+					const uint32_t block_index = cluster[j] >> 1;
+					m_block_parent_endpoint_cluster[block_index] = static_cast<uint8_t>(parent_cluster_index);
+				}
+			}
+
+			// Ensure that all the blocks within each cluster are all in the same parent cluster, or something is very wrong.
+			for (uint32_t cluster_index = 0; cluster_index < m_endpoint_clusters.size(); cluster_index++)
+			{
+				const uint_vec &cluster = m_endpoint_clusters[cluster_index];
+			
+				uint32_t parent_cluster_index = 0;
+				for (uint32_t j = 0; j < cluster.size(); j++)
+				{
+					const uint32_t block_index = cluster[j] >> 1;
+					if (!j)
+					{
+						parent_cluster_index = m_block_parent_endpoint_cluster[block_index];
+					}
+					else
+					{
+						BASISU_FRONTEND_VERIFY(m_block_parent_endpoint_cluster[block_index] == parent_cluster_index);
+					}
+				}
+			}
+		}
+								
 		if (m_params.m_debug_stats)
-			debug_printf("Total endpoint clusters: %u\n", (uint32_t)m_endpoint_clusters.size());
+			debug_printf("Total endpoint clusters: %u, parent clusters: %u\n", (uint32_t)m_endpoint_clusters.size(), (uint32_t)m_endpoint_parent_clusters.size());
 	}
 
 	void basisu_frontend::generate_block_endpoint_clusters()
@@ -352,6 +479,34 @@ namespace basisu
 			uint32_t cluster_0 = m_block_endpoint_clusters_indices[block_index][0];
 			uint32_t cluster_1 = m_block_endpoint_clusters_indices[block_index][1];
 			BASISU_FRONTEND_VERIFY(cluster_0 == cluster_1);
+		}
+	}
+
+	void basisu_frontend::compute_endpoint_clusters_within_each_parent_cluster()
+	{
+		generate_block_endpoint_clusters();
+
+		m_endpoint_clusters_within_each_parent_cluster.resize(0);
+		m_endpoint_clusters_within_each_parent_cluster.resize(m_endpoint_parent_clusters.size());
+
+		for (uint32_t block_index = 0; block_index < m_total_blocks; block_index++)
+		{
+			const uint32_t cluster_index = m_block_endpoint_clusters_indices[block_index][0];
+			const uint32_t parent_cluster_index = m_block_parent_endpoint_cluster[block_index];
+
+			m_endpoint_clusters_within_each_parent_cluster[parent_cluster_index].push_back(cluster_index);
+		}
+
+		for (uint32_t i = 0; i < m_endpoint_clusters_within_each_parent_cluster.size(); i++)
+		{
+			uint_vec &cluster_indices = m_endpoint_clusters_within_each_parent_cluster[i];
+
+			BASISU_FRONTEND_VERIFY(cluster_indices.size());
+
+			vector_sort(cluster_indices);
+			
+			auto last = std::unique(cluster_indices.begin(), cluster_indices.end());
+			cluster_indices.erase(last, cluster_indices.end());
 		}
 	}
 
@@ -456,7 +611,6 @@ namespace basisu
 				break;
 
 			subblock_endpoint_quant_err subblock_to_move(m_subblock_endpoint_quant_err_vec.back());
-			const bool is_etc1s_block = true;
 
 			m_subblock_endpoint_quant_err_vec.pop_back();
 
@@ -465,25 +619,16 @@ namespace basisu
 
 			uint32_t training_vector_index = subblock_to_move.m_block_index * 2 + subblock_to_move.m_subblock_index;
 
-			if (is_etc1s_block)
-			{
-				if (cluster_sizes[subblock_to_move.m_cluster_index] <= 2)
-					continue;
-			}
-			else
-			{
-				if (cluster_sizes[subblock_to_move.m_cluster_index] <= 1)
-					continue;
-			}
+			if (cluster_sizes[subblock_to_move.m_cluster_index] <= 2)
+				continue;
 
 			if (unordered_set_contains(training_vector_was_relocated, training_vector_index))
 				continue;
 
-			if (is_etc1s_block)
-			{
-				if (unordered_set_contains(training_vector_was_relocated, training_vector_index ^ 1))
-					continue;
-			}
+			if (unordered_set_contains(training_vector_was_relocated, training_vector_index ^ 1))
+				continue;
+
+			const uint32_t new_endpoint_cluster_index = (uint32_t)m_endpoint_clusters.size();
 
 			enlarge_vector(m_endpoint_clusters, 1)->push_back(training_vector_index);
 			enlarge_vector(m_endpoint_cluster_etc_params, 1);
@@ -492,20 +637,12 @@ namespace basisu
 
 			training_vector_was_relocated.insert(training_vector_index);
 
-			if (is_etc1s_block)
-			{
-				m_endpoint_clusters.back().push_back(training_vector_index ^ 1);
-				training_vector_was_relocated.insert(training_vector_index ^ 1);
+			m_endpoint_clusters.back().push_back(training_vector_index ^ 1);
+			training_vector_was_relocated.insert(training_vector_index ^ 1);
 
-				BASISU_FRONTEND_VERIFY(cluster_sizes[subblock_to_move.m_cluster_index] >= 2);
-				cluster_sizes[subblock_to_move.m_cluster_index] -= 2;
-			}
-			else
-			{
-				BASISU_FRONTEND_VERIFY(cluster_sizes[subblock_to_move.m_cluster_index] >= 1);
-				cluster_sizes[subblock_to_move.m_cluster_index]--;
-			}
-
+			BASISU_FRONTEND_VERIFY(cluster_sizes[subblock_to_move.m_cluster_index] >= 2);
+			cluster_sizes[subblock_to_move.m_cluster_index] -= 2;
+						
 			ignore_cluster.insert(subblock_to_move.m_cluster_index);
 
 			num_new_endpoint_clusters--;
@@ -534,6 +671,8 @@ namespace basisu
 		generate_block_endpoint_clusters();
 	}
 
+	// Given each endpoint cluster, gather all the block pixels which are in that cluster and compute optimized ETC1S endpoints for them.
+	// TODO: Don't optimize endpoint clusters which haven't changed.
 	void basisu_frontend::generate_endpoint_codebook(uint32_t step)
 	{
 		debug_printf("generate_endpoint_codebook\n");
@@ -580,6 +719,11 @@ namespace basisu
 
 				cluster_optimizer_params.m_use_color4 = false;
 				cluster_optimizer_params.m_perceptual = m_params.m_perceptual;
+
+				if (m_params.m_compression_level == 0)
+					cluster_optimizer_params.m_quality = cETCQualityMedium;
+				else if (m_params.m_compression_level == BASISU_MAX_COMPRESSION_LEVEL)
+					cluster_optimizer_params.m_quality = cETCQualityUber;
 
 				etc1_optimizer::results cluster_optimizer_results;
 
@@ -684,6 +828,9 @@ namespace basisu
 	uint32_t basisu_frontend::refine_endpoint_clusterization()
 	{
 		debug_printf("refine_endpoint_clusterization\n");
+		
+		if (m_use_hierarchical_endpoint_codebooks)
+			compute_endpoint_clusters_within_each_parent_cluster();
 
 		std::vector<vec2U> block_clusters(m_total_blocks);
 
@@ -700,7 +847,7 @@ namespace basisu
 
 			} // cluster_indices_iter
 		}
-
+				
 		//----------------------------------------------------------
 				
 		// Create a new endpoint clusterization
@@ -720,9 +867,16 @@ namespace basisu
 
 			uint64_t best_cluster_err = UINT64_MAX;
 			uint32_t best_cluster_index = 0;
-						
-			for (uint32_t cluster_iter = 0; cluster_iter < m_endpoint_clusters.size(); cluster_iter++)
+
+			const uint32_t block_parent_endpoint_cluster_index = m_block_parent_endpoint_cluster.size() ? m_block_parent_endpoint_cluster[block_index] : 0;
+			const uint_vec *pCluster_indices = m_endpoint_clusters_within_each_parent_cluster.size() ? &m_endpoint_clusters_within_each_parent_cluster[block_parent_endpoint_cluster_index] : nullptr;
+
+			const uint32_t total_clusters = m_use_hierarchical_endpoint_codebooks ? (uint32_t)pCluster_indices->size() : (uint32_t)m_endpoint_clusters.size();
+			
+			for (uint32_t i = 0; i < total_clusters; i++)
 			{
+				const uint32_t cluster_iter = m_use_hierarchical_endpoint_codebooks ? (*pCluster_indices)[i] : i;
+
 				color_rgba cluster_etc_base_color(m_endpoint_cluster_etc_params[cluster_iter].m_color_unscaled[0]);
 				uint32_t cluster_etc_inten = m_endpoint_cluster_etc_params[cluster_iter].m_inten_table[0];
 
@@ -739,7 +893,6 @@ namespace basisu
 				}
 
 				etc_block::get_block_colors5(subblock_colors, cluster_etc_base_color, cluster_etc_inten);
-
 
 				for (uint32_t p = 0; p < num_subblock_pixels; p++)
 				{
@@ -804,6 +957,8 @@ namespace basisu
 	{
 		debug_printf("eliminate_redundant_or_empty_endpoint_clusters\n");
 
+		// Step 1: Sort endpoint clusters by the base colors/intens
+
 		uint_vec sorted_endpoint_cluster_indices(m_endpoint_clusters.size());
 		for (uint32_t i = 0; i < m_endpoint_clusters.size(); i++)
 			sorted_endpoint_cluster_indices[i] = i;
@@ -812,6 +967,7 @@ namespace basisu
 
 		std::vector<std::vector<uint32_t> > new_endpoint_clusters(m_endpoint_clusters.size());
 		std::vector<endpoint_cluster_etc_params> new_subblock_etc_params(m_endpoint_clusters.size());
+		
 		for (uint32_t i = 0; i < m_endpoint_clusters.size(); i++)
 		{
 			uint32_t j = sorted_endpoint_cluster_indices[i];
@@ -822,9 +978,11 @@ namespace basisu
 		new_endpoint_clusters.swap(m_endpoint_clusters);
 		new_subblock_etc_params.swap(m_endpoint_cluster_etc_params);
 
+		// Step 2: Eliminate redundant endpoint clusters, or empty endpoint clusters
+
 		new_endpoint_clusters.resize(0);
 		new_subblock_etc_params.resize(0);
-
+		
 		for (int i = 0; i < (int)m_endpoint_clusters.size(); )
 		{
 			if (!m_endpoint_clusters[i].size())
@@ -842,13 +1000,15 @@ namespace basisu
 
 			new_endpoint_clusters.push_back(m_endpoint_clusters[i]);
 			new_subblock_etc_params.push_back(m_endpoint_cluster_etc_params[i]);
-
+						
 			for (int k = i + 1; k < j; k++)
+			{
 				append_vector(new_endpoint_clusters.back(), m_endpoint_clusters[k]);
+			}
 
 			i = j;
 		}
-
+				
 		if (m_endpoint_clusters.size() != new_endpoint_clusters.size())
 		{
 			if (m_params.m_debug_stats)
@@ -891,6 +1051,48 @@ namespace basisu
 		m_orig_encoded_blocks = m_encoded_blocks;
 	}
 
+	void basisu_frontend::compute_selector_clusters_within_each_parent_cluster()
+	{
+		uint_vec block_selector_cluster_indices(m_total_blocks);
+
+		for (int cluster_index = 0; cluster_index < static_cast<int>(m_selector_cluster_indices.size()); cluster_index++)
+		{
+			const std::vector<uint32_t>& cluster_indices = m_selector_cluster_indices[cluster_index];
+
+			for (uint32_t cluster_indices_iter = 0; cluster_indices_iter < cluster_indices.size(); cluster_indices_iter++)
+			{
+				const uint32_t block_index = cluster_indices[cluster_indices_iter];
+				
+				block_selector_cluster_indices[block_index] = cluster_index;
+
+			} // cluster_indices_iter
+
+		} // cluster_index
+
+		m_selector_clusters_within_each_parent_cluster.resize(0);
+		m_selector_clusters_within_each_parent_cluster.resize(m_selector_parent_cluster_indices.size());
+
+		for (uint32_t block_index = 0; block_index < m_total_blocks; block_index++)
+		{
+			const uint32_t cluster_index = block_selector_cluster_indices[block_index];
+			const uint32_t parent_cluster_index = m_block_parent_selector_cluster[block_index];
+
+			m_selector_clusters_within_each_parent_cluster[parent_cluster_index].push_back(cluster_index);
+		}
+
+		for (uint32_t i = 0; i < m_selector_clusters_within_each_parent_cluster.size(); i++)
+		{
+			uint_vec &cluster_indices = m_selector_clusters_within_each_parent_cluster[i];
+
+			BASISU_FRONTEND_VERIFY(cluster_indices.size());
+
+			vector_sort(cluster_indices);
+			
+			auto last = std::unique(cluster_indices.begin(), cluster_indices.end());
+			cluster_indices.erase(last, cluster_indices.end());
+		}
+	}
+
 	void basisu_frontend::create_selector_clusters()
 	{
 		debug_printf("create_selector_clusters\n");
@@ -912,10 +1114,10 @@ namespace basisu
 
 			const uint32_t subblock_index = (blk.get_inten_table(0) > blk.get_inten_table(1)) ? 0 : 1;
 
-			color_rgba block_colors[4];
-			blk.get_block_colors(block_colors, subblock_index);
+			color_rgba block_colors[2];
+			blk.get_block_low_high_colors(block_colors, subblock_index);
 
-			const uint32_t dist = color_distance(m_params.m_perceptual, block_colors[0], block_colors[3], false);
+			const uint32_t dist = color_distance(m_params.m_perceptual, block_colors[0], block_colors[1], false);
 
 			const uint32_t cColorDistToWeight = 300;
 			const uint32_t cMaxWeight = 4096;
@@ -932,6 +1134,53 @@ namespace basisu
 		selector_clusterizer.generate(m_params.m_max_selector_clusters);
 
 		selector_clusterizer.retrieve(m_selector_cluster_indices);
+
+		if (m_use_hierarchical_selector_codebooks)
+		{
+			if (m_selector_cluster_indices.size() < BASISU_SELECTOR_PARENT_CODEBOOK_SIZE)
+			{
+				m_selector_parent_cluster_indices.resize(0);
+				m_selector_parent_cluster_indices.resize(1);
+				for (uint32_t i = 0; i < m_total_blocks; i++)
+					m_selector_parent_cluster_indices[0].push_back(i);
+			}
+			else
+				selector_clusterizer.retrieve(BASISU_SELECTOR_PARENT_CODEBOOK_SIZE, m_selector_parent_cluster_indices);
+
+			BASISU_ASSUME(BASISU_SELECTOR_PARENT_CODEBOOK_SIZE <= UINT8_MAX);
+
+			m_block_parent_selector_cluster.resize(0);
+			m_block_parent_selector_cluster.resize(m_total_blocks);
+
+			for (uint32_t parent_cluster_index = 0; parent_cluster_index < m_selector_parent_cluster_indices.size(); parent_cluster_index++)
+			{
+				const uint_vec &cluster = m_selector_parent_cluster_indices[parent_cluster_index];
+				for (uint32_t j = 0; j < cluster.size(); j++)
+					m_block_parent_selector_cluster[cluster[j]] = static_cast<uint8_t>(parent_cluster_index);
+			}
+
+			// Ensure that all the blocks within each cluster are all in the same parent cluster, or something is very wrong.
+			for (uint32_t cluster_index = 0; cluster_index < m_selector_cluster_indices.size(); cluster_index++)
+			{
+				const uint_vec &cluster = m_selector_cluster_indices[cluster_index];
+			
+				uint32_t parent_cluster_index = 0;
+				for (uint32_t j = 0; j < cluster.size(); j++)
+				{
+					const uint32_t block_index = cluster[j];
+					if (!j)
+					{
+						parent_cluster_index = m_block_parent_selector_cluster[block_index];
+					}
+					else
+					{
+						BASISU_FRONTEND_VERIFY(m_block_parent_selector_cluster[block_index] == parent_cluster_index);
+					}
+				}
+			}
+		}
+
+		debug_printf("Total selector clusters: %u, total parent selector clusters: %u\n", (uint32_t)m_selector_cluster_indices.size(), (uint32_t)m_selector_parent_cluster_indices.size());
 	}
 
 	void basisu_frontend::create_optimized_selector_codebook(uint32_t iter)
@@ -1010,7 +1259,7 @@ namespace basisu
 
 			uint32_t total_clusters_processed = 0;
 
-			// For each selector codebook entry, determine which selector minimizes the error across all the blocks that use that quantized selector.
+			// For each selector codebook entry, and for each of the 4x4 selectors, determine which selector minimizes the error across all the blocks that use that quantized selector.
 
 #pragma omp parallel for
 			for (int cluster_index = 0; cluster_index < static_cast<int>(total_selector_clusters); cluster_index++)
@@ -1037,14 +1286,14 @@ namespace basisu
 							{
 								const uint32_t block_index = cluster_block_indices[cluster_block_index];
 
-								etc_block &blk = m_encoded_blocks[block_index];
+								const etc_block &blk = m_encoded_blocks[block_index];
 
 								const color_rgba &orig_color = get_source_pixel_block(block_index)(x, y);
 
-								color_rgba block_colors[4];
-								blk.get_block_colors(block_colors, blk.get_subblock_index(x, y));
+								color_rgba block_color;
+								blk.get_block_color(block_color, blk.get_subblock_index(x, y), s);
+								total_err += color_distance(m_params.m_perceptual, block_color, orig_color, false);
 
-								total_err += color_distance(m_params.m_perceptual, block_colors[s], orig_color, false);
 								if (total_err > best_err)
 									break;
 
@@ -1174,76 +1423,92 @@ namespace basisu
 	void basisu_frontend::find_optimal_selector_clusters_for_each_block()
 	{
 		debug_printf("find_optimal_selector_clusters_for_each_block\n");
-
+				
 		m_block_selector_cluster_index.resize(m_total_blocks);
-
-		const uint32_t total_selector_clusters = (uint32_t)m_selector_cluster_indices.size();
-
-		std::vector< std::vector<uint32_t> > new_cluster_indices;
-
-		// For each block: Determine which quantized selectors best encode that block, given its quantized endpoints.
-
-#pragma omp parallel for
-		for (int block_index = 0; block_index < static_cast<int>(m_total_blocks); block_index++)
+				
+		if (m_params.m_compression_level == 0)
 		{
-			const color_rgba* pBlock_pixels = get_source_pixel_block(block_index).get_ptr();
-
-			etc_block& blk = m_encoded_blocks[block_index];
-			
-			color_rgba trial_block_colors[4];
-			blk.get_block_colors(trial_block_colors, 0);
-
-			uint64_t best_cluster_err = UINT64_MAX;
-			uint32_t best_cluster_index = 0;
-
-			// TODO: One faster algorithm is to sort the cluster selectors, then iterate through them in sorted order and only eval color distances of the selectors that changed.
-			for (uint32_t cluster_index = 0; cluster_index < total_selector_clusters; cluster_index++)
+			// Don't do anything, just leave the blocks in their original selector clusters.
+			for (uint32_t i = 0; i < m_selector_cluster_indices.size(); i++)
 			{
-				const etc_block& cluster_blk = m_optimized_cluster_selectors[cluster_index];
-								
-				uint64_t trial_err = 0;
-				for (int y = 0; y < 4; y++)
-				{
-					for (int x = 0; x < 4; x++)
-					{
-						const uint32_t sel = cluster_blk.get_selector(x, y);
-
-						trial_err += color_distance(m_params.m_perceptual, trial_block_colors[sel], pBlock_pixels[x + y * 4], false);
-						if (trial_err > best_cluster_err)
-							goto early_out;
-					}
-				}
-								
-				if (trial_err < best_cluster_err)
-				{
-					best_cluster_err = trial_err;
-					best_cluster_index = cluster_index;
-					if (!best_cluster_err) 
-						break;
-				}
-
-			early_out:
-				;
-			}
-
-			blk.set_raw_selector_bits(m_optimized_cluster_selectors[best_cluster_index].get_raw_selector_bits());
-
-			m_block_selector_cluster_index[block_index] = best_cluster_index;
-
-#pragma omp critical
-			{
-				vector_ensure_element_is_valid(new_cluster_indices, best_cluster_index);
-				new_cluster_indices[best_cluster_index].push_back(block_index);
+				for (uint32_t j = 0; j < m_selector_cluster_indices[i].size(); j++)
+					m_block_selector_cluster_index[m_selector_cluster_indices[i][j]] = i;
 			}
 		}
+		else
+		{
+			std::vector< std::vector<uint32_t> > new_cluster_indices;
 
-		m_selector_cluster_indices.swap(new_cluster_indices);
+			// For each block: Determine which quantized selectors best encode that block, given its quantized endpoints.
+
+	#pragma omp parallel for
+			for (int block_index = 0; block_index < static_cast<int>(m_total_blocks); block_index++)
+			{
+				const color_rgba* pBlock_pixels = get_source_pixel_block(block_index).get_ptr();
+
+				etc_block& blk = m_encoded_blocks[block_index];
+			
+				color_rgba trial_block_colors[4];
+				blk.get_block_colors(trial_block_colors, 0);
+
+				uint64_t best_cluster_err = UINT64_MAX;
+				uint32_t best_cluster_index = 0;
+
+				const uint32_t parent_selector_cluster = m_block_parent_selector_cluster.size() ? m_block_parent_selector_cluster[block_index] : 0;
+				const uint_vec *pCluster_indices = m_selector_clusters_within_each_parent_cluster.size() ? &m_selector_clusters_within_each_parent_cluster[parent_selector_cluster] : nullptr;
+
+				const uint32_t total_clusters = m_use_hierarchical_selector_codebooks ? (uint32_t)pCluster_indices->size() : (uint32_t)m_selector_cluster_indices.size();
+
+				for (uint32_t cluster_iter = 0; cluster_iter < total_clusters; cluster_iter++)
+				{
+					const uint32_t cluster_index = m_use_hierarchical_selector_codebooks ? (*pCluster_indices)[cluster_iter] : cluster_iter;
+
+					const etc_block& cluster_blk = m_optimized_cluster_selectors[cluster_index];
+								
+					uint64_t trial_err = 0;
+					for (int y = 0; y < 4; y++)
+					{
+						for (int x = 0; x < 4; x++)
+						{
+							const uint32_t sel = cluster_blk.get_selector(x, y);
+
+							trial_err += color_distance(m_params.m_perceptual, trial_block_colors[sel], pBlock_pixels[x + y * 4], false);
+							if (trial_err > best_cluster_err)
+								goto early_out;
+						}
+					}
+								
+					if (trial_err < best_cluster_err)
+					{
+						best_cluster_err = trial_err;
+						best_cluster_index = cluster_index;
+						if (!best_cluster_err) 
+							break;
+					}
+
+				early_out:
+					;
+				}
+
+				blk.set_raw_selector_bits(m_optimized_cluster_selectors[best_cluster_index].get_raw_selector_bits());
+
+				m_block_selector_cluster_index[block_index] = best_cluster_index;
+
+	#pragma omp critical
+				{
+					vector_ensure_element_is_valid(new_cluster_indices, best_cluster_index);
+					new_cluster_indices[best_cluster_index].push_back(block_index);
+				}
+			}
+
+			m_selector_cluster_indices.swap(new_cluster_indices);
+		}
 
 		for (uint32_t i = 0; i < m_selector_cluster_indices.size(); i++)
 			vector_sort(m_selector_cluster_indices[i]);
 	}
 
-	// This seems to be a pretty minor optimization (like .01-.02 dB on kodak)
+	// TODO: Remove old ETC1 specific stuff, and thread this.
 	uint32_t basisu_frontend::refine_block_endpoints_given_selectors()
 	{
 		debug_printf("refine_block_endpoints_given_selectors\n");
@@ -1576,6 +1841,9 @@ namespace basisu
 				cluster_optimizer_params.m_perceptual = m_params.m_perceptual;
 				cluster_optimizer_params.m_pForce_selectors = &force_selectors[0];
 
+				if (m_params.m_compression_level == BASISU_MAX_COMPRESSION_LEVEL)
+					cluster_optimizer_params.m_quality = cETCQualityUber;
+
 				etc1_optimizer::results cluster_optimizer_results;
 
 				std::vector<uint8_t> cluster_selectors(total_pixels);
@@ -1738,7 +2006,8 @@ namespace basisu
 			blk.set_inten_table(1, get_endpoint_cluster_inten_table(endpoint_cluster1_index, false));
 
 			const uint32_t selector_cluster_index = get_block_selector_cluster_index(block_index);
-						
+			CHECK(selector_cluster_index < get_total_selector_clusters());
+
 			CHECK(vector_find(get_selector_cluster_block_indices(selector_cluster_index), block_index) != -1);
 
 			blk.set_raw_selector_bits(get_selector_cluster_selector_bits(selector_cluster_index).get_raw_selector_bits());

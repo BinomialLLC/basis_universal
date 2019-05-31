@@ -870,7 +870,8 @@ namespace basisu
 		typedef std::pair<TrainingVectorType, uint32_t> training_vec_with_weight;
 		typedef std::vector< training_vec_with_weight > array_of_weighted_training_vecs;
 
-		tree_vector_quant()
+		tree_vector_quant() :
+			m_next_codebook_index(0)
 		{
 		}
 
@@ -878,6 +879,7 @@ namespace basisu
 		{
 			clear_vector(m_training_vecs);
 			clear_vector(m_nodes);
+			m_next_codebook_index = 0;
 		}
 
 		void add_training_vec(const TrainingVectorType &v, uint32_t weight) { m_training_vecs.push_back(std::make_pair(v, weight)); }
@@ -908,10 +910,44 @@ namespace basisu
 			}
 		}
 
+		void retrieve(uint32_t max_clusters, std::vector<uint_vec> &codebook) const
+      {
+			uint_vec node_stack;
+         node_stack.reserve(512);
+
+         codebook.resize(0);
+         codebook.reserve(max_clusters);
+			         
+         uint32_t node_index = 0;
+
+         while (true)
+         {
+            const tsvq_node& cur = m_nodes[node_index];
+
+            if (cur.is_leaf() || ((2 + cur.m_codebook_index) > (int)max_clusters))
+            {
+               codebook.resize(codebook.size() + 1);
+               codebook.back() = cur.m_training_vecs;
+
+               if (node_stack.empty())
+                  break;
+
+               node_index = node_stack.back();
+               node_stack.pop_back();
+               continue;
+            }
+				            
+            node_stack.push_back(cur.m_right_index);
+				node_index = cur.m_left_index;
+         }
+      }
+
 		bool generate(uint32_t max_size)
 		{
 			if (!m_training_vecs.size())
 				return false;
+
+			m_next_codebook_index = 0;
 
 			clear_vector(m_nodes);
 			m_nodes.reserve(max_size * 2 + 1);
@@ -956,7 +992,7 @@ namespace basisu
 		class tsvq_node
 		{
 		public:
-			inline tsvq_node() : m_weight(0), m_origin(cZero), m_left_index(-1), m_right_index(-1) { }
+			inline tsvq_node() : m_weight(0), m_origin(cZero), m_left_index(-1), m_right_index(-1), m_codebook_index(-1) { }
 
 			// vecs is erased
 			inline void set(const TrainingVectorType &org, uint64_t weight, float var, std::vector<uint32_t> &vecs) { m_origin = org; m_weight = weight; m_var = var; m_training_vecs.swap(vecs); }
@@ -968,12 +1004,15 @@ namespace basisu
 			TrainingVectorType m_origin;
 			int32_t m_left_index, m_right_index;
 			std::vector<uint32_t> m_training_vecs;
+			int m_codebook_index;
 		};
 
 		typedef std::vector<tsvq_node> tsvq_node_vec;
 		tsvq_node_vec m_nodes;
 
 		array_of_weighted_training_vecs m_training_vecs;
+
+		uint32_t m_next_codebook_index;
 
 		tsvq_node prepare_root() const
 		{
@@ -1021,6 +1060,9 @@ namespace basisu
 
 			m_nodes[node_index].m_left_index = l_child_index;
 			m_nodes[node_index].m_right_index = r_child_index;
+			
+			m_nodes[node_index].m_codebook_index = m_next_codebook_index;
+			m_next_codebook_index++;
 
 			m_nodes.resize(m_nodes.size() + 2);
 
