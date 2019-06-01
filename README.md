@@ -112,8 +112,8 @@ Compress sRGB image x.png to x.basis using default settings (multiple filenames 
 `basisu x.basis`\
 Unpack x.basis to PNG/KTX files (multiple filenames OK)
 
-`basisu -file x.png -mipmap -y_flip`\
-Compress a mipmapped x.basis file from an sRGB image named x.png, Y flip each source image
+`basisu -level 2 -file x.png -mipmap -y_flip`\
+Compress a mipmapped x.basis file from an sRGB image named x.png, Y flip each source image, set encoder to level 2 for higher quality
 
 `basisu -validate -file x.basis`\
 Validate x.basis (check header, check file CRC's, attempt to transcode all slices)
