@@ -94,7 +94,7 @@ If you are doing rate distortion comparisons vs. other similar systems, be sure 
 
 ### Compression levels
 
-The encoder supports multiple compression "effort" levels using the "-level X" command line option, where X ranges from [0,5]. This option (along with -q or manually setting the codebook sizes) controls the tradeoff between encoding time and overall quality. The default is level 1, which is the best overall balance between encoding speed vs. overall quality. Here's a graph showing the encoding time and average quality across 59 images for each level:
+The encoder supports multiple compression "effort" levels using the "-level X" command line option, where X ranges from [0,5]. This option (along with -q or manually setting the codebook sizes) controls the tradeoff between encoding time and overall quality. The default is level 1, which is the sweet spot between encoding speed vs. overall quality. Here's a graph showing the encoding time and average quality across 59 images for each level:
 
 ![Encoder Level vs. Time/Quality Graph](https://github.com/BinomialLLC/basis_universal/blob/master/encoder_lvl_vs_perf.png "Encoder Level vs. Encoding Time/Quality")
 
