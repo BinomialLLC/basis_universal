@@ -152,6 +152,8 @@ We have no intentions of changing the baseline file format (i.e. the file format
 
 So if you compile and ship the transcoder into an application today, we are making a guarantee to you that this transcoder will stay relevant/usable even as we enhance the system. To do this, the file format has the ability to be extended.
 
+Note: The one exception to this promise are .basis textures marked as video. We will be changing how a key symbol is interpreted to introduce skip blocks (conditional replenishment) into the system.
+
 ### Transcoder details
 
 The transcoder unpacks .basis files to various GPU texture formats, almost always without needing to decompress entire images at the pixel level (i.e. it only deals with arrays of blocks). The one exception is PVRTC1, where the transcoder needs to recompute the per-pixel selector ("modulation") values, but it does so using simple scalar operations.
