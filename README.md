@@ -94,13 +94,15 @@ If you are doing rate distortion comparisons vs. other similar systems, be sure 
 
 ### Compression levels
 
-The encoder supports multiple encoding speed vs. quality levels, which (along with -q or setting the codebook sizes) controls the tradeoff between quality and encoding time. The default is level 1, which is the best overall balance between encoding speed vs. quality. Here's a graph showing the encoding time and quality across 59 images for each quality level:
+The encoder supports multiple compression "effort" levels using the "-level X" command line option, which (along with -q or manually setting the codebook sizes) controls the tradeoff between encoding time and overall quality. The default is level 1, which is the best overall balance between encoding speed vs. overall quality. Here's a graph showing the encoding time and average quality across 59 images for each level:
 
 ![Encoder Level vs. Time/Quality Graph](https://github.com/BinomialLLC/basis_universal/blob/master/encoder_lvl_vs_perf.png "Encoder Level vs. Encoding Time/Quality")
 
 This benchmark was done on a 20 core Xeon workstation. The results will be different on less powerful machines.
 
-Note that -level 2 is equivalent to the initial release's quality, and -level 4 is equivalent to the initial release's -slower. Also, -slower is now equivalent to level 2 (not 4).
+Level 0 is fast, but this level disables several backend optimizations so it will generate larger files. It will also be quite brittle on complex textures or artificial textures.
+
+Note that -level 2 is equivalent to the initial release's default, and -level 4 is equivalent to the initial release's "-slower" option. Also, -slower is now equivalent to level 2 (not 4).
 
 ### More detailed examples
 
