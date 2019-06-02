@@ -258,7 +258,7 @@ function viewAlpha() { drawMode = 2; redraw(); }
   <div id='logger'></div>
 </body>
 <script>
-  Module.onRuntimeInitialized = () => {
+  BASIS({onRuntimeInitialized : () => {
     var gl = elem('canvas').getContext('webgl');
     // Load the DXT extension, and verify it exists.
     if (!gl.getExtension('WEBKIT_WEBGL_compressed_texture_s3tc') && !gl.getExtension('WEBGL_compressed_texture_s3tc')) {
@@ -275,6 +275,6 @@ function viewAlpha() { drawMode = 2; redraw(); }
     }, false);
 
     runLoadFile();
-  }
+  }}).then(module => window.Module = module);
 </script>
 </html>
