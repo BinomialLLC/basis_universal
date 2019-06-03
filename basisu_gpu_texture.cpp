@@ -15,6 +15,7 @@
 #include "basisu_gpu_texture.h"
 #include "basisu_enc.h"
 #include "basisu_pvrtc1_4.h"
+#include <string>
 
 namespace basisu
 {

@@ -21,11 +21,19 @@
 #pragma warning (disable : 4530) // C++ exception handler used, but unwind semantics are not enabled.
 //#define _HAS_ITERATOR_DEBUGGING 0
 #if defined(_DEBUG) || defined(DEBUG)
+#ifndef _ITERATOR_DEBUG_LEVEL
 #define _ITERATOR_DEBUG_LEVEL 1
+#endif
+#ifndef _SECURE_SCL
 #define _SECURE_SCL 1
+#endif
 #else
+#ifndef _SECURE_SCL
 #define _SECURE_SCL 0
+#endif
+#ifndef _ITERATOR_DEBUG_LEVEL
 #define _ITERATOR_DEBUG_LEVEL 0
+#endif
 #endif
 #ifndef NOMINMAX
 	#define NOMINMAX
@@ -337,6 +345,5 @@ namespace basisu
 		BASISU_NOTE_UNUSED(fmt);
 		return 4;
 	}
-							
 } // namespace basisu
 

@@ -16,6 +16,7 @@
 #include "transcoder/basisu.h"
 #include "basisu_enc.h"
 #include "transcoder/basisu_transcoder_internal.h"
+#include <string>
 
 #ifndef _WIN32
 #include <libgen.h>

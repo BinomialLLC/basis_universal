@@ -95,7 +95,7 @@ namespace basisu
 		*pTicks = 1000000;
 	}
 #elif defined(__GNUC__)
-#include <sys/timex.h>
+#include <sys/time.h>
 	inline void query_counter(timer_ticks* pTicks)
 	{
 		struct timeval cur_time;
