@@ -14,6 +14,7 @@
 // limitations under the License.
 #include "basisu_comp.h"
 #include "basisu_enc.h"
+#include <string>
 #include <unordered_set>
 
 #define BASISU_USE_STB_IMAGE_RESIZE_FOR_MIPMAP_GEN 0
