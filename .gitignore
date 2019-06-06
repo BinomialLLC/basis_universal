@@ -1,0 +1,11 @@
+# Windows itermediate files
+bin/Win32/
+bin/x64/
+
+# VS project files
+*.vcxproj.user
+.vs/
+*.VC.db
+*.VC.opendb
+*.sdf
+*.suo
