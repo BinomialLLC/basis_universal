@@ -1,15 +1,13 @@
 # basis_universal
 Basis Universal GPU Texture and Texture Video Compression Reference Codec
 
-Basis Universal is a ["supercompressed"](http://gamma.cs.unc.edu/GST/gst.pdf) GPU texture and texture video compression system that outputs a highly compressed intermediate file format (.basis) that can be quickly transcoded to a wide variety of GPU texture compression formats: PVRTC1 4bpp RGB, BC7 mode 6 RGB, BC1-5, ETC1, and ETC2. We will be adding ASTC RGB or RGBA, BC7 mode 4/5 RGBA, and PVRTC1 4bpp RGBA next. Basis files support non-uniform texture arrays, so cubemaps, volume textures, texture arrays, mipmap levels, video sequences, or arbitrary texture "tiles" can be stored in a single file. The compressor is able to exploit color and pattern correlations across the entire file, so multiple images with mipmaps can be stored very efficiently in a single file.
+Basis Universal is a ["supercompressed"](http://gamma.cs.unc.edu/GST/gst.pdf) GPU texture and [texture video](http://gamma.cs.unc.edu/MPTC/) compression system that outputs a highly compressed intermediate file format (.basis) that can be quickly transcoded to a wide variety of GPU texture compression formats: PVRTC1 4bpp RGB, BC7 mode 6 RGB, BC1-5, ETC1, and ETC2. We will be adding ASTC RGB or RGBA, BC7 mode 4/5 RGBA, and PVRTC1 4bpp RGBA next. Basis files support non-uniform texture arrays, so cubemaps, volume textures, texture arrays, mipmap levels, video sequences, or arbitrary texture "tiles" can be stored in a single file. The compressor is able to exploit color and pattern correlations across the entire file, so multiple images with mipmaps can be stored very efficiently in a single file.
 
 The system's bitrate depends on the quality setting and image content, but common usable bitrates are .3-1.25 bits/texel. .basis files are typically 10-25% smaller than using RDO texture compression of the internal texture data stored in the .basis file followed by LZMA. The current system is what we've been calling the "baseline" system, which is designed to reach all the GPU formats. The next major step is to extend the system to allow for much higher quality for the ASTC and BC7 texture formats. 
 
 The transcoder has been fuzz tested using [zzuf](https://www.linux.com/news/fuzz-testing-zzuf).
 
 So far, we've compiled the code using MSVS 2019, under Ubuntu x64 using cmake with either clang 3.8 or gcc 5.4, and emscripten 1.35 to asm.js. (Be sure to use this version or later of emcc, as earlier versions fail with internal errors/exceptions during compilation.) The compressor uses OpenMP for multithreading, but if you don't have OpenMP it'll still work (just much more slowly). The transcoder is currently single threaded (and doesn't use OpenMP).
-
-Note: The video branch contains many important optimizations for videos, such as P-frames with conditional replenishment (CR) support and I-Frames. We'll be merging this branch into master in a week or two, after testing. One expected use case for Basis texture video are for highly dynamic UI's written with WebAssembly and WebGL which need to display many dozens (perhaps a few hundred) smaller (preview) videos simultaneously with low CPU overhead. Modern video codecs won't perform well in WebAssembly until it supports [SIMD](https://www.chromestatus.com/feature/6533147810332672), so texture video can be usable where regular video wouldn't. Texture video costs more bits, but has very different tradeoffs vs. traditional video codecs.
 
 A simple asm.js Texture Video demo is [here](http://binomial.biz/TextureVideoTest/).
 
@@ -82,15 +80,15 @@ Note that "-no_selector_rdo -no_endpoint_rdo" are optional. Using them hurts rat
 
 To compress small video sequences, say using tools like ffmpeg and VirtualDub:
 
-`basisu -level 2 -tex_type video -stats -debug -multifile_printf "pic%04u.png" -multifile_num 200 -multifile_first 1 -max_selectors 16128 -max_endpoints 16128`
+`basisu -level 1 -tex_type video -stats -debug -multifile_printf "pic%04u.png" -multifile_num 200 -multifile_first 1 -max_selectors 16128 -max_endpoints 16128 -endpoint_rdo_thresh 1.05 -selector_rdo_thresh 1.05`
 
 The reference encoder will take a LONG time and a lot of CPU to encode video. The more cores your machine has, the better. Basis is intended for smaller videos of a few dozen seconds or so. If you are very patient and have a Threadripper or Xeon workstation, you should be able to encode up to a few thousand 720P frames.
 
-The .basis file will contain multiple images (all using the same global codebooks), which you can retrieve using the transcoder's image API. This initial release doesn't support [conditional replenisment](https://en.wikipedia.org/wiki/MPEG-1) (CR), but we have a branch in the works that does that doesn't change the file format itself. CR can reduce the bitrate of some videos (highly dependent on how dynamic the content is) by over 50%. For videos using CR, the images must be requested from the transcoder in sequence from first to last, and random access is only allowed to I-Frames. (More on this once we release it.) 
-
-The latest version of the encoder is in the "video" branch, but it's still a work in progress and hasn't been fully tested yet. The video branch supports I-Frames, and simple P-Frames using conditional replenishment (CR).
+The .basis file will contain multiple images (all using the same global codebooks), which you can retrieve using the transcoder's image API. The system now supports [conditional replenisment](https://en.wikipedia.org/wiki/MPEG-1) (CR, or "skip blocks"). CR can reduce the bitrate of some videos (highly dependent on how dynamic the content is) by over 50%. For videos using CR, the images must be requested from the transcoder in sequence from first to last, and random access is only allowed to I-Frames. 
 
 If you are doing rate distortion comparisons vs. other similar systems, be sure to experiment with increasing the endpoint RDO threshold (-endpoint_rdo_thresh X). This setting controls how aggressively the compressor's backend will combine together nearby blocks so they use the same block endpoint codebook vectors, for better coding efficiency. X defaults to a modest 1.5, which means the backend is allowed to increase the overall color distance by 1.5x while searching for merge candidates. The higher this setting, the better the compression, with the tradeoff of more block artifacts. Settings up to ~2.25 can work well, and make the codec more competitive. "-endpoint_rdo_thresh 1.75" is a good setting on many textures.
+
+For video, level 1 should result in decent results on most clips. For less banding, level 2 can make a big difference. This is still an active area of development, and quality/encoding perf. will improve over time.
 
 ### Compression levels
 
@@ -133,7 +131,7 @@ Compress a non-sRGB image, use virtual selector codebooks for improved compressi
 `basisu -linear -global_sel_pal -file x.png`\
 Compress a non-sRGB image, use hybrid selector codebooks for slightly improved compression (but slower encoding)
 
-`basisu -tex_type video -framerate 20 -multifile_printf "x%02u.png" -multifile_first 1 -multifile_count 20`\
+`basisu -tex_type video -framerate 20 -multifile_printf "x%02u.png" -multifile_first 1 -multifile_count 20 -selector_rdo_thresh 1.05 -endpoint_rdo_thresh 1.05`\
 Compress a 20 sRGB source image video sequence (x01.png, x02.png, x03.png, etc.) to x01.basis
 
 
