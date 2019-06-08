@@ -28,16 +28,6 @@ cmake CMakeLists.txt
 make
 ```
 
-On OSX it's currently necessary to build with gcc instead of the system default clang (due to OpenMP usage in the encoder).
-
-```
-#only if you don't have gcc installed
-brew install gcc
-
-cmake -DCMAKE_CXX_COMPILER=g++-9 CMakeLists.txt
-make
-```
-
 To compress a sRGB image to .basis:
 
 `basisu x.png`
