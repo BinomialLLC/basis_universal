@@ -17,12 +17,13 @@
 #include <unordered_set>
 
 #define BASISU_USE_STB_IMAGE_RESIZE_FOR_MIPMAP_GEN 0
-#define DEBUG_RESIZE_TEXTURE_TO_64x64 (0)
+#define DEBUG_CROP_TEXTURE_TO_64x64 (0)
+#define DEBUG_RESIZE_TEXTURE (0)
 #define DEBUG_EXTRACT_SINGLE_BLOCK (0)
 
 namespace basisu
 {
-	basis_compressor::basis_compressor() :
+   basis_compressor::basis_compressor() :
 		m_total_blocks(0),
 		m_auto_global_sel_pal(false),
 		m_basis_file_size(0),
@@ -68,6 +69,8 @@ namespace basisu
 			PRINT_BOOL_VALUE(m_check_for_alpha)
 			PRINT_BOOL_VALUE(m_force_alpha)
 			PRINT_BOOL_VALUE(m_seperate_rg_to_color_alpha);
+			PRINT_BOOL_VALUE(m_multithreading);
+			PRINT_BOOL_VALUE(m_disable_hierarchical_endpoint_codebooks);
 			
 			PRINT_FLOAT_VALUE(m_hybrid_sel_cb_quality_thresh);
 			
@@ -314,8 +317,13 @@ namespace basisu
 			file_image = block_image;
 #endif
 
-#if DEBUG_RESIZE_TEXTURE_TO_64x64
+#if DEBUG_CROP_TEXTURE_TO_64x64
 			file_image.resize(64, 64);
+#endif
+#if DEBUG_RESIZE_TEXTURE
+			image temp_img((file_image.get_width() + 1) / 2, (file_image.get_height() + 1) / 2);
+			image_resample(file_image, temp_img, m_params.m_perceptual, "kaiser");
+			temp_img.swap(file_image);
 #endif
 
 			if ((!file_image.get_width()) || (!file_image.get_height()))
@@ -444,6 +452,11 @@ namespace basisu
 				slice_desc.m_mip_index = mip_indices[slice_index];
 
 				slice_desc.m_alpha = is_alpha_slice;
+				slice_desc.m_iframe = false;
+				if (m_params.m_tex_type == basist::cBASISTexTypeVideoFrames)
+				{
+					slice_desc.m_iframe = (source_file_index == 0);
+				}
 
 				m_total_blocks += slice_desc.m_num_blocks_x * slice_desc.m_num_blocks_y;
 				total_macroblocks += slice_desc.m_num_macroblocks_x * slice_desc.m_num_macroblocks_y;
@@ -487,8 +500,8 @@ namespace basisu
 		{
 			const basisu_backend_slice_desc &slice_desc = m_slice_descs[i];
 
-			printf("Slice: %u, alpha: %u, orig width/height: %ux%u, width/height: %ux%u, first_block: %u, image_index: %u, mip_level: %u\n", 
-				i, slice_desc.m_alpha, slice_desc.m_orig_width, slice_desc.m_orig_height, slice_desc.m_width, slice_desc.m_height, slice_desc.m_first_block_index, slice_desc.m_source_file_index, slice_desc.m_mip_index);
+			printf("Slice: %u, alpha: %u, orig width/height: %ux%u, width/height: %ux%u, first_block: %u, image_index: %u, mip_level: %u, iframe: %u\n", 
+				i, slice_desc.m_alpha, slice_desc.m_orig_width, slice_desc.m_orig_height, slice_desc.m_width, slice_desc.m_height, slice_desc.m_first_block_index, slice_desc.m_source_file_index, slice_desc.m_mip_index, slice_desc.m_iframe);
 
 			if (m_any_source_image_has_alpha)
 			{
@@ -522,6 +535,11 @@ namespace basisu
 
 			if ((slice_desc.m_orig_width > slice_desc.m_width) || (slice_desc.m_orig_height > slice_desc.m_height))
 				return false;
+			if ((slice_desc.m_source_file_index == 0) && (m_params.m_tex_type == basist::cBASISTexTypeVideoFrames))
+			{
+				if (!slice_desc.m_iframe)
+					return false;
+			}
 		}
 
 		return true;
@@ -778,7 +796,11 @@ namespace basisu
 		p.m_debug_stats = m_params.m_debug;
 		p.m_debug_images = m_params.m_debug_images;
 		p.m_compression_level = m_params.m_compression_level;
-		
+		p.m_tex_type = m_params.m_tex_type;
+		p.m_multithreaded = m_params.m_multithreading;
+		p.m_disable_hierarchical_endpoint_codebooks = m_params.m_disable_hierarchical_endpoint_codebooks;
+		p.m_pJob_pool = m_params.m_pJob_pool;
+
 		if ((m_params.m_global_sel_pal) || (m_auto_global_sel_pal))
 		{
 			p.m_pGlobal_sel_codebook = m_params.m_pSel_codebook;

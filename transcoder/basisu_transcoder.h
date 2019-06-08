@@ -59,6 +59,22 @@ namespace basist
 	const char *basis_get_texture_type_name(basis_texture_type tex_type);
 	
 	class basisu_transcoder;
+
+	// This struct holds all state used during transcoding. For video, it needs to persist between image transcodes (it holds the previous frame).
+	// For threading you can use one state per thread.
+	struct basisu_transcoder_state
+	{
+		struct block_preds
+		{
+			uint16_t m_endpoint_index;
+			uint8_t m_pred_bits;
+		};
+
+		std::vector<block_preds> m_block_endpoint_preds[2];
+		
+		enum { cMaxPrevFrameLevels = 16 };
+		std::vector<uint32_t> m_prev_frame_indices[2][cMaxPrevFrameLevels]; // [alpha_flag][level_index] 
+	};
 	
 	class basisu_lowlevel_transcoder
 	{
@@ -74,7 +90,7 @@ namespace basist
 		bool decode_tables(const uint8_t *pTable_data, uint32_t table_data_size);
 
 		bool transcode_slice(void *pDst_blocks, uint32_t num_blocks_x, uint32_t num_blocks_y, const uint8_t *pImage_data, uint32_t image_data_size, block_format fmt, 
-			uint32_t output_stride, bool wrap_addressing, bool bc1_allow_threecolor_blocks, uint32_t output_row_pitch_in_blocks = 0);
+			uint32_t output_stride, bool wrap_addressing, bool bc1_allow_threecolor_blocks, const basis_file_header &header, const basis_slice_desc& slice_desc, uint32_t output_row_pitch_in_blocks = 0, basisu_transcoder_state *pState = nullptr);
 
 	private:
 		struct endpoint
@@ -94,14 +110,8 @@ namespace basist
 		huffman_decoding_table m_endpoint_pred_model, m_delta_endpoint_model, m_selector_model, m_selector_history_buf_rle_model;
 
 		uint32_t m_selector_history_buf_size;
-
-		struct block_preds
-		{
-			uint16_t m_endpoint_index;
-			uint8_t m_pred_bits;
-		};
-
-		std::vector<block_preds> m_block_endpoint_preds[2];
+		
+		basisu_transcoder_state m_def_state;
 	};
 
 	struct basisu_slice_info
@@ -125,6 +135,7 @@ namespace basist
 		uint32_t m_unpacked_slice_crc16;
 		
 		bool m_alpha_flag;		// true if the slice has alpha data
+		bool m_iframe_flag;		// true if the slice is an I-Frame
 	};
 
 	typedef std::vector<basisu_slice_info> basisu_slice_info_vec;
@@ -147,6 +158,7 @@ namespace basist
 		uint32_t m_first_slice_index;	
 								
 		bool m_alpha_flag;		// true if the image has alpha data
+		bool m_iframe_flag;		// true if the image is an I-Frame
 	};
 
 	struct basisu_image_level_info
@@ -167,6 +179,7 @@ namespace basist
 		uint32_t m_first_slice_index;	
 								
 		bool m_alpha_flag;		// true if the image has alpha data
+		bool m_iframe_flag;		// true if the image is an I-Frame
 	};
 
 	struct basisu_file_info
@@ -270,7 +283,7 @@ namespace basist
 			uint32_t image_index, uint32_t level_index, 
 			void *pOutput_blocks, uint32_t output_blocks_buf_size_in_blocks,
 			transcoder_texture_format fmt,
-			uint32_t decode_flags = cDecodeFlagsPVRTCWrapAddressing, uint32_t output_row_pitch_in_blocks = 0) const;
+			uint32_t decode_flags = cDecodeFlagsPVRTCWrapAddressing, uint32_t output_row_pitch_in_blocks = 0, basisu_transcoder_state *pState = nullptr) const;
 
 		// Finds the basis slice corresponding to the specified image/level/alpha params, or -1 if the slice can't be found.
 		int find_slice(const void *pData, uint32_t data_size, uint32_t image_index, uint32_t level_index, bool alpha_data) const;
@@ -284,12 +297,9 @@ namespace basist
 		// output_row_pitch_in_blocks: Number of blocks per row. If 0, the transcoder uses the slice's num_blocks_x. Ignored for PVRTC1 (due to texture swizzling).
 		bool transcode_slice(const void *pData, uint32_t data_size, uint32_t slice_index, 
 			void *pOutput_blocks, uint32_t output_blocks_buf_size_in_blocks, 
-			block_format fmt, uint32_t output_block_stride_in_bytes, uint32_t decode_flags = cDecodeFlagsPVRTCWrapAddressing, uint32_t output_row_pitch_in_blocks = 0) const;
+			block_format fmt, uint32_t output_block_stride_in_bytes, uint32_t decode_flags = cDecodeFlagsPVRTCWrapAddressing, uint32_t output_row_pitch_in_blocks = 0, basisu_transcoder_state * pState = nullptr) const;
 
 	private:
-		const void *m_pFile_data;
-		uint32_t m_file_data_size;
-
 		mutable basisu_lowlevel_transcoder m_lowlevel_decoder;
 
 		int find_first_slice_index(const void* pData, uint32_t data_size, uint32_t image_index, uint32_t level_index) const;
@@ -300,4 +310,12 @@ namespace basist
 	// basisu_transcoder_init() must be called before a .basis file can be transcoded.
 	void basisu_transcoder_init();
 
+	enum debug_flags_t
+	{
+		cDebugFlagVisCRs = 1,
+		cDebugFlagVisBC1Sels = 2,
+		cDebugFlagVisBC1Endpoints = 4
+	};
+	uint32_t get_debug_flags();
+	void set_debug_flags(uint32_t f);
 } // namespace basisu

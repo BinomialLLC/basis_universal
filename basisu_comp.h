@@ -186,7 +186,8 @@ namespace basisu
 			m_quality_level(-1),
 			m_mip_scale(1.0f, .000125f, 4.0f),
 			m_mip_smallest_dimension(1, 1, 16384),
-			m_compression_level((int)BASISU_DEFAULT_COMPRESSION_LEVEL, 0, (int)BASISU_MAX_COMPRESSION_LEVEL)
+			m_compression_level((int)BASISU_DEFAULT_COMPRESSION_LEVEL, 0, (int)BASISU_MAX_COMPRESSION_LEVEL),
+			m_pJob_pool(nullptr)
 		{
 			clear();
 		}
@@ -217,10 +218,12 @@ namespace basisu
 			m_compute_stats.clear();
 			m_check_for_alpha.clear();
 			m_force_alpha.clear();
+			m_multithreading.clear();
 			m_seperate_rg_to_color_alpha.clear();
 			m_hybrid_sel_cb_quality_thresh.clear();
 			m_global_pal_bits.clear();
 			m_global_mod_bits.clear();
+			m_disable_hierarchical_endpoint_codebooks.clear();
 
 			m_no_endpoint_rdo.clear();
 			m_endpoint_rdo_thresh.clear();
@@ -243,6 +246,8 @@ namespace basisu
 			m_userdata0 = 0;
 			m_userdata1 = 0;
 			m_us_per_frame = 0;
+
+			m_pJob_pool = nullptr;
 		}
 
 		// Pointer to the global selector codebook, or nullptr to not use a global selector codebook
@@ -303,9 +308,12 @@ namespace basisu
 		
 		// Always put alpha slices in the output basis file, even when the input doesn't have alpha
 		bool_param<false> m_force_alpha; 
+		bool_param<true> m_multithreading;
 		
 		// Split the R channel to RGB and the G channel to alpha, then write a basis file with alpha channels
 		bool_param<false> m_seperate_rg_to_color_alpha;
+
+		bool_param<false> m_disable_hierarchical_endpoint_codebooks;
 
 		// Global/hybrid selector codebook parameters
 		param<float> m_hybrid_sel_cb_quality_thresh;
@@ -334,6 +342,8 @@ namespace basisu
 		uint32_t m_userdata0;
 		uint32_t m_userdata1;
 		uint32_t m_us_per_frame;
+
+		job_pool *m_pJob_pool;
 	};
 	
 	class basis_compressor

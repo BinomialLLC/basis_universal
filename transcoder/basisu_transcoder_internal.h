@@ -33,6 +33,11 @@
 
 #define BASISD_znew (z = 36969 * (z & 65535) + (z >> 16))
 
+namespace basisu
+{
+	extern bool g_debug_printf;
+}
+
 namespace basist
 {
 	const int COLOR5_PAL0_PREV_HI = 9, COLOR5_PAL0_DELTA_LO = -9, COLOR5_PAL0_DELTA_HI = 31;
@@ -45,6 +50,9 @@ namespace basist
 	const uint32_t ENDPOINT_PRED_MIN_REPEAT_COUNT = 3;
 	const uint32_t ENDPOINT_PRED_COUNT_VLC_BITS = 4;
 
+	const uint32_t NUM_ENDPOINT_PREDS = 3;// BASISU_ARRAY_SIZE(g_endpoint_preds);
+	const uint32_t CR_ENDPOINT_PRED_INDEX = NUM_ENDPOINT_PREDS - 1;
+	const uint32_t NO_ENDPOINT_PRED_INDEX = 3;//NUM_ENDPOINT_PREDS;
 	const uint32_t MAX_SELECTOR_HISTORY_BUF_SIZE = 64;
 	const uint32_t SELECTOR_HISTORY_BUF_RLE_COUNT_THRESH = 3;
 	const uint32_t SELECTOR_HISTORY_BUF_RLE_COUNT_BITS = 6;

@@ -17,6 +17,13 @@
 #include "basisu_enc.h"
 #include "transcoder/basisu_transcoder_internal.h"
 
+#include <mutex>
+#include <atomic>
+#include <condition_variable>
+#include <functional>
+#include <thread>
+#include <unordered_map>
+
 #ifndef _WIN32
 #include <libgen.h>
 #endif
@@ -36,6 +43,42 @@ namespace basisu
 	{
 		return (uint8_t)((i & 0xFFFFFF00U) ? (~(i >> 31)) : i);
 	}
+	
+	// Hashing
+	
+	inline uint32_t bitmix32c(uint32_t v) 
+	{
+		v = (v + 0x7ed55d16) + (v << 12);
+		v = (v ^ 0xc761c23c) ^ (v >> 19);
+		v = (v + 0x165667b1) + (v << 5);
+		v = (v + 0xd3a2646c) ^ (v << 9);
+		v = (v + 0xfd7046c5) + (v << 3);
+		v = (v ^ 0xb55a4f09) ^ (v >> 16);
+		return v;
+	}
+
+	inline uint32_t bitmix32(uint32_t v) 
+	{
+		v -= (v << 6);
+		v ^= (v >> 17);
+		v -= (v << 9);
+		v ^= (v << 4);
+		v -= (v << 3);
+		v ^= (v << 10);
+		v ^= (v >> 15);
+		return v;
+	}
+
+	uint32_t hash_hsieh(const uint8_t* pBuf, size_t len);
+
+	template <typename Key>
+	struct bit_hasher
+	{
+		std::size_t operator()(const Key& k) const
+		{
+			return hash_hsieh(reinterpret_cast<const uint8_t *>(&k), sizeof(k));
+		}
+	};
 
 	// Linear algebra
 
@@ -165,8 +208,10 @@ namespace basisu
 		inline T length() const { return sqrt(norm()); }
 
 		inline T squared_distance(const vec &other) const { T d2 = 0; for (uint32_t i = 0; i < N; i++) { T d = m_v[i] - other.m_v[i]; d2 += d * d; } return d2; }
+		inline double squared_distance_d(const vec& other) const { double d2 = 0; for (uint32_t i = 0; i < N; i++) { double d = (double)m_v[i] - (double)other.m_v[i]; d2 += d * d; } return d2; }
 
-		inline T distance(const vec &other) const { return squared_distance(other); }
+		inline T distance(const vec &other) const { return static_cast<T>(sqrt(squared_distance(other))); }
+		inline double distance_d(const vec& other) const { return sqrt(squared_distance_d(other)); }
 
 		inline vec &normalize_in_place() { T len = length(); if (len != 0.0f) *this *= (1.0f / len);	return *this; }
 
@@ -175,6 +220,22 @@ namespace basisu
 			for (uint32_t i = 0; i < N; i++)
 				m_v[i] = basisu::clamp(m_v[i], l, h);
 			return *this;
+		}
+
+		static vec component_min(const vec& a, const vec& b)
+		{
+			vec res;
+			for (uint32_t i = 0; i < N; i++)
+				res[i] = minimum(a[i], b[i]);
+			return res;
+		}
+
+		static vec component_max(const vec& a, const vec& b)
+		{
+			vec res;
+			for (uint32_t i = 0; i < N; i++)
+				res[i] = maximum(a[i], b[i]);
+			return res;
 		}
 	};
 
@@ -290,6 +351,37 @@ namespace basisu
 			[pKeys](uint32_t a, uint32_t b) { return pKeys[a] < pKeys[b]; }
 		);
 	}
+	
+	// Very simple job pool with no dependencies.
+	class job_pool
+	{
+		BASISU_NO_EQUALS_OR_COPY_CONSTRUCT(job_pool);
+
+	public:
+		job_pool(uint32_t num_threads);
+		~job_pool();
+				
+		void add_job(const std::function<void()>& job);
+		void add_job(std::function<void()>&& job);
+
+		void wait_for_all();
+
+		size_t get_total_threads() const { return 1 + m_threads.size(); }
+		
+	private:
+		std::vector<std::thread> m_threads;
+        std::vector<std::function<void()> > m_queue;
+		
+		std::mutex m_mutex;
+		std::condition_variable m_has_work;
+		std::condition_variable m_no_more_jobs;
+		
+		uint32_t m_num_active_jobs;
+		
+		std::atomic<bool> m_kill_flag;
+
+		void job_thread(uint32_t index);
+	};
 
 	// Simple 32-bit color class
 
@@ -867,7 +959,8 @@ namespace basisu
 	class tree_vector_quant
 	{
 	public:
-		typedef std::pair<TrainingVectorType, uint32_t> training_vec_with_weight;
+		typedef TrainingVectorType training_vec_type;
+		typedef std::pair<TrainingVectorType, uint64_t> training_vec_with_weight;
 		typedef std::vector< training_vec_with_weight > array_of_weighted_training_vecs;
 
 		tree_vector_quant() :
@@ -882,7 +975,11 @@ namespace basisu
 			m_next_codebook_index = 0;
 		}
 
-		void add_training_vec(const TrainingVectorType &v, uint32_t weight) { m_training_vecs.push_back(std::make_pair(v, weight)); }
+		void add_training_vec(const TrainingVectorType &v, uint64_t weight) { m_training_vecs.push_back(std::make_pair(v, weight)); }
+
+		size_t get_total_training_vecs() const { return m_training_vecs.size(); }
+		const array_of_weighted_training_vecs &get_training_vecs() const	{ return m_training_vecs; }
+				array_of_weighted_training_vecs &get_training_vecs()			{ return m_training_vecs; }
 
 		void retrieve(std::vector< std::vector<uint32_t> > &codebook) const
 		{
@@ -1025,7 +1122,7 @@ namespace basisu
 			for (uint32_t i = 0; i < m_training_vecs.size(); i++)
 			{
 				const TrainingVectorType &v = m_training_vecs[i].first;
-				const uint32_t weight = m_training_vecs[i].second;
+				const uint64_t weight = m_training_vecs[i].second;
 
 				root.m_training_vecs.push_back(i);
 
@@ -1049,7 +1146,8 @@ namespace basisu
 			float l_var = 0.0f, r_var = 0.0f;
 
 			// Compute initial left/right child origins
-			prep_split(m_nodes[node_index], l_child_org, r_child_org);
+			if (!prep_split(m_nodes[node_index], l_child_org, r_child_org))
+				return false;
 
 			// Use k-means iterations to refine these children vectors
 			if (!refine_split(m_nodes[node_index], l_child_org, l_weight, l_var, l_children, r_child_org, r_weight, r_var, r_children))
@@ -1070,6 +1168,34 @@ namespace basisu
 
 			l_child.set(l_child_org, l_weight, l_var, l_children);
 			r_child.set(r_child_org, r_weight, r_var, r_children);
+
+			if ((l_child.m_var <= 0.0f) && (l_child.m_training_vecs.size() > 1))
+			{
+				TrainingVectorType v(m_training_vecs[l_child.m_training_vecs[0]].first);
+				
+				for (uint32_t i = 1; i < l_child.m_training_vecs.size(); i++)
+				{
+					if (!(v == m_training_vecs[l_child.m_training_vecs[i]].first))
+					{
+						l_child.m_var = 1e-4f;
+						break;
+					}
+				}
+			}
+
+			if ((r_child.m_var <= 0.0f) && (r_child.m_training_vecs.size() > 1))
+			{
+				TrainingVectorType v(m_training_vecs[r_child.m_training_vecs[0]].first);
+
+				for (uint32_t i = 1; i < r_child.m_training_vecs.size(); i++)
+				{
+					if (!(v == m_training_vecs[r_child.m_training_vecs[i]].first))
+					{
+						r_child.m_var = 1e-4f;
+						break;
+					}
+				}
+			}
 
 			if ((l_child.m_var > 0.0f) && (l_child.m_training_vecs.size() > 1))
 				var_heap.add_heap(l_child_index, l_var);
@@ -1111,7 +1237,7 @@ namespace basisu
 			return compute_pca_from_covar<N, TrainingVectorType>(cmatrix);
 		}
 
-		void prep_split(const tsvq_node &node, TrainingVectorType &l_child_result, TrainingVectorType &r_child_result) const
+		bool prep_split(const tsvq_node &node, TrainingVectorType &l_child_result, TrainingVectorType &r_child_result) const
 		{
 			const uint32_t N = TrainingVectorType::num_elements;
 
@@ -1119,7 +1245,7 @@ namespace basisu
 			{
 				l_child_result = m_training_vecs[node.m_training_vecs[0]].first;
 				r_child_result = m_training_vecs[node.m_training_vecs[1]].first;
-				return;
+				return true;
 			}
 
 			TrainingVectorType axis(compute_split_axis(node)), l_child(0.0f), r_child(0.0f);
@@ -1152,17 +1278,77 @@ namespace basisu
 			}
 			else
 			{
-				// Empty cell problem
-				l_child_result = node.m_origin;
-				r_child_result = node.m_origin;
-
-				// Nudge the two cells apart and hope k-means can separate them.
-				for (uint32_t i = 0; i < N; i++)
+				TrainingVectorType l(1e+20f);
+				TrainingVectorType h(-1e+20f);
+				for (uint32_t i = 0; i < node.m_training_vecs.size(); i++)
 				{
-					l_child_result[i] -= .000125f;
-					r_child_result[i] += .000125f;
+					const TrainingVectorType& v = m_training_vecs[node.m_training_vecs[i]].first;
+					
+					l = TrainingVectorType::component_min(l, v);
+					h = TrainingVectorType::component_max(h, v);
+				}
+
+				TrainingVectorType r(h - l);
+
+				float largest_axis_v = 0.0f;
+				int largest_axis_index = -1;
+				for (uint32_t i = 0; i < TrainingVectorType::num_elements; i++)
+				{
+					if (r[i] > largest_axis_v)
+					{
+						largest_axis_v = r[i];
+						largest_axis_index = i;
+					}
+				}
+
+				if (largest_axis_index < 0)
+					return false;
+
+				std::vector<float> keys(node.m_training_vecs.size());
+				for (uint32_t i = 0; i < node.m_training_vecs.size(); i++)
+					keys[i] = m_training_vecs[node.m_training_vecs[i]].first[largest_axis_index];
+
+				uint_vec indices(node.m_training_vecs.size());
+				indirect_sort((uint32_t)node.m_training_vecs.size(), &indices[0], &keys[0]);
+
+				l_child.set_zero();
+				l_weight = 0;
+
+				r_child.set_zero();
+				r_weight = 0;
+
+				const uint32_t half_index = (uint32_t)node.m_training_vecs.size() / 2;
+				for (uint32_t i = 0; i < node.m_training_vecs.size(); i++)
+				{
+					const float weight = (float)m_training_vecs[node.m_training_vecs[i]].second;
+
+					const TrainingVectorType& v = m_training_vecs[node.m_training_vecs[i]].first;
+
+					if (i < half_index)
+					{
+						l_child += v * weight;
+						l_weight += weight;
+					}
+					else
+					{
+						r_child += v * weight;
+						r_weight += weight;
+					}
+				}
+
+				if ((l_weight > 0.0f) && (r_weight > 0.0f))
+				{
+					l_child_result = l_child * static_cast<float>(1.0f / l_weight);
+					r_child_result = r_child * static_cast<float>(1.0f / r_weight);
+				}
+				else
+				{
+					l_child_result = l;
+					r_child_result = h;
 				}
 			}
+
+			return true;
 		}
 
 		bool refine_split(const tsvq_node &node,
@@ -1191,9 +1377,9 @@ namespace basisu
 				for (uint32_t i = 0; i < node.m_training_vecs.size(); i++)
 				{
 					const TrainingVectorType &v = m_training_vecs[node.m_training_vecs[i]].first;
-					const uint32_t weight = m_training_vecs[node.m_training_vecs[i]].second;
+					const uint64_t weight = m_training_vecs[node.m_training_vecs[i]].second;
 
-					double left_dist2 = l_child.squared_distance(v), right_dist2 = r_child.squared_distance(v);
+					double left_dist2 = l_child.squared_distance_d(v), right_dist2 = r_child.squared_distance_d(v);
 
 					if (left_dist2 >= right_dist2)
 					{
@@ -1214,7 +1400,36 @@ namespace basisu
 				}
 
 				if ((!l_weight) || (!r_weight))
-					return false;
+				{
+					TrainingVectorType firstVec;
+					for (uint32_t i = 0; i < node.m_training_vecs.size(); i++)
+					{
+						const TrainingVectorType& v = m_training_vecs[node.m_training_vecs[i]].first;
+						const uint64_t weight = m_training_vecs[node.m_training_vecs[i]].second;
+					
+						if ((!i) || (v == firstVec))
+						{
+							firstVec = v;
+
+							new_r_child += (v * static_cast<float>(weight));
+							r_weight += weight;
+
+							r_ttsum += weight * v.dot(v);
+							r_children.push_back(node.m_training_vecs[i]);
+						}
+						else
+						{
+							new_l_child += (v * static_cast<float>(weight));
+							l_weight += weight;
+
+							l_ttsum += weight * v.dot(v);
+							l_children.push_back(node.m_training_vecs[i]);
+						}
+					}
+
+					if (!l_weight)
+						return false;
+				}
 
 				l_var = static_cast<float>(l_ttsum - (new_l_child.dot(new_l_child) / l_weight));
 				r_var = static_cast<float>(r_ttsum - (new_r_child.dot(new_r_child) / r_weight));
@@ -1241,6 +1456,238 @@ namespace basisu
 			return true;
 		}
 	};
+
+	struct weighted_block_group
+	{
+		uint64_t m_total_weight;
+		uint_vec m_indices;
+	};
+
+	template<typename Quantizer>
+	bool generate_hierarchical_codebook_threaded_internal(Quantizer& q,
+		uint32_t max_codebook_size, uint32_t max_parent_codebook_size,
+		std::vector<uint_vec>& codebook,
+		std::vector<uint_vec>& parent_codebook,
+		uint32_t max_threads, bool limit_clusterizers, job_pool *pJob_pool)
+	{
+		codebook.resize(0);
+		parent_codebook.resize(0);
+
+		if ((max_threads <= 1) || (q.get_training_vecs().size() < 256) || (max_codebook_size < max_threads * 16))
+		{
+			if (!q.generate(max_codebook_size))
+				return false;
+
+			q.retrieve(codebook);
+
+			if (max_parent_codebook_size)
+				q.retrieve(max_parent_codebook_size, parent_codebook);
+
+			return true;
+		}
+
+		const uint32_t cMaxThreads = 16;
+		if (max_threads > cMaxThreads)
+			max_threads = cMaxThreads;
+
+		if (!q.generate(max_threads))
+			return false;
+
+		std::vector<uint_vec> initial_codebook;
+
+		q.retrieve(initial_codebook);
+
+		if (initial_codebook.size() < max_threads)
+		{
+			codebook = initial_codebook;
+
+			if (max_parent_codebook_size)
+				q.retrieve(max_parent_codebook_size, parent_codebook);
+
+			return true;
+		}
+
+		Quantizer quantizers[cMaxThreads];
+		
+		bool success_flags[cMaxThreads];
+		clear_obj(success_flags);
+
+		std::vector<uint_vec> local_clusters[cMaxThreads];
+		std::vector<uint_vec> local_parent_clusters[cMaxThreads];
+
+		for (uint32_t thread_iter = 0; thread_iter < max_threads; thread_iter++)
+		{
+			pJob_pool->add_job( [thread_iter, &local_clusters, &local_parent_clusters, &success_flags, &quantizers, &initial_codebook, &q, &limit_clusterizers, &max_codebook_size, &max_threads, &max_parent_codebook_size] {
+
+				Quantizer& lq = quantizers[thread_iter];
+				uint_vec& cluster_indices = initial_codebook[thread_iter];
+
+				uint_vec local_to_global(cluster_indices.size());
+
+				for (uint32_t i = 0; i < cluster_indices.size(); i++)
+				{
+					const uint32_t global_training_vec_index = cluster_indices[i];
+					local_to_global[i] = global_training_vec_index;
+
+					lq.add_training_vec(q.get_training_vecs()[global_training_vec_index].first, q.get_training_vecs()[global_training_vec_index].second);
+				}
+
+				const uint32_t max_clusters = limit_clusterizers ? ((max_codebook_size + max_threads - 1) / max_threads) : (uint32_t)lq.get_total_training_vecs();
+
+				success_flags[thread_iter] = lq.generate(max_clusters);
+
+				if (success_flags[thread_iter])
+				{
+					lq.retrieve(local_clusters[thread_iter]);
+
+					for (uint32_t i = 0; i < local_clusters[thread_iter].size(); i++)
+					{
+						for (uint32_t j = 0; j < local_clusters[thread_iter][i].size(); j++)
+							local_clusters[thread_iter][i][j] = local_to_global[local_clusters[thread_iter][i][j]];
+					}
+
+					if (max_parent_codebook_size)
+					{
+						lq.retrieve((max_parent_codebook_size + max_threads - 1) / max_threads, local_parent_clusters[thread_iter]);
+
+						for (uint32_t i = 0; i < local_parent_clusters[thread_iter].size(); i++)
+						{
+							for (uint32_t j = 0; j < local_parent_clusters[thread_iter][i].size(); j++)
+								local_parent_clusters[thread_iter][i][j] = local_to_global[local_parent_clusters[thread_iter][i][j]];
+						}
+					}
+				}
+
+			} );
+
+		} // thread_iter
+
+		pJob_pool->wait_for_all();
+
+		uint32_t total_clusters = 0, total_parent_clusters = 0;
+
+		for (int thread_iter = 0; thread_iter < (int)max_threads; thread_iter++)
+		{
+			if (!success_flags[thread_iter])
+				return false;
+			total_clusters += (uint32_t)local_clusters[thread_iter].size();
+			total_parent_clusters += (uint32_t)local_parent_clusters[thread_iter].size();
+		}
+
+		codebook.reserve(total_clusters);
+		parent_codebook.reserve(total_parent_clusters);
+
+		for (uint32_t thread_iter = 0; thread_iter < max_threads; thread_iter++)
+		{
+			for (uint32_t j = 0; j < local_clusters[thread_iter].size(); j++)
+			{
+				codebook.resize(codebook.size() + 1);
+				codebook.back().swap(local_clusters[thread_iter][j]);
+			}
+
+			for (uint32_t j = 0; j < local_parent_clusters[thread_iter].size(); j++)
+			{
+				parent_codebook.resize(parent_codebook.size() + 1);
+				parent_codebook.back().swap(local_parent_clusters[thread_iter][j]);
+			}
+		}
+
+		return true;
+	}
+
+	template<typename Quantizer>
+	bool generate_hierarchical_codebook_threaded(Quantizer& q,
+		uint32_t max_codebook_size, uint32_t max_parent_codebook_size,
+		std::vector<uint_vec>& codebook,
+		std::vector<uint_vec>& parent_codebook,
+		uint32_t max_threads, job_pool *pJob_pool)
+	{
+		typedef bit_hasher<typename Quantizer::training_vec_type> training_vec_bit_hasher;
+		typedef std::unordered_map < typename Quantizer::training_vec_type, weighted_block_group, 
+			training_vec_bit_hasher> group_hash;
+		
+		group_hash unique_vecs;
+
+		weighted_block_group g;
+		g.m_indices.resize(1);
+
+		for (uint32_t i = 0; i < q.get_training_vecs().size(); i++)
+		{
+			g.m_total_weight = q.get_training_vecs()[i].second;
+			g.m_indices[0] = i;
+
+			auto ins_res = unique_vecs.insert(std::make_pair(q.get_training_vecs()[i].first, g));
+
+			if (!ins_res.second)
+			{
+				(ins_res.first)->second.m_total_weight += g.m_total_weight;
+				(ins_res.first)->second.m_indices.push_back(i);
+			}
+		}
+
+		debug_printf("generate_hierarchical_codebook_threaded: %u training vectors, %u unique training vectors\n", q.get_total_training_vecs(), (uint32_t)unique_vecs.size());
+
+		Quantizer group_quant;
+		typedef typename group_hash::const_iterator group_hash_const_iter;
+		std::vector<group_hash_const_iter> unique_vec_iters;
+		unique_vec_iters.reserve(unique_vecs.size());
+
+		for (auto iter = unique_vecs.begin(); iter != unique_vecs.end(); ++iter)
+		{
+			group_quant.add_training_vec(iter->first, iter->second.m_total_weight);
+			unique_vec_iters.push_back(iter);
+		}
+
+		bool limit_clusterizers = true;
+		if (unique_vecs.size() <= max_codebook_size)
+			limit_clusterizers = false;
+
+		debug_printf("Limit clusterizers: %u\n", limit_clusterizers);
+
+		std::vector<uint_vec> group_codebook, group_parent_codebook;
+		bool status = generate_hierarchical_codebook_threaded_internal(group_quant,
+			max_codebook_size, max_parent_codebook_size,
+			group_codebook,
+			group_parent_codebook,
+			(unique_vecs.size() < 65536*4) ? 1 : max_threads, limit_clusterizers, pJob_pool);
+
+		if (!status)
+			return false;
+
+		codebook.resize(0);
+		for (uint32_t i = 0; i < group_codebook.size(); i++)
+		{
+			codebook.resize(codebook.size() + 1);
+
+			for (uint32_t j = 0; j < group_codebook[i].size(); j++)
+			{
+				const uint32_t group_index = group_codebook[i][j];
+
+				typename group_hash::const_iterator group_iter = unique_vec_iters[group_index];
+				const uint_vec& training_vec_indices = group_iter->second.m_indices;
+				
+				append_vector(codebook.back(), training_vec_indices);
+			}
+		}
+
+		parent_codebook.resize(0);
+		for (uint32_t i = 0; i < group_parent_codebook.size(); i++)
+		{
+			parent_codebook.resize(parent_codebook.size() + 1);
+
+			for (uint32_t j = 0; j < group_parent_codebook[i].size(); j++)
+			{
+				const uint32_t group_index = group_parent_codebook[i][j];
+
+				typename group_hash::const_iterator group_iter = unique_vec_iters[group_index];
+				const uint_vec& training_vec_indices = group_iter->second.m_indices;
+
+				append_vector(parent_codebook.back(), training_vec_indices);
+			}
+		}
+
+		return true;
+	}
 
 	// Canonical Huffman coding
 
@@ -2353,7 +2800,7 @@ namespace basisu
 	}
 
 	void fill_buffer_with_random_bytes(void *pBuf, size_t size, uint32_t seed = 1);
-		
+
 } // namespace basisu
 
 

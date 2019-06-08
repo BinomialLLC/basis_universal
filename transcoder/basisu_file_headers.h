@@ -21,6 +21,7 @@ namespace basist
 	enum basis_slice_desc_flags
 	{
 		cSliceDescFlagsIsAlphaData = 1,
+		cSliceDescFlagsFrameIsIFrame = 2			// Video only: Frame doesn't refer to previous frame (no usage of conditional replenishment pred symbols)
 	};
 
 #pragma pack(push)

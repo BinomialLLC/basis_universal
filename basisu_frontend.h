@@ -17,6 +17,7 @@
 #include "basisu_etc.h"
 #include "basisu_gpu_texture.h"
 #include "basisu_global_selector_palette_helpers.h"
+#include "transcoder/basisu_file_headers.h"
 
 namespace basisu
 {
@@ -71,13 +72,17 @@ namespace basisu
 				m_perceptual(true),
 				m_debug_stats(false),
 				m_debug_images(false),
-				m_dump_endpoint_clusterization(false),
+				m_dump_endpoint_clusterization(true),
 				m_pGlobal_sel_codebook(NULL),
 				m_num_global_sel_codebook_pal_bits(0),
 				m_num_global_sel_codebook_mod_bits(0),
 				m_use_hybrid_selector_codebooks(false),
 				m_hybrid_codebook_quality_thresh(0.0f),
-				m_validate(false)
+				m_validate(false),
+				m_tex_type(basist::cBASISTexType2D),
+				m_multithreaded(false),
+				m_disable_hierarchical_endpoint_codebooks(false),
+				m_pJob_pool(nullptr)
 			{
 			}
 
@@ -94,12 +99,17 @@ namespace basisu
 			bool m_debug_images;
 			bool m_dump_endpoint_clusterization;
 			bool m_validate;
+			bool m_multithreaded;
+			bool m_disable_hierarchical_endpoint_codebooks;
 			
 			const basist::etc1_global_selector_codebook *m_pGlobal_sel_codebook;
 			uint32_t m_num_global_sel_codebook_pal_bits;
 			uint32_t m_num_global_sel_codebook_mod_bits;
 			bool m_use_hybrid_selector_codebooks;
 			float m_hybrid_codebook_quality_thresh;
+			basist::basis_texture_type m_tex_type;
+			
+			job_pool *m_pJob_pool;
 		};
 
 		bool init(const params &p);
@@ -313,11 +323,13 @@ namespace basisu
 		// The sorted subblock endpoint quant error for each endpoint cluster
 		std::vector<subblock_endpoint_quant_err> m_subblock_endpoint_quant_err_vec;
 
+		std::mutex m_lock;
+
 		//-----------------------------------------------------------------------------
 
 		void init_etc1_images();
 		void init_endpoint_training_vectors();
-		void dump_endpoint_clusterization_visualization(const char *pFilename);
+		void dump_endpoint_clusterization_visualization(const char *pFilename, bool vis_endpoint_colors);
 		void generate_endpoint_clusters();
 		void compute_endpoint_subblock_error_vec();
 		void introduce_new_endpoint_clusters();
@@ -328,12 +340,13 @@ namespace basisu
 		void compute_endpoint_clusters_within_each_parent_cluster();
 		void compute_selector_clusters_within_each_parent_cluster();
 		void create_initial_packed_texture();
-		void create_selector_clusters();
+		void generate_selector_clusters();
 		void create_optimized_selector_codebook(uint32_t iter);
 		void find_optimal_selector_clusters_for_each_block();
 		uint32_t refine_block_endpoints_given_selectors();
 		void finalize();
 		bool validate_output() const;
+		void introduce_special_selector_clusters();
 		void optimize_selector_codebook();
 		bool check_etc1s_constraints() const;
 	};

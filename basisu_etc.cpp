@@ -1250,11 +1250,10 @@ namespace basisu
 
 	// Packs solid color blocks efficiently using a set of small precomputed tables.
 	// For random 888 inputs, MSE results are better than Erricson's ETC1 packer in "slow" mode ~9.5% of the time, is slightly worse only ~.01% of the time, and is equal the rest of the time.
-	static uint64_t pack_etc1_block_solid_color(etc_block& block, const uint8_t* pColor, basis_etc1_pack_params& pack_params, pack_etc1_block_context& context)
+	uint64_t pack_etc1_block_solid_color(etc_block& block, const uint8_t* pColor, bool diff_only)
 	{
 		assert(g_etc1_inverse_lookup[0][255]);
 
-		context, pack_params;
 		static uint32_t s_next_comp[4] = { 1, 2, 0, 1 };
 
 		uint32_t best_error = UINT32_MAX, best_i = 0;
@@ -1281,6 +1280,10 @@ namespace basisu
 				do
 				{
 					const uint32_t x = *pTable++;
+					
+					const bool diff = (x & 1) != 0;
+					if ((diff_only) && (!diff))
+						continue;
 
 #ifdef BASISU_BUILD_DEBUG
 					const uint32_t diff = x & 1;
@@ -1308,6 +1311,9 @@ namespace basisu
 			}
 		}
 	found_perfect_match:
+
+		if (best_error == UINT32_MAX)
+			return UINT64_MAX;
 
 		const uint32_t diff = best_x & 1;
 		const uint32_t inten = (best_x >> 1) & 7;
@@ -1338,14 +1344,11 @@ namespace basisu
 	static uint32_t pack_etc1_block_solid_color_constrained(
 		etc1_optimizer::results& results,
 		uint32_t num_colors, const uint8_t *pColor,
-		basis_etc1_pack_params& pack_params,
-		pack_etc1_block_context& context,
 		bool use_diff,
 		const color_rgba* pBase_color5_unscaled)
 	{
 		assert(g_etc1_inverse_lookup[0][255]);
 
-		context, pack_params;
 		static uint32_t s_next_comp[4] = { 1, 2, 0, 1 };
 
 		uint32_t best_error = UINT32_MAX, best_i = 0;
@@ -1587,7 +1590,7 @@ namespace basisu
 
 		return upper_lower_sum < left_right_sum;
 	}
-
+		
 	uint64_t pack_etc1_block(etc_block& dst_block, const color_rgba* pSrc_pixels, basis_etc1_pack_params& pack_params, pack_etc1_block_context& context, const uint8_t* pForce_selectors)
 	{
 #if BASISU_DEBUG_ETC_ENCODER
@@ -1607,7 +1610,7 @@ namespace basisu
 #if BASISU_DEBUG_ETC_ENCODER
 				printf("** Block is a single solid color\n");
 #endif
-				uint64_t err = 16 * pack_etc1_block_solid_color(dst_block, &pSrc_pixels[0].r, pack_params, context);
+				uint64_t err = 16 * pack_etc1_block_solid_color(dst_block, &pSrc_pixels[0].r);
 				dst_block.set_flip_bit(true);
 				return err;
 			}
@@ -1741,7 +1744,7 @@ namespace basisu
 									break;
 							if (!r)
 							{
-								pack_etc1_block_solid_color_constrained(results[2], 8, &subblock_pixel0.r, pack_params, context, !use_color4, (subblock && !use_color4) ? &results[0].m_block_color_unscaled : nullptr);
+								pack_etc1_block_solid_color_constrained(results[2], 8, &subblock_pixel0.r, !use_color4, (subblock && !use_color4) ? &results[0].m_block_color_unscaled : nullptr);
 							}
 						}
 
@@ -1961,5 +1964,6 @@ namespace basisu
 
 		return best_error;
 	}
-
+	
+			
 } // namespace basisu

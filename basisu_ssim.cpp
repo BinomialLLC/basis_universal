@@ -105,7 +105,7 @@ namespace basisu
 
 		dst.crop(dst_width, dst_height);
 
-#pragma omp parallel for
+//#pragma omp parallel for
 		for (int oy = 0; oy < dst_height; oy++)
 		{
 			for (int ox = 0; ox < dst_width; ox++)
@@ -139,7 +139,7 @@ namespace basisu
 	{
 		dst.resize(src);
 
-#pragma omp parallel for
+//#pragma omp parallel for
 		for (int y = 0; y < (int)dst.get_height(); y++)
 		{
 			for (uint32_t x = 0; x < dst.get_width(); x++)
@@ -158,7 +158,7 @@ namespace basisu
 	{
 		dst.resize(src);
 
-#pragma omp parallel for
+//#pragma omp parallel for
 		for (int y = 0; y < (int)dst.get_height(); y++)
 		{
 			for (uint32_t x = 0; x < dst.get_width(); x++)
@@ -173,7 +173,7 @@ namespace basisu
 	{
 		dst.resize(src);
 
-#pragma omp parallel for
+//#pragma omp parallel for
 		for (int y = 0; y < (int)dst.get_height(); y++)
 		{
 			for (uint32_t x = 0; x < dst.get_width(); x++)
@@ -194,7 +194,7 @@ namespace basisu
 	{
 		dst.resize(src1);
 
-#pragma omp parallel for
+//#pragma omp parallel for
 		for (int y = 0; y < (int)dst.get_height(); y++)
 		{
 			for (uint32_t x = 0; x < dst.get_width(); x++)
@@ -215,7 +215,7 @@ namespace basisu
 	{
 		dst.resize(src1);
 
-#pragma omp parallel for
+//#pragma omp parallel for
 		for (int y = 0; y < (int)dst.get_height(); y++)
 		{
 			for (uint32_t x = 0; x < dst.get_width(); x++)
@@ -232,7 +232,7 @@ namespace basisu
 	{
 		dst.resize(src);
 
-#pragma omp parallel for
+//#pragma omp parallel for
 		for (int y = 0; y < (int)dst.get_height(); y++)
 		{
 			for (uint32_t x = 0; x < dst.get_width(); x++)
@@ -248,7 +248,7 @@ namespace basisu
 	{
 		dst.resize(src1);
 
-#pragma omp parallel for
+//#pragma omp parallel for
 		for (int y = 0; y < (int)dst.get_height(); y++)
 		{
 			for (uint32_t x = 0; x < dst.get_width(); x++)
@@ -274,7 +274,7 @@ namespace basisu
 	{
 		dst.resize(src1);
 
-#pragma omp parallel for
+//#pragma omp parallel for
 		for (int y = 0; y < (int)dst.get_height(); y++)
 		{
 			for (uint32_t x = 0; x < dst.get_width(); x++)

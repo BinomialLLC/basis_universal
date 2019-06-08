@@ -558,6 +558,21 @@ namespace basisu
 		uint64_t evaluate_etc1_error(const color_rgba* pBlock_pixels, bool perceptual, int subblock_index = -1) const;
 		void get_subblock_pixels(color_rgba* pPixels, int subblock_index = -1) const;
 
+		void get_selector_range(uint32_t& low, uint32_t& high) const
+		{
+			low = 3;
+			high = 0;
+			for (uint32_t y = 0; y < 4; y++)
+			{
+				for (uint32_t x = 0; x < 4; x++)
+				{
+					const uint32_t s = get_selector(x, y);
+					low = minimum(low, s);
+					high = maximum(high, s);
+				}
+			}
+		}
+
 		void set_block_color4(const color_rgba &c0_unscaled, const color_rgba &c1_unscaled)
 		{
 			set_diff_bit(false);
@@ -1034,6 +1049,6 @@ namespace basisu
 
 	bool pack_etc1_estimate_flipped(const color_rgba* pSrc_pixels);
 		
-	uint64_t pack_etc1_block_solid_color(etc_block& block, const uint8_t* pColor);
+	uint64_t pack_etc1_block_solid_color(etc_block& block, const uint8_t* pColor, bool diff_only = true);
 
 } // namespace basisu

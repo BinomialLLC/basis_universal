@@ -86,6 +86,8 @@ namespace basisu
 			
 			if (slice_descs[i].m_alpha)
 				m_images_descs[i].m_flags = m_images_descs[i].m_flags | basist::cSliceDescFlagsIsAlphaData;
+			if (slice_descs[i].m_iframe)
+				m_images_descs[i].m_flags = m_images_descs[i].m_flags | basist::cSliceDescFlagsFrameIsIFrame;
 
 			m_images_descs[i].m_orig_width = slice_descs[i].m_orig_width;
 			m_images_descs[i].m_orig_height = slice_descs[i].m_orig_height;

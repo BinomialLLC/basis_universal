@@ -98,7 +98,6 @@
       <WarningLevel>Level4</WarningLevel>
       <Optimization>Disabled</Optimization>
       <SDLCheck>true</SDLCheck>
-      <OpenMPSupport>true</OpenMPSupport>
       <AdditionalIncludeDirectories>
       </AdditionalIncludeDirectories>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
@@ -134,7 +133,6 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
-      <OpenMPSupport>true</OpenMPSupport>
       <AdditionalIncludeDirectories>
       </AdditionalIncludeDirectories>
       <PreprocessorDefinitions>NDEBUG;_MBCS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
