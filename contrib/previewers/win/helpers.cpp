@@ -139,13 +139,15 @@ HBITMAP dxtToBitmap(const uint8_t* src, uint32_t const imgW, uint32_t const imgH
 	 * regular case.
 	 * 
 	 * TODO: 16-bit variant instead?
-	 * TODO: bitmaps with dimensions that aren't a multiple of 4
+	 * TODO: we're growing the nearest 4x4 but not cropping afterwards (what about shrinking and skipping the last blocks?)
 	 */
+	uint32_t nearW = (imgW + 3) & ~3;
+	uint32_t nearH = (imgH + 3) & ~3;
 	BITMAPINFO bmi = {
 		sizeof(bmi.bmiHeader)
 	};
-	bmi.bmiHeader.biWidth  =          imgW;
-	bmi.bmiHeader.biHeight = (flip) ? imgH : -static_cast<int32_t>(imgH);
+	bmi.bmiHeader.biWidth  =          nearW;
+	bmi.bmiHeader.biHeight = (flip) ? nearH : -static_cast<int32_t>(nearH);
 	bmi.bmiHeader.biPlanes = 1;
 	bmi.bmiHeader.biBitCount = 32;
 	bmi.bmiHeader.biCompression = BI_RGB;
@@ -156,14 +158,14 @@ HBITMAP dxtToBitmap(const uint8_t* src, uint32_t const imgW, uint32_t const imgH
 	 */
 	if (hbmp && pixels) {
 		uint32_t* dst = static_cast<uint32_t*>(pixels);
-		for (unsigned y = 0; y < imgH; y += 4) {
+		for (unsigned y = 0; y < nearH; y += 4) {
 			uint32_t* row = dst;
-			for (unsigned x = 0; x < imgW; x += 4) {
-				decodeDxt1(src, row, imgW);
+			for (unsigned x = 0; x < nearW; x += 4) {
+				decodeDxt1(src, row, nearW);
 				src += 8;
 				row += 4;
 			}
-			dst += 4 * imgW;
+			dst += 4 * nearW;
 		}
 	}
 	return hbmp;
