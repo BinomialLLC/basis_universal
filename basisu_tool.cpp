@@ -1,5 +1,5 @@
 // basisu_tool.cpp
-// Copyright (C) 2017-2019 Binomial LLC. All Rights Reserved.
+// Copyright (C) 2019 Binomial LLC. All Rights Reserved.
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -1259,7 +1259,7 @@ static int main_internal(int argc, const char **argv)
 {
 	basisu_encoder_init();
 				
-	printf("Basis Universal GPU Texture Compressor Reference Encoder v" BASISU_TOOL_VERSION ", Copyright (C) 2017-2019 Binomial LLC, All rights reserved\n");
+	printf("Basis Universal GPU Texture Compressor Reference Encoder v" BASISU_TOOL_VERSION ", Copyright (C) 2019 Binomial LLC, All rights reserved\n");
 
 #if defined(DEBUG) || defined(_DEBUG)
 	printf("DEBUG build\n");

@@ -1,5 +1,5 @@
 // basisu.h
-// Copyright (C) 2017-2019 Binomial LLC. All Rights Reserved.
+// Copyright (C) 2019 Binomial LLC. All Rights Reserved.
 // Important: If compiling with gcc, be sure strict aliasing is disabled: -fno-strict-aliasing
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
