@@ -167,6 +167,7 @@ HBITMAP dxtToBitmap(const uint8_t* src, uint32_t const imgW, uint32_t const imgH
 			}
 			dst += 4 * nearW;
 		}
+		GdiFlush();
 	}
 	return hbmp;
 }
