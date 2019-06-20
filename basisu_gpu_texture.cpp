@@ -681,7 +681,10 @@ namespace basisu
 		{
 			uint32_t img_size = gpu_images[0][level_index].get_size_in_bytes();
 			
-			img_size = img_size * header.m_numberOfFaces * maximum<uint32_t>(1, header.m_numberOfArrayElements);
+			// KTX spec: "For most textures imageSize is the number of bytes of pixel data in the current LOD level.
+			// For non-array cubemap textures imageSize is the number of bytes in each face of the texture for the current LOD level."
+			if (!cubemap_flag || header.m_numberOfArrayElements > 0)
+				img_size = img_size * header.m_numberOfFaces * maximum<uint32_t>(1, header.m_numberOfArrayElements);
 			
 			assert(img_size && ((img_size & 3) == 0));
 
@@ -702,6 +705,9 @@ namespace basisu
 				}
 			
 			} // array_index
+
+			if (cubemap_flag && header.m_numberOfArrayElements == 0)
+				img_size = img_size * header.m_numberOfFaces;
 
 			assert(bytes_written == img_size);
 			
