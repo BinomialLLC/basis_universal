@@ -681,8 +681,11 @@ namespace basisu
 		{
 			uint32_t img_size = gpu_images[0][level_index].get_size_in_bytes();
 			
-			img_size = img_size * header.m_numberOfFaces * maximum<uint32_t>(1, header.m_numberOfArrayElements);
-			
+			if ((header.m_numberOfFaces == 1) || (header.m_numberOfArrayElements > 1))
+			{
+				img_size = img_size * header.m_numberOfFaces * maximum<uint32_t>(1, header.m_numberOfArrayElements);
+			}
+
 			assert(img_size && ((img_size & 3) == 0));
 
 			packed_uint<4> packed_img_size(img_size);
