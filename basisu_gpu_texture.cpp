@@ -706,8 +706,6 @@ namespace basisu
 			
 			} // array_index
 
-			assert(bytes_written == img_size);
-			
 		} // level_index
 
 		return true;
