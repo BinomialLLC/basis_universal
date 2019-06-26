@@ -15,7 +15,7 @@
 
 <body>
   <script>
-    Module.onRuntimeInitialized = () => {
+    BASIS().then(Module => {
 
       const { BasisFile, initializeBasis } = Module;
 
@@ -97,7 +97,7 @@
 
       }, false );
 
-    }
+    });
 
     function log(s) {
 
