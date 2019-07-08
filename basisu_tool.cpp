@@ -84,6 +84,7 @@ static void print_usage()
 		" -force_alpha: Always output alpha basis files, even if no inputs has alpha\n"
 		" -seperate_rg_to_color_alpha: Seperate input R and G channels to RGB and A (for tangent space XY normal maps)\n"
 		" -no_multithreading: Disable multithreading\n"
+		" -opencl: Enable OpenCL (experimental)\n"
 		" -no_ktx: Disable KTX writing when unpacking (faster)\n"
 		" -etc1_only: Only unpack to ETC1, skipping the other texture formats during -unpack\n"
 		" -disable_hierarchical_endpoint_codebooks: Disable hierarchical endpoint codebook usage, slower but higher quality on some compression levels\n"
@@ -349,6 +350,8 @@ public:
 			{
 				m_comp_params.m_multithreading = false;
 			}
+			else if (strcasecmp(pArg, "-opencl") == 0)
+				m_comp_params.m_opencl = true;
 			else if (strcasecmp(pArg, "-mipmap") == 0)
 				m_comp_params.m_mip_gen = true;
 			else if (strcasecmp(pArg, "-no_ktx") == 0)

@@ -798,6 +798,7 @@ namespace basisu
 		p.m_compression_level = m_params.m_compression_level;
 		p.m_tex_type = m_params.m_tex_type;
 		p.m_multithreaded = m_params.m_multithreading;
+		p.m_opencl = m_params.m_opencl;
 		p.m_disable_hierarchical_endpoint_codebooks = m_params.m_disable_hierarchical_endpoint_codebooks;
 		p.m_pJob_pool = m_params.m_pJob_pool;
 

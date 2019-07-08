@@ -26,7 +26,7 @@ set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
 set(CMAKE_C_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
 
 set(CMAKE_CXX_FLAGS -std=c++11)
-set(GCC_COMPILE_FLAGS "-fvisibility=hidden -fvisibility-inlines-hidden -fPIC -fno-strict-aliasing -D_LARGEFILE64_SOURCE=1 -D_FILE_OFFSET_BITS=64 -Wall -Wextra -Wno-unused-local-typedefs -Wno-unused-value -Wno-unused-parameter -Wno-unused-variable -Wno-reorder")
+set(GCC_COMPILE_FLAGS "-fvisibility=hidden -fvisibility-inlines-hidden -fPIC -fno-strict-aliasing -D_LARGEFILE64_SOURCE=1 -D_FILE_OFFSET_BITS=64 -Wall -Wextra -Wno-unused-local-typedefs -Wno-unused-value -Wno-unused-parameter -Wno-unused-variable -Wno-reorder -Wno-maybe-uninitialized -Wno-ignored-attributes")
 
 if (NOT BUILD_X64)
 	set(GCC_COMPILE_FLAGS "${GCC_COMPILE_FLAGS} -m32")
@@ -72,8 +72,10 @@ endif()
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/${BIN_DIRECTORY})
 
+add_subdirectory(opencl)
 add_executable(basisu ${BASISU_SRC_LIST})
-target_link_libraries(basisu m pthread)
+target_link_libraries(basisu m pthread basisu_opencl)
+target_include_directories(basisu PRIVATE .)
 
 install(TARGETS basisu DESTINATION bin)
 

@@ -81,6 +81,7 @@ namespace basisu
 				m_validate(false),
 				m_tex_type(basist::cBASISTexType2D),
 				m_multithreaded(false),
+				m_opencl(false),
 				m_disable_hierarchical_endpoint_codebooks(false),
 				m_pJob_pool(nullptr)
 			{
@@ -100,6 +101,7 @@ namespace basisu
 			bool m_dump_endpoint_clusterization;
 			bool m_validate;
 			bool m_multithreaded;
+			bool m_opencl;
 			bool m_disable_hierarchical_endpoint_codebooks;
 			
 			const basist::etc1_global_selector_codebook *m_pGlobal_sel_codebook;

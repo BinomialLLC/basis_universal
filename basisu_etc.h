@@ -72,12 +72,17 @@ namespace basisu
 		cETC1ColorDeltaMin = -4,
 		cETC1ColorDeltaMax = 3,
 
+		BASISU_ETC1_CLUSTER_FIT_ORDER_TABLE_SIZE = 165,
 		// Delta3:
 		// 0   1   2   3   4   5   6   7
 		// 000 001 010 011 100 101 110 111
 		// 0   1   2   3   -4  -3  -2  -1
 	};
-	
+
+	struct cluster_fit_vec {
+		uint8_t m_v[4];
+	};
+	extern const cluster_fit_vec g_cluster_fit_order_tab[BASISU_ETC1_CLUSTER_FIT_ORDER_TABLE_SIZE];
 	extern const int g_etc1_inten_tables[cETC1IntenModifierValues][cETC1SelectorValues];
 	extern const uint8_t g_etc1_to_selector_index[cETC1SelectorValues];
 	extern const uint8_t g_selector_index_to_etc1[cETC1SelectorValues];

@@ -19,6 +19,7 @@
 //
 #include "transcoder/basisu.h"
 #include "basisu_frontend.h"
+#include "opencl/oclhost.h"
 #include <unordered_set>
 #include <unordered_map>
 
@@ -174,11 +175,23 @@ namespace basisu
 	bool basisu_frontend::compress()
 	{
 		debug_printf("basisu_frontend::compress\n");
+		oclhost host;
+		if (m_params.m_opencl) {
+			if (!host.init(m_params, false /*use_color4*/)) {
+				return false;
+			}
+			if (!host.runFrontend(m_source_blocks)) {
+				return false;
+			}
+		}
 
 		m_total_blocks = m_params.m_num_source_blocks;
 		m_total_pixels = m_total_blocks * cPixelBlockTotalPixels;
 
 		init_etc1_images();
+		if (m_params.m_opencl) {
+			host.check_results(m_etc1_blocks_etc1s);
+		}
 
 		init_endpoint_training_vectors();
 

@@ -219,6 +219,7 @@ namespace basisu
 			m_check_for_alpha.clear();
 			m_force_alpha.clear();
 			m_multithreading.clear();
+			m_opencl.clear();
 			m_seperate_rg_to_color_alpha.clear();
 			m_hybrid_sel_cb_quality_thresh.clear();
 			m_global_pal_bits.clear();
@@ -309,6 +310,7 @@ namespace basisu
 		// Always put alpha slices in the output basis file, even when the input doesn't have alpha
 		bool_param<false> m_force_alpha; 
 		bool_param<true> m_multithreading;
+		bool_param<false> m_opencl;
 		
 		// Split the R channel to RGB and the G channel to alpha, then write a basis file with alpha channels
 		bool_param<false> m_seperate_rg_to_color_alpha;

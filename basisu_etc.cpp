@@ -19,9 +19,7 @@
 
 namespace basisu
 {
-	const uint32_t BASISU_ETC1_CLUSTER_FIT_ORDER_TABLE_SIZE = 165;
-
-	static const struct { uint8_t m_v[4]; } g_cluster_fit_order_tab[BASISU_ETC1_CLUSTER_FIT_ORDER_TABLE_SIZE] =
+	const cluster_fit_vec g_cluster_fit_order_tab[BASISU_ETC1_CLUSTER_FIT_ORDER_TABLE_SIZE] =
 	{
 		{ { 0, 0, 0, 8 } },{ { 0, 5, 2, 1 } },{ { 0, 6, 1, 1 } },{ { 0, 7, 0, 1 } },{ { 0, 7, 1, 0 } },
 		{ { 0, 0, 8, 0 } },{ { 0, 0, 3, 5 } },{ { 0, 1, 7, 0 } },{ { 0, 0, 4, 4 } },{ { 0, 0, 2, 6 } },
