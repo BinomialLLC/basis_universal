@@ -53,7 +53,6 @@ namespace basisu
 	// Encoder library initialization (just call once at startup)
 	void basisu_encoder_init()
 	{
-		pack_etc1_block_init();
 		basist::basisu_transcoder_init();
 	}
 

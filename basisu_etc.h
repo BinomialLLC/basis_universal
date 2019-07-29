@@ -1043,12 +1043,4 @@ namespace basisu
 		etc1_optimizer m_optimizer;
 	};
 
-	void pack_etc1_block_init();
-
-	uint64_t pack_etc1_block(etc_block& block, const color_rgba* pSrc_pixels, basis_etc1_pack_params& pack_params, pack_etc1_block_context& context, const uint8_t *pForce_selectors = nullptr);
-
-	bool pack_etc1_estimate_flipped(const color_rgba* pSrc_pixels);
-		
-	uint64_t pack_etc1_block_solid_color(etc_block& block, const uint8_t* pColor, bool diff_only = true);
-
 } // namespace basisu
