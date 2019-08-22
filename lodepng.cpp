@@ -30,12 +30,15 @@ Rename this file to lodepng.cpp to use it for C++, or to lodepng.c to use it for
 
 #ifdef _MSC_VER
 #pragma warning (disable : 4201)
+
+#ifndef BASISU_NO_ITERATOR_DEBUG_LEVEL
 #if defined(_DEBUG) || defined(DEBUG)
 #define _ITERATOR_DEBUG_LEVEL 1
 #define _SECURE_SCL 1
 #else
 #define _SECURE_SCL 0
 #define _ITERATOR_DEBUG_LEVEL 0
+#endif
 #endif
 #endif
 
