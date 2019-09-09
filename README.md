@@ -40,9 +40,11 @@ To add automatically generated mipmaps to the .basis file, at a higher than defa
 
 There are several mipmap options that allow you to change the filter kernel, the filter colorspace for the RGB channels (linear vs. sRGB), the smallest mipmap dimension, etc. The tool also supports generating cubemap files, 2D/cubemap texture arrays, etc.
 
-To create a higher quality .basis file (one with better codebooks):
+To create a higher quality .basis file (one with better codebooks) - note this will *really* slow down compression:
 
 `basisu -level 2 x.png`
+
+Important: The -level option isn't the first option you should go to in order to increase quality. The -q option controls the quality vs. bitrate tradeoff. -level controls the quality vs. encoding performance tradeoff, and is primarily intended for videos.
 
 To unpack a .basis file to multiple .png/.ktx files:
 
