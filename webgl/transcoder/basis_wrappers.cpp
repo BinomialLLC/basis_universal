@@ -119,7 +119,7 @@ struct basis_file
     if (!m_transcoder.get_image_level_desc(m_file.data(), m_file.size(), image_index, level_index, orig_width, orig_height, total_blocks))
       return 0;
 
-    if (format == cTFPVRTC1_4_OPAQUE_ONLY)
+    if (format == cTFPVRTC1_4_RGB || format == cTFPVRTC1_4_RGBA)
     {
 	    // For PVRTC1, Basis only writes (or requires) total_blocks * bytes_per_block. But GL requires extra padding for very small textures: 
         // https://www.khronos.org/registry/OpenGL/extensions/IMG/IMG_texture_compression_pvrtc.txt
@@ -156,7 +156,7 @@ struct basis_file
 
     uint32_t required_size = total_blocks * bytes_per_block;
 
-    if (format == cTFPVRTC1_4_OPAQUE_ONLY)
+    if (format == cTFPVRTC1_4_RGB || format == cTFPVRTC1_4_RGBA)
     {
 		// For PVRTC1, Basis only writes (or requires) total_blocks * bytes_per_block. But GL requires extra padding for very small textures: 
 		// https://www.khronos.org/registry/OpenGL/extensions/IMG/IMG_texture_compression_pvrtc.txt
