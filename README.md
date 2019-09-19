@@ -108,7 +108,7 @@ For video, level 1 should result in decent results on most clips. For less bandi
 
 ### Compression levels (advanced option)
 
-The encoder supports multiple compression "effort" levels using the "-comp_level X" command line option, where X ranges from [0,5]. Note that most users shouldn't be messing around with -comp_level. The -q option is the main option to control the quality level of .basis files. -comp_level is mostly intended for harder to handle content such as texture video. It modifies a number of internal encoder configuration parameters, which slowes it down a bunch but allows it to achieve slightly higher quality per output bit.
+The encoder supports multiple compression "effort" levels using the "-comp_level X" command line option, where X ranges from [0,5]. Note that most users shouldn't be messing around with -comp_level. The -q option is the main option to control the quality level of .basis files. -comp_level is mostly intended for harder to handle content such as texture video. It modifies a number of internal encoder configuration parameters, which slows it down a bunch but allows it to achieve slightly higher quality per output bit.
 
 This option (along with -q or manually setting the codebook sizes) controls the tradeoff between encoding time and overall quality. The default is level 1, which is the sweet spot between encoding speed vs. overall quality. Here's a graph showing the encoding time and average quality across 59 images for each level:
 
