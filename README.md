@@ -30,8 +30,8 @@ A minor update will be coming in a couple days which adds additional lower prior
 - Beware that the "transcoder_texture_format" enum names and their values are in flux as we add new texture formats.
 This issue particularly affects Javascript code. Passing the old enum values to the transcoder will cause bugs. 
 We are adding a few more texture formats, renaming the enums and then stabilizing them on the next minor release (within a couple days or so).
-- The "BASISD_SUPPORT_BC7" transcoder macro has been renamed to "BASISD_SUPPORT_BC7_MODE6_OPAQUE_ONLY".
-For web use, be sure to update how you compile the transcoder to reduce its size.
+- When the "BASISD_SUPPORT_BC7" transcoder macro is set to 0, both mode 5 and mode 6 BC7 transcoders are disabled.
+When cross compiling the transcoder for Web use to WebAssembly/asm.js, be sure to set BASISD_SUPPORT_BC7=0. You can also just disable the mode 6 transcoder by just setting BASISD_SUPPORT_BC7_MODE6_OPAQUE_ONLY=0.
 The older BC7 mode-6 RGB function seriously bloats the transcoder's compiled size. (The mode-6 transcoder is of marginal value and might be disabled by default or just removed.) The new BC7 mode 5 RGB/RGBA transcoder uses substantially smaller lookup tables and provides basically the same quality as mode-6 for RGB (becaue we're starting with ETC1S texture data.)
 Set BASISD_SUPPORT_BC7_MODE6_OPAQUE_ONLY to 0 when compiling on platforms which don't support BC7 well/at all, or if transcoder size is an issue.
 - Added ATC RGB/RGBA, ASTC 4x4 L/LA/RGB/RGBA, BC7 mode 5 RGB/RGBA, and PVRTC1 4bpp RGBA support to the transcoder and KTX writer.
