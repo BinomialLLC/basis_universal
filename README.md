@@ -41,7 +41,7 @@ Set BASISD_SUPPORT_BC7_MODE6_OPAQUE_ONLY to 0 when compiling on platforms which 
 No dithering or downsampling yet, but it's coming.
 A couple of the parameters to basisu_transcoder::transcode_image_level() and  basisu_transcoder::transcode_slice() have new meanings when these methods are used with uncompressed raster pixel formats:
 "output_blocks_buf_size_in_blocks_or_pixels" and "output_row_pitch_in_blocks_or_pixels". When transcoding to uncompressed raster pixel formats, these parameters are in pixels, not blocks. The output buffer is also treated as a plain raster image, not a 2D collection of compressed blocks.
-- basisu command line tool's "-level" command line option changed to "-comp_level", to avoid confusion vs. the "-q" option.
+- basisu command line tool's "-level" command line option changed to "-comp_level", to avoid confusion vs. the "-q" option. This option is NOT the same as the -q option, which directly controls the output quality. Most users shouldn't use this option. (See below.)
 
 ### Command Line Compression Tool
 
@@ -87,9 +87,9 @@ After compression, the compressor transcodes all slices in the output .basis fil
 
 For best quality, you must supply basisu with original uncompressed source images. Any other type of lossy compression applied before basisu (including ETC1/BC1-5, BC7, JPEG, etc.) will cause multi-generational artifacts to appear in the final output textures. 
 
-For the maximum possible achievable quality with the current format and encoder, use:
+For the maximum possible achievable quality with the current format and encoder (completely ignoring encoding speed!), use:
 
-`basisu x.png -level 5 -max_endpoints 16128 -max_selectors 16128 -no_selector_rdo -no_endpoint_rdo`
+`basisu x.png -comp_level 5 -max_endpoints 16128 -max_selectors 16128 -no_selector_rdo -no_endpoint_rdo`
 
 Level 5 is extremely slow, so unless you have a very powerful machine, levels 2-4 are recommended.
 
@@ -97,7 +97,7 @@ Note that "-no_selector_rdo -no_endpoint_rdo" are optional. Using them hurts rat
 
 To compress small video sequences, say using tools like ffmpeg and VirtualDub:
 
-`basisu -level 1 -tex_type video -stats -debug -multifile_printf "pic%04u.png" -multifile_num 200 -multifile_first 1 -max_selectors 16128 -max_endpoints 16128 -endpoint_rdo_thresh 1.05 -selector_rdo_thresh 1.05`
+`basisu -comp_level 1 -tex_type video -stats -debug -multifile_printf "pic%04u.png" -multifile_num 200 -multifile_first 1 -max_selectors 16128 -max_endpoints 16128 -endpoint_rdo_thresh 1.05 -selector_rdo_thresh 1.05`
 
 The reference encoder will take a LONG time and a lot of CPU to encode video. The more cores your machine has, the better. Basis is intended for smaller videos of a few dozen seconds or so. If you are very patient and have a Threadripper or Xeon workstation, you should be able to encode up to a few thousand 720P frames. The "webgl_videotest" directory contains a very simple video viewer.
 
@@ -107,9 +107,11 @@ If you are doing rate distortion comparisons vs. other similar systems, be sure 
 
 For video, level 1 should result in decent results on most clips. For less banding, level 2 can make a big difference. This is still an active area of development, and quality/encoding perf. will improve over time.
 
-### Compression levels
+### Compression levels (advanced option)
 
-The encoder supports multiple compression "effort" levels using the "-level X" command line option, where X ranges from [0,5]. This option (along with -q or manually setting the codebook sizes) controls the tradeoff between encoding time and overall quality. The default is level 1, which is the sweet spot between encoding speed vs. overall quality. Here's a graph showing the encoding time and average quality across 59 images for each level:
+The encoder supports multiple compression "effort" levels using the "-comp_level X" command line option, where X ranges from [0,5]. Note that most users shouldn't be messing around with -comp_level. The -q option is the main option to control the quality level of .basis files. -comp_level is mostly intended for harder to handle content such as texture video. It modifies a number of internal encoder configuration parameters, which slowes it down a bunch but allows it to achieve slightly higher quality per output bit.
+
+This option (along with -q or manually setting the codebook sizes) controls the tradeoff between encoding time and overall quality. The default is level 1, which is the sweet spot between encoding speed vs. overall quality. Here's a graph showing the encoding time and average quality across 59 images for each level:
 
 ![Encoder Level vs. Time/Quality Graph](https://github.com/BinomialLLC/basis_universal/blob/master/encoder_lvl_vs_perf.png "Encoder Level vs. Encoding Time/Quality")
 
@@ -117,7 +119,7 @@ This benchmark was done on a 20 core Xeon workstation. The results will be diffe
 
 Level 0 is fast, but this level disables several backend optimizations so it will generate larger files. It will also be quite brittle on complex textures or artificial textures.
 
-Note that -level 2 is equivalent to the initial release's default, and -level 4 is equivalent to the initial release's "-slower" option. Also, -slower is now equivalent to level 2 (not 4).
+Note that -comp_level 2 is equivalent to the initial release's default, and -comp_level 4 is equivalent to the initial release's "-slower" option. Also, -slower is now equivalent to level 2 (not 4).
 
 ### More detailed examples
 
@@ -127,7 +129,7 @@ Compress sRGB image x.png to x.basis using default settings (multiple filenames 
 `basisu x.basis`\
 Unpack x.basis to PNG/KTX files (multiple filenames OK)
 
-`basisu -level 2 -file x.png -mipmap -y_flip`\
+`basisu -comp_level 2 -file x.png -mipmap -y_flip`\
 Compress a mipmapped x.basis file from an sRGB image named x.png, Y flip each source image, set encoder to level 2 for higher quality
 
 `basisu -validate -file x.basis`\
