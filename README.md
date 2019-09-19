@@ -21,6 +21,28 @@ The encoder uses [lodepng](https://lodev.org/lodepng/) for loading and saving PN
 
 The encoder uses [tcuAstcUtil.cpp](https://chromium.googlesource.com/external/deqp/+/refs/heads/master/framework/common/tcuAstcUtil.cpp), from the [Android drawElements Quality Program (deqp) Testing Suite](https://source.android.com/devices/graphics/deqp-testing), for unpacking the transcoder's ASTC output for testing/validation purposes. This code is Copyright 2016 The Android Open Source Project, and uses the Apache 2.0 license.
 
+### Release notes
+
+Milestone 2 (9/19/16) release notes:
+
+- This is a major transcoder update. The encoder hasn't been modified at all. 
+A minor update will be coming in a couple days which adds additional lower priority formats (notable PVRTC2 4bpp RGB) to the transcoder.
+- Beware that the "transcoder_texture_format" enum names and their values are in flux as we add new texture formats.
+This issue particularly affects Javascript code. Passing the old enum values to the transcoder will cause bugs. 
+We are adding a few more texture formats, renaming the enums and then stabilizing them on the next minor release (within a couple days or so).
+- The "BASISD_SUPPORT_BC7" transcoder macro has been renamed to "BASISD_SUPPORT_BC7_MODE6_OPAQUE_ONLY".
+For web use, be sure to update how you compile the transcoder to reduce its size.
+The older BC7 mode-6 RGB function seriously bloats the transcoder's compiled size. (The mode-6 transcoder is of marginal value and might be disabled by default or just removed.) The new BC7 mode 5 RGB/RGBA transcoder uses substantially smaller lookup tables and provides basically the same quality as mode-6 for RGB (becaue we're starting with ETC1S texture data.)
+Set BASISD_SUPPORT_BC7_MODE6_OPAQUE_ONLY to 0 when compiling on platforms which don't support BC7 well/at all, or if transcoder size is an issue.
+- Added ATC RGB/RGBA, ASTC 4x4 L/LA/RGB/RGBA, BC7 mode 5 RGB/RGBA, and PVRTC1 4bpp RGBA support to the transcoder and KTX writer.
+- Major perf. optimizations to all the transcoders. Transcoding to BC1 is approx. 2x faster when compiled native and executed on a Core i7.
+- PVRTC1 4bpp RGB opaque is slightly higher quality 
+- Added various uncompressed raster pixel formats to the transcoder. When outputting raw pixels, the transcoder writes to regular raster images, not blocks. 
+No dithering or downsampling yet, but it's coming.
+A couple of the parameters to basisu_transcoder::transcode_image_level() and  basisu_transcoder::transcode_slice() have new meanings when these methods are used with uncompressed raster pixel formats:
+"output_blocks_buf_size_in_blocks_or_pixels" and "output_row_pitch_in_blocks_or_pixels". When transcoding to uncompressed raster pixel formats, these parameters are in pixels, not blocks. The output buffer is also treated as a plain raster image, not a 2D collection of compressed blocks.
+- basisu command line tool's "-level" command line option changed to "-comp_level", to avoid confusion vs. the "-q" option.
+
 ### Command Line Compression Tool
 
 The command line tool used to create, validate, and transcode/unpack .basis files is named "basisu". Run basisu without any parameters for help. Note this tool uses the reference encoder.
