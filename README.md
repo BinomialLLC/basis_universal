@@ -258,15 +258,15 @@ ETC1-only devices/API's: Transcode to two ETC1 textures and sample and recombine
 
 ETC2 devices/API's: Just transcode to ETC2 EAC RGBA. ETC2 EAC's alpha quality is similar to BC3, and very high.
 
-PVRTC1 devices/API's: Use a single PVRTC1 RGBA texture. For more complex alpha channels, transcode to two PVRTC1 4bpp textures, and sample twice. The PVRTC1 encoder is a real-time encoder, so you'll need to evaluate it on your texture/image data. If the alpha data is too complex or decorrelated 
+PVRTC1 devices/API's: Use a single PVRTC1 RGBA texture. For more complex alpha channels, transcode to two PVRTC1 4bpp textures, and sample twice. The PVRTC1 encoder is a real-time encoder, so you'll need to evaluate it on your texture/image data. If the alpha data is too complex or decorrelated both RGB and A quality will seriously suffer. (Sorry - PVRTC1 is an unforgiving format.)
 
-Devices/API's supporting only BC1-5: Use BC3, which the transcoder supports. BC3's quality quality is very high.
+Devices/API's supporting only BC1-5: Use BC3, which the transcoder supports. BC3's quality  is very high.
 
-Newer devices supporting BC7: Transcode to BC7 mode 5, which supports a high-quality alpha channel.
+Newer devices supporting BC7: Transcode to BC7 mode 5, which supports a high-quality alpha channel. Quality will be similar to BC3.
 
 Devices/API's supporting ASTC: Just transcode to ASTC, which supports a variety of internal block encodings that will be automatically chosen by the transcoder for every block: L, LA, RGB, RGBA.
 
-Device's/API's supprting ATC: Deply to ATC_RGB or ATC_RGBA_INTERPOLATED_ALPHA. This format is basically equivalent to BC1/BC3.
+Device's/API's supprting ATC: Transcode to ATC_RGBA_INTERPOLATED_ALPHA. This format is basically equivalent to BC3.
 
 3. For high quality tangent space normal maps, here's one suggested solution that should work well today:
 
@@ -274,13 +274,15 @@ Compress with the -normal_map flag, which disables a lot of stuff that has inter
 
 Start with 2 component normalized XY tangent space normal maps (where XY range from [-1,1]) and encode them into two 8-bit channels (where XY is packed into [0,255]). Now put X in color, and Y in alpha, and compress that 32-bit PNG using basisu. The command line tool and encoder class support the option "-seperate_rg_to_color_alpha" that swizzles 2 component RG normal maps to RRRG before compression, aiding this process.
 
-ETC1 only devices/API's: Transcode to two ETC1 textures and sample them in a shader. You can either use one ETC1 texture that's twice as high, or two separate ETC1 textures. The transcoder supports transcoding alpha slices to any color output format using a special flag: `basist::basisu_transcoder::cDecodeFlagsTranscodeAlphaDataToOpaqueFormats`. This will look great because each channel gets its own endpoints and selectors.
+ETC1 only devices/API's: Transcode to two ETC1 textures and sample them in a shader, or use an uncompressed format You can either use one ETC1 texture that's twice as high/wide, or two separate ETC1 textures. The transcoder supports transcoding alpha slices to any color output format using a special flag: `basist::basisu_transcoder::cDecodeFlagsTranscodeAlphaDataToOpaqueFormats`. This will look great because each channel gets its own endpoints and selectors.
 
 ETC2 devices/API's: Transcode to a single ETC2 EAC RGBA texture, sample once in shader, deswizzle to RG (XY). This should look great.
 
-PVRTC1 devices/API's: Transcode to two PVRTC1 opaque textures (RGB to one, A to another, which the transcoder supports using the cDecodeFlagsTranscodeAlphaDataToOpaqueFormats flag) and sample each in the shader. This should look fairly good. 
+PVRTC1 devices/API's: Transcode to two PVRTC1 opaque textures (RGB to one, A to another, which the transcoder supports using the cDecodeFlagsTranscodeAlphaDataToOpaqueFormats flag) and sample each in the shader. This should look fairly good. Its doubtful the PVRTC1 RGBA transcoder could handle two complex channels of data well.
 
 Devices/API's supporting BC1-5, BC6H, BC7: Transcode to a single BC5 textures, which used to be called "ATI 3DC". It has two high quality BC4 blocks in there, so it'll look great. Once BC7 alpha support comes online that will be the better option.
+
+Devices/API's supporting ASTC: Just transcode to ASTC. The block transcoder will automatically encode to the "LA" format.
 
 ### Special Transcoding Scenarios
 
@@ -294,7 +296,7 @@ BC5/3DC: This format has two BC4 blocks, and is usually used for XY (red/green) 
 
 Note that you can directly control exactly how transcoding works at the block level by calling a lower level API, basisu_transcoder::transcode_slice(). The higher level API (transcode_image_level) uses this low-level API internally. find_slice() and get_file_info() return all the slice information you would need to call this lower level API. I would study transcode_image_level()'s implementation before using the slice API to get familiar with it. The slice API was written first.
 
-2. To get uncompressed 16/24/32-bpp pixel data from a slice, the best format to transcode to is ETC1. Then unpack and convert the resulting ETC1S block data to pixels (each block will be 4x4 pixels). Internally, everything is actually just ETC1S in the baseline format. We will be adding new methods that support decompressing to a few uncompressed pixel formats as some point.
+2. To get uncompressed 16/32-bpp pixel data from a slice, call the transcoder with one of the uncompressed pixel formats. This will be faster than transcoding to ETC1S then unpacking the blocks yourself (on the CPU).
 
 ### Next Major Steps - Higher Quality!
 
