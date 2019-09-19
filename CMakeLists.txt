@@ -60,6 +60,7 @@ set(BASISU_SRC_LIST ${COMMON_SRC_LIST}
 	basisu_resample_filters.cpp
 	basisu_ssim.cpp
 	basisu_tool.cpp
+	basisu_astc_decomp.cpp
 	lodepng.cpp
 	transcoder/basisu_transcoder.cpp
 	)

@@ -16,23 +16,38 @@
 #pragma once
 
 #ifdef _MSC_VER
-#pragma warning (disable : 4201)
-#pragma warning (disable : 4127) // warning C4127: conditional expression is constant
-#pragma warning (disable : 4530) // C++ exception handler used, but unwind semantics are not enabled.
-#ifndef BASISU_NO_ITERATOR_DEBUG_LEVEL
-//#define _HAS_ITERATOR_DEBUGGING 0
-#if defined(_DEBUG) || defined(DEBUG)
-#define _ITERATOR_DEBUG_LEVEL 1
-#define _SECURE_SCL 1
-#else
-#define _SECURE_SCL 0
-#define _ITERATOR_DEBUG_LEVEL 0
-#endif
-#endif
-#ifndef NOMINMAX
-	#define NOMINMAX
-#endif
-#endif
+
+	#pragma warning (disable : 4201)
+	#pragma warning (disable : 4127) // warning C4127: conditional expression is constant
+	#pragma warning (disable : 4530) // C++ exception handler used, but unwind semantics are not enabled.
+
+	#ifndef BASISU_NO_ITERATOR_DEBUG_LEVEL
+		//#define _HAS_ITERATOR_DEBUGGING 0
+
+		#if defined(_DEBUG) || defined(DEBUG)
+			// This is madness, but we need to disable iterator debugging in debug builds or the encoder is unsable because MSVC's iterator debugging implementation is totally broken.
+			#ifndef _ITERATOR_DEBUG_LEVEL
+			#define _ITERATOR_DEBUG_LEVEL 1
+			#endif
+			#ifndef _SECURE_SCL
+			#define _SECURE_SCL 1
+			#endif
+		#else // defined(_DEBUG) || defined(DEBUG)
+			#ifndef _SECURE_SCL
+			#define _SECURE_SCL 0
+			#endif
+			#ifndef _ITERATOR_DEBUG_LEVEL
+			#define _ITERATOR_DEBUG_LEVEL 0
+			#endif
+		#endif // defined(_DEBUG) || defined(DEBUG)
+
+		#ifndef NOMINMAX
+			#define NOMINMAX
+		#endif
+
+	#endif // BASISU_NO_ITERATOR_DEBUG_LEVEL
+
+#endif // _MSC_VER
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -289,8 +304,10 @@ namespace basisu
 	enum texture_format
 	{
 		cInvalidTextureFormat = -1,
-		cETC1,
-		cETC1S,
+		
+		// Block-based formats
+		cETC1,			// ETC1
+		cETC1S,			// ETC1 (subset: diff colors only, no subblocks)
 		cETC2_RGB,		// ETC2 color block
 		cETC2_RGBA,		// ETC2 alpha block followed by ETC2 color block
 		cETC2_ALPHA,	// ETC2 EAC alpha block 
@@ -299,9 +316,18 @@ namespace basisu
 		cBC4,				// DXT5A
 		cBC5,				// 3DC/DXN (two DXT5A blocks)
 		cBC7,
-		cASTC4x4,		// TODO: Add more ASTC variants
+		cASTC4x4,		
 		cPVRTC1_4_RGB,
 		cPVRTC1_4_RGBA,
+		cATC_RGB,
+		cATC_RGBA_INTERPOLATED_ALPHA,
+		
+		// Uncompressed/raw pixels
+		cRGBA32,
+		cRGB565,
+		cBGR565,
+		cRGBA4444,
+		cABGR4444
 	};
 
 	inline uint32_t get_bytes_per_block(texture_format fmt)
@@ -316,7 +342,10 @@ namespace basisu
 		case cBC4:
 		case cPVRTC1_4_RGB:
 		case cPVRTC1_4_RGBA:
+		case cATC_RGB:
 			return 8;
+		case cRGBA32:
+			return sizeof(uint32_t) * 16;
 		default:
 			break;
 		}

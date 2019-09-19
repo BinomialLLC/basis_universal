@@ -105,6 +105,59 @@ namespace basisu
 			m_modulation = byteswap32(m_modulation);
 			m_endpoints = byteswap32(m_endpoints);
 		}
+
+		// opaque endpoints:	554, 555
+		// transparent endpoints: 3443 or 3444
+		inline void set_endpoint_raw(uint32_t endpoint_index, const color_rgba& c, bool opaque_endpoint)
+		{
+			assert(endpoint_index < 2);
+			const uint32_t m = m_endpoints & 1;
+			uint32_t r = c[0], g = c[1], b = c[2], a = c[3];
+						
+			uint32_t packed;
+
+			if (opaque_endpoint)
+			{
+				if (!endpoint_index)
+				{
+					// 554
+					// 1RRRRRGGGGGBBBBM
+					assert((r < 32) && (g < 32) && (b < 16));
+					packed = 0x8000 | (r << 10) | (g << 5) | (b << 1) | m;
+				}
+				else
+				{
+					// 555
+					// 1RRRRRGGGGGBBBBB
+					assert((r < 32) && (g < 32) && (b < 32));
+					packed = 0x8000 | (r << 10) | (g << 5) | b;
+				}
+			}
+			else
+			{
+				if (!endpoint_index)
+				{
+					// 3443
+					// 0AAA RRRR GGGG BBBM
+					assert((r < 16) && (g < 16) && (b < 8) && (a < 8));
+					packed = (a << 12) | (r << 8) | (g << 4) | (b << 1) | m;
+				}
+				else
+				{
+					// 3444
+					// 0AAA RRRR GGGG BBBB
+					assert((r < 16) && (g < 16) && (b < 16) && (a < 8));
+					packed = (a << 12) | (r << 8) | (g << 4) | b;
+				}
+			}
+
+			assert(packed <= 0xFFFF);
+
+			if (endpoint_index)
+				m_endpoints = (m_endpoints & 0xFFFFU) | (packed << 16);
+			else
+				m_endpoints = (m_endpoints & 0xFFFF0000U) | packed;
+		}
 	};
 
 	typedef vector2D<pvrtc4_block> pvrtc4_block_vector2D;

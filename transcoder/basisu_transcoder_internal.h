@@ -40,6 +40,40 @@ namespace basisu
 
 namespace basist
 {
+	// Low-level formats directly supported by the transcoder (other supported texture formats are combinations of these low-level block formats).
+	// You probably don't care about these enum's unless you are going pretty low-level and calling the transcoder to decode individual slices.
+	enum block_format
+	{
+		cETC1,								// ETC1S RGB 
+		cBC1,									// DXT1 RGB 
+		cBC4,									// DXT5A (alpha block only)
+		cPVRTC1_4_RGB,						// opaque-only PVRTC1 4bpp
+		cPVRTC1_4_RGBA,					// PVRTC1 4bpp RGBA
+		cBC7_M6_OPAQUE_ONLY,				// RGB BC7 mode 6
+		cBC7_M5_COLOR,						// RGB BC7 mode 5 color (writes an opaque mode 5 block)
+		cBC7_M5_ALPHA,						// alpha portion of BC7 mode 5 (cBC7_M5_COLOR output data must have been written to the output buffer first to set the mode/rot fields etc.)
+		cETC2_EAC_A8,						// alpha block of ETC2 EAC (first 8 bytes of the 16-bit ETC2 EAC RGBA format)
+		cASTC_4x4,							// ASTC 4x4 (either color-only or color+alpha). Note that the transcoder always currently assumes sRGB is not enabled when outputting ASTC 
+												// data. If you use a sRGB ASTC format you'll get ~1 LSB of additional error, because of the different way ASTC decoders scale 8-bit endpoints to 16-bits during unpacking.
+		cATC_RGB,
+		cATC_RGBA_INTERPOLATED_ALPHA,
+												
+		cIndices,							// Used internally: Write 16-bit endpoint and selector indices directly to output (output block must be at least 32-bits)
+
+		cRGB32,								// Writes RGB components to 32bpp output pixels
+		cRGBA32,								// Writes RGB255 components to 32bpp output pixels
+		cA32,									// Writes alpha component to 32bpp output pixels
+
+		cRGB565,
+		cBGR565,
+		
+		cRGBA4444_COLOR,
+		cRGBA4444_ALPHA,
+		cRGBA4444_COLOR_OPAQUE,
+
+		cTotalBlockFormats
+	};
+
 	const int COLOR5_PAL0_PREV_HI = 9, COLOR5_PAL0_DELTA_LO = -9, COLOR5_PAL0_DELTA_HI = 31;
 	const int COLOR5_PAL1_PREV_HI = 21, COLOR5_PAL1_DELTA_LO = -21, COLOR5_PAL1_DELTA_HI = 21;
 	const int COLOR5_PAL2_PREV_HI = 31, COLOR5_PAL2_DELTA_LO = -31, COLOR5_PAL2_DELTA_HI = 9;
@@ -619,12 +653,19 @@ namespace basist
 		bool operator== (const color32&rhs) const { return m == rhs.m; }
 	};
 
+	struct endpoint
+	{
+		color32 m_color5;
+		uint8_t m_inten5;
+	};
+
 	struct selector
 	{
-		union
-		{
-			uint8_t m_bytes[4];
-		};
+		// Plain selectors (2-bits per value)
+		uint8_t m_selectors[4];
+
+		// ETC1 selectors
+		uint8_t m_bytes[4];
 
 		uint8_t m_lo_selector, m_hi_selector;
 		uint8_t m_num_unique_selectors;
@@ -656,25 +697,11 @@ namespace basist
 			}
 		}
 
-		inline uint32_t get_raw_selector(uint32_t x, uint32_t y) const
-		{
-			assert((x | y) < 4);
-
-			const uint32_t bit_index = x * 4 + y;
-			const uint32_t byte_bit_ofs = bit_index & 7;
-			const uint8_t *p = &m_bytes[3 - (bit_index >> 3)];
-			const uint32_t lsb = (p[0] >> byte_bit_ofs) & 1;
-			const uint32_t msb = (p[-2] >> byte_bit_ofs) & 1;
-			const uint32_t val = lsb | (msb << 1);
-
-			return val;
-		}
-
 		// Returned selector value ranges from 0-3 and is a direct index into g_etc1_inten_tables.
 		inline uint32_t get_selector(uint32_t x, uint32_t y) const
 		{
-			static const uint8_t s_etc1_to_selector_index[4] = { 2, 3, 1, 0 };
-			return s_etc1_to_selector_index[get_raw_selector(x, y)];
+			assert((x < 4) && (y < 4));
+			return (m_selectors[y] >> (x * 2)) & 3;
 		}
 
 		void set_selector(uint32_t x, uint32_t y, uint32_t val)
@@ -682,11 +709,15 @@ namespace basist
 			static const uint8_t s_selector_index_to_etc1[4] = { 3, 2, 0, 1 };
 
 			assert((x | y | val) < 4);
-			const uint32_t bit_index = x * 4 + y;
 
-			uint8_t *p = &m_bytes[3 - (bit_index >> 3)];
+			m_selectors[y] &= ~(3 << (x * 2));
+			m_selectors[y] |= (val << (x * 2));
 
-			const uint32_t byte_bit_ofs = bit_index & 7;
+			const uint32_t etc1_bit_index = x * 4 + y;
+
+			uint8_t *p = &m_bytes[3 - (etc1_bit_index >> 3)];
+
+			const uint32_t byte_bit_ofs = etc1_bit_index & 7;
 			const uint32_t mask = 1 << byte_bit_ofs;
 
 			const uint32_t etc1_val = s_selector_index_to_etc1[val];

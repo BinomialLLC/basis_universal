@@ -140,7 +140,11 @@ namespace basisu
 	bool unpack_bc3(const void *pBlock_bits, color_rgba *pPixels);
 	void unpack_bc5(const void *pBlock_bits, color_rgba *pPixels);
 	bool unpack_bc7_mode6(const void *pBlock_bits, color_rgba *pPixels);
+	bool unpack_bc7_mode5(const void* pBlock_bits, color_rgba* pPixels);
+	void unpack_atc(const void* pBlock_bits, color_rgba* pPixels);
 
+	// unpack_block() is only capable of unpacking texture data created by the transcoder. 
+	// For some texture formats (like BC7, or ETC2) it's not a complete implementation.
 	bool unpack_block(texture_format fmt, const void *pBlock, color_rgba *pPixels);
 			
 } // namespace basisu

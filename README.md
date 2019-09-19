@@ -1,7 +1,7 @@
 # basis_universal
 Basis Universal GPU Texture and Texture Video Compression Codec
 
-Basis Universal is a ["supercompressed"](http://gamma.cs.unc.edu/GST/gst.pdf) compressed GPU texture and [compressed texture video](http://gamma.cs.unc.edu/MPTC/) compression system that outputs a highly compressed intermediate file format (.basis) that can be quickly transcoded to a wide variety of GPU texture compression formats: PVRTC1 4bpp RGB, BC7 mode 6 RGB, BC1-5, ETC1, and ETC2. We will be adding ASTC RGB/RGBA, BC7 mode 5 RGBA, PVRTC1 4bpp RGBA, ATC RGB/RGBA, and various uncompressed raster pixel formats next. Basis files support non-uniform texture arrays, so cubemaps, volume textures, texture arrays, mipmap levels, video sequences, or arbitrary texture "tiles" can be stored in a single file. The compressor is able to exploit color and pattern correlations across the entire file, so multiple images with mipmaps can be stored very efficiently in a single file.
+Basis Universal is a ["supercompressed"](http://gamma.cs.unc.edu/GST/gst.pdf) compressed GPU texture and [compressed texture video](http://gamma.cs.unc.edu/MPTC/) compression system that outputs a highly compressed intermediate file format (.basis) that can be quickly transcoded to a wide variety of GPU texture compression formats: ASTC 4x4 RGB/RGBA, PVRTC1 4bpp RGB/RGBA, BC7 mode 6 RGB and mode 5 RGA/RGBA, BC1-5, ETC1/2, and ATC RGB/RGBA. Basis files support non-uniform texture arrays, so cubemaps, volume textures, texture arrays, mipmap levels, video sequences, or arbitrary texture "tiles" can be stored in a single file. The compressor is able to exploit color and pattern correlations across the entire file, so multiple images with mipmaps can be stored very efficiently in a single file.
 
 The system's bitrate depends on the quality setting and image content, but common usable bitrates are .3-1.25 bits/texel. .basis files are typically 10-25% smaller than using RDO texture compression of the internal texture data stored in the .basis file followed by LZMA. The current system is what we've been calling the "baseline" system, which is designed to reach all the GPU formats. The next major step is to extend the system to allow for much higher quality for the ASTC and BC7 texture formats. 
 
@@ -40,11 +40,10 @@ To add automatically generated mipmaps to the .basis file, at a higher than defa
 
 There are several mipmap options that allow you to change the filter kernel, the filter colorspace for the RGB channels (linear vs. sRGB), the smallest mipmap dimension, etc. The tool also supports generating cubemap files, 2D/cubemap texture arrays, etc.
 
-To create a higher quality .basis file (one with better codebooks) - note this will *really* slow down compression:
+To create a slightly higher quality .basis file (one with better codebooks) - note this is much slower to encode:
 
-`basisu -level 2 x.png`
+`basisu -comp_level 2 x.png`
 
-Important: The -level option isn't the first option you should go to in order to increase quality. The -q option controls the quality vs. bitrate tradeoff. -level controls the quality vs. encoding performance tradeoff, and is primarily intended for videos.
 
 To unpack a .basis file to multiple .png/.ktx files:
 
