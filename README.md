@@ -25,11 +25,11 @@ The encoder uses [tcuAstcUtil.cpp](https://chromium.googlesource.com/external/de
 
 Milestone 2 (9/19/16) release notes:
 
-- This is a major transcoder update. The encoder hasn't been modified at all. 
-A minor update will be coming in a couple days which adds additional lower priority formats (notable PVRTC2 4bpp RGB) to the transcoder.
-- Beware that the "transcoder_texture_format" enum names and their values are in flux as we add new texture formats.
+- **Beware that the "transcoder_texture_format" enum names and their values are in flux** as we add new texture formats.
 This issue particularly affects Javascript code. Passing the old enum values to the transcoder will cause bugs. 
 We are adding a few more texture formats, renaming the enums and then stabilizing them on the next minor release (within a couple days or so).
+- This is a major transcoder update. The encoder hasn't been modified at all. 
+A minor update will be coming in a couple days which adds additional lower priority formats (notable PVRTC2 4bpp RGB) to the transcoder.
 - When the "BASISD_SUPPORT_BC7" transcoder macro is set to 0, both mode 5 and mode 6 BC7 transcoders are disabled.
 When cross compiling the transcoder for Web use to WebAssembly/asm.js, be sure to set BASISD_SUPPORT_BC7=0. You can also just disable the mode 6 transcoder by just setting BASISD_SUPPORT_BC7_MODE6_OPAQUE_ONLY=0.
 The older BC7 mode-6 RGB function seriously bloats the transcoder's compiled size. (The mode-6 transcoder is of marginal value and might be disabled by default or just removed.) The new BC7 mode 5 RGB/RGBA transcoder uses substantially smaller lookup tables and provides basically the same quality as mode-6 for RGB (becaue we're starting with ETC1S texture data.)
