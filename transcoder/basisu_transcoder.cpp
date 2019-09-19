@@ -33,6 +33,16 @@
 #define BASISD_SUPPORT_DXT5A 1
 #endif
 
+// Disable all BC7 transcoders if necessary (useful when cross compiling to Javascript)
+#if defined(BASISD_SUPPORT_BC7) && !BASISD_SUPPORT_BC7
+	#ifndef BASISD_SUPPORT_BC7_MODE6_OPAQUE_ONLY
+	#define BASISD_SUPPORT_BC7_MODE6_OPAQUE_ONLY 0
+	#endif
+	#ifndef BASISD_SUPPORT_BC7_MODE5
+	#define BASISD_SUPPORT_BC7_MODE5 0
+	#endif
+#endif // !BASISD_SUPPORT_BC7
+
 // BC7 mode 6 opaque only is the highest quality (compared to ETC1), but the tables are massive.
 // For web/mobile use you probably should disable this.
 #ifndef BASISD_SUPPORT_BC7_MODE6_OPAQUE_ONLY
