@@ -35,7 +35,7 @@ When cross compiling the transcoder for Web use to WebAssembly/asm.js, be sure t
 The older BC7 mode-6 RGB function seriously bloats the transcoder's compiled size. (The mode-6 transcoder is of marginal value and might be disabled by default or just removed.) The new BC7 mode 5 RGB/RGBA transcoder uses substantially smaller lookup tables and provides basically the same quality as mode-6 for RGB (becaue we're starting with ETC1S texture data.)
 Set BASISD_SUPPORT_BC7_MODE6_OPAQUE_ONLY to 0 when compiling on platforms which don't support BC7 well/at all, or if transcoder size is an issue.
 - Added ATC RGB/RGBA, ASTC 4x4 L/LA/RGB/RGBA, BC7 mode 5 RGB/RGBA, and PVRTC1 4bpp RGBA support to the transcoder and KTX writer.
-- Major perf. optimizations to all the transcoders. Transcoding to BC1 is approx. 2x faster when compiled native and executed on a Core i7.
+- Major perf. optimizations to all the transcoders. Transcoding to BC1 is approx. 2x faster when compiled native and executed on a Core i7. Similar perf. improvements should be seen when executed in WebAssembly. This was done by more closely coupling the .basis file decompression and format transcoding steps (before we unpacked to plain ETC1/ETC1S, then transcoded those bits, which was costly.)
 - PVRTC1 4bpp RGB opaque is slightly higher quality 
 - Added various uncompressed raster pixel formats to the transcoder. When outputting raw pixels, the transcoder writes to regular raster images, not blocks. 
 No dithering or downsampling yet, but it's coming.
