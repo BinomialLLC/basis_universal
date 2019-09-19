@@ -125,11 +125,11 @@ Note that -comp_level 2 is equivalent to the initial release's default, and -com
 `basisu x.png`\
 Compress sRGB image x.png to x.basis using default settings (multiple filenames OK)
 
+`basisu -q 255 x.png`\
+Compress sRGB image x.png to x.basis at max quality level achievable without  manually setting the codebook sizes (multiple filenames OK)
+
 `basisu x.basis`\
 Unpack x.basis to PNG/KTX files (multiple filenames OK)
-
-`basisu -comp_level 2 -file x.png -mipmap -y_flip`\
-Compress a mipmapped x.basis file from an sRGB image named x.png, Y flip each source image, set encoder to level 2 for higher quality
 
 `basisu -validate -file x.basis`\
 Validate x.basis (check header, check file CRC's, attempt to transcode all slices)
@@ -152,6 +152,8 @@ Compress a non-sRGB image, use hybrid selector codebooks for slightly improved c
 `basisu -tex_type video -framerate 20 -multifile_printf "x%02u.png" -multifile_first 1 -multifile_count 20 -selector_rdo_thresh 1.05 -endpoint_rdo_thresh 1.05`\
 Compress a 20 sRGB source image video sequence (x01.png, x02.png, x03.png, etc.) to x01.basis
 
+`basisu -comp_level 2 -q 255 -file x.png -mipmap -y_flip`\
+Compress a mipmapped x.basis file from an sRGB image named x.png, Y flip each source image, set encoder to level 2 for slightly higher quality (but slower encoding).
 
 ### WebGL test 
 
