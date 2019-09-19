@@ -220,7 +220,7 @@ BC4/DXT5A - ETC1S->BC4 conversion is nearly lossless and very fast.
 
 BC5/3DC/DXN - Two BC4 blocks. As the conversion from ETC1S->BC4 blocks is nearly lossless, we think this format (with large codebooks) will work well with high quality tangent space normal maps. Each channel gets its own ETC1S texture. Transcoding is very fast.
 
-BC7 - There are two transcoders, one for mode 6 RGB, and another for mode 5 RGB/RGBA. The conversion from ETC1S->BC7 mode 6 is nearly lossless, but the tables are very large. It is highly recommended you disable BC7 entirely (BASISD_SUPPORT_BC7=0) or disable the mode 6 transcoder (BASISD_SUPPORT_BC7_MODE6_OPAQUE_ONLY) at compilation time on platforms (like WebAssembly) where the compiled transcoder size matters.
+BC7 - There are two transcoders, one for mode 6 RGB, and another for mode 5 RGB/RGBA. The conversion from ETC1S->BC7 mode 6 is nearly lossless, but the tables are very large. It is highly recommended you disable BC7 entirely (BASISD_SUPPORT_BC7=0) or disable the mode 6 transcoder (BASISD_SUPPORT_BC7_MODE6_OPAQUE_ONLY=0) at compilation time on platforms (like WebAssembly) where the compiled transcoder size matters.
 
 Transcoding to BC7 mode 5 is very fast, mode 6 is slightly slower.
 
