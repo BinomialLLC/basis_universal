@@ -210,27 +210,35 @@ Internally, all ETC1S slices can be converted to any format, and the system is v
 
 ETC1 - The system's internal texture format is ETC1S, so outputting ETC1 texture data is a no-op. We only use differential encodings, each subblock uses the same base color (the differential color is always [0,0,0]), and flips are always enabled.
 
-ETC2 - The color block will be ETC1S, and the alpha block is EAC. Conversion from ETC1S->EAC is nearly lossless.
+ETC2 - The color block will be ETC1S, and the alpha block is EAC. Conversion from ETC1S->EAC is very fast and nearly lossless.
 
-BC1/DXT1 - ETC1S->BC1 conversion loses approx. .3-.5 dB Y PSNR relative to the source ETC1S data. We don't currently use 3 color (punchthrough) blocks, but we could easily add them. 
+BC1/DXT1 - ETC1S->BC1 conversion loses approx. .3-.5 dB Y PSNR relative to the source ETC1S data. We don't currently use 3 color (punchthrough) blocks, but we could easily add them. Conversion to BC1 is very fast.
 
-BC3/DXT5 - The color block is BC1, the alpha block is BC4. ETC1S->BC4 is nearly lossless.
+BC3/DXT5 - The color block is BC1, the alpha block is BC4. ETC1S->BC4 is nearly lossless and very fast.
 
-BC4/DXT5A - ETC1S->BC4 conversion is nearly lossless.
+BC4/DXT5A - ETC1S->BC4 conversion is nearly lossless and very fast.
 
-BC5/3DC/DXN - Two BC4 blocks. As the conversion from ETC1S->BC4 blocks is nearly lossless, we think this format (with large codebooks) will work well with high quality tangent space normal maps. Each channel gets its own ETC1S texture.
+BC5/3DC/DXN - Two BC4 blocks. As the conversion from ETC1S->BC4 blocks is nearly lossless, we think this format (with large codebooks) will work well with high quality tangent space normal maps. Each channel gets its own ETC1S texture. Transcoding is very fast.
 
-BC7 - Currently we only output mode 6, for opaque only textures. The conversion from ETC1S->BC7 is nearly lossless. We'll soon be adding mode 4 or 5 support for alpha textures.
+BC7 - There are two transcoders, one for mode 6 RGB, and another for mode 5 RGB/RGBA. The conversion from ETC1S->BC7 mode 6 is nearly lossless, but the tables are very large. It is highly recommended you disable BC7 entirely (BASISD_SUPPORT_BC7=0) or disable the mode 6 transcoder (BASISD_SUPPORT_BC7_MODE6_OPAQUE_ONLY) at compilation time on platforms (like WebAssembly) where the compiled transcoder size matters.
 
-PVRTC1 4bpp - Currently we only support opaque textures. The conversion from ETC1S->PVRTC1 is a two step process. The first step finds the RGB bounding boxes of each ETC1S block, which is fast (we don't need to process the entire block's pixels, just the 1-4 used block colors). The first pass occurs during ETC1S transcoding. The second pass computes the per-pixel 2-bpp modulation values, which is fast because we can do this in a luma-like colorspace using simple scalar (not full RGB) operations. The second pass is highly optimized, and threading it would be easy. Quality is roughly the same as PVRTexTool's "Normal (Good Quality)" setting. ETC1S->PVRTC1 loses the most quality - several Y dB PSNR. (I'll be adding better statistics here soon.)
+Transcoding to BC7 mode 5 is very fast, mode 6 is slightly slower.
+
+PVRTC1 4bpp - There are two transcoders, one for RGB and another for RGBA. The conversion from ETC1S->PVRTC1 RGB is a two step process. The first step finds the RGB(A) bounding boxes of each ETC1S block, which is fast (we don't need to process the entire block's pixels, just the 1-4 used block colors). The first pass occurs during ETC1S transcoding. The second pass computes the per-pixel 2-bpp modulation values, which is fast because we can do this in a luma-like colorspace using simple scalar (not full RGB) operations. The second pass is highly optimized, and threading it would be easy. Quality is roughly the same as PVRTexTool's "Normal (Good Quality)" setting. ETC1S->PVRTC1 loses the most quality - several Y dB PSNR. (I'll be adding better statistics here soon.) 
+
+ETC1S->PVRTC1 RGBA is a three step process: first we get RGB, then A, then we pack to PVRTC1. The real-time transcoder is really only intended for relatively simple alpha channels, like opacity masks. If the output is too decorrelated or too complex opaque quality really suffers.
 
 Interestingly, the low pass filtering-like artifacts due to PVRTC1's unique block endpoint interpolation help obscure ETC1S chroma artifacts. 
 
-We will be adding PVRTC1 4bpp transparent support soon, and possibly PVRTC1 2bpp.
-
 Currently, the PVRTC1 transcoder requires that the ETC1S texture's dimensions both be a power of two (but non-square is OK, although I believe iOS doesn't support that). We will be adding the ability to transcode non-pow2 ETC1S textures to larger pow2 PVRTC1 textures soon.
 
-ASTC1: 4x4 is definitely coming and will be comparable to BC7's quality. We may also support fast conversion to ASTC 6x6 pixel blocks.
+ASTC 4x4: The ASTC transcoder supports void extent (constant color) blocks and several different endpoint precision modes and encodings: L, LA, RGB or RGBA. To shrink the compiled size of the ASTC transcoder, set BASISD_SUPPORT_ASTC_HIGHER_OPAQUE_QUALITY to 0, which lowers endpoint precision slightly.
+
+Note the ASTC transcoder assumes sRGB sampling won't be enabled when sampling the ASTC texture data. (ASTC decompression works slightly differently when sRGB reads are enabled vs. disabled.) Enabling sRGB reads will result in slightly higher error that is quite unlikely to be noticeable. This was a conscious decision we had to make, because we could only afford to put one set of ETC1S->ASTC conversion tables into the transcoder. We may put in two tables into the next transcoder and let the user decide what they want at compile and/or run-time.
+
+ATI ATC: There are two transcoders, one for RGB (which is similar to BC1), and one for RGBA_INTERPOLATED_ALPHA (which is basically a BC4 block followed by an ATC block). This format is only useful on Adreno GPU's, so to cut down on the transcoder's size you can set BASISD_SUPPORT_ATC to 0 at compilation time if you know you'll never need ATC data.
+
+RGB565, BGR564, ARGB 8888 and ARGB 4444 - Various uncompressed raw pixel formats. Internally the transcoder directly converts end ETC1S endpoint/selector data directly to uncompressed pixels. The output buffer is treated as a plain raster image, not as a 2D array of blocks. No dithering or downsampling is supported yet, but that's on the list.
 
 ### How to use the system 
 
@@ -244,17 +252,21 @@ Here are the major texturing scenarios we support today:
 
 2. For alpha textures, you can create .basis files with alpha channels. To do this with the basisu compressor, either create 32-bit PNG files with alpha, or use two PNG files with the "-alpha_file" command line option to specify where the alpha data should come from. (For texture arrays, you can use multiple -file and -alpha_file command line options. Mipmap generation automatically supports alpha channels.) 
 
-Now deploy like this:
+Now deploy alpha content like this:
 
-ETC1 only devices/API's: Transcode to two ETC1 textures and sample them in a shader. You can either use one ETC1 texture that's twice as high, or two separate ETC1 textures.
+ETC1-only devices/API's: Transcode to two ETC1 textures and sample and recombine them in a shader. You can either use one ETC1 texture that's twice as high/wide, or two separate ETC1 textures. Alternatly, you can transcode to a single 4444 or 8888 texture.
 
-ETC2 devices/API's: Just transcode to ETC2 EAC RGBA, which the transcoder supports.
+ETC2 devices/API's: Just transcode to ETC2 EAC RGBA. ETC2 EAC's alpha quality is similar to BC3, and very high.
 
-PVRTC1 devices/API's: Transcode to two PVRTC1 4bpp textures, and sample twice. We're working on adding PVRTC1 transparency support to the transcoder ASAP (but quality will definitely suffer a bit)
+PVRTC1 devices/API's: Use a single PVRTC1 RGBA texture. For more complex alpha channels, transcode to two PVRTC1 4bpp textures, and sample twice. The PVRTC1 encoder is a real-time encoder, so you'll need to evaluate it on your texture/image data. If the alpha data is too complex or decorrelated 
 
-Devices/API's supporting only BC1-5: Use BC3, which the transcoder supports.
+Devices/API's supporting only BC1-5: Use BC3, which the transcoder supports. BC3's quality quality is very high.
 
-Newer devices supporting BC6H/BC7: You still need to transcode to BC3. We will support BC7 with transparency very soon, which will give you slightly higher quality.
+Newer devices supporting BC7: Transcode to BC7 mode 5, which supports a high-quality alpha channel.
+
+Devices/API's supporting ASTC: Just transcode to ASTC, which supports a variety of internal block encodings that will be automatically chosen by the transcoder for every block: L, LA, RGB, RGBA.
+
+Device's/API's supprting ATC: Deply to ATC_RGB or ATC_RGBA_INTERPOLATED_ALPHA. This format is basically equivalent to BC1/BC3.
 
 3. For high quality tangent space normal maps, here's one suggested solution that should work well today:
 
@@ -266,7 +278,7 @@ ETC1 only devices/API's: Transcode to two ETC1 textures and sample them in a sha
 
 ETC2 devices/API's: Transcode to a single ETC2 EAC RGBA texture, sample once in shader, deswizzle to RG (XY). This should look great.
 
-PVRTC1 devices/API's: Transcode to two PVRTC1 opaque textures, sample each in the shader. This should look fairly good.
+PVRTC1 devices/API's: Transcode to two PVRTC1 opaque textures (RGB to one, A to another, which the transcoder supports using the cDecodeFlagsTranscodeAlphaDataToOpaqueFormats flag) and sample each in the shader. This should look fairly good. 
 
 Devices/API's supporting BC1-5, BC6H, BC7: Transcode to a single BC5 textures, which used to be called "ATI 3DC". It has two high quality BC4 blocks in there, so it'll look great. Once BC7 alpha support comes online that will be the better option.
 
