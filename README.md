@@ -40,7 +40,7 @@ Set BASISD_SUPPORT_BC7_MODE6_OPAQUE_ONLY to 0 when compiling on platforms which 
 - Added various uncompressed raster pixel formats to the transcoder. When outputting raw pixels, the transcoder writes to regular raster images, not blocks. 
 No dithering or downsampling yet, but it's coming.
 A couple of the parameters to basisu_transcoder::transcode_image_level() and  basisu_transcoder::transcode_slice() have new meanings when these methods are used with uncompressed raster pixel formats:
-"output_blocks_buf_size_in_blocks_or_pixels" and "output_row_pitch_in_blocks_or_pixels". There's also a new parameter, "output_rows_in_pixels". When transcoding to uncompressed raster pixel formats, these parameters are in pixels, not blocks. The output buffer is also treated as a plain raster image, not a 2D collection of compressed blocks. These parameters are sanity checked, and if they look fishy the transcoder will return an error.
+"output_blocks_buf_size_in_blocks_or_pixels" and "output_row_pitch_in_blocks_or_pixels". There's also a new parameter, "output_rows_in_pixels". When transcoding to uncompressed raster pixel formats, these parameters are in pixels, not blocks. The output buffer is also treated as a plain raster image, not a 2D array of compressed blocks. These parameters are sanity checked, and if they look fishy the transcoder will return an error.
 - basisu command line tool's "-level" command line option changed to "-comp_level", to avoid confusion vs. the "-q" option. This option is NOT the same as the -q option, which directly controls the output quality. Most users shouldn't use this option. (See below.)
 
 ### Command Line Compression Tool
