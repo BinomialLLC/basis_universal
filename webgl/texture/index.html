@@ -101,12 +101,12 @@ COMPRESSED_RGBA_PVRTC_4BPPV1_IMG = 0x8C02;
 
 BASIS_FORMAT = {
   cTFETC1: 0,
-	cTFETC2: 1,
-	cTFBC1: 2,
-	cTFBC3: 3,
-	cTFBC4: 4,
-	cTFBC5: 5,
-	cTFBC7_M6_OPAQUE_ONLY: 6,
+   cTFETC2: 1,
+   cTFBC1: 2,
+   cTFBC3: 3,
+   cTFBC4: 4,
+   cTFBC5: 5,
+   cTFBC7_M6_OPAQUE_ONLY: 6,
   cTFBC7_M5: 7,
   cTFPVRTC1_4_RGB: 8,
   cTFPVRTC1_4_RGBA: 9,
@@ -139,7 +139,7 @@ var tex, width, height, images, levels, have_alpha, alignedWidth, alignedHeight,
 function redraw()
 {
   if (!width)
-	return;
+   return;
 
   renderer.drawTexture(tex, displayWidth, displayHeight, drawMode);
 }
@@ -199,16 +199,16 @@ function dataLoaded(data)
       formatString = 'PVRTC1_RGB';
       format = BASIS_FORMAT.cTFPVRTC1_4_RGB;
     }
-	 
-	 if (
-	      ((width & (width - 1)) != 0) || ((height & (height - 1)) != 0)
-		  )
-	 {
-	 	log('ERROR: PVRTC1 requires square power of 2 textures');
-	 }
-	 if (width != height)
-	 {
-	 	log('ERROR: PVRTC1 requires square power of 2 textures');	 
+    
+    if (
+         ((width & (width - 1)) != 0) || ((height & (height - 1)) != 0)
+        )
+    {
+      log('ERROR: PVRTC1 requires square power of 2 textures');
+    }
+    if (width != height)
+    {
+      log('ERROR: PVRTC1 requires square power of 2 textures');    
     }
   }
   else if (etcSupported)
@@ -237,11 +237,11 @@ function dataLoaded(data)
   const dst = new Uint8Array(dstSize);
 
   if (!basisFile.transcodeImage(dst, 0, 0, format, 1, 0)) {
-  	 log('basisFile.transcodeImage failed');
+    log('basisFile.transcodeImage failed');
     console.warn('transcodeImage failed');
     basisFile.close();
     basisFile.delete();
-	 	 
+       
     return;
   }
 
@@ -273,7 +273,7 @@ function dataLoaded(data)
   }
   else if ((format === BASIS_FORMAT.cTFBC3 || format === BASIS_FORMAT.cTFBC1))
   {
-	  tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, DXT_FORMAT_MAP[format]);
+     tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, DXT_FORMAT_MAP[format]);
   }
   else if (format === BASIS_FORMAT.cTFETC1)
   {
@@ -337,7 +337,7 @@ function viewAlpha() { drawMode = 2; redraw(); }
   <br>
       <input type="button" value="Alpha blend" onclick="alphaBlend()"></input>
       <input type="button" value="View RGB" onclick="viewRGB()"></input>
-	  <input type="button" value="View Alpha" onclick="viewAlpha()"></input>
+     <input type="button" value="View Alpha" onclick="viewAlpha()"></input>
 
   <div style="position:absolute; left: 525px; top:130px; font-size: 20pt; font-weight: bold; color: red">
     <div id="no-compressed-tex" style="display: none; width: 768px; font-size: 20pt; font-weight: bold; color: red">
@@ -357,11 +357,11 @@ function viewAlpha() { drawMode = 2; redraw(); }
     dxtSupported = !!gl.getExtension('WEBGL_compressed_texture_s3tc');
     pvrtcSupported = !!(gl.getExtension('WEBGL_compressed_texture_pvrtc')) || !!(gl.getExtension('WEBKIT_WEBGL_compressed_texture_pvrtc'));
     
-	// HACK HACK - for testing uncompressed
-	//astcSupported = false;
-	//etcSupported = false;
-	//dxtSupported = false;
-	//pvrtcSupported = false;
+   // HACK HACK - for testing uncompressed
+   //astcSupported = false;
+   //etcSupported = false;
+   //dxtSupported = false;
+   //pvrtcSupported = false;
 
     window.renderer = new Renderer(gl);
 
