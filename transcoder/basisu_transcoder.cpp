@@ -7518,13 +7518,13 @@ namespace basist
 	{
 		if (m_lowlevel_decoder.m_endpoints.size())
 		{
-			BASISU_DEVEL_ERROR("basisu_transcoder::transcode_slice: already called start_transcoding\n");
+			BASISU_DEVEL_ERROR("basisu_transcoder::start_transcoding: already called start_transcoding\n");
 			return true;
 		}
 
 		if (!validate_header_quick(pData, data_size))
 		{
-			BASISU_DEVEL_ERROR("basisu_transcoder::transcode_slice: header validation failed\n");
+			BASISU_DEVEL_ERROR("basisu_transcoder::start_transcoding: header validation failed\n");
 			return false;
 		}
 
@@ -7534,30 +7534,30 @@ namespace basist
 
 		if (!pHeader->m_endpoint_cb_file_size || !pHeader->m_selector_cb_file_size || !pHeader->m_tables_file_size)
 		{
-			BASISU_DEVEL_ERROR("basisu_transcoder::transcode_slice: file is corrupted (0)\n");
+			BASISU_DEVEL_ERROR("basisu_transcoder::start_transcoding: file is corrupted (0)\n");
 		}
 
 		if ((pHeader->m_endpoint_cb_file_ofs > data_size) || (pHeader->m_selector_cb_file_ofs > data_size) || (pHeader->m_tables_file_ofs > data_size))
 		{
-			BASISU_DEVEL_ERROR("basisu_transcoder::transcode_slice: file is corrupted or passed in buffer too small (1)\n");
+			BASISU_DEVEL_ERROR("basisu_transcoder::start_transcoding: file is corrupted or passed in buffer too small (1)\n");
 			return false;
 		}
 
 		if (pHeader->m_endpoint_cb_file_size > (data_size - pHeader->m_endpoint_cb_file_ofs))
 		{
-			BASISU_DEVEL_ERROR("basisu_transcoder::transcode_slice: file is corrupted or passed in buffer too small (2)\n");
+			BASISU_DEVEL_ERROR("basisu_transcoder::start_transcoding: file is corrupted or passed in buffer too small (2)\n");
 			return false;
 		}
 
 		if (pHeader->m_selector_cb_file_size > (data_size - pHeader->m_selector_cb_file_ofs))
 		{
-			BASISU_DEVEL_ERROR("basisu_transcoder::transcode_slice: file is corrupted or passed in buffer too small (3)\n");
+			BASISU_DEVEL_ERROR("basisu_transcoder::start_transcoding: file is corrupted or passed in buffer too small (3)\n");
 			return false;
 		}
 
 		if (pHeader->m_tables_file_size > (data_size - pHeader->m_tables_file_ofs))
 		{
-			BASISU_DEVEL_ERROR("basisu_transcoder::transcode_slice: file is corrupted or passed in buffer too small (3)\n");
+			BASISU_DEVEL_ERROR("basisu_transcoder::start_transcoding: file is corrupted or passed in buffer too small (3)\n");
 			return false;
 		}
 
@@ -7565,13 +7565,13 @@ namespace basist
 			pHeader->m_total_endpoints, pDataU8 + pHeader->m_endpoint_cb_file_ofs, pHeader->m_endpoint_cb_file_size,
 			pHeader->m_total_selectors, pDataU8 + pHeader->m_selector_cb_file_ofs, pHeader->m_selector_cb_file_size))
 		{
-			BASISU_DEVEL_ERROR("basisu_transcoder::transcode_slice: decode_palettes failed\n");
+			BASISU_DEVEL_ERROR("basisu_transcoder::start_transcoding: decode_palettes failed\n");
 			return false;
 		}
 
 		if (!m_lowlevel_decoder.decode_tables(pDataU8 + pHeader->m_tables_file_ofs, pHeader->m_tables_file_size))
 		{
-			BASISU_DEVEL_ERROR("basisu_transcoder::transcode_slice: decode_tables failed\n");
+			BASISU_DEVEL_ERROR("basisu_transcoder::start_transcoding: decode_tables failed\n");
 			return false;
 		}
 
@@ -7626,7 +7626,7 @@ namespace basist
 			// Now make sure the output buffer is large enough, or we'll overwrite memory.
 			if (output_blocks_buf_size_in_blocks_or_pixels < (output_rows_in_pixels * output_row_pitch_in_blocks_or_pixels))
 			{
-				BASISU_DEVEL_ERROR("basisu_transcoder::transcode_slice: output_blocks_buf_size_in_blocks_or_pixels < total_blocks * 16\n");
+				BASISU_DEVEL_ERROR("basisu_transcoder::transcode_slice: output_blocks_buf_size_in_blocks_or_pixels < (output_rows_in_pixels * output_row_pitch_in_blocks_or_pixels)\n");
 				return false;
 			}
 		}
