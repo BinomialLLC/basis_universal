@@ -190,6 +190,25 @@ I will be simplifying the transcoder so the caller doesn't need to deal with etc
 
 To get development error messages printed to stdout when something goes wrong inside the transcoder, set the BASISU_DEVEL_MESSAGES macro to 1 in basisu_transcoder.h and recompile.
 
+### Shrinking the transcoder's compiled size
+
+These transcoder macros control which formats are supported by the transcoder at compile-time:
+
+BASISD_SUPPORT_DXT1 (BC1)
+BASISD_SUPPORT_DXT5A (BC3/4/5)
+BASISD_SUPPORT_BC7
+BASISD_SUPPORT_BC7_MODE6_OPAQUE_ONLY
+BASISD_SUPPORT_BC7_MODE5
+BASISD_SUPPORT_PVRTC1
+BASISD_SUPPORT_ETC2_EAC_A8
+BASISD_SUPPORT_ASTC
+BASISD_SUPPORT_ATC
+BASISD_SUPPORT_ASTC_HIGHER_OPAQUE_QUALITY
+
+Each format requires its own set of precomputed ETC1S conversion tables. Disabling a format that you know will never be utilized will reduce the compiled size of the transcoder. 
+
+If you know your platform doesn't support BC7 or it's not necessary, be sure to set BASISD_SUPPORT_BC7=0. The tables for the mode 6 transcoder are very large (they bloat the compiled WebAssembly transcoder by around 400-500k). We'll probably be removing the mode 6 transcoder in a future update. 
+
 ### Quick Basis file details
 
 Internally, Basis files are composed of a non-uniform texture array of one or more 2D ETC1S texture "slices". ETC1S is a simple subset of the ETC1 texture format popular on Android. ETC1S has no block flips, no 4x2 or 2x4 subblocks, and each block only uses 555 base colors. ETC1S is still 100% standard ETC1, so transcoding to ETC1 or the color block of ETC2 is a no-op. We chose ETC1S because it has the very valuable property that it can be quickly transcoded to almost any other GPU texture format at very high quality using only simple per-block operations with small 1D lookup tables. Transcoding ETC1S to BC1 usually only introduces around .3 dB Y PSNR quality loss, with less loss for ETC1S->BC7. Transcoding to PVRTC1 involves only simple block level operations to compute the endpoints, and simple per-pixel scalar operations to compute the modulation values.
