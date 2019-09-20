@@ -255,11 +255,11 @@ Currently, the PVRTC1 transcoder requires that the ETC1S texture's dimensions bo
 
 Note that for PVRTC1, the transcoder differs slightly in how it computes the memory size of compressed textures. Basis only writes (or requires) the output buffer to be total_blocks * bytes_per_block. But OpenGL requires extra padding for very small textures:
 
-			 `// https://www.khronos.org/registry/OpenGL/extensions/IMG/IMG_texture_compression_pvrtc.txt
+			 // https://www.khronos.org/registry/OpenGL/extensions/IMG/IMG_texture_compression_pvrtc.txt
 			 const uint32_t width = (orig_width + 3) & ~3;
 			 const uint32_t height = (orig_height + 3) & ~3;
 			 const uint32_t size_in_bytes = (std::max(8U, width) * std::max(8U, height) * 4 + 7) / 8;
-       `
+       
 When you call the transcoder and pass it a buffer that's larger than required, these extra padding bytes will be set to 0.
 
 PVRTC2 RGB (and maybe RGBA) support is coming soon, which is available on some Android platforms.
