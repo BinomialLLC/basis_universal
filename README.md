@@ -361,7 +361,7 @@ The various Huffman codes could be divided up into groups (like Zstd), for much 
 
 PVRTC1 modulation values could be determined using multiple threads and/or SIMD code.
 
-PVRTC1 2bpp and ATITC support wouldn't be hard to add.
+PVRTC1 2bpp support wouldn't be hard to add.
 
 The transcoder's BC7 tables are a bit large, and can be reduced, which would allow the transcoder to be downloaded more quickly.
 
