@@ -290,20 +290,20 @@ function dataLoaded(data)
   else
   {
    canvas.width = width;
-  	canvas.height = height;
-	displayWidth = width;
+   canvas.height = height;
+   displayWidth = width;
    displayHeight = height;
 
-	// Create 565 texture. 
-	var dstTex = new Uint16Array(width * height);
-	
+   // Create 565 texture. 
+   var dstTex = new Uint16Array(width * height);
+   
    // Convert the array of bytes to an array of uint16's.
-	var pix = 0;
-	for (var y = 0; y < height; y++)
-		for (var x = 0; x < width; x++, pix++)
-			dstTex[pix] = dst[2 * pix + 0] | (dst[2 * pix + 1] << 8);
+   var pix = 0;
+   for (var y = 0; y < height; y++)
+      for (var x = 0; x < width; x++, pix++)
+         dstTex[pix] = dst[2 * pix + 0] | (dst[2 * pix + 1] << 8);
 
-	tex = renderer.createRgb565Texture(dstTex, width, height);
+   tex = renderer.createRgb565Texture(dstTex, width, height);
   }
 
   redraw();
