@@ -199,6 +199,17 @@ function dataLoaded(data)
       formatString = 'PVRTC1_RGB';
       format = BASIS_FORMAT.cTFPVRTC1_4_RGB;
     }
+	 
+	 if (
+	      ((width & (width - 1)) != 0) || ((height & (height - 1)) != 0)
+		  )
+	 {
+	 	log('ERROR: PVRTC1 requires square power of 2 textures');
+	 }
+	 if (width != height)
+	 {
+	 	log('ERROR: PVRTC1 requires square power of 2 textures');	 
+    }
   }
   else if (etcSupported)
   {
@@ -215,6 +226,7 @@ function dataLoaded(data)
   elem('format').innerText = formatString;
 
   if (!basisFile.startTranscoding()) {
+    log('startTranscoding failed');
     console.warn('startTranscoding failed');
     basisFile.close();
     basisFile.delete();
@@ -225,9 +237,11 @@ function dataLoaded(data)
   const dst = new Uint8Array(dstSize);
 
   if (!basisFile.transcodeImage(dst, 0, 0, format, 1, 0)) {
+  	 log('basisFile.transcodeImage failed');
     console.warn('transcodeImage failed');
     basisFile.close();
     basisFile.delete();
+	 	 
     return;
   }
 
@@ -317,7 +331,7 @@ function viewAlpha() { drawMode = 2; redraw(); }
   <br>
   <br>
       .basis file:
-      <input id="file" type="text" size=30 value="assets/kodim20.basis"></input>
+      <input id="file" type="text" size=30 value="assets/kodim20_1024x1024.basis"></input>
       <input type="button" value="Run!" onclick="runLoadFile()"></input>
   <br>
   <br>
