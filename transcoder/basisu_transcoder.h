@@ -76,6 +76,7 @@ namespace basist
 	const char* basis_get_texture_type_name(basis_texture_type tex_type);
 	bool basis_transcoder_format_is_uncompressed(transcoder_texture_format tex_type);
 	bool basis_block_format_is_uncompressed(block_format tex_type);
+	uint32_t basis_get_uncompressed_bytes_per_pixel(transcoder_texture_format fmt);
 	
 	class basisu_transcoder;
 

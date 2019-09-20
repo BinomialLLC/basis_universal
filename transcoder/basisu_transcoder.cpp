@@ -8415,6 +8415,22 @@ namespace basist
 		}
 		return false;
 	}
+	
+	uint32_t basis_get_uncompressed_bytes_per_pixel(transcoder_texture_format fmt)
+	{
+		switch (fmt)
+		{
+		case cTFRGBA32: 
+			return sizeof(uint32_t); 
+		case cTFRGB565:
+		case cTFBGR565:
+		case cTFRGBA4444:
+			return sizeof(uint16_t);
+		default:
+			break;
+		}
+		return 0;
+	}
 
 } // namespace basist
 
