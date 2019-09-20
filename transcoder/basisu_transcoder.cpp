@@ -3411,6 +3411,7 @@ namespace basist
 		const uint32_t min_bits = basisu::minimum(x_bits, y_bits);
 		const uint32_t max_bits = basisu::maximum(x_bits, y_bits);
 		const uint32_t swizzle_mask = (1 << (min_bits * 2)) - 1;
+		BASISU_NOTE_UNUSED(max_bits);
 
 		uint32_t block_index = 0;
 
@@ -3594,6 +3595,7 @@ namespace basist
 		const uint32_t min_bits = basisu::minimum(x_bits, y_bits);
 		const uint32_t max_bits = basisu::maximum(x_bits, y_bits);
 		const uint32_t swizzle_mask = (1 << (min_bits * 2)) - 1;
+		BASISU_NOTE_UNUSED(max_bits);
 
 		uint32_t block_index = 0;
 
