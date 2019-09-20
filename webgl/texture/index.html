@@ -134,14 +134,14 @@ var dxtSupported = false;
 var pvrtcSupported = false;
 var drawMode = 0;
 
-var tex, width, height, images, levels, have_alpha, alignedWidth, alignedHeight, format;
+var tex, width, height, images, levels, have_alpha, alignedWidth, alignedHeight, format, displayWidth, displayHeight;
 
 function redraw()
 {
   if (!width)
 	return;
 
-  renderer.drawTexture(tex, alignedWidth, alignedHeight, drawMode);
+  renderer.drawTexture(tex, displayWidth, displayHeight, drawMode);
 }
 
 function dataLoaded(data)
@@ -245,6 +245,9 @@ function dataLoaded(data)
 
   alignedWidth = (width + 3) & ~3;
   alignedHeight = (height + 3) & ~3;
+  
+  displayWidth = alignedWidth;
+  displayHeight = alignedHeight;
 
   var canvas = elem('canvas');
   canvas.width = alignedWidth;
@@ -272,6 +275,11 @@ function dataLoaded(data)
   }
   else
   {
+   canvas.width = width;
+  	canvas.height = height;
+	displayWidth = width;
+   displayHeight = height;
+
 	// Create 565 texture. 
 	var dstTex = new Uint16Array(width * height);
 	
