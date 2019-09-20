@@ -194,16 +194,16 @@ To get development error messages printed to stdout when something goes wrong in
 
 These transcoder macros control which formats are supported by the transcoder at compile-time:
 
-BASISD_SUPPORT_DXT1 (BC1)
-BASISD_SUPPORT_DXT5A (BC3/4/5)
-BASISD_SUPPORT_BC7
-BASISD_SUPPORT_BC7_MODE6_OPAQUE_ONLY
-BASISD_SUPPORT_BC7_MODE5
-BASISD_SUPPORT_PVRTC1
-BASISD_SUPPORT_ETC2_EAC_A8
-BASISD_SUPPORT_ASTC
-BASISD_SUPPORT_ATC
-BASISD_SUPPORT_ASTC_HIGHER_OPAQUE_QUALITY
+- BASISD_SUPPORT_DXT1 (BC1)
+- BASISD_SUPPORT_DXT5A (BC3/4/5)
+- BASISD_SUPPORT_BC7
+- BASISD_SUPPORT_BC7_MODE6_OPAQUE_ONLY
+- BASISD_SUPPORT_BC7_MODE5
+- BASISD_SUPPORT_PVRTC1
+- BASISD_SUPPORT_ETC2_EAC_A8
+- BASISD_SUPPORT_ASTC
+- BASISD_SUPPORT_ATC
+- BASISD_SUPPORT_ASTC_HIGHER_OPAQUE_QUALITY
 
 Each format requires its own set of precomputed ETC1S conversion tables. Disabling a format that you know will never be utilized will reduce the compiled size of the transcoder. 
 
