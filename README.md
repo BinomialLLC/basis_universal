@@ -245,7 +245,7 @@ BC7 - There are two transcoders, one for mode 6 RGB, and another for mode 5 RGB/
 
 Transcoding to BC7 mode 5 is very fast, mode 6 is slightly slower.
 
-PVRTC1 4bpp - There are two transcoders, one for RGB and another for RGBA. The conversion from ETC1S->PVRTC1 RGB is a two step process. The first step finds the RGB bounding boxes of each ETC1S block, which is fast (we don't need to process the entire block's pixels, just the 1-4 used block colors). The first pass occurs during ETC1S transcoding. The second pass computes the per-pixel 2-bpp modulation values, which is fast because we can do this in a luma-like colorspace using simple scalar (not full RGB) operations. The second pass is highly optimized, and threading it would be easy. Quality is roughly the same as PVRTexTool's "Normal (Good Quality)" setting. ETC1S->PVRTC1 loses the most quality - several Y dB PSNR. (I'll be adding better statistics here soon.) 
+PVRTC1 4bpp - There are two transcoders, one for RGB and another for RGBA. The conversion from ETC1S->PVRTC1 RGB is a two step process. The first step finds the RGB bounding boxes of each ETC1S block, which is fast (we don't need to process the entire block's pixels, just the 1-4 used block colors). The first pass occurs during ETC1S transcoding. The second pass computes the per-pixel 2-bpp modulation values, which is fast because we can do this in a luma-like colorspace using simple scalar (not full RGB) operations. The second pass is highly optimized, and threading it would be easy. Quality is roughly the same as PVRTexTool's "Normal (Good Quality)" setting. ETC1S->PVRTC1 loses the most quality - several Y dB PSNR. 
 
 ETC1S->PVRTC1 RGBA is a three step process: first we unpack the ETC1S RGB slice, then the ETC1S A slice to a temp buffer, then we pack this data to PVRTC1 RGBA. The real-time transcoder is really only intended for relatively simple alpha channels, like opacity masks. If the output is too decorrelated or too complex opaque quality really suffers. We know how to improve PVRTC1 quality, but it would require another pass through the texture which would slow things down.
 
@@ -253,7 +253,16 @@ Interestingly, the low pass filtering-like artifacts due to PVRTC1's unique bloc
 
 Currently, the PVRTC1 transcoder requires that the ETC1S texture's dimensions both be a power of two (but non-square is OK, although I believe iOS doesn't support that). We will be adding the ability to transcode non-pow2 ETC1S textures to larger pow2 PVRTC1 textures soon.
 
-PVRTC2 RGB (and maybe RGBA) support is coming very soon, which is available on some Android platforms.
+Note that for PVRTC1, the transcoder differs slightly in how it computes the memory size of compressed textures. Basis only writes (or requires) the output buffer to be total_blocks * bytes_per_block. But OpenGL requires extra padding for very small textures:
+
+			 `// https://www.khronos.org/registry/OpenGL/extensions/IMG/IMG_texture_compression_pvrtc.txt
+			 const uint32_t width = (orig_width + 3) & ~3;
+			 const uint32_t height = (orig_height + 3) & ~3;
+			 const uint32_t size_in_bytes = (std::max(8U, width) * std::max(8U, height) * 4 + 7) / 8;
+       `
+When you call the transcoder and pass it a buffer that's larger than required, these extra padding bytes will be set to 0.
+
+PVRTC2 RGB (and maybe RGBA) support is coming soon, which is available on some Android platforms.
 
 ASTC 4x4: The ASTC transcoder supports void extent (constant color) blocks and several different endpoint precision modes and encodings: L, LA, RGB or RGBA. To shrink the compiled size of the ASTC transcoder, set BASISD_SUPPORT_ASTC_HIGHER_OPAQUE_QUALITY to 0, which lowers endpoint precision slightly.
 
