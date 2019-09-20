@@ -278,7 +278,11 @@ First, become familiar with the exact compressed texture formats your device har
 
 Also, become familiar with any texture size restrictions. For example, on iOS, you can only use square power of 2 texture dimensions for PVRTC1, and there's nothing Basis can do for you today that works around this limitation. (We will be supporting the ability to trancode smaller non-pow2 textures into larger power of 2 PVRTC1 textures soon.)
 
-Here are the major texturing scenarios we support today:
+The primary issues that trip up mobile native/WebGL app developers: Older ETC1-only devices, which require some sort of annoying fallback to handle alpha textures. PVRTC1's requirement for square (on iOS) power of 2 texture dimensions (Android/iOS), and PVRTC1's unique artifacts compared to all the other formats also cause developer's issues.
+
+ETC2 EAC RGBA and ASTC work around these issues, but these formats are still not available everywhere yet (especially WebGL on iOS, which still only supports PVRTC1 even on hardware that supports ETC1/2 or ASTC). Unfortunately PVRTC2 (which we're supporting next) was never supported on iOS, even on hardware that could handle it.
+
+Here are the major texturing scenarios the system supports:
 
 1. For color-only textures, you can transcode to whatever format your target device supports. Remember that PVRTC1 requires square power of 2 size textures, and there's nothing Basis can currently do to help you work around this limitation. (Basic supports non-square PVRTC1 textures, but iOS doesn't.) 
 
