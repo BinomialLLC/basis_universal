@@ -208,8 +208,8 @@ function dataLoaded(data)
   else
   {
     formatString = 'RGB565';
-    format = BASIS_FORMAT.cTFBC1;
-    log('Decoding .basis data to BC1');
+    format = BASIS_FORMAT.cTFRGB565;
+    log('Decoding .basis data to 565');
   }
 
   elem('format').innerText = formatString;
@@ -254,7 +254,7 @@ function dataLoaded(data)
   {
     tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_4x4_KHR);
   }
-  else if (formatString != 'RGB565' && (format === BASIS_FORMAT.cTFBC3 || format === BASIS_FORMAT.cTFBC1))
+  else if ((format === BASIS_FORMAT.cTFBC3 || format === BASIS_FORMAT.cTFBC1))
   {
 	  tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, DXT_FORMAT_MAP[format]);
   }
@@ -272,10 +272,16 @@ function dataLoaded(data)
   }
   else
   {
-    log('BC1 to RGB565');
-  	var rgb565Data = dxtToRgb565(new Uint16Array(dst.buffer), 0, alignedWidth, alignedHeight);
+	// Create 565 texture. 
+	var dstTex = new Uint16Array(width * height);
+	
+   // Convert the array of bytes to an array of uint16's.
+	var pix = 0;
+	for (var y = 0; y < height; y++)
+		for (var x = 0; x < width; x++, pix++)
+			dstTex[pix] = dst[2 * pix + 0] | (dst[2 * pix + 1] << 8);
 
-	  tex = renderer.createRgb565Texture(rgb565Data, alignedWidth, alignedHeight);
+	tex = renderer.createRgb565Texture(dstTex, width, height);
   }
 
   redraw();
@@ -329,10 +335,11 @@ function viewAlpha() { drawMode = 2; redraw(); }
     dxtSupported = !!gl.getExtension('WEBGL_compressed_texture_s3tc');
     pvrtcSupported = !!(gl.getExtension('WEBGL_compressed_texture_pvrtc')) || !!(gl.getExtension('WEBKIT_WEBGL_compressed_texture_pvrtc'));
     
-    if (!(astcSupported || etcSupported || dxtSupported || pvrtcSupported))
-    {
-      elem('nodxt').style.display = 'block';
-    }
+	// HACK HACK - for testing uncompressed
+	//astcSupported = false;
+	//etcSupported = false;
+	//dxtSupported = false;
+	//pvrtcSupported = false;
 
     window.renderer = new Renderer(gl);
 
@@ -341,6 +348,11 @@ function viewAlpha() { drawMode = 2; redraw(); }
         runLoadFile();
       }
     }, false);
+
+    if (!(astcSupported || etcSupported || dxtSupported || pvrtcSupported))
+    {
+//      elem('nodxt').style.display = 'block';
+    }
 
     runLoadFile();
   }}).then(module => window.Module = module);
