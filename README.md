@@ -353,6 +353,8 @@ A huge thanks to Google for partnering with us and enabling this system to be op
 
 Thanks to a number of companies or groups who have supported or helped out Binomial over the years: Intel, SpaceX, Netflix, Forgotten Empires, Microsoft, Polystream, Hothead Games, BioDigital, Magic Leap, Blizzard Entertainment, Insomniac Games, Rockstar Games, Facebook, Activision, the Khronos Group, and the organizers at CppCon.
 
+Thanks to Dave Wilkinson (AMD/Khronos) for supporting us and giving us very valuable feedback while we developed Basis Universal.
+
 Thanks to Chris Wein (Netflix), who showed us the path to Texture Video.
 
 Thanks to Mike Dussault (SpaceX) for supporting Binomial in the early days.
