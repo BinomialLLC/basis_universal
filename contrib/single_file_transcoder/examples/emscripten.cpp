@@ -1,8 +1,7 @@
 /**
- * \file emscripten.c
- * Emscripten example of using the single-file \c zstddeclib. Draws a rotating
- * textured quad with data from the in-line Zstd compressed DXT1 texture (DXT1
- * being hardware compression, further compressed with Zstd).
+ * \file emscripten.cpp
+ * Emscripten example of using the single-file \c basisutranslib. Draws a
+ * rotating textured quad with data from the in-line compressed texture.
  * \n
  * Compile using:
  * \code
@@ -10,12 +9,13 @@
  *	export EM_FLAGS="-s ENVIRONMENT=web -s WASM=1 --shell-file shell.html --closure 1"
  *	emcc $CC_FLAGS $EM_FLAGS -o out.html emscripten.cpp
  * \endcode
+ * 
+ * Released under a CC0 license.
  */
 
-#include <stddef.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
 
 #include <emscripten/emscripten.h>
 #include <emscripten/html5.h>
@@ -23,17 +23,7 @@
 #include <GLES2/gl2.h>
 #include <GLES2/gl2ext.h>
 
-#define BASISD_SUPPORT_DXT5A 0
-#define BASISD_SUPPORT_BC7 0
-//#define BASISD_SUPPORT_ETC2_EAC_A8 0 <-- todo: -Wunused-parameter errors
-#define BASISD_SUPPORT_ASTC 0
-#define BASISD_SUPPORT_ATC 0
-
-#include "../basisutranslib.cpp"
-
-using namespace basist;
-
-static etc1_global_selector_codebook* globalCodebook = NULL;
+#include "../basisutranslib.cpp" //<-- can be built without to determine the size
 
 //********************************* Test Data ********************************/
 
@@ -793,7 +783,7 @@ static GLuint fragId = 0;
 static GLint uRotId = -1;
 
 /**
- * Draw colour ID.
+ * Texture ID.
  */
 static GLint uTx0Id = -1;
 
@@ -907,12 +897,164 @@ struct posTex2d {
 #define GL_HAS_EXT(ctx, ext) emscripten_webgl_enable_extension(ctx, ext)
 #endif
 
+/*
+ * Possibly missing GL enums.
+ */
 #ifndef GL_COMPRESSED_RGB8_ETC2
 #define GL_COMPRESSED_RGB8_ETC2 0x9274
 #endif
 
 #ifndef GL_COMPRESSED_RGBA8_ETC2_EAC
 #define GL_COMPRESSED_RGBA8_ETC2_EAC 0x9278
+#endif
+
+//***************************** Basis Universal /*****************************/
+
+/*
+ * All of the BasisU code is within this block to enable building with or
+ * without the library. Not including the transcoder will build a dummy
+ * implementation to (roughly) determine the size.
+ */
+#ifdef BASISD_LIB_VERSION
+
+using namespace basist;
+
+/**
+ * Shared codebook instance.
+ */
+static etc1_global_selector_codebook* globalCodebook = NULL;
+
+/**
+ * Returns a supported compressed texture format for a given context.
+ * 
+ * \param[in] ctx WebGL context
+ * \param[in] alpha \c true if the texture has an alpha channel
+ * \return corresponding Basis format
+ */
+static transcoder_texture_format supports(EMSCRIPTEN_WEBGL_CONTEXT_HANDLE const ctx, bool const alpha) {
+	/*
+	 * Test for both prefixed and non-prefixed versions. This should grab iOS
+	 * and other ImgTec GPUs first as a preference.
+	 */
+	static bool const pvr = GL_HAS_EXT(ctx, "WEBKIT_WEBGL_compressed_texture_pvrtc")
+						 || GL_HAS_EXT(ctx,        "WEBGL_compressed_texture_pvrtc");
+	if (pvr) {
+		return (alpha)
+			? cTFPVRTC1_4_RGBA // 9
+			: cTFPVRTC1_4_RGB; // 8
+	}
+	/*
+	 * We choose DXT next, since a worry is the browser will claim ETC support
+	 * then transcode (transcoding slower and with more artefacts)
+	 */
+	static bool const dxt = GL_HAS_EXT(ctx, "WEBGL_compressed_texture_s3tc");
+	if (dxt) {
+		return (alpha)
+			? cTFBC3  // 3
+			: cTFBC1; // 2
+	}
+	/*
+	 * Finally ETC then falling back on RGB.
+	 */
+	static bool const etc = GL_HAS_EXT(ctx, "WEBGL_compressed_texture_etc");
+	if (etc) {
+		return (alpha)
+			? cTFETC2  // 1
+			: cTFETC1; // 0
+	}
+	/*
+	 * We choose 8888 over 4444 and 565 (in the hope that is is never chosen).
+	 */
+	return cTFRGBA32;
+}
+
+/**
+ * Returns the equivalent GL type given a BasisU type.
+ * 
+ * \param[in] type BasisU transcode target
+ * \return equivalent GL type
+ */
+static GLenum toGlType(transcoder_texture_format const type) {
+	switch (type) {
+	case cTFETC1:
+		return GL_COMPRESSED_RGB8_ETC2;
+	case cTFETC2:
+		return GL_COMPRESSED_RGBA8_ETC2_EAC;
+	case cTFBC1:
+		return GL_COMPRESSED_RGB_S3TC_DXT1_EXT;
+	case cTFBC3:
+		return GL_COMPRESSED_RGBA_S3TC_DXT5_EXT;
+	case cTFPVRTC1_4_RGB:
+		return GL_COMPRESSED_RGB_PVRTC_4BPPV1_IMG;
+	case cTFPVRTC1_4_RGBA:
+		return GL_COMPRESSED_RGBA_PVRTC_4BPPV1_IMG;
+	case cTFRGBA32:
+		return GL_UNSIGNED_BYTE;
+	case cTFRGB565:
+		return GL_UNSIGNED_SHORT_5_6_5;
+	default:
+		return GL_UNSIGNED_SHORT_4_4_4_4;
+	}
+}
+
+/**
+ * Uploads the texture.
+ * 
+ * \param[in] ctx ctx WebGL context
+ * \param[in] name texture \e name
+ * \param[in] data \c .basis file content
+ * \param[in] size number of bytes in \a data
+ * \return \c true if the texture was decoded and created
+ */
+bool upload(EMSCRIPTEN_WEBGL_CONTEXT_HANDLE const ctx, GLuint const name, const uint8_t* const data, size_t const size) {
+	bool success = false;
+	basisu_transcoder_init();
+	if (!globalCodebook) {
+		 globalCodebook = new etc1_global_selector_codebook(g_global_selector_cb_size, g_global_selector_cb);
+	}
+	basisu_transcoder transcoder(globalCodebook);
+	if (transcoder.validate_header(data, size)) {
+		basisu_file_info fileInfo;
+		if (transcoder.get_file_info(data, size, fileInfo)) {
+			transcoder_texture_format type = supports(ctx, fileInfo.m_has_alpha_slices);
+			basisu_image_info info;
+			if (transcoder.get_image_info(data, size, info, 0)) {
+				uint32_t descW, descH, blocks;
+				if (transcoder.get_image_level_desc(data, size, 0, 0, descW, descH, blocks)) {
+					if (transcoder.start_transcoding(data, size)) {
+						uint32_t decSize = basis_get_bytes_per_block(type) * blocks;
+						if (void* decBuf = malloc(decSize)) {
+							if (type >= cTFTotalBlockTextureFormats) {
+								// note that blocks becomes total number of pixels for RGB/RGBA
+								blocks = descW * descH;
+							}
+							if (transcoder.transcode_image_level(data, size, 0, 0, decBuf, blocks, type)) {
+								glBindTexture(GL_TEXTURE_2D, name);
+								glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+								if (type < cTFTotalBlockTextureFormats) {
+									glCompressedTexImage2D(GL_TEXTURE_2D, 0,
+										toGlType(type), descW, descH, 0, decSize, decBuf);
+								} else {
+									glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA,
+										descW, descH, 0, GL_RGBA, toGlType(type), decBuf);
+								}
+								success = true;
+							}
+							free(decBuf);
+						}
+					}
+				}
+			}
+		}
+	}
+	return success;
+}
+
+#else
+// dummy implementation
+bool upload(EMSCRIPTEN_WEBGL_CONTEXT_HANDLE /*ctx*/, GLuint /*name*/, const uint8_t* data, size_t size) {
+	return (data[0] | data[size - 1]) != 0;
+}
 #endif
 
 //****************************************************************************/
@@ -923,6 +1065,11 @@ struct posTex2d {
 static float rotDeg = 0.0f;
 
 /**
+ * Decoded textures (0 = opaque, 1 = transparent).
+ */
+static GLuint txName[2] = {};
+
+/**
  * Emscripten (single) GL context.
  */
 static EMSCRIPTEN_WEBGL_CONTEXT_HANDLE glCtx = 0;
@@ -930,7 +1077,7 @@ static EMSCRIPTEN_WEBGL_CONTEXT_HANDLE glCtx = 0;
 /**
  * Emscripten resize handler.
  */
-static EM_BOOL resize(int type, const EmscriptenUiEvent* e, void* data) {
+static EM_BOOL resize(int /*type*/, const EmscriptenUiEvent* /*e*/, void* /*data*/) {
 	double surfaceW;
 	double surfaceH;
 	if (emscripten_get_element_css_size   ("#canvas", &surfaceW, &surfaceH) == EMSCRIPTEN_RESULT_SUCCESS) {
@@ -939,9 +1086,6 @@ static EM_BOOL resize(int type, const EmscriptenUiEvent* e, void* data) {
 			glViewport(0, 0, (int) surfaceW, (int) surfaceH);
 		}
 	}
-	(void) type;
-	(void) data;
-	(void) e;
 	return EM_FALSE;
 }
 
@@ -968,121 +1112,23 @@ static EM_BOOL initContext() {
 static void tick() {
 	glClearColor(1.0f, 0.0f, 1.0f, 1.0f);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
+	
 	if (uRotId >= 0) {
 		glUniform1f(uRotId, rotDeg);
 		rotDeg += 0.1f;
 		if (rotDeg >= 360.0f) {
 			rotDeg -= 360.0f;
 		}
+		glBindTexture(GL_TEXTURE_2D, txName[(lround(rotDeg / 45) & 1) != 0]);
 	}
-
+	
 	glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, 0);
 	glFlush();
 }
 
 /**
- * Returns a supported compressed texture format for a given context.
- * 
- * \param[in] ctx WebGL context
- * \param[in] alpha \c true if the texture has an alpha channel
- * \return corresponding Basis format
- */
-static transcoder_texture_format supports(EMSCRIPTEN_WEBGL_CONTEXT_HANDLE const ctx, bool const alpha = false) {
-	static bool const pvr = GL_HAS_EXT(ctx, "WEBKIT_WEBGL_compressed_texture_pvrtc")
-						 || GL_HAS_EXT(ctx, "WEBGL_compressed_texture_pvrtc");
-	if (pvr) {
-		return (alpha)
-			? cTFPVRTC1_4_RGBA
-			: cTFPVRTC1_4_RGB;
-	}
-	static bool const etc = GL_HAS_EXT(ctx, "WEBGL_compressed_texture_etc");
-	if (etc) {
-		return (alpha)
-			? cTFETC2
-			: cTFETC1;
-	}
-	static bool const dxt = GL_HAS_EXT(ctx, "WEBGL_compressed_texture_s3tc");
-	if (dxt) {
-		return (alpha)
-			? cTFBC5
-			: cTFBC1;
-	}
-	return (alpha)
-			? cTFRGBA4444
-			: cTFRGB565;
-}
-
-static GLenum toGlType(transcoder_texture_format const type) {
-	switch (type) {
-	case cTFETC1:
-		return GL_COMPRESSED_RGB8_ETC2;
-	case cTFETC2:
-		return GL_COMPRESSED_RGBA8_ETC2_EAC;
-	case cTFBC1:
-		return GL_COMPRESSED_RGB_S3TC_DXT1_EXT;
-	case cTFBC5:
-		return GL_COMPRESSED_RGBA_S3TC_DXT5_EXT;
-	case cTFPVRTC1_4_RGB:
-		return GL_COMPRESSED_RGB_PVRTC_4BPPV1_IMG;
-	case cTFPVRTC1_4_RGBA:
-		return GL_COMPRESSED_RGBA_PVRTC_4BPPV1_IMG;
-	case cTFRGB565:
-		GL_UNSIGNED_SHORT_5_6_5;
-	default:
-		return GL_UNSIGNED_SHORT_4_4_4_4;
-	}
-}
-
-/**
- * Creates the texture.
- */
-bool upload(GLuint name, const uint8_t * data, size_t size, transcoder_texture_format type = cTFBC1) {
-	basisu_transcoder_init();
-	if (!globalCodebook) {
-		 globalCodebook = new etc1_global_selector_codebook(g_global_selector_cb_size, g_global_selector_cb);
-	}
-	basisu_transcoder transcoder(globalCodebook);
-	if (transcoder.validate_header(data, size)) {
-		basisu_image_info info;
-		if (transcoder.get_image_info(data, size, info, 0)) {
-			uint32_t descW, descH, blocks;
-			if (transcoder.get_image_level_desc(data, size, 0, 0, descW, descH, blocks)) {
-				basisu_file_info fileInfo;
-				transcoder.get_file_info(data, size, fileInfo);
-				if (transcoder.start_transcoding(data, size)) {
-					uint32_t decSize = basis_get_bytes_per_block(type) * blocks;
-					if (void* decBuf = malloc(decSize)) {
-						if (transcoder.transcode_image_level(data, size, 0, 0, decBuf, blocks, type)) {
-							GLenum glType = toGlType(type);
-							if (glType != GL_FALSE) {
-								glBindTexture(GL_TEXTURE_2D, name);
-								glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-								if (type < cTFTotalBlockTextureFormats) {
-									glCompressedTexImage2D(GL_TEXTURE_2D, 0,
-										glType, descW, descH, 0, decSize, decBuf);
-								} else {
-									
-								}
-							}
-							free(decBuf);
-							return glType != GL_FALSE;
-						}
-					}
-				}
-			}
-		}
-	}
-	return false;
-}
-
-/**
- * Creates the GL context, shaders and quad data, decompresses the Zstd data
- * and 'uploads' the resulting texture.
- * 
- * As a (naive) comparison, removing Zstd and building with "-Os -g0 s WASM=1
- * -lGL emscripten.c" results in a 15kB WebAssembly file; re-adding Zstd
- * increases the Wasm by 26kB.
+ * Creates the GL context, shaders and quad data, decompresses the .basis files
+ * and 'uploads' the resulting textures.
  */
 int main() {
 	if (initContext()) {
@@ -1114,7 +1160,6 @@ int main() {
 		
 		GLuint vertsBuf = 0;
 		GLuint indexBuf = 0;
-		GLuint txName   = 0;
 		// Create the textured quad (vert positions then UVs)
 		struct posTex2d verts2d[] = {
 			{{-0.85f, -0.85f}, {0.0f, 0.0f}}, // BL
@@ -1142,9 +1187,10 @@ int main() {
 		glEnableVertexAttribArray(GL_VERT_POSXY_ID);
 		glEnableVertexAttribArray(GL_VERT_TXUV0_ID);
 		
-		(void) srcRgba;
-		glGenTextures(1, &txName);
-		if (upload(txName, srcRgb, sizeof srcRgb, supports(glCtx))) {
+		glGenTextures(2, txName);
+		if (upload(glCtx, txName[0], srcRgb,  sizeof srcRgb) &&
+			upload(glCtx, txName[1], srcRgba, sizeof srcRgba))
+		{
 			printf("Decoded!\n");
 		}
 		
