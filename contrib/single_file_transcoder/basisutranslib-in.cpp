@@ -3,20 +3,19 @@
  * \code
  *	./combine.sh -r ../../transcoder -o basisutranslib.cpp basisutranslib-in.cpp
  * \endcode
- * 
- * \todo remove the need for -Wno-pragma-once-outside-header when compiling standalone
  */
 
 /*
- * Build options for known platforms.
+ * Transcoder build options for known platforms (iOS has ETC, ASTC and PVRTC;
+ * Emscripten same as iOS plus DXT; other platforms build all).
  * 
- * Note: BASISD_SUPPORT_DXT5A needs enabling for BC3
+ * Note: BC3 needs BASISD_SUPPORT_DXT5A enabling
  */
 #ifdef __APPLE__
 #include <TargetConditionals.h>
 #endif
 #if TARGET_OS_IPHONE
-#define BASISD_SUPPORT_DXT1 0
+#define BASISD_SUPPORT_DXT1  0
 #define BASISD_SUPPORT_DXT5A 0
 #endif
 #if TARGET_OS_IPHONE || defined(__EMSCRIPTEN__)

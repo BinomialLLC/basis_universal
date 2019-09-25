@@ -7,7 +7,7 @@
 # 
 # TODO: ROOTS and FOUND as arrays (since they fail on paths with spaces)
 # 
-# Released under a CC0 license.
+# Script released under a CC0 license.
 
 # Common file roots
 ROOTS="./"
@@ -29,10 +29,10 @@ usage() {
 
 # Tests that the grep implementation works as expected (older OSX grep fails)
 test_grep() {
-	if ! echo '#include "foo"' | grep -Eq '^\s*#\s*include\s*".+"'; then
-		echo "Aborting: the grep implementation fails to parse include lines"
-		exit 1
-	fi
+  if ! echo '#include "foo"' | grep -Eq '^\s*#\s*include\s*".+"'; then
+    echo "Aborting: the grep implementation fails to parse include lines"
+    exit 1
+  fi
 }
 
 # Tests if list $1 has item $2 (returning zero on a match)
@@ -83,8 +83,10 @@ add_file() {
           write_line "/**** skipping file: $inc ****/"
         fi
       else
-        # Otherwise write the source line
-        write_line "$line"
+        # Skip any 'pragma once' directives, otherwise write the source line
+        if echo "$line" | grep -Eqv '^\s*#\s*pragma\s*once\s*'; then
+          write_line "$line"
+        fi
       fi
     done < "$file"
   else
