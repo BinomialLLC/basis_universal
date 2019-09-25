@@ -980,6 +980,7 @@ static transcoder_texture_format supports(EMSCRIPTEN_WEBGL_CONTEXT_HANDLE const 
 			: cTFBC1; // 2
 	}
 #endif
+#if BASISD_SUPPORT_ETC2_EAC_A8 || !defined(BASISD_SUPPORT_ETC2_EAC_A8)
 	/*
 	 * Then ETC2 (which may be incorrect).
 	 */
@@ -989,6 +990,7 @@ static transcoder_texture_format supports(EMSCRIPTEN_WEBGL_CONTEXT_HANDLE const 
 			? cTFETC2  // 1
 			: cTFETC1; // 0
 	}
+#endif
 	/*
 	 * Finally ETC1, falling back on RGBA.
 	 * 
