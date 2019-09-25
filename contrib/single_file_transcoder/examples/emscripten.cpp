@@ -9,8 +9,10 @@
  *	export EM_FLAGS="-s ENVIRONMENT=web -s WASM=1 --shell-file shell.html --closure 1"
  *	emcc $CC_FLAGS $EM_FLAGS -o out.html emscripten.cpp
  * \endcode
- * 
- * Released under a CC0 license.
+ * Alternatively include the transcoder header and build \c basisutranslib
+ * separately (the resulting binary is exactly the same size).
+ * \n
+ * Example code released under a CC0 license.
  */
 
 #include <cmath>
@@ -899,13 +901,20 @@ struct posTex2d {
 
 /*
  * Possibly missing GL enums.
+ * 
+ * Note: GL_COMPRESSED_RGB_ETC1_WEBGL is the same as GL_ETC1_RGB8_OES
  */
+#ifndef GL_ETC1_RGB8_OES
+#define GL_ETC1_RGB8_OES 0x8D64
+#endif
 #ifndef GL_COMPRESSED_RGB8_ETC2
 #define GL_COMPRESSED_RGB8_ETC2 0x9274
 #endif
-
 #ifndef GL_COMPRESSED_RGBA8_ETC2_EAC
 #define GL_COMPRESSED_RGBA8_ETC2_EAC 0x9278
+#endif
+#ifndef COMPRESSED_RGBA_ASTC_4x4_KHR
+#define COMPRESSED_RGBA_ASTC_4x4_KHR 0x93B0
 #endif
 
 //***************************** Basis Universal /*****************************/
@@ -932,9 +941,12 @@ static etc1_global_selector_codebook* globalCodebook = NULL;
  * \return corresponding Basis format
  */
 static transcoder_texture_format supports(EMSCRIPTEN_WEBGL_CONTEXT_HANDLE const ctx, bool const alpha) {
+#if BASISD_SUPPORT_PVRTC1 || !defined(BASISD_SUPPORT_PVRTC1)
 	/*
 	 * Test for both prefixed and non-prefixed versions. This should grab iOS
 	 * and other ImgTec GPUs first as a preference.
+	 * 
+	 * TODO: do older iOS expose ASTC to the browser and does it transcode to RGBA?
 	 */
 	static bool const pvr = GL_HAS_EXT(ctx, "WEBKIT_WEBGL_compressed_texture_pvrtc")
 						 || GL_HAS_EXT(ctx,        "WEBGL_compressed_texture_pvrtc");
@@ -943,33 +955,60 @@ static transcoder_texture_format supports(EMSCRIPTEN_WEBGL_CONTEXT_HANDLE const 
 			? cTFPVRTC1_4_RGBA // 9
 			: cTFPVRTC1_4_RGB; // 8
 	}
+#endif
+#if BASISD_SUPPORT_ASTC || !defined(BASISD_SUPPORT_ASTC)
+	/*
+	 * Then Android, ChromeOS and others with ASTC (newer iOS devices should
+	 * make the list but don't appear to be exposed).
+	 */
+	static bool const astc = GL_HAS_EXT(ctx, "WEBGL_compressed_texture_astc");
+	if (astc) {
+		//return cTFASTC_4x4; // 10
+	}
+#endif
+#if BASISD_SUPPORT_DXT1 || !defined(BASISD_SUPPORT_DXT1)
 	/*
 	 * We choose DXT next, since a worry is the browser will claim ETC support
-	 * then transcode (transcoding slower and with more artefacts)
+	 * then transcode (transcoding slower and with more artefacts). This gives
+	 * us desktop and various (usually Intel) Android devices.
 	 */
-	static bool const dxt = GL_HAS_EXT(ctx, "WEBGL_compressed_texture_s3tc");
+	static bool const dxt = GL_HAS_EXT(ctx,        "WEBGL_compressed_texture_s3tc")
+						 || GL_HAS_EXT(ctx, "WEBKIT_WEBGL_compressed_texture_s3tc");
 	if (dxt) {
 		return (alpha)
 			? cTFBC3  // 3
 			: cTFBC1; // 2
 	}
+#endif
 	/*
-	 * Finally ETC then falling back on RGB.
+	 * Then ETC2 (which may be incorrect).
 	 */
-	static bool const etc = GL_HAS_EXT(ctx, "WEBGL_compressed_texture_etc");
-	if (etc) {
+	static bool const etc2 = GL_HAS_EXT(ctx, "WEBGL_compressed_texture_etc");
+	if (etc2) {
 		return (alpha)
 			? cTFETC2  // 1
 			: cTFETC1; // 0
 	}
 	/*
+	 * Finally ETC1, falling back on RGBA.
+	 * 
+	 * TODO: we might just prefer to transcode to dithered 565 once available
+	 */
+	static bool const etc1 = GL_HAS_EXT(ctx, "WEBGL_compressed_texture_etc1");
+	if (etc1 && !alpha) {
+		return cTFETC1; // 0
+	}
+	/*
 	 * We choose 8888 over 4444 and 565 (in the hope that is is never chosen).
 	 */
-	return cTFRGBA32;
+	return cTFRGBA32; // 13
 }
 
 /**
  * Returns the equivalent GL type given a BasisU type.
+ * 
+ * \note This relies on \c #supports() returning the supported formats, and so
+ * only converts to the GL equivalents (without further testing for support).
  * 
  * \param[in] type BasisU transcode target
  * \return equivalent GL type
@@ -977,7 +1016,7 @@ static transcoder_texture_format supports(EMSCRIPTEN_WEBGL_CONTEXT_HANDLE const 
 static GLenum toGlType(transcoder_texture_format const type) {
 	switch (type) {
 	case cTFETC1:
-		return GL_COMPRESSED_RGB8_ETC2;
+		return GL_ETC1_RGB8_OES;
 	case cTFETC2:
 		return GL_COMPRESSED_RGBA8_ETC2_EAC;
 	case cTFBC1:
@@ -988,6 +1027,8 @@ static GLenum toGlType(transcoder_texture_format const type) {
 		return GL_COMPRESSED_RGB_PVRTC_4BPPV1_IMG;
 	case cTFPVRTC1_4_RGBA:
 		return GL_COMPRESSED_RGBA_PVRTC_4BPPV1_IMG;
+	case cTFASTC_4x4:
+		return GL_COMPRESSED_RGBA_ASTC_4x4_KHR;
 	case cTFRGBA32:
 		return GL_UNSIGNED_BYTE;
 	case cTFRGB565:
@@ -1017,6 +1058,7 @@ bool upload(EMSCRIPTEN_WEBGL_CONTEXT_HANDLE const ctx, GLuint const name, const 
 		basisu_file_info fileInfo;
 		if (transcoder.get_file_info(data, size, fileInfo)) {
 			transcoder_texture_format type = supports(ctx, fileInfo.m_has_alpha_slices);
+			printf("Type enum: %d\n", type);
 			basisu_image_info info;
 			if (transcoder.get_image_info(data, size, info, 0)) {
 				uint32_t descW, descH, blocks;
