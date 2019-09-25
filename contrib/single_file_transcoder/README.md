@@ -16,4 +16,4 @@ Why?
 
 Because all it now takes to support Basis Universal is the addition of a single file, two if using the header, with no configuration or further build steps. 
 
-The library is small, adding, for example, 181kB to an Emscripten compiled WebAssembly project (with transcoding disabled for BC7, ASTC and ATC; reenabling ASTC adds a further 64kB).
+The library is small, adding, for example, 249kB to an Emscripten compiled WebAssembly project (with transcoding disabled for BC7 and ATC; disabling ASTC can remove a further 64kB).
