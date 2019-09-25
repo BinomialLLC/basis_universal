@@ -4,13 +4,13 @@
  *	./combine.sh -r ../../transcoder -o basisutranslib.cpp basisutranslib-in.cpp
  * \endcode
  * 
- * \note BASISD_SUPPORT_DXT5A needs enabling for BC3
- * 
  * \todo remove the need for -Wno-pragma-once-outside-header when compiling standalone
  */
 
 /*
  * Build options for known platforms.
+ * 
+ * Note: BASISD_SUPPORT_DXT5A needs enabling for BC3
  */
 #ifdef __APPLE__
 #include <TargetConditionals.h>
