@@ -9,10 +9,17 @@
  *	export EM_FLAGS="-s ENVIRONMENT=web -s WASM=1 --shell-file shell.html --closure 1"
  *	emcc $CC_FLAGS $EM_FLAGS -o out.html emscripten.cpp
  * \endcode
- * Alternatively include the transcoder header and build \c basisutranslib
- * separately (the resulting binary is exactly the same size).
+ * Alternatively include \c basisu_transcoder.h and build \c basisutranslib
+ * separately (the resulting binary is exactly the same size):
+ * \code
+ *	emcc $CC_FLAGS $EM_FLAGS -o out.html ../basisutranslib.cpp emscripten.cpp
+ * \encode
+ * To determine the WebAssembly size without the transcoder comment the \c
+ * basisutranslib.cpp include (which stubs the texture creation).
  * \n
  * Example code released under a CC0 license.
+ * 
+ * \todo add mipmap support to the example
  */
 
 #include <cmath>
@@ -25,7 +32,7 @@
 #include <GLES2/gl2.h>
 #include <GLES2/gl2ext.h>
 
-#include "../basisutranslib.cpp" //<-- can be built without to determine the size
+#include "../basisutranslib.cpp"
 
 //********************************* Test Data ********************************/
 
