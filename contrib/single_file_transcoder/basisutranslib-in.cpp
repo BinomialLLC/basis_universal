@@ -7,9 +7,10 @@
 
 /*
  * Transcoder build options for known platforms (iOS has ETC, ASTC and PVRTC;
- * Emscripten same as iOS plus DXT; other platforms build all).
+ * Emscripten and Android are the same as iOS plus DXT; other platforms build
+ * all except BC7 mode 6).
  * 
- * Note: BC3 needs BASISD_SUPPORT_DXT5A enabling
+ * See https://github.com/BinomialLLC/basis_universal#shrinking-the-transcoders-compiled-size
  */
 #ifdef __APPLE__
 #include <TargetConditionals.h>
@@ -18,9 +19,11 @@
 #define BASISD_SUPPORT_DXT1  0
 #define BASISD_SUPPORT_DXT5A 0
 #endif
-#if TARGET_OS_IPHONE || defined(__EMSCRIPTEN__)
+#if TARGET_OS_IPHONE || defined(__EMSCRIPTEN__) || defined(__ANDROID__)
 #define BASISD_SUPPORT_BC7 0
 #define BASISD_SUPPORT_ATC 0
+#else
+#define BASISD_SUPPORT_BC7_MODE6_OPAQUE_ONLY 0
 #endif
 
 #include "basisu_transcoder.cpp"
