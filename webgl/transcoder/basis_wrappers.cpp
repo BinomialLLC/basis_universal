@@ -110,7 +110,7 @@ struct basis_file
     if (m_magic != MAGIC)
       return 0;
 
-    if (format >= cTFTotalTextureFormats)
+    if (format >= (int)transcoder_texture_format::cTFTotalTextureFormats)
       return 0;
 
 	 uint32_t orig_width, orig_height, total_blocks;
@@ -132,7 +132,7 @@ struct basis_file
 		 // Compressed formats are 2D arrays of blocks.
 		 const uint32_t bytes_per_block = basis_get_bytes_per_block(transcoder_format);
 
-		 if (format == cTFPVRTC1_4_RGB || format == cTFPVRTC1_4_RGBA)
+		 if (transcoder_format == transcoder_texture_format::cTFPVRTC1_4_RGB || transcoder_format == transcoder_texture_format::cTFPVRTC1_4_RGBA)
 		 {
 			 // For PVRTC1, Basis only writes (or requires) total_blocks * bytes_per_block. But GL requires extra padding for very small textures: 
 			  // https://www.khronos.org/registry/OpenGL/extensions/IMG/IMG_texture_compression_pvrtc.txt
@@ -159,7 +159,7 @@ struct basis_file
 	  if (m_magic != MAGIC)
 		  return 0;
 
-	  if (format >= cTFTotalTextureFormats)
+	  if (format >= (int)transcoder_texture_format::cTFTotalTextureFormats)
 		  return 0;
 
 	  const transcoder_texture_format transcoder_format = static_cast<transcoder_texture_format>(format);
@@ -197,7 +197,7 @@ struct basis_file
 
 		  uint32_t required_size = total_blocks * bytes_per_block;
 
-		  if (format == cTFPVRTC1_4_RGB || format == cTFPVRTC1_4_RGBA)
+		  if (transcoder_format == transcoder_texture_format::cTFPVRTC1_4_RGB || transcoder_format == transcoder_texture_format::cTFPVRTC1_4_RGBA)
 		  {
 			  // For PVRTC1, Basis only writes (or requires) total_blocks * bytes_per_block. But GL requires extra padding for very small textures: 
 			  // https://www.khronos.org/registry/OpenGL/extensions/IMG/IMG_texture_compression_pvrtc.txt
