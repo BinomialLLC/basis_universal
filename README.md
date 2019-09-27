@@ -322,6 +322,8 @@ Devices/API's supporting ASTC: Just transcode to ASTC, which supports a variety 
 
 Device's/API's supprting ATC: Transcode to ATC_RGBA_INTERPOLATED_ALPHA. This format is basically equivalent to BC3.
 
+Device's/API's supporting PVRTC2: The real-time PVRTC2 RGBA transcoder can only handle simple opacity maps. You'll need to experiment to see if it's high enough quality. For devices which support both PVRTC2 and ASTC, ASTC 4x4 is preferable for alpha content although it will require 2x as much memory.
+
 3. For high quality tangent space normal maps, here's one suggested solution that should work well today:
 
 Compress with the -normal_map flag, which disables a lot of stuff that has interfered with normal maps in the past. Also compress with -level 2-4, which creates the highest quality codebooks. Use larger codebooks (use the -max_endpoints and -max_selectors options directly, with larger values).
