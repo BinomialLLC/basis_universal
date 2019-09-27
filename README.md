@@ -13,6 +13,18 @@ So far, we've compiled the code using MSVS 2019, under Ubuntu x64 using cmake wi
 
 A simple asm.js Texture Video demo is [here](http://binomial.biz/TextureVideoTest/).
 
+### Installation
+
+You can download and install Basis Universal using the [vcpkg](https://github.com/Microsoft/vcpkg/) dependency manager:
+
+    git clone https://github.com/Microsoft/vcpkg.git
+    cd vcpkg
+    ./bootstrap-vcpkg.sh
+    ./vcpkg integrate install
+    vcpkg install basisu
+
+The Basis Universal port in vcpkg is kept up to date by Microsoft team members and community contributors. If the version is out of date, please [create an issue or pull request](https://github.com/Microsoft/vcpkg) on the vcpkg repository.
+
 ### 3rd party code dependencies
 
 The transcoder (in the "transcoder" directory) is a single .cpp source file library which has no 3rd party code dependencies.
