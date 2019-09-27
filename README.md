@@ -273,13 +273,17 @@ Note that for PVRTC1, the transcoder differs slightly in how it computes the mem
        
 When you call the transcoder and pass it a buffer that's larger than required, these extra padding bytes will be set to 0.
 
-PVRTC2 RGB (and maybe RGBA) support is coming soon, which is available on some Android platforms.
+PVRTC2 RGB - Fast and almost as high quality as BC1. It supports non-square, non-power of 2 textures.
 
-ASTC 4x4: The ASTC transcoder supports void extent (constant color) blocks and several different endpoint precision modes and encodings: L, LA, RGB or RGBA. To shrink the compiled size of the ASTC transcoder, set BASISD_SUPPORT_ASTC_HIGHER_OPAQUE_QUALITY to 0, which lowers endpoint precision slightly.
+PVRTC2 RGBA - This format is slower and much more complex than PVRTC2 RGB. It will only work well with textures using premultiplied alpha. The alpha channel should be relatively simple (like opacity maps).
+
+ETC2 EAC R11/RG11 - R11 is roughly equivalent to BC4, and RG11 is like BC5. Transcoding is very fast and high quality.
+
+ASTC 4x4 - The ASTC transcoder supports void extent (constant color) blocks and several different endpoint precision modes and encodings: L, LA, RGB or RGBA. To shrink the compiled size of the ASTC transcoder, set BASISD_SUPPORT_ASTC_HIGHER_OPAQUE_QUALITY to 0, which lowers endpoint precision slightly.
 
 Note the ASTC transcoder assumes sRGB sampling won't be enabled when sampling the ASTC texture data. (ASTC decompression works slightly differently when sRGB reads are enabled vs. disabled.) Enabling sRGB reads will result in a tiny amount of higher error that is unlikely to be noticeable. This was a conscious decision we had to make because we could only afford to include one set of precomputed ETC1S->ASTC conversion tables into the transcoder. We may put in two tables into the next transcoder release and let the user decide what they want at compile and/or run-time.
 
-ATI ATC: There are two transcoders, one for RGB (which is similar to BC1), and one for RGBA_INTERPOLATED_ALPHA (which is basically a BC4 block followed by an ATC block). This format is only useful on Adreno GPU's, so to cut down on the transcoder's size you can set BASISD_SUPPORT_ATC to 0 at compilation time if you know you'll never need ATC data. Quality is very similar to BC1/BC3.
+ATI ATC - There are two transcoders, one for RGB (which is similar to BC1), and one for RGBA_INTERPOLATED_ALPHA (which is basically a BC4 block followed by an ATC block). This format is only useful on Adreno GPU's, so to cut down on the transcoder's size you can set BASISD_SUPPORT_ATC to 0 at compilation time if you know you'll never need ATC data. Quality is very similar to BC1/BC3.
 
 RGB565, BGR564, ARGB 8888 and ARGB 4444 - Various uncompressed raw pixel formats. Internally the transcoder directly converts the ETC1S endpoint/selector data directly to uncompressed pixels. The output buffer is treated as a plain raster image, not as a 2D array of blocks. No dithering or downsampling is supported yet.
 
@@ -295,7 +299,7 @@ ETC2 EAC RGBA and ASTC work around these issues, but these formats are still not
 
 Here are the major texturing scenarios the system supports:
 
-1. For color-only textures, you can transcode to whatever format your target device supports. Remember that PVRTC1 requires square power of 2 size textures, and there's nothing Basis can currently do to help you work around this limitation. (Basic supports non-square PVRTC1 textures, but iOS doesn't.) 
+1. For color-only textures, you can transcode to whatever format your target device supports. Remember that PVRTC1 requires square power of 2 size textures, and there's nothing Basis can currently do to help you work around this limitation. (Basic supports non-square PVRTC1 textures, but iOS doesn't.) For devices which support both ASTC and PVRTC1, ASTC will be much higher qualiy. For devices supporting both PVRTC2 and ASTC, for most opaque textures you can probably use PVRTC2 which will conserve memory.
 
 2. For alpha textures, you can create .basis files with alpha channels. To do this with the basisu compressor, either create 32-bit PNG files with alpha, or use two PNG files with the "-alpha_file" command line option to specify where the alpha data should come from. (For texture arrays, you can use multiple -file and -alpha_file command line options. Mipmap generation automatically supports alpha channels.) 
 
@@ -311,7 +315,7 @@ Devices/API's supporting only BC1-5: Use BC3, which the transcoder supports. BC3
 
 Newer devices supporting BC7: Transcode to BC7 mode 5, which supports a high-quality alpha channel. Quality will be similar to BC3.
 
-Devices/API's supporting ASTC: Just transcode to ASTC, which supports a variety of internal block encodings that will be automatically chosen by the transcoder for every block: L, LA, RGB, RGBA.
+Devices/API's supporting ASTC: Just transcode to ASTC, which supports a variety of internal block encodings that will be automatically chosen by the transcoder for every block: L, LA, RGB, RGBA. If the device supports both PVRTC1/2 and ASTC, ASTC 4x4 will give you more reliable and much higher quality than PVRTC1/2, but it uses up twice as much RAM (8bpp vs 4bpp).
 
 Device's/API's supprting ATC: Transcode to ATC_RGBA_INTERPOLATED_ALPHA. This format is basically equivalent to BC3.
 
@@ -323,13 +327,13 @@ Start with 2 component normalized XY tangent space normal maps (where XY range f
 
 ETC1 only devices/API's: Transcode to two ETC1 textures and sample them in a shader, or use an uncompressed format. You can either use one ETC1 texture that's twice as high/wide, or two separate ETC1 textures. The transcoder supports transcoding alpha slices to any color output format using a special flag: `basist::basisu_transcoder::cDecodeFlagsTranscodeAlphaDataToOpaqueFormats`. This will look great because each channel gets its own endpoints and selectors.
 
-ETC2 devices/API's: Transcode to a single ETC2 EAC RGBA texture, sample once in shader, deswizzle to RG (XY). This should look great.
+ETC2 devices/API's: Transcode to a single ETC2 EAC RGBA or a ETC2 EAC RG11 texture, sample once in shader. This should look great.
 
 PVRTC1 devices/API's: Transcode to two PVRTC1 opaque textures (RGB to one, A to another, which the transcoder supports using the cDecodeFlagsTranscodeAlphaDataToOpaqueFormats flag) and sample each in the shader. This should look fairly good. Its doubtful the PVRTC1 RGBA transcoder could handle two complex channels of data well.
 
 Devices/API's supporting BC1-5, BC6H, BC7: Transcode to a single BC5 textures, which used to be called "ATI 3DC". It has two high quality BC4 blocks in there, so it'll look great. You could also use BC7 mode 5, although BC5 will have slightly less error.
 
-Devices/API's supporting ASTC: Just transcode to ASTC. The block transcoder will automatically encode to the "LA" format.
+Devices/API's supporting ASTC: Just transcode to ASTC. The block transcoder will automatically encode to the "LA" format. 
 
 ### Special Transcoding Scenarios
 
