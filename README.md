@@ -215,6 +215,9 @@ These transcoder macros control which formats are supported by the transcoder at
 - BASISD_SUPPORT_ASTC
 - BASISD_SUPPORT_ATC
 - BASISD_SUPPORT_ASTC_HIGHER_OPAQUE_QUALITY
+- BASISD_SUPPORT_ETC2_EAC_RG11
+- BASISD_SUPPORT_FXT1
+- BASISD_SUPPORT_PVRTC2
 
 Each format requires its own set of precomputed ETC1S conversion tables. Disabling a format that you know will never be utilized will reduce the compiled size of the transcoder. 
 
