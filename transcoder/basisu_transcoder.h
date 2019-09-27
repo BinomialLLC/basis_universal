@@ -31,42 +31,64 @@ namespace basist
 	// fully opaque (255) alpha channel.
 	// - The PVRTC1 texture formats only support power of 2 dimension .basis files, but this may be relaxed in a future version.
 	// - The PVRTC1 transcoders are real-time encoders, so don't expect the highest quality. We may add a slower encoder with improved quality.
-	enum transcoder_texture_format
+	// - These enums must be kept in sync with Javascript code that calls the transcoder.
+	enum class transcoder_texture_format
 	{
 		// Compressed formats
 
 		// ETC1-2
-		cTFETC1,								// Opaque only, returns RGB or alpha data if cDecodeFlagsTranscodeAlphaDataToOpaqueFormats flag is specified
-		cTFETC2,								// Opaque+alpha, ETC2_EAC_A8 block followed by a ETC1 block, alpha channel will be opaque for opaque .basis files
+		cTFETC1_RGB = 0,							// Opaque only, returns RGB or alpha data if cDecodeFlagsTranscodeAlphaDataToOpaqueFormats flag is specified
+		cTFETC2_RGBA = 1,							// Opaque+alpha, ETC2_EAC_A8 block followed by a ETC1 block, alpha channel will be opaque for opaque .basis files
 
-		// BC1-5, BC7
-		cTFBC1,								// Opaque only, no punchthrough alpha support yet, transcodes alpha slice if cDecodeFlagsTranscodeAlphaDataToOpaqueFormats flag is specified
-		cTFBC3,								// Opaque+alpha, BC4 followed by a BC1 block, alpha channel will be opaque for opaque .basis files
-		cTFBC4,								// Red only, alpha slice is transcoded to output if cDecodeFlagsTranscodeAlphaDataToOpaqueFormats flag is specified
-		cTFBC5,								// XY: Two BC4 blocks, X=R and Y=Alpha, .basis file should have alpha data (if not Y will be all 255's)
-		cTFBC7_M6_OPAQUE_ONLY,			// Opaque only, RGB or alpha if cDecodeFlagsTranscodeAlphaDataToOpaqueFormats flag is specified. Highest quality of all the non-ETC1 formats.
-		cTFBC7_M5,							// Opaque+alpha, alpha channel will be opaque for opaque .basis files
+		// BC1-5, BC7 (desktop, some mobile devices)
+		cTFBC1_RGB = 2,							// Opaque only, no punchthrough alpha support yet, transcodes alpha slice if cDecodeFlagsTranscodeAlphaDataToOpaqueFormats flag is specified
+		cTFBC3_RGBA = 3, 							// Opaque+alpha, BC4 followed by a BC1 block, alpha channel will be opaque for opaque .basis files
+		cTFBC4_R = 4,								// Red only, alpha slice is transcoded to output if cDecodeFlagsTranscodeAlphaDataToOpaqueFormats flag is specified
+		cTFBC5_RG = 5,								// XY: Two BC4 blocks, X=R and Y=Alpha, .basis file should have alpha data (if not Y will be all 255's)
+		cTFBC7_M6_RGB = 6,						// Opaque only, RGB or alpha if cDecodeFlagsTranscodeAlphaDataToOpaqueFormats flag is specified. Highest quality of all the non-ETC1 formats.
+		cTFBC7_M5_RGBA = 7,						// Opaque+alpha, alpha channel will be opaque for opaque .basis files
 
-		// PVRTC1 4bpp
-		cTFPVRTC1_4_RGB,					// Opaque only, RGB or alpha if cDecodeFlagsTranscodeAlphaDataToOpaqueFormats flag is specified, nearly lowest quality of any texture format.
-		cTFPVRTC1_4_RGBA,					// Opaque+alpha, most useful for simple opacity maps. If .basis file doens't have alpha cTFPVRTC1_4_RGB will be used instead. Lowest quality of any supported texture format.
+		// PVRTC1 4bpp (mobile, PowerVR devices)
+		cTFPVRTC1_4_RGB = 8,						// Opaque only, RGB or alpha if cDecodeFlagsTranscodeAlphaDataToOpaqueFormats flag is specified, nearly lowest quality of any texture format.
+		cTFPVRTC1_4_RGBA = 9,					// Opaque+alpha, most useful for simple opacity maps. If .basis file doens't have alpha cTFPVRTC1_4_RGB will be used instead. Lowest quality of any supported texture format.
 
-		// ASTC
-		cTFASTC_4x4,						// Opaque+alpha, ASTC 4x4, alpha channel will be opaque for opaque .basis files. Transcoder uses RGB/RGBA/L/LA modes, void extent, and up to two ([0,47] and [0,255]) endpoint precisions.
+		// ASTC (mobile, Intel devices, hopefully all desktop GPU's one day)
+		cTFASTC_4x4_RGBA = 10,					// Opaque+alpha, ASTC 4x4, alpha channel will be opaque for opaque .basis files. Transcoder uses RGB/RGBA/L/LA modes, void extent, and up to two ([0,47] and [0,255]) endpoint precisions.
 
-		// ATC
-		cTFATC_RGB,							// Opaque, RGB or alpha if cDecodeFlagsTranscodeAlphaDataToOpaqueFormats flag is specified. ATI ATC (GL_ATC_RGB_AMD)
-		cTFATC_RGBA_INTERPOLATED_ALPHA,	// Opaque+alpha, alpha channel will be opaque for opaque .basis files. ATI ATC (ATC_RGBA_INTERPOLATED_ALPHA_AMD) 
+		// ATC (mobile, Adreno devices, this is a niche format)
+		cTFATC_RGB = 11,							// Opaque, RGB or alpha if cDecodeFlagsTranscodeAlphaDataToOpaqueFormats flag is specified. ATI ATC (GL_ATC_RGB_AMD)
+		cTFATC_RGBA = 12,							// Opaque+alpha, alpha channel will be opaque for opaque .basis files. ATI ATC (GL_ATC_RGBA_INTERPOLATED_ALPHA_AMD) 
 
-		cTFTotalBlockTextureFormats,
+		// FXT1 (desktop, Intel devices, this is a super obscure format)
+		cTFFXT1_RGB = 17,							// Opaque only, uses exclusively CC_MIXED blocks. Notable for having a 8x4 block size. GL_3DFX_texture_compression_FXT1 is supported on Intel integrated GPU's (such as HD 630).
+														// Punch-through alpha is relatively easy to support, but full alpha is harder. This format is only here for completeness so opaque-only is fine for now.
+														// See the BASISU_USE_ORIGINAL_3DFX_FXT1_ENCODING macro in basisu_transcoder_internal.h.
 
+		cTFPVRTC2_4_RGB = 18,					// Opaque-only, almost BC1 quality, much faster to transcode and supports arbitrary texture dimensions (unlike PVRTC1 RGB).
+		cTFPVRTC2_4_RGBA = 19,					// Opaque+alpha, slower to encode than cTFPVRTC2_4_RGB. Premultiplied alpha is highly recommended, otherwise the color channel can leak into the alpha channel on transparent blocks.
+
+		cTFETC2_EAC_R11 = 20,					// R only (ETC2 EAC R11 unsigned)
+		cTFETC2_EAC_RG11 = 21,					// RG only (ETC2 EAC RG11 unsigned), R=opaque.r, G=alpha - for tangent space normal maps
+		
 		// Uncompressed (raw pixel) formats
-		cTFRGBA32 = cTFTotalBlockTextureFormats, // 32bpp RGBA image stored in raster (not block) order in memory, R is first byte, A is last byte.
-		cTFRGB565,							// 166pp RGB image stored in raster (not block) order in memory, R at bit position 11
-		cTFBGR565,							// 16bpp RGB image stored in raster (not block) order in memory, R at bit position 0
-		cTFRGBA4444,						// 16bpp RGBA image stored in raster (not block) order in memory, R at bit position 12, A at bit position 0
+		cTFRGBA32 = 13,							// 32bpp RGBA image stored in raster (not block) order in memory, R is first byte, A is last byte.
+		cTFRGB565 = 14,							// 166pp RGB image stored in raster (not block) order in memory, R at bit position 11
+		cTFBGR565 = 15,							// 16bpp RGB image stored in raster (not block) order in memory, R at bit position 0
+		cTFRGBA4444 = 16,							// 16bpp RGBA image stored in raster (not block) order in memory, R at bit position 12, A at bit position 0
 
-		cTFTotalTextureFormats
+		cTFTotalTextureFormats = 22,
+
+		// Old enums for compatibility with code compiled against previous versions
+		cTFETC1 = cTFETC1_RGB,
+		cTFETC2 = cTFETC2_RGBA,
+		cTFBC1 = cTFBC1_RGB,
+		cTFBC3 = cTFBC3_RGBA,
+		cTFBC4 = cTFBC4_R,
+		cTFBC5 = cTFBC5_RG,
+		cTFBC7_M6_OPAQUE_ONLY = cTFBC7_M6_RGB,
+		cTFBC7_M5 = cTFBC7_M5_RGBA,
+		cTFASTC_4x4 = cTFASTC_4x4_RGBA,
+		cTFATC_RGBA_INTERPOLATED_ALPHA = cTFATC_RGBA,
 	};
 
 	uint32_t basis_get_bytes_per_block(transcoder_texture_format fmt);
@@ -74,10 +96,16 @@ namespace basist
 	bool basis_transcoder_format_has_alpha(transcoder_texture_format fmt);
 	basisu::texture_format basis_get_basisu_texture_format(transcoder_texture_format fmt);
 	const char* basis_get_texture_type_name(basis_texture_type tex_type);
+	
 	bool basis_transcoder_format_is_uncompressed(transcoder_texture_format tex_type);
-	bool basis_block_format_is_uncompressed(block_format tex_type);
 	uint32_t basis_get_uncompressed_bytes_per_pixel(transcoder_texture_format fmt);
 	
+	uint32_t basis_get_block_width(transcoder_texture_format tex_type);
+	uint32_t basis_get_block_height(transcoder_texture_format tex_type);
+
+	// Returns true if the specified format was enabled at compile time.
+	bool basis_is_format_supported(transcoder_texture_format tex_type);
+		
 	class basisu_transcoder;
 
 	// This struct holds all state used during transcoding. For video, it needs to persist between image transcodes (it holds the previous frame).
@@ -292,7 +320,7 @@ namespace basist
 
 			// The output buffer contains alpha endpoint/selector indices. 
 			// Used internally when decoding formats like ASTC that require both color and alpha data to be available when transcoding to the output format.
-			cDecodeFlagsOutputHasAlphaIndices = 16,
+			cDecodeFlagsOutputHasAlphaIndices = 16
 		};
 								
 		// transcode_image_level() decodes a single mipmap level from the .basis file to any of the supported output texture formats.

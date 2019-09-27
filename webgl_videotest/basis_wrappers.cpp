@@ -182,7 +182,7 @@ uint basis_get_image_transcoded_size_in_bytes(void *h, uint image_index, uint le
 	if (f->m_magic != MAGIC)
 		return 0;	
 	
-	if (format >= cTFTotalTextureFormats)
+	if (format >= (int)transcoder_texture_format::cTFTotalTextureFormats)
 		return 0;
 	
 	uint bytes_per_block = basis_get_bytes_per_block((transcoder_texture_format)format);
@@ -219,7 +219,7 @@ uint basis_transcode_image(void *h, void *dst, uint dst_size_in_bytes,
 	if (f->m_magic != MAGIC)
 		return 0;
 		
-	if (format >= cTFTotalTextureFormats)
+	if (format >= (int)transcoder_texture_format::cTFTotalTextureFormats)
 		return 0;
 		
 	uint bytes_per_block = basis_get_bytes_per_block((transcoder_texture_format)format);

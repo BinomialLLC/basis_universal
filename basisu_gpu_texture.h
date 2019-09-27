@@ -37,7 +37,7 @@ namespace basisu
 
 		void clear()
 		{
-			m_fmt = cInvalidTextureFormat;
+			m_fmt = texture_format::cInvalidTextureFormat;
 			m_width = 0;
 			m_height = 0;
 			m_block_width = 0;
@@ -132,6 +132,7 @@ namespace basisu
 
 	bool write_compressed_texture_file(const char *pFilename, const gpu_image &g);
 	
+	bool write_3dfx_out_file(const char* pFilename, const gpu_image& gi);
 	// GPU texture block unpacking
 
 	void unpack_etc2_eac(const void *pBlock_bits, color_rgba *pPixels);
@@ -142,6 +143,9 @@ namespace basisu
 	bool unpack_bc7_mode6(const void *pBlock_bits, color_rgba *pPixels);
 	bool unpack_bc7_mode5(const void* pBlock_bits, color_rgba* pPixels);
 	void unpack_atc(const void* pBlock_bits, color_rgba* pPixels);
+	bool unpack_fxt1(const void* p, color_rgba* pPixels);
+	bool unpack_pvrtc2(const void* p, color_rgba* pPixels);
+	void unpack_etc2_eac_rg(const void* p, color_rgba* pPixels);
 
 	// unpack_block() is only capable of unpacking texture data created by the transcoder. 
 	// For some texture formats (like BC7, or ETC2) it's not a complete implementation.
