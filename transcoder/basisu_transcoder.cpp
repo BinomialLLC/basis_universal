@@ -3459,6 +3459,10 @@ namespace basist
 						swizzled |= ((y >> min_bits) << (min_bits * 2));
 				}
 
+				// TODO: for cDecodeFlagsFlipY, pDst_blocks points to the last
+				// row, in that case the swizzle needs to have negative row
+				// stride. Currently transcode_slice() just fails to transcode
+				// to PVRTC if flip is enabled.
 				pvrtc4_block* pDst_block = static_cast<pvrtc4_block*>(pDst_blocks) + swizzled;
 				pDst_block->m_endpoints = pPVRTC_endpoints[block_index];
 
@@ -8134,7 +8138,7 @@ namespace basist
 	}
 
 	bool basisu_lowlevel_transcoder::transcode_slice(void* pDst_blocks, uint32_t num_blocks_x, uint32_t num_blocks_y, const uint8_t* pImage_data, uint32_t image_data_size, block_format fmt,
-		uint32_t output_block_or_pixel_stride_in_bytes, bool bc1_allow_threecolor_blocks, const basis_file_header& header, const basis_slice_desc& slice_desc, uint32_t output_row_pitch_in_blocks_or_pixels,
+		int32_t output_block_or_pixel_stride_in_bytes, bool bc1_allow_threecolor_blocks, const basis_file_header& header, const basis_slice_desc& slice_desc, int32_t output_row_pitch_in_blocks_or_pixels,
 		basisu_transcoder_state* pState, bool transcode_alpha, void *pAlpha_blocks, uint32_t output_rows_in_pixels)
 	{
 		(void)transcode_alpha;
@@ -8146,18 +8150,10 @@ namespace basist
 		const bool is_video = (header.m_tex_type == cBASISTexTypeVideoFrames);
 		const uint32_t total_blocks = num_blocks_x * num_blocks_y;
 
-		if (!output_row_pitch_in_blocks_or_pixels)
-		{
-			if (basis_block_format_is_uncompressed(fmt))
-				output_row_pitch_in_blocks_or_pixels = slice_desc.m_orig_width;
-			else
-			{
-				if (fmt == block_format::cFXT1_RGB)
-					output_row_pitch_in_blocks_or_pixels = (slice_desc.m_orig_width + 7) / 8;
-				else
-					output_row_pitch_in_blocks_or_pixels = num_blocks_x;
-			}
-		}
+		// originally this was assigning num_blocks_x to
+		// output_row_pitch_in_blocks_or_pixels if it was zero, that's now
+		// moved to basisu_transcoder::transcode_slice().
+		assert(output_row_pitch_in_blocks_or_pixels != 0);
 
 		if (basis_block_format_is_uncompressed(fmt))
 		{
@@ -8227,11 +8223,11 @@ namespace basist
 		int endpoint_pred_repeat_count = 0;
 		uint32_t prev_endpoint_index = 0;
 
-		for (uint32_t block_y = 0; block_y < num_blocks_y; block_y++)
+		for (int32_t block_y = 0; block_y < num_blocks_y; block_y++)
 		{
 			const uint32_t cur_block_endpoint_pred_array = block_y & 1;
 
-			for (uint32_t block_x = 0; block_x < num_blocks_x; block_x++)
+			for (int32_t block_x = 0; block_x < num_blocks_x; block_x++)
 			{
 				// Decode endpoint index predictor symbols
 				if ((block_x & 1) == 0)
@@ -8427,7 +8423,46 @@ namespace basist
 #endif
 
 				const endpoint* pEndpoints = &m_endpoints[endpoint_index];
-				const selector* pSelector = &m_selectors[selector_index];
+
+				// if the row pitch is negative, we're flipping the image, so
+				// flip the selector bits as well.
+				const selector* pSelector;
+				selector selector_ = m_selectors[selector_index];
+				if (output_row_pitch_in_blocks_or_pixels < 0) {
+					// http://graphics.stanford.edu/~seander/bithacks.html#ReverseByteWith64BitsDiv,
+					// but modified to flip two four-bit groups instead of all
+					// bits. After the original expansion we mask out bits at
+					// desired positions:
+					//
+					// b                =    abcdefgh
+					// b * 0x0202020202 = abcdefghabcdefghabcdefghabcdefghabcdefgh_
+					//   & 0x2201108844 = ___d___h________a___e____b___f____c___g__
+					//
+					// and recombine all together, as
+					// sum(b_i*(1024^i)) % 1023 == sum(b_i):
+					//
+					// b                =  __d___h___ +
+					//                     _____a___e +
+					//                     ____b___f_ +
+					//                     ___c___g__
+					//                  =  __dcbabgfe
+					for (int i: {0, 1, 2, 3}) selector_.m_bytes[i] =
+						(selector_.m_bytes[i]*0x0202020202ull & 0x2201108844ull) % 1023;
+
+					// TODO: why is the same info encoded here again, just
+					// bit-transposed? And why RGBA decode doesn't work
+					// properly when this gets swapped?
+					if (!basis_block_format_is_uncompressed(fmt)) {
+						std::swap(selector_.m_selectors[0], selector_.m_selectors[3]);
+						std::swap(selector_.m_selectors[1], selector_.m_selectors[2]);
+					}
+
+					pSelector = &selector_;
+				}
+				else
+				{
+					pSelector = &m_selectors[selector_index];
+				}
 
 				switch (fmt)
 				{
@@ -8663,7 +8698,7 @@ namespace basist
 					assert(sizeof(uint32_t) == output_block_or_pixel_stride_in_bytes);
 					uint8_t* pDst_pixels = static_cast<uint8_t*>(pDst_blocks) + (block_x * 4 + block_y * 4 * output_row_pitch_in_blocks_or_pixels) * sizeof(uint32_t);
 										
-					const uint32_t max_x = basisu::minimum<int>(4, output_row_pitch_in_blocks_or_pixels - block_x * 4);
+					const uint32_t max_x = basisu::minimum<int>(4, basisu::iabs(output_row_pitch_in_blocks_or_pixels) - block_x * 4);
 					const uint32_t max_y = basisu::minimum<int>(4, output_rows_in_pixels - block_y * 4);
 					
 					int colors[4];
@@ -8680,7 +8715,7 @@ namespace basist
 							pDst_pixels[3+8] = static_cast<uint8_t>(colors[(s >> 4) & 3]);
 							pDst_pixels[3+12] = static_cast<uint8_t>(colors[(s >> 6) & 3]);
 							
-							pDst_pixels += output_row_pitch_in_blocks_or_pixels * sizeof(uint32_t);
+							pDst_pixels += output_row_pitch_in_blocks_or_pixels * int32_t(sizeof(uint32_t));
 						}
 					}
 					else
@@ -8692,7 +8727,7 @@ namespace basist
 							for (uint32_t x = 0; x < max_x; x++)
 								pDst_pixels[3 + 4 * x] = static_cast<uint8_t>(colors[(s >> (x * 2)) & 3]);
 
-							pDst_pixels += output_row_pitch_in_blocks_or_pixels * sizeof(uint32_t);
+							pDst_pixels += output_row_pitch_in_blocks_or_pixels * int32_t(sizeof(uint32_t));
 						}
 					}
 
@@ -8703,7 +8738,7 @@ namespace basist
 					assert(sizeof(uint32_t) == output_block_or_pixel_stride_in_bytes);
 					uint8_t* pDst_pixels = static_cast<uint8_t*>(pDst_blocks) + (block_x * 4 + block_y * 4 * output_row_pitch_in_blocks_or_pixels) * sizeof(uint32_t);
 
-					const uint32_t max_x = basisu::minimum<int>(4, output_row_pitch_in_blocks_or_pixels - block_x * 4);
+					const uint32_t max_x = basisu::minimum<int>(4, basisu::iabs(output_row_pitch_in_blocks_or_pixels) - block_x * 4);
 					const uint32_t max_y = basisu::minimum<int>(4, output_rows_in_pixels - block_y * 4);
 
 					color32 colors[4];
@@ -8722,7 +8757,7 @@ namespace basist
 							pDst_pixels[2 + 4 * x] = c.b;
 						}
 
-						pDst_pixels += output_row_pitch_in_blocks_or_pixels * sizeof(uint32_t);
+						pDst_pixels += output_row_pitch_in_blocks_or_pixels * int32_t(sizeof(uint32_t));
 					}
 
 					break;
@@ -8732,7 +8767,7 @@ namespace basist
 					assert(sizeof(uint32_t) == output_block_or_pixel_stride_in_bytes);
 					uint8_t* pDst_pixels = static_cast<uint8_t*>(pDst_blocks) + (block_x * 4 + block_y * 4 * output_row_pitch_in_blocks_or_pixels) * sizeof(uint32_t);
 
-					const uint32_t max_x = basisu::minimum<int>(4, output_row_pitch_in_blocks_or_pixels - block_x * 4);
+					const uint32_t max_x = basisu::minimum<int>(4, basisu::iabs(output_row_pitch_in_blocks_or_pixels) - block_x * 4);
 					const uint32_t max_y = basisu::minimum<int>(4, output_rows_in_pixels - block_y * 4);
 
 					color32 colors[4];
@@ -8752,7 +8787,7 @@ namespace basist
 							pDst_pixels[3 + 4 * x] = 255;
 						}
 
-						pDst_pixels += output_row_pitch_in_blocks_or_pixels * sizeof(uint32_t);
+						pDst_pixels += output_row_pitch_in_blocks_or_pixels * int32_t(sizeof(uint32_t));
 					}
 
 					break;
@@ -8763,7 +8798,7 @@ namespace basist
 					assert(sizeof(uint16_t) == output_block_or_pixel_stride_in_bytes);
 					uint8_t* pDst_pixels = static_cast<uint8_t*>(pDst_blocks) + (block_x * 4 + block_y * 4 * output_row_pitch_in_blocks_or_pixels) * sizeof(uint16_t);
 
-					const uint32_t max_x = basisu::minimum<int>(4, output_row_pitch_in_blocks_or_pixels - block_x * 4);
+					const uint32_t max_x = basisu::minimum<int>(4, basisu::iabs(output_row_pitch_in_blocks_or_pixels) - block_x * 4);
 					const uint32_t max_y = basisu::minimum<int>(4, output_rows_in_pixels - block_y * 4);
 
 					color32 colors[4];
@@ -8788,7 +8823,7 @@ namespace basist
 						for (uint32_t x = 0; x < max_x; x++)
 							reinterpret_cast<uint16_t *>(pDst_pixels)[x] = packed_colors[(s >> (x * 2)) & 3];
 
-						pDst_pixels += output_row_pitch_in_blocks_or_pixels * sizeof(uint16_t);
+						pDst_pixels += output_row_pitch_in_blocks_or_pixels * int32_t(sizeof(uint16_t));
 					}
 
 					break;
@@ -8798,7 +8833,7 @@ namespace basist
 					assert(sizeof(uint16_t) == output_block_or_pixel_stride_in_bytes);
 					uint8_t* pDst_pixels = static_cast<uint8_t*>(pDst_blocks) + (block_x * 4 + block_y * 4 * output_row_pitch_in_blocks_or_pixels) * sizeof(uint16_t);
 
-					const uint32_t max_x = basisu::minimum<int>(4, output_row_pitch_in_blocks_or_pixels - block_x * 4);
+					const uint32_t max_x = basisu::minimum<int>(4, basisu::iabs(output_row_pitch_in_blocks_or_pixels) - block_x * 4);
 					const uint32_t max_y = basisu::minimum<int>(4, output_rows_in_pixels - block_y * 4);
 
 					color32 colors[4];
@@ -8819,7 +8854,7 @@ namespace basist
 							reinterpret_cast<uint16_t*>(pDst_pixels)[x] = cur;
 						}
 
-						pDst_pixels += output_row_pitch_in_blocks_or_pixels * sizeof(uint16_t);
+						pDst_pixels += output_row_pitch_in_blocks_or_pixels * uint32_t(sizeof(uint16_t));
 					}
 
 					break;
@@ -8829,7 +8864,7 @@ namespace basist
 					assert(sizeof(uint16_t) == output_block_or_pixel_stride_in_bytes);
 					uint8_t* pDst_pixels = static_cast<uint8_t*>(pDst_blocks) + (block_x * 4 + block_y * 4 * output_row_pitch_in_blocks_or_pixels) * sizeof(uint16_t);
 
-					const uint32_t max_x = basisu::minimum<int>(4, output_row_pitch_in_blocks_or_pixels - block_x * 4);
+					const uint32_t max_x = basisu::minimum<int>(4, basisu::iabs(output_row_pitch_in_blocks_or_pixels) - block_x * 4);
 					const uint32_t max_y = basisu::minimum<int>(4, output_rows_in_pixels - block_y * 4);
 
 					color32 colors[4];
@@ -8846,7 +8881,7 @@ namespace basist
 						for (uint32_t x = 0; x < max_x; x++)
 							reinterpret_cast<uint16_t*>(pDst_pixels)[x] = packed_colors[(s >> (x * 2)) & 3];
 
-						pDst_pixels += output_row_pitch_in_blocks_or_pixels * sizeof(uint16_t);
+						pDst_pixels += output_row_pitch_in_blocks_or_pixels * uint32_t(sizeof(uint16_t));
 					}
 
 					break;
@@ -8856,7 +8891,7 @@ namespace basist
 					assert(sizeof(uint16_t) == output_block_or_pixel_stride_in_bytes);
 					uint8_t* pDst_pixels = static_cast<uint8_t*>(pDst_blocks) + (block_x * 4 + block_y * 4 * output_row_pitch_in_blocks_or_pixels) * sizeof(uint16_t);
 
-					const uint32_t max_x = basisu::minimum<int>(4, output_row_pitch_in_blocks_or_pixels - block_x * 4);
+					const uint32_t max_x = basisu::minimum<int>(4, basisu::iabs(output_row_pitch_in_blocks_or_pixels) - block_x * 4);
 					const uint32_t max_y = basisu::minimum<int>(4, output_rows_in_pixels - block_y * 4);
 
 					color32 colors[4];
@@ -8873,7 +8908,7 @@ namespace basist
 						for (uint32_t x = 0; x < max_x; x++)
 							reinterpret_cast<uint16_t*>(pDst_pixels)[x] = packed_colors[(s >> (x * 2)) & 3];
 
-						pDst_pixels += output_row_pitch_in_blocks_or_pixels * sizeof(uint16_t);
+						pDst_pixels += output_row_pitch_in_blocks_or_pixels * uint32_t(sizeof(uint16_t));
 					}
 
 					break;
@@ -9528,9 +9563,55 @@ namespace basist
 			return false;
 		}
 
+		if (!output_row_pitch_in_blocks_or_pixels)
+		{
+			if (basis_block_format_is_uncompressed(fmt))
+				output_row_pitch_in_blocks_or_pixels = slice_desc.m_orig_width;
+			else
+			{
+				if (fmt == block_format::cFXT1_RGB)
+					output_row_pitch_in_blocks_or_pixels = (slice_desc.m_orig_width + 7) / 8;
+				else
+					output_row_pitch_in_blocks_or_pixels = slice_desc.m_num_blocks_x;
+			}
+		}
+
+		// If we want to flip Y during transcoding (independently of the Y flip
+		// flag added during encoding), patch destination address and negate
+		// row pitch to have the image written out with rows reversed.
+		// Additionally the low-level transcode_slice() will reverse selector
+		// bits of each block based on whether the row pitch is negative or
+		// not.
+		int32_t output_signed_row_pitch_in_blocks_or_pixels;
+		if (decode_flags & cDecodeFlagsFlipY)
+		{
+			if (fmt == block_format::cPVRTC1_4_RGB ||
+				fmt == block_format::cPVRTC1_4_RGBA ||
+				fmt == block_format::cPVRTC2_4_RGB ||
+				fmt == block_format::cPVRTC2_4_RGBA)
+			{
+				BASISU_DEVEL_ERROR("basisu_transcoder::transcode_slice: Y flip for cPVRTC1_4_OPAQUE_ONLY is currently unsupported, flip in the encoder instead\n");
+				return false;
+			}
+
+			if (basis_block_format_is_uncompressed(fmt))
+			{
+				pOutput_blocks = static_cast<uint8_t*>(pOutput_blocks) + output_row_pitch_in_blocks_or_pixels*output_block_or_pixel_stride_in_bytes*(output_rows_in_pixels - 1);
+			}
+			else
+			{
+				pOutput_blocks = static_cast<uint8_t*>(pOutput_blocks) + output_row_pitch_in_blocks_or_pixels*output_block_or_pixel_stride_in_bytes*(slice_desc.m_num_blocks_y - 1);
+			}
+			output_signed_row_pitch_in_blocks_or_pixels = -output_row_pitch_in_blocks_or_pixels;
+		}
+		else
+		{
+			output_signed_row_pitch_in_blocks_or_pixels = output_row_pitch_in_blocks_or_pixels;
+		}
+
 		return m_lowlevel_decoder.transcode_slice(pOutput_blocks, slice_desc.m_num_blocks_x, slice_desc.m_num_blocks_y,
 			pDataU8 + slice_desc.m_file_ofs, slice_desc.m_file_size,
-			fmt, output_block_or_pixel_stride_in_bytes, (decode_flags & cDecodeFlagsBC1ForbidThreeColorBlocks) == 0, *pHeader, slice_desc, output_row_pitch_in_blocks_or_pixels, pState,
+			fmt, output_block_or_pixel_stride_in_bytes, (decode_flags & cDecodeFlagsBC1ForbidThreeColorBlocks) == 0, *pHeader, slice_desc, output_signed_row_pitch_in_blocks_or_pixels, pState,
 			(decode_flags & cDecodeFlagsOutputHasAlphaIndices) != 0, pAlpha_blocks, output_rows_in_pixels);
 	}
 
