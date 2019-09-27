@@ -1,7 +1,7 @@
 /**
  * \file emscripten.cpp
  * Emscripten example of using the single-file \c basisutranslib. Draws a
- * rotating textured quad with data from the in-line compressed texture.
+ * rotating textured quad with data from the in-line compressed textures.
  * \n
  * Compile using:
  * \code
@@ -18,10 +18,7 @@
  * basisutranslib.cpp include (which stubs the texture creation).
  * \n
  * Example code released under a CC0 license.
- * 
- * \todo add mipmap support to the example
  */
-
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -1961,7 +1958,7 @@ struct posTex2d {
 #define COMPRESSED_RGBA_ASTC_4x4_KHR 0x93B0
 #endif
 
-//***************************** Basis Universal /*****************************/
+//***************************** Basis Universal ******************************/
 
 /*
  * All of the BasisU code is within this block to enable building with or
@@ -2003,11 +2000,11 @@ static transcoder_texture_format supports(EMSCRIPTEN_WEBGL_CONTEXT_HANDLE const 
 #if BASISD_SUPPORT_ASTC || !defined(BASISD_SUPPORT_ASTC)
 	/*
 	 * Then Android, ChromeOS and others with ASTC (newer iOS devices should
-	 * make the list but don't appear to be exposed).
+	 * make the list but don't appear to be exposed from WebGL).
 	 */
 	static bool const astc = GL_HAS_EXT(ctx, "WEBGL_compressed_texture_astc");
 	if (astc) {
-		//return cTFASTC_4x4; // 10
+		return cTFASTC_4x4; // 10
 	}
 #endif
 #if BASISD_SUPPORT_DXT1 || !defined(BASISD_SUPPORT_DXT1)
@@ -2092,43 +2089,60 @@ static GLenum toGlType(transcoder_texture_format const type) {
  * \param[in] data \c .basis file content
  * \param[in] size number of bytes in \a data
  * \return \c true if the texture was decoded and created
+ * 
+ * \todo reuse the decode buffer (the first mips level should be able to contain the rest)
  */
 bool upload(EMSCRIPTEN_WEBGL_CONTEXT_HANDLE const ctx, GLuint const name, const uint8_t* const data, size_t const size) {
-	bool success = false;
 	basisu_transcoder_init();
 	if (!globalCodebook) {
 		 globalCodebook = new etc1_global_selector_codebook(g_global_selector_cb_size, g_global_selector_cb);
 	}
 	basisu_transcoder transcoder(globalCodebook);
+	bool success = false;
 	if (transcoder.validate_header(data, size)) {
+		glBindTexture(GL_TEXTURE_2D, name);
 		basisu_file_info fileInfo;
 		if (transcoder.get_file_info(data, size, fileInfo)) {
 			transcoder_texture_format type = supports(ctx, fileInfo.m_has_alpha_slices);
-			printf("Type enum: %d\n", type);
 			basisu_image_info info;
 			if (transcoder.get_image_info(data, size, info, 0)) {
-				uint32_t descW, descH, blocks;
-				if (transcoder.get_image_level_desc(data, size, 0, 0, descW, descH, blocks)) {
-					if (transcoder.start_transcoding(data, size)) {
-						uint32_t decSize = basis_get_bytes_per_block(type) * blocks;
-						if (void* decBuf = malloc(decSize)) {
-							if (type >= cTFTotalBlockTextureFormats) {
-								// note that blocks becomes total number of pixels for RGB/RGBA
-								blocks = descW * descH;
+				printf("Transcoding to type: %s (w: %d, h: %d, mips: %d)\n",
+					basis_get_format_name(type), info.m_width, info.m_height,
+						info.m_total_levels);
+				if (transcoder.start_transcoding(data, size)) {
+					uint32_t descW, descH, blocks;
+					for (uint32_t level = 0; level < info.m_total_levels; level++) {
+						// reset per level
+						success = false;
+						if (transcoder.get_image_level_desc(data, size, 0, level, descW, descH, blocks)) {
+							uint32_t decSize;
+							if (type == cTFPVRTC1_4_RGB || type == cTFPVRTC1_4_RGBA) {
+								decSize = (std::max(8U, (descW + 3) & ~3) *
+										   std::max(8U, (descH + 3) & ~3) * 4 + 7) / 8;
+							} else {
+								decSize = basis_get_bytes_per_block(type) * blocks;
 							}
-							if (transcoder.transcode_image_level(data, size, 0, 0, decBuf, blocks, type)) {
-								glBindTexture(GL_TEXTURE_2D, name);
-								glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-								if (type < cTFTotalBlockTextureFormats) {
-									glCompressedTexImage2D(GL_TEXTURE_2D, 0,
-										toGlType(type), descW, descH, 0, decSize, decBuf);
-								} else {
-									glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA,
-										descW, descH, 0, GL_RGBA, toGlType(type), decBuf);
+							
+							if (void* decBuf = malloc(decSize)) {
+								if (type >= cTFTotalBlockTextureFormats) {
+									// note that blocks becomes total number of pixels for RGB/RGBA
+									blocks = descW * descH;
 								}
-								success = true;
+								if (transcoder.transcode_image_level(data, size, 0, level, decBuf, blocks, type)) {
+									if (type < cTFTotalBlockTextureFormats) {
+										glCompressedTexImage2D(GL_TEXTURE_2D, level,
+											toGlType(type), descW, descH, 0, decSize, decBuf);
+									} else {
+										glTexImage2D(GL_TEXTURE_2D, level, GL_RGBA,
+											descW, descH, 0, GL_RGBA, toGlType(type), decBuf);
+									}
+									success = true;
+								}
+								free(decBuf);
 							}
-							free(decBuf);
+						}
+						if (!success) {
+							break;
 						}
 					}
 				}

@@ -20,8 +20,9 @@ DESTN=""
 
 # Prints the script usage then exits
 usage() {
-  echo "Usage: $0 [-r <path>] [-o <outfile>] infile"
+  echo "Usage: $0 [-r <path>] [-x <header>][-o <outfile>] infile"
   echo "  -r file root search paths"
+  echo "  -x file to exclude from inlining"
   echo "  -o output file (otherwise stdout)"
   echo "Example: $0 -r ../my/path - r ../other/path -o out.c in.c"
   exit 1
@@ -94,10 +95,13 @@ add_file() {
   fi
 }
 
-while getopts ":r:o:" opts; do
+while getopts ":r:x:o:" opts; do
   case $opts in
   r)
     ROOTS="$OPTARG $ROOTS"
+    ;;
+  x)
+    FOUND="$OPTARG $FOUND"
     ;;
   o)
     DESTN="$OPTARG"
