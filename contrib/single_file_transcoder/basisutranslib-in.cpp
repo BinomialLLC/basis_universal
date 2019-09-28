@@ -10,24 +10,28 @@
 
 /*
  * Transcoder build options for known platforms (iOS has ETC, ASTC and PVRTC;
- * Emscripten and Android are the same as iOS plus DXT; other platforms build
- * all except BC7 mode 6).
+ * Emscripten adds DXT to iOS's options; Android adds PVRTC2 to Emscripten's
+ * options; other platforms build all except BC7 mode 6 and FXT1).
  * 
  * See https://github.com/BinomialLLC/basis_universal#shrinking-the-transcoders-compiled-size
  */
 #ifdef __APPLE__
-#include <TargetConditionals.h>
+	#include <TargetConditionals.h>
 #endif
 #if TARGET_OS_IPHONE
-#define BASISD_SUPPORT_DXT1  0
-#define BASISD_SUPPORT_DXT5A 0
+	#define BASISD_SUPPORT_DXT1  0
+	#define BASISD_SUPPORT_DXT5A 0
 #endif
 #if TARGET_OS_IPHONE || defined(__EMSCRIPTEN__) || defined(__ANDROID__)
-#define BASISD_SUPPORT_BC7 0
-#define BASISD_SUPPORT_ATC 0
+	#define BASISD_SUPPORT_BC7 0
+	#define BASISD_SUPPORT_ATC 0
+	#ifndef __ANDROID__
+		#define BASISD_SUPPORT_PVRTC2 0
+	#endif
 #else
-#define BASISD_SUPPORT_BC7_MODE6_OPAQUE_ONLY 0
+	#define BASISD_SUPPORT_BC7_MODE6_OPAQUE_ONLY 0
 #endif
+#define BASISD_SUPPORT_FXT1 0
 
 #include "basisu_transcoder.cpp"
 
@@ -56,7 +60,7 @@ void _basisu_translib_dummy() {
 	BASISU_NOTE_UNUSED(basist::MAX_SELECTOR_HISTORY_BUF_SIZE);
 #if BASISD_SUPPORT_ETC2_EAC_A8
 	// Unused but only when building with EAC
-	BASISU_NOTE_UNUSED(basist::g_eac_a8_modifier_table);
+	BASISU_NOTE_UNUSED(basist::g_eac_modifier_table);
 #endif
 #if BASISD_SUPPORT_PVRTC1
 	// Unused but only when building with PVRTC
