@@ -183,6 +183,22 @@ So if you compile and ship the transcoder into an application today, we are maki
 
 Note: The one exception to this promise are .basis textures marked as video. We will be changing how a key symbol is interpreted to introduce skip blocks (conditional replenishment) into the system.
 
+### Encoder speed
+
+Total time for basisu.exe to compress a 1024x1024 texture on a 7 year old 4-core 2.2GHz Core i7 laptop - timings are "without mipmaps/with mipmaps":
+
+* -comp_level 0: 
+
+-q 128: 2.2/3.5 secs
+
+-q 255: 1.5/2.5 secs
+
+* -comp_level 1:
+
+-q 128: 4.1/6.2 secs
+
+-q 255: 6.4/9.4 secs
+
 ### Transcoder details
 
 The transcoder unpacks .basis files directly to various GPU texture formats, almost always without needing to decompress and recompress each block at the pixel level (which would be too slow and energy intensive in Javascript/WebAssembly). Small precomputed lookup tables are used to accelerate the direct conversion of the internal ETC1S format texture data to the desired output texture data. This new approach to GPU texture compression bypasses the need to recompress each block's pixels to the desired output format using Principle Component Anaylsis (PCA), or spend cycles determining the output selectors for each individual pixel. The ETC1S texture format is a strong subset of all the other block texture formats. The one exception is PVRTC1, where the transcoder needs to recompute the per-pixel selector ("modulation") values, but it does so using simple scalar operations.
