@@ -5,7 +5,7 @@
  * \n
  * Compile using:
  * \code
- *	export CC_FLAGS="-Wall -Wextra -Werror -Os -g0 -flto --llvm-lto 3 -fno-exceptions -fno-rtti -lGL -DNDEBUG=1"
+ *	export CC_FLAGS="-std=c++11 -Wall -Wextra -Werror -Os -g0 -flto --llvm-lto 3 -fno-exceptions -fno-rtti -lGL -DNDEBUG=1"
  *	export EM_FLAGS="-s ENVIRONMENT=web -s WASM=1 --shell-file shell.html --closure 1"
  *	emcc $CC_FLAGS $EM_FLAGS -o out.html emscripten.cpp
  * \endcode
@@ -1993,8 +1993,8 @@ static transcoder_texture_format supports(EMSCRIPTEN_WEBGL_CONTEXT_HANDLE const 
 						 || GL_HAS_EXT(ctx,        "WEBGL_compressed_texture_pvrtc");
 	if (pvr) {
 		return (alpha)
-			? cTFPVRTC1_4_RGBA // 9
-			: cTFPVRTC1_4_RGB; // 8
+			? transcoder_texture_format::cTFPVRTC1_4_RGBA
+			: transcoder_texture_format::cTFPVRTC1_4_RGB;
 	}
 #endif
 #if BASISD_SUPPORT_ASTC || !defined(BASISD_SUPPORT_ASTC)
@@ -2004,7 +2004,7 @@ static transcoder_texture_format supports(EMSCRIPTEN_WEBGL_CONTEXT_HANDLE const 
 	 */
 	static bool const astc = GL_HAS_EXT(ctx, "WEBGL_compressed_texture_astc");
 	if (astc) {
-		return cTFASTC_4x4; // 10
+		return transcoder_texture_format::cTFASTC_4x4_RGBA;
 	}
 #endif
 #if BASISD_SUPPORT_DXT1 || !defined(BASISD_SUPPORT_DXT1)
@@ -2017,8 +2017,8 @@ static transcoder_texture_format supports(EMSCRIPTEN_WEBGL_CONTEXT_HANDLE const 
 						 || GL_HAS_EXT(ctx, "WEBKIT_WEBGL_compressed_texture_s3tc");
 	if (dxt) {
 		return (alpha)
-			? cTFBC3  // 3
-			: cTFBC1; // 2
+			? transcoder_texture_format::cTFBC3_RGBA
+			: transcoder_texture_format::cTFBC1_RGB;
 	}
 #endif
 #if BASISD_SUPPORT_ETC2_EAC_A8 || !defined(BASISD_SUPPORT_ETC2_EAC_A8)
@@ -2028,8 +2028,8 @@ static transcoder_texture_format supports(EMSCRIPTEN_WEBGL_CONTEXT_HANDLE const 
 	static bool const etc2 = GL_HAS_EXT(ctx, "WEBGL_compressed_texture_etc");
 	if (etc2) {
 		return (alpha)
-			? cTFETC2  // 1
-			: cTFETC1; // 0
+			? transcoder_texture_format::cTFETC2_RGBA
+			: transcoder_texture_format::cTFETC1_RGB;
 	}
 #endif
 	/*
@@ -2039,12 +2039,12 @@ static transcoder_texture_format supports(EMSCRIPTEN_WEBGL_CONTEXT_HANDLE const 
 	 */
 	static bool const etc1 = GL_HAS_EXT(ctx, "WEBGL_compressed_texture_etc1");
 	if (etc1 && !alpha) {
-		return cTFETC1; // 0
+		return transcoder_texture_format::cTFETC1_RGB;
 	}
 	/*
 	 * We choose 8888 over 4444 and 565 (in the hope that is is never chosen).
 	 */
-	return cTFRGBA32; // 13
+	return transcoder_texture_format::cTFRGBA32;
 }
 
 /**
@@ -2058,23 +2058,23 @@ static transcoder_texture_format supports(EMSCRIPTEN_WEBGL_CONTEXT_HANDLE const 
  */
 static GLenum toGlType(transcoder_texture_format const type) {
 	switch (type) {
-	case cTFETC1:
+	case transcoder_texture_format::cTFETC1_RGB:
 		return GL_ETC1_RGB8_OES;
-	case cTFETC2:
+	case transcoder_texture_format::cTFETC2_RGBA:
 		return GL_COMPRESSED_RGBA8_ETC2_EAC;
-	case cTFBC1:
+	case transcoder_texture_format::cTFBC1_RGB:
 		return GL_COMPRESSED_RGB_S3TC_DXT1_EXT;
-	case cTFBC3:
+	case transcoder_texture_format::cTFBC3_RGBA:
 		return GL_COMPRESSED_RGBA_S3TC_DXT5_EXT;
-	case cTFPVRTC1_4_RGB:
+	case transcoder_texture_format::cTFPVRTC1_4_RGB:
 		return GL_COMPRESSED_RGB_PVRTC_4BPPV1_IMG;
-	case cTFPVRTC1_4_RGBA:
+	case transcoder_texture_format::cTFPVRTC1_4_RGBA:
 		return GL_COMPRESSED_RGBA_PVRTC_4BPPV1_IMG;
-	case cTFASTC_4x4:
+	case transcoder_texture_format::cTFASTC_4x4_RGBA:
 		return GL_COMPRESSED_RGBA_ASTC_4x4_KHR;
-	case cTFRGBA32:
+	case transcoder_texture_format::cTFRGBA32:
 		return GL_UNSIGNED_BYTE;
-	case cTFRGB565:
+	case transcoder_texture_format::cTFRGB565:
 		return GL_UNSIGNED_SHORT_5_6_5;
 	default:
 		return GL_UNSIGNED_SHORT_4_4_4_4;
@@ -2116,20 +2116,21 @@ bool upload(EMSCRIPTEN_WEBGL_CONTEXT_HANDLE const ctx, GLuint const name, const 
 						success = false;
 						if (transcoder.get_image_level_desc(data, size, 0, level, descW, descH, blocks)) {
 							uint32_t decSize;
-							if (type == cTFPVRTC1_4_RGB || type == cTFPVRTC1_4_RGBA) {
+							if (type == transcoder_texture_format::cTFPVRTC1_4_RGB ||
+								type == transcoder_texture_format::cTFPVRTC1_4_RGBA)
+							{
 								decSize = (std::max(8U, (descW + 3) & ~3) *
 										   std::max(8U, (descH + 3) & ~3) * 4 + 7) / 8;
 							} else {
 								decSize = basis_get_bytes_per_block(type) * blocks;
 							}
-							
 							if (void* decBuf = malloc(decSize)) {
-								if (type >= cTFTotalBlockTextureFormats) {
+								if (type >= transcoder_texture_format::cTFTotalTextureFormats) {
 									// note that blocks becomes total number of pixels for RGB/RGBA
 									blocks = descW * descH;
 								}
 								if (transcoder.transcode_image_level(data, size, 0, level, decBuf, blocks, type)) {
-									if (type < cTFTotalBlockTextureFormats) {
+									if (type < transcoder_texture_format::cTFTotalTextureFormats) {
 										glCompressedTexImage2D(GL_TEXTURE_2D, level,
 											toGlType(type), descW, descH, 0, decSize, decBuf);
 									} else {
