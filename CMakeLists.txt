@@ -71,7 +71,7 @@ else()
     set(BIN_DIRECTORY "bin")
 endif()
 
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/${BIN_DIRECTORY})
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/${BIN_DIRECTORY})
 
 add_executable(basisu ${BASISU_SRC_LIST})
 target_link_libraries(basisu m pthread)
@@ -80,9 +80,9 @@ install(TARGETS basisu DESTINATION bin)
 
 if (CMAKE_BUILD_TYPE STREQUAL Release)
     if (APPLE)
-	    add_custom_command(TARGET basisu POST_BUILD COMMAND strip -X -x ${CMAKE_SOURCE_DIR}/${BIN_DIRECTORY}/basisu)
+	    add_custom_command(TARGET basisu POST_BUILD COMMAND strip -X -x ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/basisu)
     else()
-        add_custom_command(TARGET basisu POST_BUILD COMMAND strip -g -X -x ${CMAKE_SOURCE_DIR}/${BIN_DIRECTORY}/basisu)
+        add_custom_command(TARGET basisu POST_BUILD COMMAND strip -g -X -x ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/basisu)
     endif()
 endif()
 
