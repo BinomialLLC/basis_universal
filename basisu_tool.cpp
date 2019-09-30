@@ -88,7 +88,6 @@ static void print_usage()
 		" -etc1_only: Only unpack to ETC1, skipping the other texture formats during -unpack\n"
 		" -disable_hierarchical_endpoint_codebooks: Disable hierarchical endpoint codebook usage, slower but higher quality on some compression levels\n"
 		" -compare_ssim: Compute and display SSIM of image comparison (slow)\n"
-		" -pvrtc_clamp: Use clamp addressing when transcoding and unpacking PVRTC1 textures\n"
 		"\n"
 		"Mipmap generation options:\n"
 		" -mipmap: Generate mipmaps for each source image\n"
@@ -228,8 +227,7 @@ public:
 		m_no_ktx(false),
 		m_etc1_only(false),
 		m_fuzz_testing(false),
-		m_compare_ssim(false),
-		m_pvrtc_clamp(false)
+		m_compare_ssim(false)
 	{
 	}
 
@@ -254,8 +252,6 @@ public:
 				m_mode = cValidate;
 			else if (strcasecmp(pArg, "-compare_ssim") == 0)
 				m_compare_ssim = true;
-			else if (strcasecmp(pArg, "-pvrtc_clamp") == 0)
-				m_pvrtc_clamp = true;
 			else if (strcasecmp(pArg, "-file") == 0)
 			{
 				REMAINING_ARGS_CHECK(1);
@@ -584,7 +580,6 @@ public:
 	bool m_etc1_only;
 	bool m_fuzz_testing;
 	bool m_compare_ssim;
-	bool m_pvrtc_clamp;
 };
 
 static bool expand_multifile(command_line_params &opts)
@@ -1016,7 +1011,7 @@ static bool unpack_and_validate_mode(command_line_params &opts, bool validate_fl
 					// Fill the buffer with psuedo-random bytes, to help more visibly detect cases where the transcoder fails to write to part of the output.
 					fill_buffer_with_random_bytes(gi.get_ptr(), gi.get_size_in_bytes());
 
-					uint32_t decode_flags = (opts.m_pvrtc_clamp ? 0 : basist::basisu_transcoder::cDecodeFlagsPVRTCWrapAddressing);
+					uint32_t decode_flags = 0;
 
 					tm.start();
 														
@@ -1103,8 +1098,7 @@ static bool unpack_and_validate_mode(command_line_params &opts, bool validate_fl
 						}
 
 						image u;
-						const bool pvrtc_wrap_addressing = !opts.m_pvrtc_clamp;
-						if (!gi[level_index].unpack(u, pvrtc_wrap_addressing))
+						if (!gi[level_index].unpack(u))
 						{
 							printf("Warning: Failed unpacking GPU texture data (%u %u %u). Unpacking as much as possible.\n", format_iter, image_index, level_index);
 							total_unpack_warnings++;
