@@ -34,6 +34,7 @@ It's a tossup whether PVRTC1 or PVRTC2 would look better for alpha textures.
 - We're now using "enum class transcoder_texture_format" instead of "enum transcoder_texture_format" in basisu_transcoder.h
 - Fixed a couple encoder bugs (one assert in basisu_enc.h), and a uninitialized variable issue in the frontend. Neither issue would cause corrupted files or artifacts.
 - FXT1 RGB support is checked in, for Intel/3DFX GPU's. Mostly for completeness and to test block sizes other than 4x4.
+- The PVRTC1 wrap vs. clamp flag has been removed from the entire codebase, because PVRTC1 always uses wrap addressing when fetching the adjacent blocks (even when the user selects clamp UV addressing).
 
 Milestone 2 (9/19/19) release notes:
 
