@@ -236,7 +236,8 @@ function dataLoaded(data)
   const dstSize = basisFile.getImageTranscodedSizeInBytes(0, 0, format);
   const dst = new Uint8Array(dstSize);
 
-  if (!basisFile.transcodeImage(dst, 0, 0, format, 1, 0)) {
+//  if (!basisFile.transcodeImage(dst, 0, 0, format, 1, 0)) {
+  if (!basisFile.transcodeImage(dst, 0, 0, format, 0, 0)) {
     log('basisFile.transcodeImage failed');
     console.warn('transcodeImage failed');
     basisFile.close();

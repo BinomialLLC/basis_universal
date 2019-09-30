@@ -1042,7 +1042,7 @@ namespace basisu
 		return true;
 	}
 
-	bool gpu_image::unpack(image& img, bool pvrtc_wrap_addressing) const
+	bool gpu_image::unpack(image& img) const
 	{
 		img.resize(get_pixel_width(), get_pixel_height());
 		img.set_all(g_black_color);
@@ -1052,7 +1052,7 @@ namespace basisu
 
 		if ((m_fmt == texture_format::cPVRTC1_4_RGB) || (m_fmt == texture_format::cPVRTC1_4_RGBA))
 		{
-			pvrtc4_image pi(m_width, m_height, pvrtc_wrap_addressing);
+			pvrtc4_image pi(m_width, m_height);
 			
 			if (get_total_blocks() != pi.get_total_blocks())
 				return false;

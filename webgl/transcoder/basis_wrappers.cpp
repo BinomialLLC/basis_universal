@@ -154,7 +154,9 @@ struct basis_file
     return m_transcoder.start_transcoding(m_file.data(), m_file.size());
   }
 
-  uint32_t transcodeImage(const emscripten::val& dst, uint32_t image_index, uint32_t level_index, uint32_t format, uint32_t pvrtc_wrap_addressing, uint32_t get_alpha_for_opaque_formats) {
+  uint32_t transcodeImage(const emscripten::val& dst, uint32_t image_index, uint32_t level_index, uint32_t format, uint32_t unused, uint32_t get_alpha_for_opaque_formats) {
+     (void)unused;
+     
 	  assert(m_magic == MAGIC);
 	  if (m_magic != MAGIC)
 		  return 0;
@@ -170,7 +172,7 @@ struct basis_file
 	  
 	  std::vector<uint8_t> dst_data;
 	  
-	  uint32_t flags = (pvrtc_wrap_addressing ? basisu_transcoder::cDecodeFlagsPVRTCWrapAddressing : 0) | (get_alpha_for_opaque_formats ? basisu_transcoder::cDecodeFlagsTranscodeAlphaDataToOpaqueFormats : 0);
+	  uint32_t flags = get_alpha_for_opaque_formats ? basisu_transcoder::cDecodeFlagsTranscodeAlphaDataToOpaqueFormats : 0;
 
 	  uint32_t status;
 
@@ -255,8 +257,8 @@ EMSCRIPTEN_BINDINGS(basis_transcoder) {
     .function("startTranscoding", optional_override([](basis_file& self) {
       return self.startTranscoding();
     }))
-    .function("transcodeImage", optional_override([](basis_file& self, const emscripten::val& dst, uint32_t imageIndex, uint32_t levelIndex, uint32_t format, uint32_t pvrtcWrapAddressing, uint32_t getAlphaForOpaqueFormats) {
-      return self.transcodeImage(dst, imageIndex, levelIndex, format, pvrtcWrapAddressing, getAlphaForOpaqueFormats);
+    .function("transcodeImage", optional_override([](basis_file& self, const emscripten::val& dst, uint32_t imageIndex, uint32_t levelIndex, uint32_t format, uint32_t unused, uint32_t getAlphaForOpaqueFormats) {
+      return self.transcodeImage(dst, imageIndex, levelIndex, format, unused, getAlphaForOpaqueFormats);
     }))
   ;
 

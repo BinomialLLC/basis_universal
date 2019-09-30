@@ -216,6 +216,8 @@ static bool load_listing_file(const std::string &f, std::vector<std::string> &fi
 
 class command_line_params
 {
+	BASISU_NO_EQUALS_OR_COPY_CONSTRUCT(command_line_params);
+
 public:
 	command_line_params() :
 		m_mode(cDefault),
@@ -1009,9 +1011,11 @@ static bool unpack_and_validate_mode(command_line_params &opts, bool validate_fl
 					// Fill the buffer with psuedo-random bytes, to help more visibly detect cases where the transcoder fails to write to part of the output.
 					fill_buffer_with_random_bytes(gi.get_ptr(), gi.get_size_in_bytes());
 
+					uint32_t decode_flags = 0;
+
 					tm.start();
-					
-					if (!dec.transcode_image_level(&basis_data[0], (uint32_t)basis_data.size(), image_index, level_index, gi.get_ptr(), gi.get_total_blocks(), transcoder_tex_fmt, 0))
+														
+					if (!dec.transcode_image_level(&basis_data[0], (uint32_t)basis_data.size(), image_index, level_index, gi.get_ptr(), gi.get_total_blocks(), transcoder_tex_fmt, decode_flags))
 					{
 						error_printf("Failed transcoding image level (%u %u %u)!\n", image_index, level_index, format_iter);
 						return false;

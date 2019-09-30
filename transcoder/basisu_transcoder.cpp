@@ -3402,7 +3402,7 @@ namespace basist
 	}
 
 	// TODO: Support decoding a non-pow2 ETC1S texture into the next larger pow2 PVRTC texture.
-	static void fixup_pvrtc1_4_modulation_rgb(const decoder_etc_block* pETC_Blocks, const uint32_t* pPVRTC_endpoints, void* pDst_blocks, uint32_t num_blocks_x, uint32_t num_blocks_y, bool pvrtc_wrap_addressing)
+	static void fixup_pvrtc1_4_modulation_rgb(const decoder_etc_block* pETC_Blocks, const uint32_t* pPVRTC_endpoints, void* pDst_blocks, uint32_t num_blocks_x, uint32_t num_blocks_y)
 	{
 		const uint32_t x_mask = num_blocks_x - 1;
 		const uint32_t y_mask = num_blocks_y - 1;
@@ -3424,7 +3424,7 @@ namespace basist
 
 			for (int ey = 0; ey < 3; ey++)
 			{
-				int by = y + ey - 1; if (!pvrtc_wrap_addressing) by = basisu::clamp<int>(by, 0, y_mask);
+				int by = y + ey - 1; 
 
 				const uint32_t* pE = &pPVRTC_endpoints[(by & y_mask) * num_blocks_x];
 
@@ -3432,7 +3432,7 @@ namespace basist
 
 				for (int ex = 0; ex < 3; ex++)
 				{
-					int bx = 0 + ex - 1; if (!pvrtc_wrap_addressing) bx = basisu::clamp<int>(bx, 0, x_mask);
+					int bx = 0 + ex - 1; 
 
 					const uint32_t e = pE[bx & x_mask];
 
@@ -3478,8 +3478,6 @@ namespace basist
 				{
 					const uint32_t ex = 2;
 					int bx = x + ex - 1;
-					if (!pvrtc_wrap_addressing)
-						bx = basisu::clamp<int>(bx, 0, x_mask);
 					bx &= x_mask;
 
 #define DO_ROW(ey) \
@@ -3585,7 +3583,7 @@ namespace basist
 	static void fixup_pvrtc1_4_modulation_rgba(
 		const decoder_etc_block* pETC_Blocks, 
 		const uint32_t* pPVRTC_endpoints, 
-		void* pDst_blocks, uint32_t num_blocks_x, uint32_t num_blocks_y, bool pvrtc_wrap_addressing, void *pAlpha_blocks,
+		void* pDst_blocks, uint32_t num_blocks_x, uint32_t num_blocks_y, void *pAlpha_blocks,
 		const endpoint* pEndpoints, const selector* pSelectors)
 	{
 		const uint32_t x_mask = num_blocks_x - 1;
@@ -3608,7 +3606,7 @@ namespace basist
 
 			for (int ey = 0; ey < 3; ey++)
 			{
-				int by = y + ey - 1; if (!pvrtc_wrap_addressing) by = basisu::clamp<int>(by, 0, y_mask);
+				int by = y + ey - 1; 
 
 				const uint32_t* pE = &pPVRTC_endpoints[(by & y_mask) * num_blocks_x];
 
@@ -3616,7 +3614,7 @@ namespace basist
 
 				for (int ex = 0; ex < 3; ex++)
 				{
-					int bx = 0 + ex - 1; if (!pvrtc_wrap_addressing) bx = basisu::clamp<int>(bx, 0, x_mask);
+					int bx = 0 + ex - 1; 
 
 					const uint32_t e = pE[bx & x_mask];
 
@@ -3676,8 +3674,6 @@ namespace basist
 				{
 					const uint32_t ex = 2;
 					int bx = x + ex - 1;
-					if (!pvrtc_wrap_addressing)
-						bx = basisu::clamp<int>(bx, 0, x_mask);
 					bx &= x_mask;
 
 #define DO_ROW(ey) \
@@ -8140,12 +8136,11 @@ namespace basist
 	}
 
 	bool basisu_lowlevel_transcoder::transcode_slice(void* pDst_blocks, uint32_t num_blocks_x, uint32_t num_blocks_y, const uint8_t* pImage_data, uint32_t image_data_size, block_format fmt,
-		uint32_t output_block_or_pixel_stride_in_bytes, bool pvrtc_wrap_addressing, bool bc1_allow_threecolor_blocks, const basis_file_header& header, const basis_slice_desc& slice_desc, uint32_t output_row_pitch_in_blocks_or_pixels,
+		uint32_t output_block_or_pixel_stride_in_bytes, bool bc1_allow_threecolor_blocks, const basis_file_header& header, const basis_slice_desc& slice_desc, uint32_t output_row_pitch_in_blocks_or_pixels,
 		basisu_transcoder_state* pState, bool transcode_alpha, void *pAlpha_blocks, uint32_t output_rows_in_pixels)
 	{
 		(void)transcode_alpha;
 		(void)pAlpha_blocks;
-		(void)pvrtc_wrap_addressing;
 		// 'pDst_blocks' unused when disabling *all* hardware transcode options
 		// (and 'bc1_allow_threecolor_blocks' when disabling DXT)
 		BASISU_NOTE_UNUSED(pDst_blocks);
@@ -8920,9 +8915,9 @@ namespace basist
 #if BASISD_SUPPORT_PVRTC1
 		// PVRTC post process - create per-pixel modulation values.
 		if (fmt == block_format::cPVRTC1_4_RGB)
-			fixup_pvrtc1_4_modulation_rgb((decoder_etc_block*)pPVRTC_work_mem, pPVRTC_endpoints, pDst_blocks, num_blocks_x, num_blocks_y, pvrtc_wrap_addressing);
+			fixup_pvrtc1_4_modulation_rgb((decoder_etc_block*)pPVRTC_work_mem, pPVRTC_endpoints, pDst_blocks, num_blocks_x, num_blocks_y);
 		else if (fmt == block_format::cPVRTC1_4_RGBA)
-			fixup_pvrtc1_4_modulation_rgba((decoder_etc_block*)pPVRTC_work_mem, pPVRTC_endpoints, pDst_blocks, num_blocks_x, num_blocks_y, pvrtc_wrap_addressing, pAlpha_blocks, &m_endpoints[0], &m_selectors[0]);
+			fixup_pvrtc1_4_modulation_rgba((decoder_etc_block*)pPVRTC_work_mem, pPVRTC_endpoints, pDst_blocks, num_blocks_x, num_blocks_y, pAlpha_blocks, &m_endpoints[0], &m_selectors[0]);
 #endif // BASISD_SUPPORT_PVRTC1
 
 		if (pPVRTC_work_mem)
@@ -9540,7 +9535,7 @@ namespace basist
 
 		return m_lowlevel_decoder.transcode_slice(pOutput_blocks, slice_desc.m_num_blocks_x, slice_desc.m_num_blocks_y,
 			pDataU8 + slice_desc.m_file_ofs, slice_desc.m_file_size,
-			fmt, output_block_or_pixel_stride_in_bytes, (decode_flags & cDecodeFlagsPVRTCWrapAddressing) != 0, (decode_flags & cDecodeFlagsBC1ForbidThreeColorBlocks) == 0, *pHeader, slice_desc, output_row_pitch_in_blocks_or_pixels, pState,
+			fmt, output_block_or_pixel_stride_in_bytes, (decode_flags & cDecodeFlagsBC1ForbidThreeColorBlocks) == 0, *pHeader, slice_desc, output_row_pitch_in_blocks_or_pixels, pState,
 			(decode_flags & cDecodeFlagsOutputHasAlphaIndices) != 0, pAlpha_blocks, output_rows_in_pixels);
 	}
 

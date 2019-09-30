@@ -101,7 +101,7 @@ namespace basisu
 			m_blocks.resize(m_blocks_x * m_blocks_y * m_qwords_per_block);
 		}
 
-		bool unpack(image& img, bool pvrtc_wrap_addressing = true) const;
+		bool unpack(image& img) const;
 		
 		void override_dimensions(uint32_t w, uint32_t h)
 		{
