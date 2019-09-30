@@ -12,6 +12,12 @@
 # Common file roots
 ROOTS="./"
 
+# -x option excluded includes
+XINCS=""
+
+# -k option includes to keep as include directives
+KINCS=""
+
 # Files previously visited
 FOUND=""
 
@@ -20,9 +26,10 @@ DESTN=""
 
 # Prints the script usage then exits
 usage() {
-  echo "Usage: $0 [-r <path>] [-x <header>][-o <outfile>] infile"
-  echo "  -r file root search paths"
-  echo "  -x file to exclude from inlining"
+  echo "Usage: $0 [-r <path>] [-x <header>] [-k <header>] [-o <outfile>] infile"
+  echo "  -r file root search path"
+  echo "  -x file to completely exclude from inlining"
+  echo "  -k file to exclude from inlining but keep the include directive"
   echo "  -o output file (otherwise stdout)"
   echo "Example: $0 -r ../my/path - r ../other/path -o out.c in.c"
   exit 1
@@ -74,14 +81,26 @@ add_file() {
       if echo "$line" | grep -Eq '^\s*#\s*include\s*".+"'; then
         # We have an include directive so strip the (first) file
         local inc=$(echo "$line" | grep -Eo '".*"' | grep -Eo '\w*(\.?\w+)+' | head -1)
-        if ! list_has_item "$FOUND" "$inc"; then
-          # And we've not previously encountered it
-          FOUND="$FOUND $inc"
-          write_line "/**** start inlining $inc ****/"
-          add_file "$inc"
-          write_line "/**** ended inlining $inc ****/"
+        if list_has_item "$XINCS" "$inc"; then
+          # The file was excluded so error if the source attempts to use it
+          write_line "#error Using excluded file: $inc"
         else
-          write_line "/**** skipping file: $inc ****/"
+          if ! list_has_item "$FOUND" "$inc"; then
+            # The file was not previously encountered
+            FOUND="$FOUND $inc"
+            if list_has_item "$KINCS" "$inc"; then
+              # But the include was flagged to keep as included
+              write_line "/**** *NOT* inlining $inc ****/"
+              write_line "$line"
+            else
+              # The file was neither excluded nor seen before so inline it
+              write_line "/**** start inlining $inc ****/"
+              add_file "$inc"
+              write_line "/**** ended inlining $inc ****/"
+            fi
+          else
+            write_line "/**** skipping file: $inc ****/"
+          fi
         fi
       else
         # Skip any 'pragma once' directives, otherwise write the source line
@@ -95,13 +114,16 @@ add_file() {
   fi
 }
 
-while getopts ":r:x:o:" opts; do
+while getopts ":r:x:k:o:" opts; do
   case $opts in
   r)
     ROOTS="$OPTARG $ROOTS"
     ;;
   x)
-    FOUND="$OPTARG $FOUND"
+    XINCS="$OPTARG $XINCS"
+    ;;
+  k)
+    KINCS="$OPTARG $KINCS"
     ;;
   o)
     DESTN="$OPTARG"
