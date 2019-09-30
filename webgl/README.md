@@ -6,6 +6,8 @@ Requires WebAssembly and WebGL support.
 
 [Live demo: `texture/index.html`](https://basis-universal-webgl.now.sh/texture/)
 
+(Note the Live texture demo hasn't been updated to the latest release yet.)
+
 Renders a single texture, using the transcoder (compiled to WASM with emscripten) to generate one of the following compressed texture formats:
 
 * ASTC
@@ -13,8 +15,6 @@ Renders a single texture, using the transcoder (compiled to WASM with emscripten
 * BC3
 * ETC1 (no alpha)
 * PVRTC
-
-Please note that both Firefox and Chrome support BC1, but due to an implementation issue in the code it doesn't work on Firefox yet. (It doesn't test for the "WEBGL_compressed_texture_s3tc" extension.)
 
 On browsers that don't support any compressed texture format, there's a low-quality fallback code path for opaque textures. Note that the fallback path only converts to 16-bit RGB images at the moment, so the quality isn't as good as it should be.
 
