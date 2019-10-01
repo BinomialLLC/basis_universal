@@ -2,18 +2,27 @@
 
 The script `combine.sh` creates an _amalgamated_ C++ source file that can be used with or without `basisu_transcoder.h`. This _isn't_ a header-only file but it does offer a similar level of simplicity when integrating into a project.
 
-Create `basisutranslib.cpp` from the transcoder source using:
+Create `basisu_transcoder.cpp` from the transcoder sources using:
 ```
 cd basis_universal/contrib/single_file_transcoder
-./combine.sh -r ../../transcoder -o basisutranslib.cpp basisutranslib-in.cpp
+
+./combine.sh -r ../../transcoder -o basisu_transcoder.cpp basisu_transcoder-in.cpp
 ```
 Then add the resulting file to your project (see the [example files](examples)).
 
-If certain features will _never__ be enabled, e.g. `BASISD_SUPPORT_BC7_MODE6_OPAQUE_ONLY`, then `combine.sh` can be told to exclude files completely:
+If certain features will _never__ be enabled, e.g. `BASISD_SUPPORT_BC7_MODE6_OPAQUE_ONLY`, then `combine.sh` can be told to exclude files with the `-x` option:
 ```
-./combine.sh -r ../../transcoder -x basisu_transcoder_tables_bc7_m6.inc -o basisutranslib.cpp basisutranslib-in.cpp
+./combine.sh -r ../../transcoder -x basisu_transcoder_tables_bc7_m6.inc -o basisu_transcoder.cpp basisu_transcoder-in.cpp
 ```
-Excluding the BC7 mode 6 support reduces the generated source by 1.2MB, which is the choice taken in both `basisutranslib-in.cpp` and `create_translib.sh`, will run the above script, creating the final `basisutranslib.cpp`.
+Excluding the BC7 mode 6 support reduces the generated source by 1.2MB, which is the choice taken in `basisu_transcoder-in.cpp` and used in the examples, with `create_transcoder.sh` running the above script, creating the final `basisu_transcoder.cpp`.
+
+The combiner script can also generate separate amalgamated header and source files, using the `-k` option to keep the specified inline directive:
+```
+./combine.sh -r ../../transcoder -o basisu_transcoder.h ../../transcoder/basisu_transcoder.h
+
+./combine.sh -r ../../transcoder -x basisu_transcoder_tables_bc7_m6.inc -k basisu_transcoder.h -o basisu_transcoder.cpp basisu_transcoder-in.cpp 
+
+```
 
 Note: the amalgamation script will run on pretty much anything but is _extremely_ slow on Windows with the `bash` included with Git.
 

@@ -1,2 +1,2 @@
-# Don't commit the generated lib
-basisutranslib.cpp
+# Don't commit the generated files
+basisu_transcoder.*

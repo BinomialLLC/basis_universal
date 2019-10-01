@@ -1,7 +1,7 @@
 /**
  * \file emscripten.cpp
- * Emscripten example of using the single-file \c basisutranslib. Draws a
- * rotating textured quad with data from the in-line compressed textures.
+ * Emscripten example of using the single-file \c basisu_transcoder.cpp. Draws
+ * a rotating textured quad with data from the in-line compressed textures.
  * \n
  * Compile using:
  * \code
@@ -9,13 +9,14 @@
  *	export EM_FLAGS="-s ENVIRONMENT=web -s WASM=1 --shell-file shell.html --closure 1"
  *	emcc $CC_FLAGS $EM_FLAGS -o out.html emscripten.cpp
  * \endcode
- * Alternatively include \c basisu_transcoder.h and build \c basisutranslib
- * separately (the resulting binary is exactly the same size):
+ * Alternatively include \c basisu_transcoder.h and compile \c
+ * basisu_transcoder.cpp separately (the resulting binary is exactly the same
+ * size):
  * \code
- *	emcc $CC_FLAGS $EM_FLAGS -o out.html ../basisutranslib.cpp emscripten.cpp
+ *	emcc $CC_FLAGS $EM_FLAGS -o out.html ../basisu_transcoder.cpp emscripten.cpp
  * \encode
  * To determine the WebAssembly size without the transcoder comment the \c
- * basisutranslib.cpp include (which stubs the texture creation).
+ * basisu_transcoder.cpp include (which stubs the texture creation).
  * \n
  * Example code released under a CC0 license.
  */
@@ -29,7 +30,7 @@
 #include <GLES2/gl2.h>
 #include <GLES2/gl2ext.h>
 
-#include "../basisutranslib.cpp"
+#include "../basisu_transcoder.cpp"
 
 //********************************* Test Data ********************************/
 

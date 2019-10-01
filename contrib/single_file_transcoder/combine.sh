@@ -10,7 +10,7 @@
 # Script released under a CC0 license.
 
 # Common file roots
-ROOTS="./"
+ROOTS="."
 
 # -x option excluded includes
 XINCS=""
@@ -65,16 +65,16 @@ write_line() {
 add_file() {
   # Match the path
   local file=
-  if [ -f "$1" ]; then
-    file="$1"
-  else
-    for root in $ROOTS; do
-      if test -f "$root/$1"; then
-        file="$root/$1"
-      fi
-    done
-  fi
+  for root in $ROOTS; do
+    if [ -f "$root/$1" ]; then
+      file="$root/$1"
+    fi
+  done
   if [ -n "$file" ]; then
+    if [ -n "$DESTN" ]; then
+      # Log but only if not writing to stdout
+      echo "Processing: $file"
+    fi
     # Read the file
     local line=
     while IFS= read -r line; do
@@ -117,13 +117,13 @@ add_file() {
 while getopts ":r:x:k:o:" opts; do
   case $opts in
   r)
-    ROOTS="$OPTARG $ROOTS"
+    ROOTS="$ROOTS $OPTARG"
     ;;
   x)
-    XINCS="$OPTARG $XINCS"
+    XINCS="$XINCS $OPTARG"
     ;;
   k)
-    KINCS="$OPTARG $KINCS"
+    KINCS="$KINCS $OPTARG"
     ;;
   o)
     DESTN="$OPTARG"

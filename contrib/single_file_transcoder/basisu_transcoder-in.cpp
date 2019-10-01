@@ -1,7 +1,7 @@
 /**
  * Basis Universal single file library. Generated using:
  * \code
- *	./combine.sh -r ../../transcoder -x basisu_transcoder_tables_bc7_m6.inc -o basisutranslib.cpp basisutranslib-in.cpp
+ *	./combine.sh -r ../../transcoder -x basisu_transcoder_tables_bc7_m6.inc -o basisu_transcoder.cpp basisu_transcoder-in.cpp
  * \endcode
  * 
  * \note The script above excludes the BC7 mode 6 tables, a choice reflected in
