@@ -39,6 +39,8 @@ ATC: See the OpenGL extension [GL_AMD_compressed_ATC_texture](https://www.khrono
 
 FXT1: See the OpenGL extension [GL_3DFX_texture_compression_FXT1](https://www.khronos.org/registry/OpenGL/extensions/3DFX/3DFX_texture_compression_FXT1.txt)
 
+Also see [Intel® Open Source HD Graphics Programmers' Reference Manual (PRM)](https://01.org/sites/default/files/documentation/intel-gfx-bspec-osrc-chv-bsw-vol05-memory-views.pdf). This reference manual details how to encode FXT1, ETC1, ETC2, EAC, DXT/BC1-3, BC4/5/7, and ASTC.
+
 ### Release notes
 
 9/26/19 release notes:
