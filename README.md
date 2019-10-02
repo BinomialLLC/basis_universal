@@ -23,7 +23,7 @@ The encoder uses [tcuAstcUtil.cpp](https://chromium.googlesource.com/external/de
 
 ### Legal/IP/license stuff
 
-Basis Universal uses texture compression formats or technologies created by several companies: ARM Holdings, AMD, Ericsson, Microsoft, and Imagination Technologies Limited. All are supported by various open standards or API's from (The Khronos Group)[https://www.khronos.org/], such as OpenGL 4.5, OpenGL EX, or Vulkan. The ASTC texture format is the only standard we could identify that is covered by an explicit end user license.
+Basis Universal uses texture compression formats or technologies created by several companies: ARM Holdings, AMD, Ericsson, Microsoft, and Imagination Technologies Limited. All are supported by various open standards or API's from [The Khronos Group](https://www.khronos.org/), such as OpenGL 4.5, OpenGL EX, or Vulkan. The ASTC texture format is the only standard we could identify that is covered by an explicit end user license.
 
 ASTC usage follows ARM's [END USER LICENCE AGREEMENT FOR THE MALI ASTC SPECIFICATION AND SOFTWARE CODEC license agreement](https://github.com/ARM-software/astc-encoder/blob/master/LICENSE.md). 
 
