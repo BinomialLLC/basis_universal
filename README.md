@@ -21,6 +21,12 @@ The encoder uses [lodepng](https://lodev.org/lodepng/) for loading and saving PN
 
 The encoder uses [tcuAstcUtil.cpp](https://chromium.googlesource.com/external/deqp/+/refs/heads/master/framework/common/tcuAstcUtil.cpp), from the [Android drawElements Quality Program (deqp) Testing Suite](https://source.android.com/devices/graphics/deqp-testing), for unpacking the transcoder's ASTC output for testing/validation purposes. This code is Copyright 2016 The Android Open Source Project, and uses the Apache 2.0 license. We have modified the code so it has no external dependencies, and disabled HDR support.
 
+### Legal stuff
+
+ASTC usage follows ARM's [END USER LICENCE AGREEMENT FOR THE MALI ASTC SPECIFICATION AND SOFTWARE CODEC license agreement](https://github.com/ARM-software/astc-encoder/blob/master/LICENSE.md). 
+
+Specifically, the Basis Universal ASTC use case is covered by the license. Under DEFINITIONS: ""Authorised Purpose" means the use of the Software solely to develop products and tools which implement the Khronos ASTC specification to ... (i) compress texture images into ASTC format ("Compression Results") and (ii) distribute such Compression Results to third parties;". Under this agreement, ""Software" means the source code and Software binaries accompanying this Licence, and any printed, electronic or online documentation supplied with it, in all cases relating to the MALI ASTC SPECIFICATION AND SOFTWARE CODEC." Finally, under LICENCE GRANT: "ARM hereby grants to you, subject to the terms and conditions of this Licence, a nonexclusive, nontransferable, free of charge, royalty free, worldwide licence to use, copy, modify and (subject to Clause 3 below) distribute the Software solely for the Authorised Purpose."
+
 ### Release notes
 
 9/26/19 release notes:
