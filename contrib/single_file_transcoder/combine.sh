@@ -5,7 +5,8 @@
 # Note: this POSIX-compliant script is many times slower than the original bash
 # implementation (due to the grep calls) but it runs and works everywhere.
 # 
-# TODO: ROOTS and FOUND as arrays (since they fail on paths with spaces)
+# TODO: ROOTS, FOUND, etc., as arrays (since they fail on paths with spaces)
+# TODO: revert to Bash-only regex (the grep ones being too slow)
 # 
 # Script released under a CC0 license.
 
@@ -24,12 +25,16 @@ FOUND=""
 # Optional destination file (empty string to write to stdout)
 DESTN=""
 
+# Whether the "#pragma once" directives should be written to the output
+PONCE=0
+
 # Prints the script usage then exits
 usage() {
   echo "Usage: $0 [-r <path>] [-x <header>] [-k <header>] [-o <outfile>] infile"
   echo "  -r file root search path"
   echo "  -x file to completely exclude from inlining"
   echo "  -k file to exclude from inlining but keep the include directive"
+  echo "  -p keep any '#pragma once' directives (removed by default)"
   echo "  -o output file (otherwise stdout)"
   echo "Example: $0 -r ../my/path - r ../other/path -o out.c in.c"
   exit 1
@@ -104,7 +109,13 @@ add_file() {
         fi
       else
         # Skip any 'pragma once' directives, otherwise write the source line
-        if echo "$line" | grep -Eqv '^\s*#\s*pragma\s*once\s*'; then
+        local write=$PONCE
+        if [ $write -eq 0 ]; then
+          if echo "$line" | grep -Eqv '^\s*#\s*pragma\s*once\s*'; then
+            write=1
+          fi
+        fi
+        if [ $write -ne 0 ]; then
           write_line "$line"
         fi
       fi
@@ -114,7 +125,7 @@ add_file() {
   fi
 }
 
-while getopts ":r:x:k:o:" opts; do
+while getopts ":r:x:k:po:" opts; do
   case $opts in
   r)
     ROOTS="$ROOTS $OPTARG"
@@ -124,6 +135,9 @@ while getopts ":r:x:k:o:" opts; do
     ;;
   k)
     KINCS="$KINCS $OPTARG"
+    ;;
+  p)
+    PONCE=1
     ;;
   o)
     DESTN="$OPTARG"

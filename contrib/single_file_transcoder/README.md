@@ -16,9 +16,9 @@ If certain features will _never__ be enabled, e.g. `BASISD_SUPPORT_BC7_MODE6_OPA
 ```
 Excluding the BC7 mode 6 support reduces the generated source by 1.2MB, which is the choice taken in `basisu_transcoder-in.cpp` and used in the examples, with `create_transcoder.sh` running the above script, creating the final `basisu_transcoder.cpp`.
 
-The combiner script can also generate separate amalgamated header and source files, using the `-k` option to keep the specified inline directive:
+The combiner script can also generate separate amalgamated header and source files, using the `-k` option to keep the specified inline directive, and `-p` to keep the `#pragma once` directives in the header:
 ```
-./combine.sh -r ../../transcoder -o basisu_transcoder.h ../../transcoder/basisu_transcoder.h
+./combine.sh -r ../../transcoder -o basisu_transcoder.h -p ../../transcoder/basisu_transcoder.h
 
 ./combine.sh -r ../../transcoder -x basisu_transcoder_tables_bc7_m6.inc -k basisu_transcoder.h -o basisu_transcoder.cpp basisu_transcoder-in.cpp 
 
