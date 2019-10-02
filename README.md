@@ -25,7 +25,11 @@ The encoder uses [tcuAstcUtil.cpp](https://chromium.googlesource.com/external/de
 
 ASTC usage follows ARM's [END USER LICENCE AGREEMENT FOR THE MALI ASTC SPECIFICATION AND SOFTWARE CODEC license agreement](https://github.com/ARM-software/astc-encoder/blob/master/LICENSE.md). 
 
-Specifically, the Basis Universal ASTC use case is covered by the license. Under DEFINITIONS: ""Authorised Purpose" means the use of the Software solely to develop products and tools which implement the Khronos ASTC specification to ... (i) compress texture images into ASTC format ("Compression Results") and (ii) distribute such Compression Results to third parties;". Under this agreement, ""Software" means the source code and Software binaries accompanying this Licence, and any printed, electronic or online documentation supplied with it, in all cases relating to the MALI ASTC SPECIFICATION AND SOFTWARE CODEC." Finally, under LICENCE GRANT: "ARM hereby grants to you, subject to the terms and conditions of this Licence, a nonexclusive, nontransferable, free of charge, royalty free, worldwide licence to use, copy, modify and (subject to Clause 3 below) distribute the Software solely for the Authorised Purpose."
+PVRTC: See the [PVRTC Specification and User Guide](https://www.imgtec.com/downloads/download-info/pvrtc-texture-compression-user-guide-2/). Imagination Technologies Limited, 23 Nov 2018
+
+ETC1 and ETC2 EAC: See the [Khronos Data Format Specification](https://www.khronos.org/registry/DataFormat/specs/1.1/dataformat.1.1.html) and the [OpenGL 4.5 Core Profile](https://www.khronos.org/registry/OpenGL/specs/gl/glspec45.core.pdf) Appendix C.
+
+BC1-5,7: Part of Microsoft's Direct3D API technology. See [Texture Block Compression in Direct3D 11](https://docs.microsoft.com/en-us/windows/win32/direct3d11/texture-block-compression-in-direct3d-11)
 
 ### Release notes
 
