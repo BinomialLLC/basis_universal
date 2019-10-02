@@ -23,15 +23,17 @@ The encoder uses [tcuAstcUtil.cpp](https://chromium.googlesource.com/external/de
 
 ### Legal/IP/license stuff
 
+Basis Universal uses texture compression formats or technologies created by several companies: ARM Holdings, AMD, Ericsson, Microsoft, and Imagination Technologies Limited. All are supported by various open standards or API's from (The Khronos Group)[https://www.khronos.org/], such as OpenGL 4.5, OpenGL EX, or Vulkan. The ASTC texture format is the only standard we could identify that is covered by an explicit end user license.
+
 ASTC usage follows ARM's [END USER LICENCE AGREEMENT FOR THE MALI ASTC SPECIFICATION AND SOFTWARE CODEC license agreement](https://github.com/ARM-software/astc-encoder/blob/master/LICENSE.md). 
 
-PVRTC: See the [PVRTC Specification and User Guide](https://www.imgtec.com/downloads/download-info/pvrtc-texture-compression-user-guide-2/). Imagination Technologies Limited, 23 Nov 2018. Also see the [Khronos Data Format Specification](https://www.khronos.org/registry/DataFormat/specs/1.1/dataformat.1.1.html)
+PVRTC1/2: See the [PVRTC Specification and User Guide](https://www.imgtec.com/downloads/download-info/pvrtc-texture-compression-user-guide-2/). Imagination Technologies Limited, 23 Nov 2018. Also see the [Khronos Data Format Specification](https://www.khronos.org/registry/DataFormat/specs/1.1/dataformat.1.1.html). See [PVR Texture Compression Exploration](https://roartindon.blogspot.com/2014/08/pvr-texture-compression-exploration.html) and (PvrTcCompressor)[https://bitbucket.org/jthlim/pvrtccompressor/src] Also see (Texture Compression Techniques)[http://sv-journal.org/2014-1/06/en/index.php?lang=en#7-3]
 
 ETC1 and ETC2 EAC: See the [Khronos Data Format Specification](https://www.khronos.org/registry/DataFormat/specs/1.1/dataformat.1.1.html) and the [OpenGL 4.5 Core Profile](https://www.khronos.org/registry/OpenGL/specs/gl/glspec45.core.pdf) Appendix C.
 
 BC1-5,7: Part of Microsoft's Direct3D API technology. See [Texture Block Compression in Direct3D 11](https://docs.microsoft.com/en-us/windows/win32/direct3d11/texture-block-compression-in-direct3d-11)
 
-ATC: See the OpenGL extension [GL_AMD_compressed_ATC_texture](https://www.khronos.org/registry/OpenGL/extensions/AMD/AMD_compressed_ATC_texture.txt)
+ATC: See the OpenGL extension [GL_AMD_compressed_ATC_texture](https://www.khronos.org/registry/OpenGL/extensions/AMD/AMD_compressed_ATC_texture.txt) For low-level ATC texture format information, see [S3TConv](https://github.com/Triang3l/S3TConv) and the paper [A Method for Load-Time Conversion of DXTC Assets to ATC](http://www.guildsoftware.com/papers/2012.Converting.DXTC.to.ATC.pdf).
 
 FXT1: See the OpenGL extension [GL_3DFX_texture_compression_FXT1](https://www.khronos.org/registry/OpenGL/extensions/3DFX/3DFX_texture_compression_FXT1.txt)
 
