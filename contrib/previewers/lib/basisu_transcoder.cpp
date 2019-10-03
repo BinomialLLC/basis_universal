@@ -15264,6 +15264,8 @@ namespace basist
  */
 void _basisu_translib_dummy() {
 	// These first ones are not used at all
+	BASISU_NOTE_UNUSED(&basisu::byteswap16);
+	BASISU_NOTE_UNUSED(&basisu::byteswap32);
 	BASISU_NOTE_UNUSED(basisu::BASISU_PATH_SEPERATOR_CHAR);
 	BASISU_NOTE_UNUSED(basisu::cHuffmanTotalSortedCodelengthCodes);
 	BASISU_NOTE_UNUSED(basist::COLOR5_PAL0_DELTA_LO);

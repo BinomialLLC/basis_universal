@@ -9,6 +9,9 @@
       <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
       <Extensions>cpp;c;cc;cxx;def;odl;idl;hpj;bat;asm;asmx</Extensions>
     </Filter>
+    <Filter Include="res">
+      <UniqueIdentifier>{f4f72237-4818-48a4-9192-33d12efece22}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="basisthumbprovider.h">
@@ -17,7 +20,7 @@
     <ClInclude Include="helpers.h">
       <Filter>inc</Filter>
     </ClInclude>
-    <ClInclude Include="basisu_transcoder.h">
+    <ClInclude Include="..\lib\basisu_transcoder.h">
       <Filter>inc</Filter>
     </ClInclude>
   </ItemGroup>
@@ -31,8 +34,13 @@
     <ClCompile Include="helpers.cpp">
       <Filter>src</Filter>
     </ClCompile>
-    <ClCompile Include="basisu_transcoder.cpp">
+    <ClCompile Include="..\lib\basisu_transcoder.cpp">
       <Filter>src</Filter>
     </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="preview.rc">
+      <Filter>res</Filter>
+    </ResourceCompile>
   </ItemGroup>
 </Project>
