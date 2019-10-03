@@ -90,10 +90,9 @@
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
-      <PreprocessorDefinitions>WIN32;_WIN32_WINNT=0x0601;_WINDOWS;_USRDLL;_ITERATOR_DEBUG_LEVEL=1;BASISD_SUPPORT_DXT5A=0;BASISD_SUPPORT_PVRTC1=0;BASISD_SUPPORT_BC7=0;BASISD_SUPPORT_ETC2_EAC_A8=0;_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;_WIN32_WINNT=0x0601;_WINDOWS;_USRDLL;_ITERATOR_DEBUG_LEVEL=1;_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <SDLCheck>true</SDLCheck>
       <ExceptionHandling>false</ExceptionHandling>
-      <AdditionalIncludeDirectories>$(ProjectDir)..\..\..\transcoder\;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <RuntimeTypeInfo>false</RuntimeTypeInfo>
       <MinimalRebuild>false</MinimalRebuild>
     </ClCompile>
@@ -107,10 +106,9 @@
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
-      <PreprocessorDefinitions>WIN32;_WIN32_WINNT=0x0601;_WINDOWS;_USRDLL;_ITERATOR_DEBUG_LEVEL=1;BASISD_SUPPORT_DXT5A=0;BASISD_SUPPORT_PVRTC1=0;BASISD_SUPPORT_BC7=0;BASISD_SUPPORT_ETC2_EAC_A8=0;_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;_WIN32_WINNT=0x0601;_WINDOWS;_USRDLL;_ITERATOR_DEBUG_LEVEL=1;_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <SDLCheck>true</SDLCheck>
       <ExceptionHandling>false</ExceptionHandling>
-      <AdditionalIncludeDirectories>$(ProjectDir)..\..\..\transcoder\;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <RuntimeTypeInfo>false</RuntimeTypeInfo>
       <MinimalRebuild>false</MinimalRebuild>
     </ClCompile>
@@ -126,9 +124,8 @@
       <Optimization>Full</Optimization>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
-      <PreprocessorDefinitions>WIN32;_WIN32_WINNT=0x0601;_WINDOWS;_USRDLL;_ITERATOR_DEBUG_LEVEL=0;BASISD_SUPPORT_DXT5A=0;BASISD_SUPPORT_PVRTC1=0;BASISD_SUPPORT_BC7=0;BASISD_SUPPORT_ETC2_EAC_A8=0;NDEBUG;WIN32_LEAN_AND_MEAN;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;_WIN32_WINNT=0x0601;_WINDOWS;_USRDLL;_ITERATOR_DEBUG_LEVEL=0;NDEBUG;WIN32_LEAN_AND_MEAN;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ExceptionHandling>false</ExceptionHandling>
-      <AdditionalIncludeDirectories>$(ProjectDir)..\..\..\transcoder\;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <RuntimeTypeInfo>false</RuntimeTypeInfo>
     </ClCompile>
     <Link>
@@ -145,9 +142,8 @@
       <Optimization>Full</Optimization>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
-      <PreprocessorDefinitions>WIN32;_WIN32_WINNT=0x0601;_WINDOWS;_USRDLL;_ITERATOR_DEBUG_LEVEL=0;BASISD_SUPPORT_DXT5A=0;BASISD_SUPPORT_PVRTC1=0;BASISD_SUPPORT_BC7=0;BASISD_SUPPORT_ETC2_EAC_A8=0;NDEBUG;WIN32_LEAN_AND_MEAN;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;_WIN32_WINNT=0x0601;_WINDOWS;_USRDLL;_ITERATOR_DEBUG_LEVEL=0;NDEBUG;WIN32_LEAN_AND_MEAN;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ExceptionHandling>false</ExceptionHandling>
-      <AdditionalIncludeDirectories>$(ProjectDir)..\..\..\transcoder\;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <RuntimeTypeInfo>false</RuntimeTypeInfo>
     </ClCompile>
     <Link>
@@ -159,13 +155,13 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClInclude Include="..\..\..\transcoder\basisu_transcoder.h" />
     <ClInclude Include="basisthumbprovider.h" />
+    <ClInclude Include="basisu_transcoder.h" />
     <ClInclude Include="helpers.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\..\..\transcoder\basisu_transcoder.cpp" />
     <ClCompile Include="basisthumbprovider.cpp" />
+    <ClCompile Include="basisu_transcoder.cpp" />
     <ClCompile Include="helpers.cpp" />
     <ClCompile Include="previewers.cpp">
       <CompileAsManaged Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">false</CompileAsManaged>
