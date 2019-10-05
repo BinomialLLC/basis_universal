@@ -38,9 +38,4 @@
       <Filter>src</Filter>
     </ClCompile>
   </ItemGroup>
-  <ItemGroup>
-    <ResourceCompile Include="preview.rc">
-      <Filter>res</Filter>
-    </ResourceCompile>
-  </ItemGroup>
 </Project>
