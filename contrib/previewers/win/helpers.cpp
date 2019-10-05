@@ -41,13 +41,11 @@ HBITMAP rgbToBitmap(const uint32_t* src, uint32_t const imgW, uint32_t const img
 	 */
 	if (hbmp && pixels) {
 		uint32_t* dst = static_cast<uint32_t*>(pixels);
-		for (unsigned y = 0; y < imgH; y++) {
-			for (unsigned x = 0; x < imgW; x++) {
-				uint32_t rgba = *src++;
-				*dst++ = ((rgba & 0x000000FF) << 16)
-					   | ((rgba & 0xFF00FF00)      )
-					   | ((rgba & 0x00FF0000) >> 16);
-			}
+		for (unsigned xy = imgW * imgH; xy > 0; xy--) {
+			uint32_t rgba = *src++;
+			*dst++ = ((rgba & 0x000000FF) << 16)
+				   | ((rgba & 0xFF00FF00)      )
+				   | ((rgba & 0x00FF0000) >> 16);
 		}
 		GdiFlush();
 	}
