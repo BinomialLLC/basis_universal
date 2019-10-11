@@ -49,13 +49,13 @@ struct basis_file
     m_file.clear();
   }
 
-  uint32_t getHasAlpha() {
+  uint32_t getHasAlpha(uint32_t imageIndex, uint32_t levelIndex) {
     assert(m_magic == MAGIC);
     if (m_magic != MAGIC)
       return 0;
 
     basisu_image_level_info li;
-    if (!m_transcoder.get_image_level_info(m_file.data(), m_file.size(), li, 0, 0))
+    if (!m_transcoder.get_image_level_info(m_file.data(), m_file.size(), li, imageIndex, levelIndex))
       return 0;
 
     return li.m_alpha_flag;
@@ -236,8 +236,8 @@ EMSCRIPTEN_BINDINGS(basis_transcoder) {
     .function("close", optional_override([](basis_file& self) {
       return self.close();
     }))
-    .function("getHasAlpha", optional_override([](basis_file& self) {
-      return self.getHasAlpha();
+    .function("getHasAlpha", optional_override([](basis_file& self, uint32_t imageIndex, uint32_t levelIndex) {
+      return self.getHasAlpha(imageIndex, levelIndex);
     }))
     .function("getNumImages", optional_override([](basis_file& self) {
       return self.getNumImages();
