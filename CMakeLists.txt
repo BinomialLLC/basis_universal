@@ -59,7 +59,6 @@ set(BASISU_SRC_LIST ${COMMON_SRC_LIST}
 	basisu_resampler.cpp
 	basisu_resample_filters.cpp
 	basisu_ssim.cpp
-	basisu_tool.cpp
 	basisu_astc_decomp.cpp
 	lodepng.cpp
 	transcoder/basisu_transcoder.cpp
@@ -73,8 +72,11 @@ endif()
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/${BIN_DIRECTORY})
 
-add_executable(basisu ${BASISU_SRC_LIST})
-target_link_libraries(basisu m pthread)
+add_library(basisuniversal ${BASISU_SRC_LIST})
+target_link_libraries(basisuniversal m pthread)
+
+add_executable(basisu basisu_tool.cpp)
+target_link_libraries(basisu basisuniversal)
 
 install(TARGETS basisu DESTINATION bin)
 
