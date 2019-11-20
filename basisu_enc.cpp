@@ -13,11 +13,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #include "basisu_enc.h"
-#include "lodepng.h"
 #include "basisu_resampler.h"
 #include "basisu_resampler_filters.h"
 #include "basisu_etc.h"
 #include "transcoder/basisu_transcoder.h"
+
+#include "stb_image.h"
+#include "stb_image_write.h"
 
 #if defined(_WIN32)
 // For QueryPerformanceCounter/QueryPerformanceFrequency
@@ -169,21 +171,13 @@ namespace basisu
 		return ticks * g_timer_freq;
 	}
 		
-	bool load_png(const char* pFilename, image& img)
+	bool load_image(const char* pFilename, image& img)
 	{
-		std::vector<uint8_t> buffer;
-		unsigned err = lodepng::load_file(buffer, std::string(pFilename));
-		if (err)
-			return false;
-
-		unsigned w = 0, h = 0;
-				
 		if (sizeof(void *) == sizeof(uint32_t))
 		{
 			// Inspect the image first on 32-bit builds, to see if the image would require too much memory.
-			lodepng::State state;
-			err = lodepng_inspect(&w, &h, &state, &buffer[0], buffer.size());
-			if ((err != 0) || (!w) || (!h))
+			int w = 0, h = 0;
+			if (!stbi_info(pFilename, &w, &h, NULL))
 				return false;
 
 			const uint32_t exepected_alloc_size = w * h * sizeof(uint32_t);
@@ -195,21 +189,15 @@ namespace basisu
 				error_printf("Image \"%s\" is too large (%ux%u) to process in a 32-bit build!\n", pFilename, w, h);
 				return false;
 			}
-			
-			w = h = 0;
 		}
 				
-		std::vector<uint8_t> out;
-		err = lodepng::decode(out, w, h, &buffer[0], buffer.size());
-		if ((err != 0) || (!w) || (!h))
-			return false;
-
-		if (out.size() != (w * h * 4))
+		int w = 0, h = 0;
+		stbi_uc* data = stbi_load(pFilename, &w, &h, NULL, 4);
+		if (!data)
 			return false;
 
 		img.resize(w, h);
-
-		memcpy(img.get_ptr(), &out[0], out.size());
+		memcpy(img.get_ptr(), data, w * h * 4);
 
 		return true;
 	}
@@ -219,8 +207,7 @@ namespace basisu
 		if (!img.get_total_pixels())
 			return false;
 
-		std::vector<uint8_t> out;
-		unsigned err = 0;
+		int status = 0;
 				
 		if (image_save_flags & cImageSaveGrayscale)
 		{
@@ -231,7 +218,7 @@ namespace basisu
 				for (uint32_t x = 0; x < img.get_width(); x++)
 					*pDst++ = img(x, y)[grayscale_comp];
 
-			err = lodepng::encode(out, (const uint8_t*)& g_pixels[0], img.get_width(), img.get_height(), LCT_GREY, 8);
+			status = stbi_write_png(pFilename, img.get_width(), img.get_height(), 1, &g_pixels[0], 0);
 		}
 		else
 		{
@@ -253,19 +240,15 @@ namespace basisu
 					}
 				}
 
-				err = lodepng::encode(out, (const uint8_t*)& rgb_pixels[0], img.get_width(), img.get_height(), LCT_RGB, 8);
+				status = stbi_write_png(pFilename, img.get_width(), img.get_height(), 3, &rgb_pixels[0], 0);
 			}
 			else
 			{
-				err = lodepng::encode(out, (const uint8_t*)img.get_ptr(), img.get_width(), img.get_height(), LCT_RGBA, 8);
+				status = stbi_write_png(pFilename, img.get_width(), img.get_height(), 4, img.get_ptr(), 0);
 			}
 		}
 
-		err = lodepng::save_file(out, std::string(pFilename));
-		if (err)
-			return false;
-
-		return true;
+		return status == 1;
 	}
 		
 	bool read_file_to_vec(const char* pFilename, uint8_vec& data)

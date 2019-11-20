@@ -61,7 +61,7 @@ set(BASISU_SRC_LIST ${COMMON_SRC_LIST}
 	basisu_ssim.cpp
 	basisu_tool.cpp
 	basisu_astc_decomp.cpp
-	lodepng.cpp
+	stb_image.cpp
 	transcoder/basisu_transcoder.cpp
 	)
 

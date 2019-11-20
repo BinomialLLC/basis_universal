@@ -12,7 +12,6 @@
     <ClCompile Include="basisu_pvrtc1_4.cpp" />
     <ClCompile Include="basisu_global_selector_palette_helpers.cpp" />
     <ClCompile Include="basisu_gpu_texture.cpp" />
-    <ClCompile Include="lodepng.cpp" />
     <ClCompile Include="basisu_tool.cpp" />
     <ClCompile Include="transcoder\basisu_transcoder.cpp">
       <Filter>transcoder</Filter>
@@ -32,7 +31,9 @@
     <ClInclude Include="basisu_global_selector_palette_helpers.h" />
     <ClInclude Include="basisu_resampler.h" />
     <ClInclude Include="basisu_resampler_filters.h" />
-    <ClInclude Include="lodepng.h" />
+    <ClCompile Include="stb_image.cpp" />
+    <ClInclude Include="stb_image.h" />
+    <ClInclude Include="stb_image_write.h" />
     <ClInclude Include="transcoder\basisu_file_headers.h" />
     <ClInclude Include="transcoder\basisu_global_selector_cb.h" />
     <ClInclude Include="transcoder\basisu_global_selector_palette.h">

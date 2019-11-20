@@ -1348,7 +1348,7 @@ static bool compare_mode(command_line_params &opts)
 	}
 
 	image a, b;
-	if (!load_png(opts.m_input_filenames[0].c_str(), a))
+	if (!load_image(opts.m_input_filenames[0].c_str(), a))
 	{
 		error_printf("Failed loading image from file \"%s\"!\n", opts.m_input_filenames[0].c_str());
 		return false;
@@ -1356,7 +1356,7 @@ static bool compare_mode(command_line_params &opts)
 
 	printf("Loaded \"%s\", %ux%u, has alpha: %u\n", opts.m_input_filenames[0].c_str(), a.get_width(), a.get_height(), a.has_alpha());
 
-	if (!load_png(opts.m_input_filenames[1].c_str(), b))
+	if (!load_image(opts.m_input_filenames[1].c_str(), b))
 	{
 		error_printf("Failed loading image from file \"%s\"!\n", opts.m_input_filenames[1].c_str());
 		return false;
