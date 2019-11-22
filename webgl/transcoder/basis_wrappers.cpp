@@ -146,6 +146,17 @@ struct basis_file
 	 }
   }
 
+  void getImageTranscodedSizesInBytes(const emscripten::val& dst, uint32_t image_index, uint32_t format) {
+    std::vector<uint32_t> sizes(getNumLevels(image_index));
+    for (size_t i = 0; i < sizes.size(); ++i) {
+      sizes[i] = getImageTranscodedSizeInBytes(image_index, i, format);
+    }
+
+    emscripten::val memory = emscripten::val::module_property("HEAPU32")["buffer"];
+	  emscripten::val memoryView = emscripten::val::global("Uint32Array").new_(memory, reinterpret_cast<uintptr_t>(sizes.data()), sizes.size());
+	  dst.call<void>("set", memoryView);
+  }
+
   uint32_t startTranscoding() {
     assert(m_magic == MAGIC);
     if (m_magic != MAGIC)
@@ -164,13 +175,46 @@ struct basis_file
 	  if (format >= (int)transcoder_texture_format::cTFTotalTextureFormats)
 		  return 0;
 
+    std::vector<uint8_t> dst_data;
+    const uint32_t status = transcodeImage(dst_data, image_index, level_index, format, get_alpha_for_opaque_formats);
+
+	  emscripten::val memory = emscripten::val::module_property("HEAP8")["buffer"];
+	  emscripten::val memoryView = emscripten::val::global("Uint8Array").new_(memory, reinterpret_cast<uintptr_t>(dst_data.data()), dst_data.size());
+
+	  dst.call<void>("set", memoryView);
+	  return status;
+  }
+
+  uint32_t transcodeImageLevels(const emscripten::val& dst, uint32_t image_index, uint32_t format, uint32_t get_alpha_for_opaque_formats) {
+    assert(m_magic == MAGIC);
+	  if (m_magic != MAGIC)
+		  return 0;
+
+	  if (format >= (int)transcoder_texture_format::cTFTotalTextureFormats)
+		  return 0;
+
+    const uint32_t numLevels = getNumLevels(image_index);
+    std::vector<uint8_t> dst_data;
+
+    for(uint32_t level = 0; level < numLevels; ++level) {
+      if (!transcodeImage(dst_data, image_index, level, format, get_alpha_for_opaque_formats))
+        return 0;
+    }
+
+	  emscripten::val memory = emscripten::val::module_property("HEAP8")["buffer"];
+	  emscripten::val memoryView = emscripten::val::global("Uint8Array").new_(memory, reinterpret_cast<uintptr_t>(dst_data.data()), dst_data.size());
+
+	  dst.call<void>("set", memoryView);
+	  return 1;
+  }
+
+  bool transcodeImage(std::vector<uint8_t>& dst_data, uint32_t image_index, uint32_t level_index, uint32_t format, uint32_t get_alpha_for_opaque_formats) {
 	  const transcoder_texture_format transcoder_format = static_cast<transcoder_texture_format>(format);
 
-     uint32_t orig_width, orig_height, total_blocks;
+    uint32_t orig_width, orig_height, total_blocks;
 	  if (!m_transcoder.get_image_level_desc(m_file.data(), m_file.size(), image_index, level_index, orig_width, orig_height, total_blocks))
 		  return 0;
 	  
-	  std::vector<uint8_t> dst_data;
 	  
 	  uint32_t flags = get_alpha_for_opaque_formats ? basisu_transcoder::cDecodeFlagsTranscodeAlphaDataToOpaqueFormats : 0;
 
@@ -182,49 +226,42 @@ struct basis_file
 		  const uint32_t bytes_per_line = orig_width * bytes_per_pixel;
 		  const uint32_t bytes_per_slice = bytes_per_line * orig_height;
 
-		  dst_data.resize(bytes_per_slice);
+      const size_t offset = dst_data.size();
+		  dst_data.resize(offset + bytes_per_slice);
 
-		  status = m_transcoder.transcode_image_level(
+		  return m_transcoder.transcode_image_level(
 			  m_file.data(), m_file.size(), image_index, level_index,
-			  dst_data.data(), orig_width * orig_height,
+			  dst_data.data() + offset, orig_width * orig_height,
 			  transcoder_format,
 			  flags,
 			  orig_width,
 			  nullptr,
 			  orig_height);
 	  }
-	  else
-	  {
-		  uint32_t bytes_per_block = basis_get_bytes_per_block(transcoder_format);
 
-		  uint32_t required_size = total_blocks * bytes_per_block;
+    const uint32_t bytes_per_block = basis_get_bytes_per_block(transcoder_format);
+    uint32_t required_size = total_blocks * bytes_per_block;
 
-		  if (transcoder_format == transcoder_texture_format::cTFPVRTC1_4_RGB || transcoder_format == transcoder_texture_format::cTFPVRTC1_4_RGBA)
-		  {
-			  // For PVRTC1, Basis only writes (or requires) total_blocks * bytes_per_block. But GL requires extra padding for very small textures: 
-			  // https://www.khronos.org/registry/OpenGL/extensions/IMG/IMG_texture_compression_pvrtc.txt
-			  // The transcoder will clear the extra bytes followed the used blocks to 0.
-			  const uint32_t width = (orig_width + 3) & ~3;
-			  const uint32_t height = (orig_height + 3) & ~3;
-			  required_size = (std::max(8U, width) * std::max(8U, height) * 4 + 7) / 8;
-			  assert(required_size >= total_blocks * bytes_per_block);
-		  }
+    if (transcoder_format == transcoder_texture_format::cTFPVRTC1_4_RGB || transcoder_format == transcoder_texture_format::cTFPVRTC1_4_RGBA)
+    {
+      // For PVRTC1, Basis only writes (or requires) total_blocks * bytes_per_block. But GL requires extra padding for very small textures: 
+      // https://www.khronos.org/registry/OpenGL/extensions/IMG/IMG_texture_compression_pvrtc.txt
+      // The transcoder will clear the extra bytes followed the used blocks to 0.
+      const uint32_t width = (orig_width + 3) & ~3;
+      const uint32_t height = (orig_height + 3) & ~3;
+      required_size = (std::max(8U, width) * std::max(8U, height) * 4 + 7) / 8;
+      assert(required_size >= total_blocks * bytes_per_block);
+    }
 
-		  dst_data.resize(required_size);
+    const size_t offset = dst_data.size();
+    dst_data.resize(offset + required_size);
 
-		  status = m_transcoder.transcode_image_level(
-			  m_file.data(), m_file.size(), image_index, level_index,
-			  dst_data.data(), dst_data.size() / bytes_per_block,
-			  static_cast<basist::transcoder_texture_format>(format),
-			  flags);
-	  }
-
-	  emscripten::val memory = emscripten::val::module_property("HEAP8")["buffer"];
-	  emscripten::val memoryView = emscripten::val::global("Uint8Array").new_(memory, reinterpret_cast<uintptr_t>(dst_data.data()), dst_data.size());
-
-	  dst.call<void>("set", memoryView);
-	  return status;
-  }
+    return m_transcoder.transcode_image_level(
+      m_file.data(), m_file.size(), image_index, level_index,
+      dst_data.data() + offset, required_size / bytes_per_block,
+      static_cast<basist::transcoder_texture_format>(format),
+      flags);
+  }    
 };
 
 EMSCRIPTEN_BINDINGS(basis_transcoder) {
@@ -254,11 +291,17 @@ EMSCRIPTEN_BINDINGS(basis_transcoder) {
     .function("getImageTranscodedSizeInBytes", optional_override([](basis_file& self, uint32_t imageIndex, uint32_t levelIndex, uint32_t format) {
       return self.getImageTranscodedSizeInBytes(imageIndex, levelIndex, format);
     }))
+    .function("getImageTranscodedSizesInBytes", optional_override([](basis_file& self, const emscripten::val& dst, uint32_t imageIndex, uint32_t format) {
+      return self.getImageTranscodedSizesInBytes(dst, imageIndex, format);
+    }))
     .function("startTranscoding", optional_override([](basis_file& self) {
       return self.startTranscoding();
     }))
     .function("transcodeImage", optional_override([](basis_file& self, const emscripten::val& dst, uint32_t imageIndex, uint32_t levelIndex, uint32_t format, uint32_t unused, uint32_t getAlphaForOpaqueFormats) {
       return self.transcodeImage(dst, imageIndex, levelIndex, format, unused, getAlphaForOpaqueFormats);
+    }))
+    .function("transcodeImageLevels", optional_override([](basis_file& self, const emscripten::val& dst, uint32_t imageIndex, uint32_t format, uint32_t getAlphaForOpaqueFormats) {
+      return self.transcodeImageLevels(dst, imageIndex, format, getAlphaForOpaqueFormats);
     }))
   ;
 
