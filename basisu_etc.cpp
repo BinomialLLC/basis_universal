@@ -657,7 +657,6 @@ namespace basisu
 		if (m_best_solution.m_error == 0)
 			return;
 
-		const uint32_t n = m_pParams->m_num_src_pixels;
 		const int scan_delta_size = m_pParams->m_scan_delta_size;
 
 		// Scan through a subset of the 3D lattice centered around the avg block color trying each 3D (555 or 444) lattice point as a potential block color.

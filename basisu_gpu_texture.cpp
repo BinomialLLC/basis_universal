@@ -1415,7 +1415,12 @@ namespace basisu
 		return write_compressed_texture_file(pFilename, v, false);
 	}
 
-	const uint32_t OUT_FILE_MAGIC = 'TEXC';
+	// Can't find docs. I'm assuming order in file should be "TEXC". Since
+	// uint32_t's are written in little endian order we need to put T in the
+	// low order byte, etc.
+	const uint32_t OUT_FILE_MAGIC =
+	        'T' | ('E' << 8) | ('X' << 16) | ('C' << 24);
+
 	struct out_file_header 
 	{
 		packed_uint<4> m_magic;

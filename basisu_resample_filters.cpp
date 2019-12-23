@@ -283,7 +283,7 @@ namespace basisu
 		return sum;
 	}
 
-	static const float KAISER_ALPHA = 4.0;
+	//static const float KAISER_ALPHA = 4.0;
 	static double kaiser(double alpha, double half_width, double x)
 	{
 		const double ratio = (x / half_width);

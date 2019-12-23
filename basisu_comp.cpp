@@ -494,14 +494,14 @@ namespace basisu
 			}
 		}
 
-		printf("Total basis file slices: %u\n", (uint32_t)m_slice_descs.size());
+		debug_printf("Total basis file slices: %u\n", (uint32_t)m_slice_descs.size());
 
 		for (uint32_t i = 0; i < m_slice_descs.size(); i++)
 		{
 			const basisu_backend_slice_desc &slice_desc = m_slice_descs[i];
 
-			printf("Slice: %u, alpha: %u, orig width/height: %ux%u, width/height: %ux%u, first_block: %u, image_index: %u, mip_level: %u, iframe: %u\n", 
-				i, slice_desc.m_alpha, slice_desc.m_orig_width, slice_desc.m_orig_height, slice_desc.m_width, slice_desc.m_height, slice_desc.m_first_block_index, slice_desc.m_source_file_index, slice_desc.m_mip_index, slice_desc.m_iframe);
+			debug_printf("Slice: %u, alpha: %u, orig width/height: %ux%u, width/height: %ux%u, first_block: %u, image_index: %u, mip_level: %u, iframe: %u\n",
+				i, slice_desc.m_alpha, slice_desc.m_orig_width, slice_desc.m_orig_height, slice_desc.m_width, slice_desc.m_height, slice_desc.m_first_block_index, slice_desc.m_source_file_index,      slice_desc.m_mip_index, slice_desc.m_iframe);
 
 			if (m_any_source_image_has_alpha)
 			{

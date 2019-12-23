@@ -86,7 +86,7 @@
 
 #define BASISU_NOTE_UNUSED(x) (void)(x)
 #define BASISU_ARRAY_SIZE(x) (sizeof(x) / sizeof(x[0]))
-#define BASISU_NO_EQUALS_OR_COPY_CONSTRUCT(x) x(const x &) = delete; x& operator= (const x &) = delete;
+#define BASISU_NO_EQUALS_OR_COPY_CONSTRUCT(x) x(const x &) = delete; x& operator= (const x &) = delete
 #define BASISU_ASSUME(x) static_assert(x, #x);
 #define BASISU_OFFSETOF(s, m) (uint32_t)(intptr_t)(&((s *)(0))->m)
 #define BASISU_STRINGIZE(x) #x

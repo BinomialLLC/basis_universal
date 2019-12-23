@@ -272,7 +272,7 @@ namespace basist
 	{ \
 		{ N * -8,  N * -2,   N * 2,   N * 8 },{ N * -17,  N * -5,  N * 5,  N * 17 },{ N * -29,  N * -9,   N * 9,  N * 29 },{ N * -42, N * -13, N * 13,  N * 42 }, \
 		{ N * -60, N * -18, N * 18,  N * 60 },{ N * -80, N * -24, N * 24,  N * 80 },{ N * -106, N * -33, N * 33, N * 106 },{ N * -183, N * -47, N * 47, N * 183 } \
-	};
+	}
 
 	DECLARE_ETC1_INTEN_TABLE(g_etc1_inten_tables, 1);
 	DECLARE_ETC1_INTEN_TABLE(g_etc1_inten_tables16, 16);
@@ -917,7 +917,7 @@ namespace basist
 	// encoding from LSB to MSB: low8, high8, error16, size is [32*8][NUM_ETC1_TO_BC7_M6_SELECTOR_RANGES][NUM_ETC1_TO_BC7_M6_SELECTOR_MAPPINGS]
 	extern const uint32_t* g_etc1_to_bc7_m6_table[];
 
-	const uint16_t s_bptc_table_aWeight4[16] = { 0, 4, 9, 13, 17, 21, 26, 30, 34, 38, 43, 47, 51, 55, 60, 64 };
+	//const uint16_t s_bptc_table_aWeight4[16] = { 0, 4, 9, 13, 17, 21, 26, 30, 34, 38, 43, 47, 51, 55, 60, 64 };
 
 #if BASISD_WRITE_NEW_BC7_TABLES
 	static void create_etc1_to_bc7_m6_conversion_table()
@@ -1267,6 +1267,7 @@ namespace basist
 #endif
 
 #if BASISD_SUPPORT_ETC2_EAC_A8 || BASISD_SUPPORT_ETC2_EAC_RG11
+#if 0 // Table not used.
 	static const int8_t g_eac_modifier_table[16][8] =
 	{
 		{ -3, -6, -9, -15, 2, 5, 8, 14 },
@@ -1287,6 +1288,7 @@ namespace basist
 		{ -4, -6, -8, -9, 3, 5, 7, 8 },
 		{ -3, -5, -7, -9, 2, 4, 6, 8 }
 	};
+ #endif
 
 	// Used by ETC2 EAC A8 and ETC2 EAC R11/RG11.
 	struct eac_block
@@ -3302,6 +3304,7 @@ namespace basist
 		}
 	};
 
+#if 0
 	static const uint8_t g_pvrtc_bilinear_weights[16][4] =
 	{
 		{ 4, 4, 4, 4 }, { 2, 6, 2, 6 }, { 8, 0, 8, 0 }, { 6, 2, 6, 2 },
@@ -3309,6 +3312,7 @@ namespace basist
 		{ 8, 8, 0, 0 }, { 4, 12, 0, 0 }, { 16, 0, 0, 0 }, { 12, 4, 0, 0 },
 		{ 6, 6, 2, 2 }, { 3, 9, 1, 3 }, { 12, 0, 4, 0 }, { 9, 3, 3, 1 },
 	};
+#endif
 
 	struct pvrtc1_temp_block
 	{
@@ -3409,7 +3413,7 @@ namespace basist
 		const uint32_t x_bits = basisu::total_bits(x_mask);
 		const uint32_t y_bits = basisu::total_bits(y_mask);
 		const uint32_t min_bits = basisu::minimum(x_bits, y_bits);
-		const uint32_t max_bits = basisu::maximum(x_bits, y_bits);
+		//const uint32_t max_bits = basisu::maximum(x_bits, y_bits);
 		const uint32_t swizzle_mask = (1 << (min_bits * 2)) - 1;
 
 		uint32_t block_index = 0;
@@ -3590,7 +3594,7 @@ namespace basist
 		const uint32_t x_bits = basisu::total_bits(x_mask);
 		const uint32_t y_bits = basisu::total_bits(y_mask);
 		const uint32_t min_bits = basisu::minimum(x_bits, y_bits);
-		const uint32_t max_bits = basisu::maximum(x_bits, y_bits);
+		//const uint32_t max_bits = basisu::maximum(x_bits, y_bits);
 		const uint32_t swizzle_mask = (1 << (min_bits * 2)) - 1;
 
 		uint32_t block_index = 0;
@@ -6253,10 +6257,12 @@ namespace basist
 	static const etc1s_to_atc_solution g_etc1s_to_pvrtc2_45[32 * 8 * NUM_ETC1S_TO_ATC_SELECTOR_MAPPINGS * NUM_ETC1S_TO_ATC_SELECTOR_RANGES] = {
 #include "basisu_transcoder_tables_pvrtc2_45.inc"
 	};
-		
+
+#if 0 // table not used
 	static const etc1s_to_atc_solution g_etc1s_to_pvrtc2_alpha_33[32 * 8 * NUM_ETC1S_TO_ATC_SELECTOR_MAPPINGS * NUM_ETC1S_TO_ATC_SELECTOR_RANGES] = {
 #include "basisu_transcoder_tables_pvrtc2_alpha_33.inc"
 	};
+#endif
 #endif
 
 	static const etc1s_to_atc_solution g_etc1s_to_atc_55[32 * 8 * NUM_ETC1S_TO_ATC_SELECTOR_MAPPINGS * NUM_ETC1S_TO_ATC_SELECTOR_RANGES] = {
@@ -7166,7 +7172,7 @@ namespace basist
 
 	typedef struct { float c[4]; } vec4F;
 
-	static inline int32_t clampi(int32_t value, int32_t low, int32_t high) { if (value < low) value = low; else if (value > high) value = high;	return value; }
+	//static inline int32_t clampi(int32_t value, int32_t low, int32_t high) { if (value < low) value = low; else if (value > high) value = high;	return value; }
 	static inline float clampf(float value, float low, float high) { if (value < low) value = low; else if (value > high) value = high;	return value; }
 	static inline float saturate(float value) { return clampf(value, 0, 1.0f); }
 	static inline vec4F* vec4F_set_scalar(vec4F* pV, float x) { pV->c[0] = x; pV->c[1] = x; pV->c[2] = x;	pV->c[3] = x;	return pV; }
@@ -7646,7 +7652,7 @@ namespace basist
 
 					uint32_t m = (le * 5 + he * 3) / 8;
 
-					int err = labs((int)v - (int)m);
+					int err = (int)labs((int)v - (int)m);
 					if (err < lowest_err)
 					{
 						lowest_err = err;
@@ -7669,7 +7675,7 @@ namespace basist
 				uint32_t le = (l << 1);
 				le = (le << 4) | le;
 
-				int err = labs((int)v - (int)le);
+				int err = (int)labs((int)v - (int)le);
 				if (err < lowest_err)
 				{
 					lowest_err = err;
@@ -7691,7 +7697,7 @@ namespace basist
 				uint32_t he = (h << 1) | 1;
 				he = (he << 4) | he;
 
-				int err = labs((int)v - (int)he);
+				int err = (int)labs((int)v - (int)he);
 				if (err < lowest_err)
 				{
 					lowest_err = err;
@@ -7720,7 +7726,7 @@ namespace basist
 
 					uint32_t m = (le * 5 + he * 3) / 8;
 
-					int err = labs((int)v - (int)m);
+					int err = (int)labs((int)v - (int)m);
 					if (err < lowest_err)
 					{
 						lowest_err = err;
@@ -7750,7 +7756,7 @@ namespace basist
 
 					uint32_t m = (le * 5 + he * 3) / 8;
 
-					int err = labs((int)v - (int)m);
+					int err = (int)labs((int)v - (int)m);
 					if (err < lowest_err)
 					{
 						lowest_err = err;
@@ -8134,7 +8140,7 @@ namespace basist
 	}
 
 	bool basisu_lowlevel_transcoder::transcode_slice(void* pDst_blocks, uint32_t num_blocks_x, uint32_t num_blocks_y, const uint8_t* pImage_data, uint32_t image_data_size, block_format fmt,
-		uint32_t output_block_or_pixel_stride_in_bytes, bool bc1_allow_threecolor_blocks, const basis_file_header& header, const basis_slice_desc& slice_desc, uint32_t output_row_pitch_in_blocks_or_pixels,
+		uint32_t output_block_or_pixel_stride_in_bytes, bool bc1_allow_threecolor_blocks, const bool is_video, const bool alpha_flag, const uint32_t level_index, const uint32_t orig_width, const uint32_t orig_height, uint32_t output_row_pitch_in_blocks_or_pixels,
 		basisu_transcoder_state* pState, bool transcode_alpha, void *pAlpha_blocks, uint32_t output_rows_in_pixels)
 	{
 		(void)transcode_alpha;
@@ -8143,17 +8149,16 @@ namespace basist
 		if (!pState)
 			pState = &m_def_state;
 
-		const bool is_video = (header.m_tex_type == cBASISTexTypeVideoFrames);
 		const uint32_t total_blocks = num_blocks_x * num_blocks_y;
 
 		if (!output_row_pitch_in_blocks_or_pixels)
 		{
 			if (basis_block_format_is_uncompressed(fmt))
-				output_row_pitch_in_blocks_or_pixels = slice_desc.m_orig_width;
+				output_row_pitch_in_blocks_or_pixels = orig_width;
 			else
 			{
 				if (fmt == block_format::cFXT1_RGB)
-					output_row_pitch_in_blocks_or_pixels = (slice_desc.m_orig_width + 7) / 8;
+					output_row_pitch_in_blocks_or_pixels = (orig_width + 7) / 8;
 				else
 					output_row_pitch_in_blocks_or_pixels = num_blocks_x;
 			}
@@ -8162,16 +8167,13 @@ namespace basist
 		if (basis_block_format_is_uncompressed(fmt))
 		{
 			if (!output_rows_in_pixels)
-				output_rows_in_pixels = slice_desc.m_orig_height;
+				output_rows_in_pixels = orig_height;
 		}
 		
 		std::vector<uint32_t>* pPrev_frame_indices = nullptr;
 		if (is_video)
 		{
 			// TODO: Add check to make sure the caller hasn't tried skipping past p-frames
-			const bool alpha_flag = (slice_desc.m_flags & cSliceDescFlagsIsAlphaData) != 0;
-			const uint32_t level_index = slice_desc.m_level_index;
-
 			if (level_index >= basisu_transcoder_state::cMaxPrevFrameLevels)
 			{
 				BASISU_DEVEL_ERROR("basisu_lowlevel_transcoder::transcode_slice: unsupported level_index\n");
@@ -9585,7 +9587,7 @@ namespace basist
 		return -1;
 	}
 
-	static void write_opaque_alpha_blocks(
+	void basisu_transcoder::write_opaque_alpha_blocks(
 		uint32_t num_blocks_x, uint32_t num_blocks_y,
 		void* pOutput_blocks, uint32_t output_blocks_buf_size_in_blocks_or_pixels, block_format fmt,
 		uint32_t block_stride_in_bytes, uint32_t output_row_pitch_in_blocks_or_pixels)
