@@ -29,9 +29,9 @@ A few texture formats (such as AMD/ATI's ATC texture format, or PVRTC2) were not
 
 ASTC usage falls under ARM's [END USER LICENCE AGREEMENT FOR THE MALI ASTC SPECIFICATION AND SOFTWARE CODEC license agreement](https://github.com/ARM-software/astc-encoder/blob/master/LICENSE.md). 
 
-PVRTC1/2: See the [PVRTC Specification and User Guide](https://www.imgtec.com/downloads/download-info/pvrtc-texture-compression-user-guide-2/). Imagination Technologies Limited, 23 Nov 2018. Also see the [Khronos Data Format Specification](https://www.khronos.org/registry/DataFormat/specs/1.1/dataformat.1.1.html). See [PVR Texture Compression Exploration](https://roartindon.blogspot.com/2014/08/pvr-texture-compression-exploration.html) and [PvrTcCompressor](https://bitbucket.org/jthlim/pvrtccompressor/src). Also see [Texture Compression Techniques](http://sv-journal.org/2014-1/06/en/index.php?lang=en#7-3).
+PVRTC1/2: See the [PVRTC Specification and User Guide](https://www.imgtec.com/downloads/download-info/pvrtc-texture-compression-user-guide-2/). Imagination Technologies Limited, 23 Nov 2018. Also see the [Khronos Data Format Specification](https://www.khronos.org/registry/DataFormat/specs/1.3/dataformat.1.3.html). See [PVR Texture Compression Exploration](https://roartindon.blogspot.com/2014/08/pvr-texture-compression-exploration.html) and [PvrTcCompressor](https://bitbucket.org/jthlim/pvrtccompressor/src). Also see [Texture Compression Techniques](http://sv-journal.org/2014-1/06/en/index.php?lang=en#7-3).
 
-ETC1 and ETC2 EAC: See the [Khronos Data Format Specification](https://www.khronos.org/registry/DataFormat/specs/1.1/dataformat.1.1.html) and the [OpenGL 4.5 Core Profile](https://www.khronos.org/registry/OpenGL/specs/gl/glspec45.core.pdf) Appendix C.
+ETC1 and ETC2 EAC: See the [Khronos Data Format Specification](https://www.khronos.org/registry/DataFormat/specs/1.3/dataformat.1.3.html) and the [OpenGL 4.5 Core Profile](https://www.khronos.org/registry/OpenGL/specs/gl/glspec45.core.pdf) Appendix C.
 
 BC1-5,7: Part of Microsoft's Direct3D API technology. See [Texture Block Compression in Direct3D 11](https://docs.microsoft.com/en-us/windows/win32/direct3d11/texture-block-compression-in-direct3d-11). Also see the [squish library](https://github.com/Ethatron/squish-ccr).
 
