@@ -35,7 +35,8 @@ enum tool_mode
 	cCompress,
 	cValidate,
 	cUnpack,
-	cCompare
+	cCompare,
+	cVersion,
 };
 
 static void print_usage()
@@ -47,6 +48,7 @@ static void print_usage()
 		" -unpack: Use transcoder to unpack .basis file to one or more .ktx/.png files\n"
 		" -validate: Validate and display information about a .basis file\n"
 		" -compare: Compare two PNG images specified with -file, output PSNR and SSIM statistics and RGB/A delta images\n"
+		" -version: Print basisu version and exit\n"
 		"Unless an explicit mode is specified, if one or more files have the .basis extension this tool defaults to unpack mode.\n"
 		"\n"
 		"Important: By default, the compressor assumes the input is in the sRGB colorspace (like photos/albedo textures).\n"
@@ -250,6 +252,8 @@ public:
 				m_mode = cUnpack;
 			else if (strcasecmp(pArg, "-validate") == 0)
 				m_mode = cValidate;
+			else if (strcasecmp(pArg, "-version") == 0)
+				m_mode = cVersion;
 			else if (strcasecmp(pArg, "-compare_ssim") == 0)
 				m_compare_ssim = true;
 			else if (strcasecmp(pArg, "-file") == 0)
@@ -1506,6 +1510,9 @@ static int main_internal(int argc, const char **argv)
 		break;
 	case cCompare:
 		status = compare_mode(opts);
+		break;
+	case cVersion:
+		status = true; // We printed the version at the beginning of main_internal
 		break;
 	default:
 		assert(0);
