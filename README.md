@@ -366,7 +366,7 @@ Device's/API's supporting PVRTC2: The real-time PVRTC2 RGBA transcoder can only 
 
 3. For high quality tangent space normal maps, here's one suggested solution that should work well today:
 
-Compress with the -normal_map flag, which disables a lot of stuff that has interfered with normal maps in the past. Also compress with -level 2-4, which creates the highest quality codebooks. Use larger codebooks (use the -max_endpoints and -max_selectors options directly, with larger values).
+Compress with the -normal_map flag, which disables a lot of stuff that has interfered with normal maps in the past. Also compress with -comp_level 2-4, which creates the highest quality codebooks. Use larger codebooks (use the -max_endpoints and -max_selectors options directly, with larger values).
 
 Start with 2 component normalized XY tangent space normal maps (where XY range from [-1,1]) and encode them into two 8-bit channels (where XY is packed into [0,255]). Now put X in color, and Y in alpha, and compress that 32-bit PNG using basisu. The command line tool and encoder class support the option "-seperate_rg_to_color_alpha" that swizzles 2 component RG normal maps to RRRG before compression, aiding this process.
 
