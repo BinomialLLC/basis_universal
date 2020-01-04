@@ -17,7 +17,7 @@ A simple asm.js Texture Video demo is [here](http://binomial.biz/TextureVideoTes
 
 **The "-q X" option controls the output quality.** The default is quality level 128. "-q 255" will increase quality quite a bit. If you want even higher quality, try "-max_selectors 16128 -max_endpoints 16128" instead of -q. -q internally tries to set the codebook sizes (or the # of quantization intervals for endpoints/selectors) for you. You need to experiment with the quality level on your content.
 
-For tangent space normal maps, you should seperate X into RGB and Y into Alpha, and provide the compressor with 32-bit/pixel input images. Or use the "-seperate_rg_to_color_alpha" command line option which does this for you. The internal texture format that Basis Universal uses (ETC1S) doesn't handle tangent space normal maps encoded into RGB well. You need to separate the channels and recover Z in the pixel shader using z=sqrt(1-x*x-y*y).
+For tangent space normal maps, you should seperate X into RGB and Y into Alpha, and provide the compressor with 32-bit/pixel input images. Or use the "-seperate_rg_to_color_alpha" command line option which does this for you. The internal texture format that Basis Universal uses (ETC1S) doesn't handle tangent space normal maps encoded into RGB well. You need to separate the channels and recover Z in the pixel shader using z=sqrt(1-x^2-y^2).
 
 ### 3rd party code dependencies
 
