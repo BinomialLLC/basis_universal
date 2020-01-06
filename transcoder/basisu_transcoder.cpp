@@ -76,18 +76,6 @@
 #define BASISD_SUPPORT_ETC2_EAC_RG11 1
 #endif
 
-#if BASISD_SUPPORT_PVRTC2
-#if !BASISD_SUPPORT_ATC
-#error BASISD_SUPPORT_ATC must be 1 if BASISD_SUPPORT_PVRTC2 is 1
-#endif
-#endif
-
-#if BASISD_SUPPORT_ATC
-#if !BASISD_SUPPORT_DXT5A
-#error BASISD_SUPPORT_DXT5A must be 1 if BASISD_SUPPORT_ATC is 1
-#endif
-#endif
-
 // If BASISD_SUPPORT_ASTC_HIGHER_OPAQUE_QUALITY is 1, opaque blocks will be transcoded to ASTC at slightly higher quality (higher than BC1), but the transcoder tables will be 2x as large.
 // This impacts grayscale and grayscale+alpha textures the most.
 #ifndef BASISD_SUPPORT_ASTC_HIGHER_OPAQUE_QUALITY
@@ -106,6 +94,18 @@
 
 #ifndef BASISD_SUPPORT_PVRTC2
 #define BASISD_SUPPORT_PVRTC2 1
+#endif
+
+#if BASISD_SUPPORT_PVRTC2
+#if !BASISD_SUPPORT_ATC
+#error BASISD_SUPPORT_ATC must be 1 if BASISD_SUPPORT_PVRTC2 is 1
+#endif
+#endif
+
+#if BASISD_SUPPORT_ATC
+#if !BASISD_SUPPORT_DXT5A
+#error BASISD_SUPPORT_DXT5A must be 1 if BASISD_SUPPORT_ATC is 1
+#endif
 #endif
 
 #define BASISD_WRITE_NEW_BC7_TABLES					0
@@ -146,7 +146,9 @@ namespace basisu
 
 namespace basist
 {
+#if BASISD_SUPPORT_BC7_MODE6_OPAQUE_ONLY
 #include "basisu_transcoder_tables_bc7_m6.inc"
+#endif
 
 #if BASISD_ENABLE_DEBUG_FLAGS
 	static uint32_t g_debug_flags = 0;

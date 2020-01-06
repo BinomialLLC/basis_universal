@@ -13,6 +13,12 @@ So far, we've compiled the code using MSVS 2019, under Ubuntu x64 using cmake wi
 
 A simple asm.js Texture Video demo is [here](http://binomial.biz/TextureVideoTest/).
 
+### Important Usage Notes
+
+**The "-q X" option controls the output quality.** The default is quality level 128. "-q 255" will increase quality quite a bit. If you want even higher quality, try "-max_selectors 16128 -max_endpoints 16128" instead of -q. -q internally tries to set the codebook sizes (or the # of quantization intervals for endpoints/selectors) for you. You need to experiment with the quality level on your content.
+
+For tangent space normal maps, you should separate X into RGB and Y into Alpha, and provide the compressor with 32-bit/pixel input images. Or use the "-separate_rg_to_color_alpha" command line option which does this for you. The internal texture format that Basis Universal uses (ETC1S) doesn't handle tangent space normal maps encoded into RGB well. You need to separate the channels and recover Z in the pixel shader using z=sqrt(1-x^2-y^2).
+
 ### 3rd party code dependencies
 
 The transcoder (in the "transcoder" directory) is a single .cpp source file library which has no 3rd party code dependencies.
@@ -29,9 +35,9 @@ A few texture formats (such as AMD/ATI's ATC texture format, or PVRTC2) were not
 
 ASTC usage falls under ARM's [END USER LICENCE AGREEMENT FOR THE MALI ASTC SPECIFICATION AND SOFTWARE CODEC license agreement](https://github.com/ARM-software/astc-encoder/blob/master/LICENSE.md). 
 
-PVRTC1/2: See the [PVRTC Specification and User Guide](https://www.imgtec.com/downloads/download-info/pvrtc-texture-compression-user-guide-2/). Imagination Technologies Limited, 23 Nov 2018. Also see the [Khronos Data Format Specification](https://www.khronos.org/registry/DataFormat/specs/1.1/dataformat.1.1.html). See [PVR Texture Compression Exploration](https://roartindon.blogspot.com/2014/08/pvr-texture-compression-exploration.html) and [PvrTcCompressor](https://bitbucket.org/jthlim/pvrtccompressor/src). Also see [Texture Compression Techniques](http://sv-journal.org/2014-1/06/en/index.php?lang=en#7-3).
+PVRTC1/2: See the [PVRTC Specification and User Guide](https://www.imgtec.com/downloads/download-info/pvrtc-texture-compression-user-guide-2/). Imagination Technologies Limited, 23 Nov 2018. Also see the [Khronos Data Format Specification](https://www.khronos.org/registry/DataFormat/specs/1.3/dataformat.1.3.html). See [PVR Texture Compression Exploration](https://roartindon.blogspot.com/2014/08/pvr-texture-compression-exploration.html) and [PvrTcCompressor](https://bitbucket.org/jthlim/pvrtccompressor/src). Also see [Texture Compression Techniques](http://sv-journal.org/2014-1/06/en/index.php?lang=en#7-3).
 
-ETC1 and ETC2 EAC: See the [Khronos Data Format Specification](https://www.khronos.org/registry/DataFormat/specs/1.1/dataformat.1.1.html) and the [OpenGL 4.5 Core Profile](https://www.khronos.org/registry/OpenGL/specs/gl/glspec45.core.pdf) Appendix C.
+ETC1 and ETC2 EAC: See the [Khronos Data Format Specification](https://www.khronos.org/registry/DataFormat/specs/1.3/dataformat.1.3.html) and the [OpenGL 4.5 Core Profile](https://www.khronos.org/registry/OpenGL/specs/gl/glspec45.core.pdf) Appendix C.
 
 BC1-5,7: Part of Microsoft's Direct3D API technology. See [Texture Block Compression in Direct3D 11](https://docs.microsoft.com/en-us/windows/win32/direct3d11/texture-block-compression-in-direct3d-11). Also see the [squish library](https://github.com/Ethatron/squish-ccr).
 
@@ -267,7 +273,7 @@ The ATC format (which achieves nearly the same quality as BC1/BC3) is for Adreno
 
 Internally, Basis files are composed of a non-uniform texture array of one or more 2D ETC1S texture "slices". ETC1S is a simple subset of the ETC1 texture format popular on Android. ETC1S has no block flips, no 4x2 or 2x4 subblocks, and each block only uses 555 base colors. ETC1S is still 100% standard ETC1, so transcoding to ETC1 or the color block of ETC2 is a no-op. We chose ETC1S because it has the very valuable property that it can be quickly transcoded to almost any other GPU texture format at very high quality using only simple per-block operations with small 1D lookup tables. Transcoding ETC1S to BC1 usually only introduces around .3 dB Y PSNR quality loss, with less loss for ETC1S->BC7. Transcoding to PVRTC1 involves only simple block level operations to compute the endpoints, and simple per-pixel scalar operations to compute the modulation values.
 
-Basis files have a single set of compressed global endpoint/selector codebooks in ETC1S format, which all slices utilize. The ETC1S texture data is compressed using vector quantization (VQ) seperately on the endpoints and selectors, followed by DPCM/RLE/psuedo-MTF/canonical Huffman coding. Each ETC1S texture slice may be a different resolution. Mipmaps (if any) are always stored in order from largest to smallest level. The file format supports either storing the selector codebook directly (using DPCM+Huffman), or storing the selector codebook using a hierarchical virtual codebook scheme. 
+Basis files have a single set of compressed global endpoint/selector codebooks in ETC1S format, which all slices utilize. The ETC1S texture data is compressed using vector quantization (VQ) separately on the endpoints and selectors, followed by DPCM/RLE/psuedo-MTF/canonical Huffman coding. Each ETC1S texture slice may be a different resolution. Mipmaps (if any) are always stored in order from largest to smallest level. The file format supports either storing the selector codebook directly (using DPCM+Huffman), or storing the selector codebook using a hierarchical virtual codebook scheme. 
 
 Once the codebook and Huffman tables are decompressed, the slices are randomly accessible in any order. Opaque files always have one slice per image mipmap level, and files with alpha channels always have two slices per image mipmap level (even if some images in the file don't have alpha channels, i.e. alpha is all or nothing at the file level). The transcoder abstracts these details away into a simple "image" API, which is what most callers will use. An image is either one or more RGB slices (one per mipmap level), or one or more pairs of RGB/A slices (two per mipmap level). Internally, alpha slices are also stored in ETC1S format, like the color data, so selector correlations across color/alpha can be exploited. This also allows both RGB and alpha slices to be transcoded to opaque-only texture formats like ETC1, BC1, or PVRTC1 with no transparency.
 
@@ -366,9 +372,9 @@ Device's/API's supporting PVRTC2: The real-time PVRTC2 RGBA transcoder can only 
 
 3. For high quality tangent space normal maps, here's one suggested solution that should work well today:
 
-Compress with the -normal_map flag, which disables a lot of stuff that has interfered with normal maps in the past. Also compress with -level 2-4, which creates the highest quality codebooks. Use larger codebooks (use the -max_endpoints and -max_selectors options directly, with larger values).
+Compress with the -normal_map flag, which disables a lot of stuff that has interfered with normal maps in the past. Also compress with -comp_level 2-4, which creates the highest quality codebooks. Use larger codebooks (use the -max_endpoints and -max_selectors options directly, with larger values).
 
-Start with 2 component normalized XY tangent space normal maps (where XY range from [-1,1]) and encode them into two 8-bit channels (where XY is packed into [0,255]). Now put X in color, and Y in alpha, and compress that 32-bit PNG using basisu. The command line tool and encoder class support the option "-seperate_rg_to_color_alpha" that swizzles 2 component RG normal maps to RRRG before compression, aiding this process.
+Start with 2 component normalized XY tangent space normal maps (where XY range from [-1,1]) and encode them into two 8-bit channels (where XY is packed into [0,255]). Now put X in color, and Y in alpha, and compress that 32-bit PNG using basisu. The command line tool and encoder class support the option "-separate_rg_to_color_alpha" that swizzles 2 component RG normal maps to RRRG before compression, aiding this process.
 
 ETC1 only devices/API's: Transcode to two ETC1 textures and sample them in a shader, or use an uncompressed format. You can either use one ETC1 texture that's twice as high/wide, or two separate ETC1 textures. The transcoder supports transcoding alpha slices to any color output format using a special flag: `basist::basisu_transcoder::cDecodeFlagsTranscodeAlphaDataToOpaqueFormats`. This will look great because each channel gets its own endpoints and selectors.
 

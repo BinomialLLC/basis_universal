@@ -1077,9 +1077,7 @@ namespace basisu
 		{
 			const uint8_vec &comp_data = m_basis_file.get_compressed_data();
 
-			std::string basis_filename(m_params.m_out_filename);
-			string_remove_extension(basis_filename);
-			basis_filename += ".basis";
+			const std::string& basis_filename = m_params.m_out_filename;
 
 			if (!write_vec_to_file(basis_filename.c_str(), comp_data))
 			{
