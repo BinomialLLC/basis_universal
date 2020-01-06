@@ -355,7 +355,12 @@ public:
 			else if (strcasecmp(pArg, "-force_alpha") == 0)
 				m_comp_params.m_force_alpha = true;
 			else if (strcasecmp(pArg, "-separate_rg_to_color_alpha") == 0)
-				m_comp_params.m_swizzle = "rrrg";
+			{
+				m_comp_params.m_swizzle[0] = 0;
+				m_comp_params.m_swizzle[1] = 0;
+				m_comp_params.m_swizzle[2] = 0;
+				m_comp_params.m_swizzle[3] = 1;
+			}
 			else if (strcasecmp(pArg, "-swizzle") == 0)
 			{
 				REMAINING_ARGS_CHECK(1);
@@ -367,13 +372,20 @@ public:
 				}
 				for (int i=0; i<4; ++i)
 				{
-					if (swizzle[i] != 'r' && swizzle[i] != 'g' && swizzle[i] != 'b' && swizzle[i] != 'a')
+					if (swizzle[i] == 'r')
+						m_comp_params.m_swizzle[i] = 0;
+					else if (swizzle[i] == 'g')
+						m_comp_params.m_swizzle[i] = 1;
+					else if (swizzle[i] == 'b')
+						m_comp_params.m_swizzle[i] = 2;
+					else if (swizzle[i] == 'a')
+						m_comp_params.m_swizzle[i] = 3;
+					else
 					{
-						error_printf("Swizzle must be one of r,g,b,a");
+						error_printf("Swizzle must be one of [rgba]");
 						return false;
 					}
 				}
-				m_comp_params.m_swizzle = swizzle;
 				arg_count++;
 			}
 			else if (strcasecmp(pArg, "-no_multithreading") == 0)

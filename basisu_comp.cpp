@@ -96,7 +96,11 @@ namespace basisu
 			debug_printf("m_userdata0: 0x%X, m_userdata1: 0x%X\n", m_params.m_userdata0, m_params.m_userdata1);
 			debug_printf("m_us_per_frame: %i (%f fps)\n", m_params.m_us_per_frame, m_params.m_us_per_frame ? 1.0f / (m_params.m_us_per_frame / 1000000.0f) : 0);
 
-			debug_printf("swizzle: %s\n", m_params.m_swizzle.c_str());
+			debug_printf("swizzle: %d,%d,%d,%d\n",
+				m_params.m_swizzle[0],
+				m_params.m_swizzle[1],
+				m_params.m_swizzle[2],
+				m_params.m_swizzle[3]);
 						
 #undef PRINT_BOOL_VALUE
 #undef PRINT_INT_VALUE
@@ -284,24 +288,20 @@ namespace basisu
 			}
 
 			bool alpha_swizzled = false;
-			if (m_params.m_swizzle.length() == 4)
+			if (m_params.m_swizzle[0] != 0 ||
+				m_params.m_swizzle[1] != 1 ||
+				m_params.m_swizzle[2] != 2 ||
+				m_params.m_swizzle[3] != 3)
 			{
-				int swizzle_table[4];
-				for (uint32_t i=0; i<4; ++i)
-				{
-					char c = m_params.m_swizzle[i];
-					swizzle_table[i] = (c == 'r' ? 0 : (c == 'g' ? 1 : (c == 'b' ? 2 : 3)));
-				}
-
 				// Apply swizzle to incoming data
 				for (uint32_t y = 0; y < file_image.get_height(); y++)
 					for (uint32_t x = 0; x < file_image.get_width(); x++)
 					{
 						const color_rgba &c = file_image(x, y);
-						file_image(x, y).set_noclamp_rgba(c[swizzle_table[0]], c[swizzle_table[1]], c[swizzle_table[2]], c[swizzle_table[3]]);
+						file_image(x, y).set_noclamp_rgba(c[m_params.m_swizzle[0]], c[m_params.m_swizzle[1]], c[m_params.m_swizzle[2]], c[m_params.m_swizzle[3]]);
 					}
 
-				alpha_swizzled = swizzle_table[3] != 3;
+				alpha_swizzled = m_params.m_swizzle[3] != 3;
 			}
 
 			bool has_alpha = false;
