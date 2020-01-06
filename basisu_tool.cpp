@@ -84,12 +84,8 @@ static void print_usage()
 		" -normal_map: Tunes codec parameters for better quality on normal maps (linear colorspace metrics, linear mipmap filtering, no selector RDO, no sRGB)\n"
 		" -no_alpha: Always output non-alpha basis files, even if one or more inputs has alpha\n"
 		" -force_alpha: Always output alpha basis files, even if no inputs has alpha\n"
-<<<<<<< HEAD
-		" -seperate_rg_to_color_alpha: Seperate input R and G channels to RGB and A (for tangent space XY normal maps)\n"
-		" -swizzle rgba: Apply a general swizzle operation to the incoming colour channels\n"
-=======
 		" -separate_rg_to_color_alpha: Separate input R and G channels to RGB and A (for tangent space XY normal maps)\n"
->>>>>>> master
+		" -swizzle rgba: Apply a general swizzle operation to the incoming colour channels\n"
 		" -no_multithreading: Disable multithreading\n"
 		" -no_ktx: Disable KTX writing when unpacking (faster)\n"
 		" -etc1_only: Only unpack to ETC1, skipping the other texture formats during -unpack\n"
@@ -373,7 +369,7 @@ public:
 				{
 					if (swizzle[i] != 'r' && swizzle[i] != 'g' && swizzle[i] != 'b' && swizzle[i] != 'a')
 					{
-						error_printf("Swizzle must specify one of r, g, b, a");
+						error_printf("Swizzle must be one of r,g,b,a");
 						return false;
 					}
 				}
