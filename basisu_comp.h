@@ -219,7 +219,7 @@ namespace basisu
 			m_check_for_alpha.clear();
 			m_force_alpha.clear();
 			m_multithreading.clear();
-			m_seperate_rg_to_color_alpha.clear();
+			m_swizzle = "";
 			m_hybrid_sel_cb_quality_thresh.clear();
 			m_global_pal_bits.clear();
 			m_global_mod_bits.clear();
@@ -310,8 +310,8 @@ namespace basisu
 		bool_param<false> m_force_alpha; 
 		bool_param<true> m_multithreading;
 		
-		// Split the R channel to RGB and the G channel to alpha, then write a basis file with alpha channels
-		bool_param<false> m_seperate_rg_to_color_alpha;
+		// Swizzle incoming channels
+		std::string m_swizzle;
 
 		bool_param<false> m_disable_hierarchical_endpoint_codebooks;
 

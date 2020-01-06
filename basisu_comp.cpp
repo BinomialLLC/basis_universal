@@ -68,7 +68,6 @@ namespace basisu
 			PRINT_BOOL_VALUE(m_compute_stats);
 			PRINT_BOOL_VALUE(m_check_for_alpha)
 			PRINT_BOOL_VALUE(m_force_alpha)
-			PRINT_BOOL_VALUE(m_seperate_rg_to_color_alpha);
 			PRINT_BOOL_VALUE(m_multithreading);
 			PRINT_BOOL_VALUE(m_disable_hierarchical_endpoint_codebooks);
 			
@@ -96,6 +95,8 @@ namespace basisu
 			debug_printf("m_tex_type: %u\n", m_params.m_tex_type);
 			debug_printf("m_userdata0: 0x%X, m_userdata1: 0x%X\n", m_params.m_userdata0, m_params.m_userdata1);
 			debug_printf("m_us_per_frame: %i (%f fps)\n", m_params.m_us_per_frame, m_params.m_us_per_frame ? 1.0f / (m_params.m_us_per_frame / 1000000.0f) : 0);
+
+			debug_printf("swizzle: %s\n", m_params.m_swizzle.c_str());
 						
 #undef PRINT_BOOL_VALUE
 #undef PRINT_INT_VALUE
@@ -282,19 +283,38 @@ namespace basisu
 				file_image = m_params.m_source_images[source_file_index];
 			}
 
-			if (m_params.m_seperate_rg_to_color_alpha)
+			bool swizzleAlpha = false;
+			if (m_params.m_swizzle.length() == 4)
 			{
+				const char *swizzle_chars[4] = { "0rx", "1gy", "2bz", "3aw" };
+				int swizzle_table[4] = { 0, 1, 2, 3 };
+				for (uint32_t i=0; i<4; ++i)
+				{
+					for (uint32_t j=0; j<4; ++j)
+					{
+						if (memchr(swizzle_chars[j], tolower(m_params.m_swizzle[i]), 3) != 0)
+						{
+							swizzle_table[i] = j;
+							break;
+						}
+					}
+				}
+
+				printf("swizzle=[%d,%d,%d,%d]\n", swizzle_table[0], swizzle_table[1], swizzle_table[2], swizzle_table[3]);
+
 				// Used for XY normal maps in RG - puts X in color, Y in alpha
 				for (uint32_t y = 0; y < file_image.get_height(); y++)
 					for (uint32_t x = 0; x < file_image.get_width(); x++)
 					{
 						const color_rgba &c = file_image(x, y);
-						file_image(x, y).set_noclamp_rgba(c.r, c.r, c.r, c.g);
+						file_image(x, y).set_noclamp_rgba(c[swizzle_table[0]], c[swizzle_table[1]], c[swizzle_table[2]], c[swizzle_table[3]]);
 					}
+
+				swizzleAlpha = swizzle_table[3] != 3;
 			}
-						
+
 			bool has_alpha = false;
-			if ((m_params.m_force_alpha) || (m_params.m_seperate_rg_to_color_alpha))
+			if (m_params.m_force_alpha || swizzleAlpha)
 				has_alpha = true;
 			else if (!m_params.m_check_for_alpha)
 				file_image.set_alpha(255);

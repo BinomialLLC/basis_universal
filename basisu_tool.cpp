@@ -83,6 +83,7 @@ static void print_usage()
 		" -no_alpha: Always output non-alpha basis files, even if one or more inputs has alpha\n"
 		" -force_alpha: Always output alpha basis files, even if no inputs has alpha\n"
 		" -seperate_rg_to_color_alpha: Seperate input R and G channels to RGB and A (for tangent space XY normal maps)\n"
+		" -swizzle rgba: Apply a general swizzle operation to the incoming colour channels\n"
 		" -no_multithreading: Disable multithreading\n"
 		" -no_ktx: Disable KTX writing when unpacking (faster)\n"
 		" -etc1_only: Only unpack to ETC1, skipping the other texture formats during -unpack\n"
@@ -350,7 +351,19 @@ public:
 			else if (strcasecmp(pArg, "-force_alpha") == 0)
 				m_comp_params.m_force_alpha = true;
 			else if (strcasecmp(pArg, "-seperate_rg_to_color_alpha") == 0)
-				m_comp_params.m_seperate_rg_to_color_alpha = true;
+				m_comp_params.m_swizzle = "gggr";
+			else if (strcasecmp(pArg, "-swizzle") == 0)
+			{
+				REMAINING_ARGS_CHECK(1);
+				const char *swizzle = arg_v[arg_index + 1];
+				if (strlen(swizzle) != 4)
+				{
+					error_printf("Swizzle requires exactly 4 characters\n");
+					return false;
+				}
+				m_comp_params.m_swizzle = swizzle;
+				arg_count++;
+			}
 			else if (strcasecmp(pArg, "-no_multithreading") == 0)
 			{
 				m_comp_params.m_multithreading = false;
