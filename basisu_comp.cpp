@@ -283,26 +283,17 @@ namespace basisu
 				file_image = m_params.m_source_images[source_file_index];
 			}
 
-			bool swizzleAlpha = false;
+			bool alpha_swizzled = false;
 			if (m_params.m_swizzle.length() == 4)
 			{
-				const char *swizzle_chars[4] = { "0rx", "1gy", "2bz", "3aw" };
-				int swizzle_table[4] = { 0, 1, 2, 3 };
+				int swizzle_table[4];
 				for (uint32_t i=0; i<4; ++i)
 				{
-					for (uint32_t j=0; j<4; ++j)
-					{
-						if (memchr(swizzle_chars[j], tolower(m_params.m_swizzle[i]), 3) != 0)
-						{
-							swizzle_table[i] = j;
-							break;
-						}
-					}
+					char c = m_params.m_swizzle[i];
+					swizzle_table[i] = (c == 'r' ? 0 : (c == 'g' ? 1 : (c == 'b' ? 2 : 3)));
 				}
 
-				printf("swizzle=[%d,%d,%d,%d]\n", swizzle_table[0], swizzle_table[1], swizzle_table[2], swizzle_table[3]);
-
-				// Used for XY normal maps in RG - puts X in color, Y in alpha
+				// Apply swizzle to incoming data
 				for (uint32_t y = 0; y < file_image.get_height(); y++)
 					for (uint32_t x = 0; x < file_image.get_width(); x++)
 					{
@@ -310,11 +301,11 @@ namespace basisu
 						file_image(x, y).set_noclamp_rgba(c[swizzle_table[0]], c[swizzle_table[1]], c[swizzle_table[2]], c[swizzle_table[3]]);
 					}
 
-				swizzleAlpha = swizzle_table[3] != 3;
+				alpha_swizzled = swizzle_table[3] != 3;
 			}
 
 			bool has_alpha = false;
-			if (m_params.m_force_alpha || swizzleAlpha)
+			if (m_params.m_force_alpha || alpha_swizzled)
 				has_alpha = true;
 			else if (!m_params.m_check_for_alpha)
 				file_image.set_alpha(255);

@@ -351,7 +351,7 @@ public:
 			else if (strcasecmp(pArg, "-force_alpha") == 0)
 				m_comp_params.m_force_alpha = true;
 			else if (strcasecmp(pArg, "-seperate_rg_to_color_alpha") == 0)
-				m_comp_params.m_swizzle = "gggr";
+				m_comp_params.m_swizzle = "rrrg";
 			else if (strcasecmp(pArg, "-swizzle") == 0)
 			{
 				REMAINING_ARGS_CHECK(1);
@@ -360,6 +360,14 @@ public:
 				{
 					error_printf("Swizzle requires exactly 4 characters\n");
 					return false;
+				}
+				for (int i=0; i<4; ++i)
+				{
+					if (swizzle[i] != 'r' && swizzle[i] != 'g' && swizzle[i] != 'b' && swizzle[i] != 'a')
+					{
+						error_printf("Swizzle must specify one of r, g, b, a");
+						return false;
+					}
 				}
 				m_comp_params.m_swizzle = swizzle;
 				arg_count++;
