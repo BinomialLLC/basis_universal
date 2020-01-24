@@ -219,6 +219,7 @@ namespace basisu
 			m_check_for_alpha.clear();
 			m_force_alpha.clear();
 			m_multithreading.clear();
+			m_renormalize.clear();
 			m_swizzle[0] = 0;
 			m_swizzle[1] = 1;
 			m_swizzle[2] = 2;
@@ -312,6 +313,8 @@ namespace basisu
 		// Always put alpha slices in the output basis file, even when the input doesn't have alpha
 		bool_param<false> m_force_alpha; 
 		bool_param<true> m_multithreading;
+
+		bool_param<false> m_renormalize;
 
 		// Swizzle incoming channels
 		char m_swizzle[4];
