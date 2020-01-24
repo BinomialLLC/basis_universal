@@ -96,6 +96,14 @@ namespace basisu
 			debug_printf("m_tex_type: %u\n", m_params.m_tex_type);
 			debug_printf("m_userdata0: 0x%X, m_userdata1: 0x%X\n", m_params.m_userdata0, m_params.m_userdata1);
 			debug_printf("m_us_per_frame: %i (%f fps)\n", m_params.m_us_per_frame, m_params.m_us_per_frame ? 1.0f / (m_params.m_us_per_frame / 1000000.0f) : 0);
+
+			PRINT_BOOL_VALUE(m_renormalize);
+
+			debug_printf("swizzle: %d,%d,%d,%d\n",
+				m_params.m_swizzle[0],
+				m_params.m_swizzle[1],
+				m_params.m_swizzle[2],
+				m_params.m_swizzle[3]);
 						
 #undef PRINT_BOOL_VALUE
 #undef PRINT_INT_VALUE
@@ -283,6 +291,17 @@ namespace basisu
 			}
 
 			if (m_params.m_seperate_rg_to_color_alpha)
+			// normalize source image
+			if (m_params.m_renormalize)
+			{
+				file_image.renormalize_normal_map();
+			}
+
+			bool alpha_swizzled = false;
+			if (m_params.m_swizzle[0] != 0 ||
+				m_params.m_swizzle[1] != 1 ||
+				m_params.m_swizzle[2] != 2 ||
+				m_params.m_swizzle[3] != 3)
 			{
 				// Used for XY normal maps in RG - puts X in color, Y in alpha
 				for (uint32_t y = 0; y < file_image.get_height(); y++)
