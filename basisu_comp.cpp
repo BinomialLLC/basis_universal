@@ -96,6 +96,8 @@ namespace basisu
 			debug_printf("m_userdata0: 0x%X, m_userdata1: 0x%X\n", m_params.m_userdata0, m_params.m_userdata1);
 			debug_printf("m_us_per_frame: %i (%f fps)\n", m_params.m_us_per_frame, m_params.m_us_per_frame ? 1.0f / (m_params.m_us_per_frame / 1000000.0f) : 0);
 
+			PRINT_BOOL_VALUE(m_renormalize);
+
 			debug_printf("swizzle: %d,%d,%d,%d\n",
 				m_params.m_swizzle[0],
 				m_params.m_swizzle[1],
@@ -285,6 +287,12 @@ namespace basisu
 			else
 			{
 				file_image = m_params.m_source_images[source_file_index];
+			}
+
+			// normalize source image
+			if (m_params.m_renormalize)
+			{
+				file_image.renormalize_normal_map();
 			}
 
 			bool alpha_swizzled = false;
