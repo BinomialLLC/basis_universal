@@ -361,33 +361,6 @@ public:
 			{
 				m_comp_params.m_renormalize = true;
 			}
-			else if (strcasecmp(pArg, "-swizzle") == 0)
-			{
-				REMAINING_ARGS_CHECK(1);
-				const char *swizzle = arg_v[arg_index + 1];
-				if (strlen(swizzle) != 4)
-				{
-					error_printf("Swizzle requires exactly 4 characters\n");
-					return false;
-				}
-				for (int i=0; i<4; ++i)
-				{
-					if (swizzle[i] == 'r')
-						m_comp_params.m_swizzle[i] = 0;
-					else if (swizzle[i] == 'g')
-						m_comp_params.m_swizzle[i] = 1;
-					else if (swizzle[i] == 'b')
-						m_comp_params.m_swizzle[i] = 2;
-					else if (swizzle[i] == 'a')
-						m_comp_params.m_swizzle[i] = 3;
-					else
-					{
-						error_printf("Swizzle must be one of [rgba]");
-						return false;
-					}
-				}
-				arg_count++;
-			}
 			else if (strcasecmp(pArg, "-no_multithreading") == 0)
 			{
 				m_comp_params.m_multithreading = false;
