@@ -901,17 +901,20 @@ namespace basisu
 							const float selector_remap_thresh = maximum(1.0f, m_params.m_selector_rdo_quality_thresh); //2.5f;
 							const bool use_strict_search = (m_params.m_compression_level == 0) && (selector_remap_thresh == 1.0f);
 
-							// selector_trials[s] represents the color block decoded assuming all selectors are equal to s
+							// selector_errors[s] represents the color error for each pixel assuming all selectors are equal to s
 							// this allows us to efficiently evaluate each pixel for any selector in the loop below without
-							// having to decode the entire block every time
-							color_rgba selector_trials[4][16];
+							// having to decode/compare the entire block every time
+							uint32_t selector_errors[4][16];
 
 							if (!use_strict_search)
 							{
 								for (uint32_t s = 0; s < 4; ++s)
 								{
 									etc_blk.set_all_selectors(s);
-									unpack_etc1(etc_blk, selector_trials[s]);
+									unpack_etc1(etc_blk, etc_blk_unpacked);
+
+									for (uint32_t p = 0; p < 16; p++)
+										selector_errors[s][p] = color_distance(r.get_params().m_perceptual, src_pixels.get_ptr()[p], etc_blk_unpacked[p], false);
 								}
 							}
 
@@ -937,10 +940,8 @@ namespace basisu
 									const uint64_t thresh_err = minimum((uint64_t)ceilf(cur_err * selector_remap_thresh), best_trial_err);
 									for (uint32_t p = 0; p < 16; p++)
 									{
-										// the color of pixel p, assuming the relevant selector is set to sel[p] - this effectively simulates decoding with sel
-										const color_rgba& selp = selector_trials[sel[p]][p];
-
-										trial_err += color_distance(r.get_params().m_perceptual, src_pixels.get_ptr()[p], selp, false);
+										// the error of pixel p, assuming the relevant selector is set to sel[p] - this effectively simulates decoding with sel
+										trial_err += selector_errors[sel[p]][p];
 										if (trial_err > thresh_err)
 											break;
 									}
