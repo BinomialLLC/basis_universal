@@ -287,6 +287,20 @@ namespace basisu
 			p[-2] |= (msb << byte_bit_ofs);
 		}
 
+		// Selector "val" ranges from 0-3 and is a direct index into g_etc1_inten_tables.
+		inline void set_all_selectors(uint32_t val)
+		{
+			assert(val < 4);
+
+			const uint32_t etc1_val = g_selector_index_to_etc1[val];
+
+			const uint32_t lsb = etc1_val & 1;
+			const uint32_t msb = etc1_val >> 1;
+
+			m_bytes[4] = m_bytes[5] = msb ? 0xff : 0;
+			m_bytes[6] = m_bytes[7] = lsb ? 0xff : 0;
+		}
+
 		inline uint32_t get_raw_selector_bits() const
 		{
 			return m_bytes[4] | (m_bytes[5] << 8) | (m_bytes[6] << 16) | (m_bytes[7] << 24);
