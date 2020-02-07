@@ -38,7 +38,7 @@ endfunction()
 
 function(build name enabled)
   build_target("${name}.wasm" "-s WASM=1" ${enabled})
-  build_target(${name} "-s WASM=0 -s SINGLE_FILE=1" ${enabled})
+  build_target(${name} "-s WASM=0 -s SINGLE_FILE=1 -s LEGACY_VM_SUPPORT=1" ${enabled})
 endFunction()
 
 if (EMSCRIPTEN)
