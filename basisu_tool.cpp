@@ -82,9 +82,11 @@ static void print_usage()
 		" -max_selectors X: Manually set the max number of color selector clusters from 1-16128, use instead of -q\n"
 		" -y_flip: Flip input images vertically before compression\n"
 		" -normal_map: Tunes codec parameters for better quality on normal maps (linear colorspace metrics, linear mipmap filtering, no selector RDO, no sRGB)\n"
+		" -renorm: Renormalize the input image before compression\n"
 		" -no_alpha: Always output non-alpha basis files, even if one or more inputs has alpha\n"
 		" -force_alpha: Always output alpha basis files, even if no inputs has alpha\n"
 		" -separate_rg_to_color_alpha: Separate input R and G channels to RGB and A (for tangent space XY normal maps)\n"
+		" -swizzle rgba: Specify swizzle operation for input color channels\n"
 		" -no_multithreading: Disable multithreading\n"
 		" -no_ktx: Disable KTX writing when unpacking (faster)\n"
 		" -etc1_only: Only unpack to ETC1, skipping the other texture formats during -unpack\n"
@@ -353,9 +355,44 @@ public:
 				m_comp_params.m_check_for_alpha = false;
 			else if (strcasecmp(pArg, "-force_alpha") == 0)
 				m_comp_params.m_force_alpha = true;
-			else if ((strcasecmp(pArg, "-separate_rg_to_color_alpha") == 0) ||
-			        (strcasecmp(pArg, "-seperate_rg_to_color_alpha") == 0)) // was mispelled for a while - whoops!
-				m_comp_params.m_seperate_rg_to_color_alpha = true;
+			else if (strcasecmp(pArg, "-separate_rg_to_color_alpha") == 0) // was mispelled for a while - whoops!
+			{
+				m_comp_params.m_swizzle[0] = 0;
+				m_comp_params.m_swizzle[1] = 0;
+				m_comp_params.m_swizzle[2] = 0;
+				m_comp_params.m_swizzle[3] = 1;
+			}
+			else if (strcasecmp(pArg, "-renorm") == 0)
+			{
+				m_comp_params.m_renormalize = true;
+			}
+			else if (strcasecmp(pArg, "-swizzle") == 0)
+			{
+				REMAINING_ARGS_CHECK(1);
+				const char *swizzle = arg_v[arg_index + 1];
+				if (strlen(swizzle) != 4)
+				{
+					error_printf("Swizzle requires exactly 4 characters\n");
+					return false;
+				}
+				for (int i=0; i<4; ++i)
+				{
+					if (swizzle[i] == 'r')
+						m_comp_params.m_swizzle[i] = 0;
+					else if (swizzle[i] == 'g')
+						m_comp_params.m_swizzle[i] = 1;
+					else if (swizzle[i] == 'b')
+						m_comp_params.m_swizzle[i] = 2;
+					else if (swizzle[i] == 'a')
+						m_comp_params.m_swizzle[i] = 3;
+					else
+					{
+						error_printf("Swizzle must be one of [rgba]");
+						return false;
+					}
+				}
+				arg_count++;
+			}
 			else if (strcasecmp(pArg, "-no_multithreading") == 0)
 			{
 				m_comp_params.m_multithreading = false;

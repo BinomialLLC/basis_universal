@@ -219,7 +219,11 @@ namespace basisu
 			m_check_for_alpha.clear();
 			m_force_alpha.clear();
 			m_multithreading.clear();
-			m_seperate_rg_to_color_alpha.clear();
+			m_renormalize.clear();
+			m_swizzle[0] = 0;
+			m_swizzle[1] = 1;
+			m_swizzle[2] = 2;
+			m_swizzle[3] = 3;
 			m_hybrid_sel_cb_quality_thresh.clear();
 			m_global_pal_bits.clear();
 			m_global_mod_bits.clear();
@@ -309,9 +313,11 @@ namespace basisu
 		// Always put alpha slices in the output basis file, even when the input doesn't have alpha
 		bool_param<false> m_force_alpha; 
 		bool_param<true> m_multithreading;
-		
-		// Split the R channel to RGB and the G channel to alpha, then write a basis file with alpha channels
-		bool_param<false> m_seperate_rg_to_color_alpha;
+
+		bool_param<false> m_renormalize;
+
+		// Swizzle incoming channels
+		char m_swizzle[4];
 
 		bool_param<false> m_disable_hierarchical_endpoint_codebooks;
 
