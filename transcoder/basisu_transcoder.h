@@ -139,7 +139,7 @@ namespace basist
 		bool decode_tables(const uint8_t *pTable_data, uint32_t table_data_size);
 
 		bool transcode_slice(void *pDst_blocks, uint32_t num_blocks_x, uint32_t num_blocks_y, const uint8_t *pImage_data, uint32_t image_data_size, block_format fmt, 
-			uint32_t output_block_or_pixel_stride_in_bytes, bool bc1_allow_threecolor_blocks, const basis_file_header &header, const basis_slice_desc& slice_desc, uint32_t output_row_pitch_in_blocks_or_pixels = 0,
+			int32_t output_block_or_pixel_stride_in_bytes, bool bc1_allow_threecolor_blocks, const basis_file_header &header, const basis_slice_desc& slice_desc, int32_t output_row_pitch_in_blocks_or_pixels,
 			basisu_transcoder_state *pState = nullptr, bool astc_transcode_alpha = false, void* pAlpha_blocks = nullptr, uint32_t output_rows_in_pixels = 0);
 
 	private:
@@ -317,7 +317,11 @@ namespace basist
 
 			// The output buffer contains alpha endpoint/selector indices. 
 			// Used internally when decoding formats like ASTC that require both color and alpha data to be available when transcoding to the output format.
-			cDecodeFlagsOutputHasAlphaIndices = 16
+			cDecodeFlagsOutputHasAlphaIndices = 16,
+
+			// Flip Y axis during decode, unless the file was already generated
+			// with the m_y_flipped flag set
+			cDecodeFlagsFlipY = 32,
 		};
 								
 		// transcode_image_level() decodes a single mipmap level from the .basis file to any of the supported output texture formats.
