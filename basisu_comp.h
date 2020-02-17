@@ -185,11 +185,12 @@ namespace basisu
 			m_max_selector_clusters(512),
 			m_quality_level(-1),
 			m_mip_scale(1.0f, .000125f, 4.0f),
+			m_mip_filter("kaiser"),
 			m_mip_smallest_dimension(1, 1, 16384),
 			m_compression_level((int)BASISU_DEFAULT_COMPRESSION_LEVEL, 0, (int)BASISU_MAX_COMPRESSION_LEVEL),
+			m_tex_type(basist::cBASISTexType2D),
 			m_pJob_pool(nullptr)
 		{
-			clear();
 		}
 
 		void clear()
