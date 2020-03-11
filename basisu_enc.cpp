@@ -21,6 +21,14 @@
 #include "basisu_bc7enc.h"
 #include "apg_bmp.h"
 
+#if defined(__SSE2__) || (defined(_MSC_VER) && (defined(_M_IX86) || defined(_M_X64)))
+#define USE_SSE2
+#endif
+
+#ifdef USE_SSE2
+#include <immintrin.h>
+#endif
+
 #if defined(_WIN32)
 // For QueryPerformanceCounter/QueryPerformanceFrequency
 #define WIN32_LEAN_AND_MEAN
@@ -1453,6 +1461,72 @@ namespace basisu
 		}
 
 		debug_printf("job_pool::job_thread: exiting\n");
+	}
+
+	int color_distance4(uint32_t result[4], bool perceptual, const color_rgba& e1, const color_rgba e2[4])
+	{
+#ifdef USE_SSE2
+        __m128i zeroi = _mm_setzero_si128();
+
+        __m128 e1_r = _mm_set1_ps(e1.r);
+        __m128 e1_g = _mm_set1_ps(e1.g);
+        __m128 e1_b = _mm_set1_ps(e1.b);
+
+        __m128i e2_raw = _mm_loadu_si128(reinterpret_cast<const __m128i*>(e2));
+
+        __m128i e2_01 = _mm_unpacklo_epi8(e2_raw, zeroi);
+        __m128i e2_23 = _mm_unpackhi_epi8(e2_raw, zeroi);
+
+        __m128i e2_0 = _mm_unpacklo_epi8(e2_01, zeroi);
+        __m128i e2_1 = _mm_unpackhi_epi8(e2_01, zeroi);
+        __m128i e2_2 = _mm_unpacklo_epi8(e2_23, zeroi);
+        __m128i e2_3 = _mm_unpackhi_epi8(e2_23, zeroi);
+
+        __m128 e2_r = _mm_cvtepi32_ps(e2_0);
+        __m128 e2_g = _mm_cvtepi32_ps(e2_1);
+        __m128 e2_b = _mm_cvtepi32_ps(e2_2);
+        __m128 e2_a = _mm_cvtepi32_ps(e2_3);
+
+        _MM_TRANSPOSE4_PS(e2_r, e2_g, e2_b, e2_a);
+
+        __m128 d_r = _mm_sub_ps(e1_r, e2_r);
+        __m128 d_g = _mm_sub_ps(e1_g, e2_g);
+        __m128 d_b = _mm_sub_ps(e1_b, e2_b);
+
+		if (perceptual)
+		{
+			__m128 d_l = _mm_add_ps(_mm_add_ps(_mm_mul_ps(d_r, _mm_set1_ps(0.2126f)), _mm_mul_ps(d_g, _mm_set1_ps(0.715f))), _mm_mul_ps(d_b, _mm_set1_ps(0.0722f)));
+			__m128 d_cr = _mm_sub_ps(d_r, d_l);
+			__m128 d_cb = _mm_sub_ps(d_b, d_l);
+
+			__m128 d =
+				_mm_add_ps(
+					_mm_mul_ps(_mm_mul_ps(d_l, d_l), _mm_set1_ps(32.0f * 4.0f)),
+					_mm_add_ps(
+						_mm_mul_ps(_mm_mul_ps(d_cr, d_cr), _mm_set1_ps(32.0f * 2.0f * (.5f / (1.0f - .2126f)) * (.5f / (1.0f - .2126f)))),
+						_mm_mul_ps(_mm_mul_ps(d_cb, d_cb), _mm_set1_ps(32.0f * .25f * (.5f / (1.0f - .0722f)) * (.5f / (1.0f - .0722f))))));
+
+			__m128i di = _mm_cvttps_epi32(d);
+
+			_mm_storeu_si128(reinterpret_cast<__m128i*>(result), di);
+		}
+		else
+		{
+			__m128 d = _mm_add_ps(_mm_mul_ps(d_r, d_r), _mm_add_ps(_mm_mul_ps(d_g, d_g), _mm_mul_ps(d_b, d_b)));
+			__m128i di = _mm_cvttps_epi32(d);
+
+			_mm_storeu_si128(reinterpret_cast<__m128i*>(result), di);
+		}
+#else
+		result[0] = color_distance(perceptual, e1, e2[0], false);
+		result[1] = color_distance(perceptual, e1, e2[1], false);
+		result[2] = color_distance(perceptual, e1, e2[2], false);
+		result[3] = color_distance(perceptual, e1, e2[3], false);
+#endif
+
+		int index0 = result[0] < result[1] ? 0 : 1;
+		int index1 = result[2] < result[3] ? 2 : 3;
+		return result[index0] < result[index1] ? index0 : index1;
 	}
 
 } // namespace basisu

@@ -387,18 +387,9 @@ namespace basisu
 					{
 						for (uint32_t x = 0; x < 4; x++)
 						{
-							uint32_t best_selector = 0;
-							uint64_t best_error = UINT64_MAX;
-
-							for (uint32_t s = 0; s < 4; s++)
-							{
-								uint64_t err = color_distance(perceptual, block_colors[s], pSource_pixels[x + (subblock * 2 + y) * 4], false);
-								if (err < best_error)
-								{
-									best_error = err;
-									best_selector = s;
-								}
-							}
+							uint32_t block_errors[4];
+							uint32_t best_selector = color_distance4(block_errors, perceptual, pSource_pixels[x + (subblock * 2 + y) * 4], block_colors);
+							uint32_t best_error = block_errors[best_selector];
 
 							set_selector(x, subblock * 2 + y, best_selector);
 
@@ -412,18 +403,9 @@ namespace basisu
 					{
 						for (uint32_t x = 0; x < 2; x++)
 						{
-							uint32_t best_selector = 0;
-							uint64_t best_error = UINT64_MAX;
-
-							for (uint32_t s = 0; s < 4; s++)
-							{
-								uint64_t err = color_distance(perceptual, block_colors[s], pSource_pixels[(subblock * 2) + x + y * 4], false);
-								if (err < best_error)
-								{
-									best_error = err;
-									best_selector = s;
-								}
-							}
+							uint32_t block_errors[4];
+							uint32_t best_selector = color_distance4(block_errors, perceptual, pSource_pixels[(subblock * 2) + x + y * 4], block_colors);
+							uint32_t best_error = block_errors[best_selector];
 
 							set_selector(subblock * 2 + x, y, best_selector);
 

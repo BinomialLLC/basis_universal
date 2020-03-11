@@ -1091,28 +1091,9 @@ namespace basisu
 				}
 				else
 				{
-					best_error = color_distance(m_pParams->m_perceptual, src_pixel, block_colors[0], false);
-
-					uint32_t trial_error = color_distance(m_pParams->m_perceptual, src_pixel, block_colors[1], false);
-					if (trial_error < best_error)
-					{
-						best_error = trial_error;
-						best_selector_index = 1;
-					}
-
-					trial_error = color_distance(m_pParams->m_perceptual, src_pixel, block_colors[2], false);
-					if (trial_error < best_error)
-					{
-						best_error = trial_error;
-						best_selector_index = 2;
-					}
-
-					trial_error = color_distance(m_pParams->m_perceptual, src_pixel, block_colors[3], false);
-					if (trial_error < best_error)
-					{
-						best_error = trial_error;
-						best_selector_index = 3;
-					}
+					uint32_t trial_errors[4];
+					best_selector_index = color_distance4(trial_errors, m_pParams->m_perceptual, src_pixel, block_colors);
+					best_error = trial_errors[best_selector_index];
 				}
 
 				m_temp_selectors[c] = static_cast<uint8_t>(best_selector_index);

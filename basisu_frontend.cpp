@@ -1110,8 +1110,6 @@ namespace basisu
 
 						uint64_t total_err = 0;
 
-						const uint32_t low_selector = 0;//subblock_etc_params_vec[j].m_low_selectors[0];
-						const uint32_t high_selector = 3;//subblock_etc_params_vec[j].m_high_selectors[0];
 						color_rgba subblock_colors[4];
 						// Can't assign it here - may result in too much error when selector quant occurs
 						if (cluster_etc_inten > m_endpoint_cluster_etc_params[cluster_index].m_inten_table[0])
@@ -1124,17 +1122,10 @@ namespace basisu
 
 						for (uint32_t p = 0; p < num_subblock_pixels; p++)
 						{
-							uint64_t best_err = UINT64_MAX;
+							uint32_t subblock_errors[4];
+							int best = color_distance4(subblock_errors, m_params.m_perceptual, subblock_pixels[p], subblock_colors);
 
-							for (uint32_t r = low_selector; r <= high_selector; r++)
-							{
-								uint64_t err = color_distance(m_params.m_perceptual, subblock_pixels[p], subblock_colors[r], false);
-								best_err = minimum(best_err, err);
-								if (!best_err)
-									break;
-							}
-
-							total_err += best_err;
+							total_err += subblock_errors[best];
 							if (total_err > best_cluster_err)
 								break;
 						} // p
@@ -1752,6 +1743,17 @@ namespace basisu
 					color_rgba trial_block_colors[4];
 					blk.get_block_colors(trial_block_colors, 0);
 
+					// precompute errors for the x,y block pixel and selector sel: [y][x][sel]
+					uint32_t trial_errors[4][4][4];
+
+					for (int y = 0; y < 4; y++)
+					{
+						for (int x = 0; x < 4; x++)
+						{
+							color_distance4(trial_errors[y][x], m_params.m_perceptual, pBlock_pixels[x + y * 4], trial_block_colors);
+						}
+					}
+
 					uint64_t best_cluster_err = UINT64_MAX;
 					uint32_t best_cluster_index = 0;
 
@@ -1773,7 +1775,7 @@ namespace basisu
 							{
 								const uint32_t sel = cluster_blk.get_selector(x, y);
 
-								trial_err += color_distance(m_params.m_perceptual, trial_block_colors[sel], pBlock_pixels[x + y * 4], false);
+								trial_err += trial_errors[y][x][sel];
 								if (trial_err > best_cluster_err)
 									goto early_out;
 							}

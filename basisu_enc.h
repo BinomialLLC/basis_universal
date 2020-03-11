@@ -748,25 +748,20 @@ namespace basisu
 	{
 		if (perceptual)
 		{
-			const float l1 = e1.r * .2126f + e1.g * .715f + e1.b * .0722f;
-			const float l2 = e2.r * .2126f + e2.g * .715f + e2.b * .0722f;
+			float dr = float(e1.r - e2.r);
+			float dg = float(e1.g - e2.g);
+			float db = float(e1.b - e2.b);
 
-			const float cr1 = e1.r - l1;
-			const float cr2 = e2.r - l2;
+			float dl = dr * .2126f + dg * .715f + db * .0722f;
+			float dcr = dr - dl;
+			float dcb = db - dl;
 
-			const float cb1 = e1.b - l1;
-			const float cb2 = e2.b - l2;
-
-			const float dl = l1 - l2;
-			const float dcr = cr1 - cr2;
-			const float dcb = cb1 - cb2;
-
-			uint32_t d = static_cast<uint32_t>(32.0f*4.0f*dl*dl + 32.0f*2.0f*(.5f / (1.0f - .2126f))*(.5f / (1.0f - .2126f))*dcr*dcr + 32.0f*.25f*(.5f / (1.0f - .0722f))*(.5f / (1.0f - .0722f))*dcb*dcb);
+			int d = static_cast<int>(32.0f*4.0f*dl*dl + 32.0f*2.0f*(.5f / (1.0f - .2126f))*(.5f / (1.0f - .2126f))*dcr*dcr + 32.0f*.25f*(.5f / (1.0f - .0722f))*(.5f / (1.0f - .0722f))*dcb*dcb);
 			
 			if (alpha)
 			{
 				int da = static_cast<int>(e1.a) - static_cast<int>(e2.a);
-				d += static_cast<uint32_t>(128.0f*da*da);
+				d += static_cast<int>(128.0f*da*da);
 			}
 
 			return d;
@@ -781,6 +776,8 @@ namespace basisu
 		const int da = a.a - b.a;
 		return dl * dl + da * da;
 	}
+
+	int color_distance4(uint32_t result[4], bool perceptual, const color_rgba& e1, const color_rgba e2[4]);
 
 	// String helpers
 
