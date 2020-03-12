@@ -153,6 +153,8 @@ namespace basisu
 			total_levels++;
 		}
 
+		assert(mips.size() == 1);
+
 #if BASISU_USE_STB_IMAGE_RESIZE_FOR_MIPMAP_GEN
 		// Requires stb_image_resize
 		stbir_filter filter = STBIR_FILTER_DEFAULT;
@@ -192,15 +194,21 @@ namespace basisu
 				level_img.renormalize_normal_map();
 		}
 #else
+		// To achieve high quality of the resulting mips, instead of downsampling the previous mip we downsample a larger mip
+		// To make the process reasonably performant, we don't start from the first mip every time, instead skipping K mips
+		const uint32_t level_skip = 3;
+
 		for (uint32_t level = 1; level < total_levels; level++)
 		{
 			const uint32_t level_width = maximum<uint32_t>(1, img.get_width() >> level);
 			const uint32_t level_height = maximum<uint32_t>(1, img.get_height() >> level);
 
+			const uint32_t source_level = maximum<uint32_t>(level, level_skip) - level_skip;
+
 			image &level_img = *enlarge_vector(mips, 1);
 			level_img.resize(level_width, level_height);
 
-			bool status = image_resample(img, level_img, m_params.m_mip_srgb, m_params.m_mip_filter.c_str(), m_params.m_mip_scale, m_params.m_mip_wrapping, 0, has_alpha ? 4 : 3);
+			bool status = image_resample(mips[source_level], level_img, m_params.m_mip_srgb, m_params.m_mip_filter.c_str(), m_params.m_mip_scale, m_params.m_mip_wrapping, 0, has_alpha ? 4 : 3);
 			if (!status)
 			{
 				error_printf("basis_compressor::generate_mipmaps: image_resample() failed!\n");
