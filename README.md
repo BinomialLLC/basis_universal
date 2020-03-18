@@ -11,7 +11,7 @@ The transcoder has been fuzz tested using [zzuf](https://www.linux.com/news/fuzz
 
 So far, we've compiled the code using MSVS 2019, under Ubuntu x64 using cmake with either clang 3.8 or gcc 5.4, and emscripten 1.35 to asm.js. (Be sure to use this version or later of emcc, as earlier versions fail with internal errors/exceptions during compilation.) The compressor is multithreaded by default, but this can be disabled using the -no_multithreading command line option. The transcoder is currently single threaded.
 
-Basis Universal supports "skip blocks" in compressed texture arrays, which makes it useful for basic compressed texture video applications. Note that Basis Universal is still at heart a GPU texture compression system, not a video codec, so bitrates will be larger than even MPEG1 (average .25-.5 bpp for ETC1S).
+Basis Universal supports "skip blocks" in compressed texture arrays, which makes it useful for basic compressed texture video applications. Note that Basis Universal is still at heart a GPU texture compression system, not a video codec, so bitrates will be larger than even MPEG1.
 
 ### Important Usage Notes
 
