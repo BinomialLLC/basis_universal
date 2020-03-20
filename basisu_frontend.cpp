@@ -744,20 +744,10 @@ namespace basisu
 						{
 							const color_rgba &c = cluster_pixels[i];
 
-							uint64_t best_err = UINT64_MAX;
-							//uint32_t best_index = 0;
+							uint32_t block_errors[4];
+							uint32_t best_index = color_distance4(block_errors, m_params.m_perceptual, c, block_colors);
 
-							for (uint32_t s = 0; s < 4; s++)
-							{
-								uint64_t err = color_distance(m_params.m_perceptual, c, block_colors[s], false);
-								if (err < best_err)
-								{
-									best_err = err;
-									//best_index = s;
-								}
-							}
-
-							total_err += best_err;
+							total_err += block_errors[best_index];
 						}
 
 						subblock_endpoint_quant_err quant_err;
@@ -977,20 +967,10 @@ namespace basisu
 							{
 								const color_rgba &c = cluster_pixels[i];
 
-								uint64_t best_err = UINT64_MAX;
-								//uint32_t best_index = 0;
+								uint32_t block_errors[4];
+								uint32_t best_index = color_distance4(block_errors, m_params.m_perceptual, c, block_colors);
 
-								for (uint32_t s = 0; s < 4; s++)
-								{
-									uint64_t err = color_distance(m_params.m_perceptual, c, block_colors[s], false);
-									if (err < best_err)
-									{
-										best_err = err;
-										//best_index = s;
-									}
-								}
-
-								total_err += best_err;
+								total_err += block_errors[best_index];
 							}
 
 							total_prev_err += total_err;
