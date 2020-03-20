@@ -20,7 +20,6 @@ THREE.BasisTextureLoader = function ( manager ) {
 
 	THREE.Loader.call( this, manager );
 
-  this.useAlpha = true;
 	this.transcoderPath = '';
 	this.transcoderBinary = null;
 	this.transcoderPending = null;
@@ -30,12 +29,11 @@ THREE.BasisTextureLoader = function ( manager ) {
 	this.workerNextTaskID = 1;
 	this.workerSourceURL = '';
 	this.workerConfig = {
-    format: null,
-    useAlpha: true,
-    astcSupported: false,
+		format: null,
+		astcSupported: false,
 		etcSupported: false,
 		dxtSupported: false,
-    pvrtcSupported: false,
+		pvrtcSupported: false,
 	};
 
 };
@@ -64,28 +62,33 @@ THREE.BasisTextureLoader.prototype = Object.assign( Object.create( THREE.Loader.
 
 		var config = this.workerConfig;
 
-    config.astcSupported = !! renderer.extensions.get( 'WEBGL_compressed_texture_astc' );
+		config.bc7Supported = !! renderer.extensions.get( 'EXT_texture_compression_bptc' );
+		config.astcSupported = !! renderer.extensions.get( 'WEBGL_compressed_texture_astc' );
 		config.etcSupported = !! renderer.extensions.get( 'WEBGL_compressed_texture_etc1' );
 		config.dxtSupported = !! renderer.extensions.get( 'WEBGL_compressed_texture_s3tc' );
 		config.pvrtcSupported = !! renderer.extensions.get( 'WEBGL_compressed_texture_pvrtc' )
-      || !! renderer.extensions.get( 'WEBKIT_WEBGL_compressed_texture_pvrtc' );
+			|| !! renderer.extensions.get( 'WEBKIT_WEBGL_compressed_texture_pvrtc' );
 
-    if (config.astcSupported) {
+		if ( config.astcSupported ) {
 
-      config.format = THREE.BasisTextureLoader.BASIS_FORMAT.cTFASTC_4x4;
+			config.format = THREE.BasisTextureLoader.BASIS_FORMAT.cTFASTC_4x4;
 
-    } else if ( config.dxtSupported ) {
+		} else if ( config.bc7Supported ) {
 
-			config.format = this.useAlpha ? THREE.BasisTextureLoader.BASIS_FORMAT.cTFBC3 : THREE.BasisTextureLoader.BASIS_FORMAT.cTFBC1;
+			config.format = THREE.BasisTextureLoader.BASIS_FORMAT.cTFBC7_M6_OPAQUE_ONLY;    
+
+		} else if ( config.dxtSupported ) {
+
+			config.format = THREE.BasisTextureLoader.BASIS_FORMAT.cTFBC3;
+
+		} else if ( config.etcSupported ) {
+
+			config.format = THREE.BasisTextureLoader.BASIS_FORMAT.cTFETC1;
 
 		} else if ( config.pvrtcSupported ) {
 
 			config.format = this.useAlpha ? THREE.BasisTextureLoader.BASIS_FORMAT.cTFPVRTC1_4_RGBA : THREE.BasisTextureLoader.BASIS_FORMAT.cTFPVRTC1_4_RGB;
-
-    } else if ( config.etcSupported ) {
-
-			config.format = THREE.BasisTextureLoader.BASIS_FORMAT.cTFETC1;
-
+    
 		} else {
 
 			throw new Error( 'THREE.BasisTextureLoader: No suitable compressed texture format found.' );
@@ -121,7 +124,9 @@ THREE.BasisTextureLoader.prototype = Object.assign( Object.create( THREE.Loader.
 		var worker;
 		var taskID;
 
-		var texturePending = this._getWorker()
+		var taskCost = buffer.byteLength;
+
+		var texturePending = this._allocateWorker( taskCost )
 			.then( ( _worker ) => {
 
 				worker = _worker;
@@ -130,8 +135,6 @@ THREE.BasisTextureLoader.prototype = Object.assign( Object.create( THREE.Loader.
 				return new Promise( ( resolve, reject ) => {
 
 					worker._callbacks[ taskID ] = { resolve, reject };
-					worker._taskCosts[ taskID ] = buffer.byteLength;
-					worker._taskLoad += worker._taskCosts[ taskID ];
 
 					worker.postMessage( { type: 'transcode', id: taskID, buffer }, [ buffer ] );
 
@@ -142,30 +145,35 @@ THREE.BasisTextureLoader.prototype = Object.assign( Object.create( THREE.Loader.
 
 				var config = this.workerConfig;
 
-				var { width, height, hasAlpha, mipmaps } = message;
+				var { width, height, mipmaps, format } = message;
 
 				var texture;
 
-        switch(config.format) {
-          case THREE.BasisTextureLoader.BASIS_FORMAT.cTFASTC_4x4:
-            texture = new THREE.CompressedTexture( mipmaps, width, height, THREE.BasisTextureLoader.COMPRESSED_RGBA_ASTC_4x4_KHR );
-            break;
-          case THREE.BasisTextureLoader.BASIS_FORMAT.cTFBC1:
-          case THREE.BasisTextureLoader.BASIS_FORMAT.cTFBC3:
-            texture = new THREE.CompressedTexture( mipmaps, width, height, THREE.BasisTextureLoader.DXT_FORMAT_MAP[ config.format ], THREE.UnsignedByteType );
-            break;
-          case THREE.BasisTextureLoader.BASIS_FORMAT.cTFETC1:
-            texture = new THREE.CompressedTexture( mipmaps, width, height, THREE.RGB_ETC1_Format );
-            break;
-          case THREE.BasisTextureLoader.BASIS_FORMAT.cTFPVRTC1_4_RGB:
-            texture = new THREE.CompressedTexture( mipmaps, width, height, THREE.RGB_PVRTC_4BPPV1_Format );
-            break;
-          case THREE.BasisTextureLoader.BASIS_FORMAT.cTFPVRTC1_4_RGBA:
-            texture = new THREE.CompressedTexture( mipmaps, width, height, THREE.RGBA_PVRTC_4BPPV1_Format );
-            break;
-          default:
-              throw new Error( 'THREE.BasisTextureLoader: No supported format available.' );
-        }
+				switch ( format ) {
+
+					case THREE.BasisTextureLoader.BASIS_FORMAT.cTFASTC_4x4:
+						texture = new THREE.CompressedTexture( mipmaps, width, height, THREE.RGBA_ASTC_4x4_Format );
+						break;
+					case THREE.BasisTextureLoader.BASIS_FORMAT.cTFBC7_M6_OPAQUE_ONLY:
+						texture = new THREE.CompressedTexture( mipmaps, width, height, THREE.BasisTextureLoader.COMPRESSED_RGBA_BPTC_UNORM );
+						break;
+					case THREE.BasisTextureLoader.BASIS_FORMAT.cTFBC1:
+					case THREE.BasisTextureLoader.BASIS_FORMAT.cTFBC3:
+						texture = new THREE.CompressedTexture( mipmaps, width, height, THREE.BasisTextureLoader.DXT_FORMAT_MAP[ config.format ], THREE.UnsignedByteType );
+						break;
+					case THREE.BasisTextureLoader.BASIS_FORMAT.cTFETC1:
+						texture = new THREE.CompressedTexture( mipmaps, width, height, THREE.RGB_ETC1_Format );
+						break;
+					case THREE.BasisTextureLoader.BASIS_FORMAT.cTFPVRTC1_4_RGB:
+						texture = new THREE.CompressedTexture( mipmaps, width, height, THREE.RGB_PVRTC_4BPPV1_Format );
+						break;
+					case THREE.BasisTextureLoader.BASIS_FORMAT.cTFPVRTC1_4_RGBA:
+						texture = new THREE.CompressedTexture( mipmaps, width, height, THREE.RGBA_PVRTC_4BPPV1_Format );
+						break;
+					default:
+						throw new Error( 'THREE.BasisTextureLoader: No supported format available.' );
+
+				}
 
 				texture.minFilter = mipmaps.length === 1 ? THREE.LinearFilter : THREE.LinearMipmapLinearFilter;
 				texture.magFilter = THREE.LinearFilter;
@@ -181,9 +189,8 @@ THREE.BasisTextureLoader.prototype = Object.assign( Object.create( THREE.Loader.
 
 				if ( worker && taskID ) {
 
-					worker._taskLoad -= worker._taskCosts[ taskID ];
+					worker._taskLoad -= taskCost;
 					delete worker._callbacks[ taskID ];
-					delete worker._taskCosts[ taskID ];
 
 				}
 
@@ -195,7 +202,7 @@ THREE.BasisTextureLoader.prototype = Object.assign( Object.create( THREE.Loader.
 
 	_initTranscoder: function () {
 
-		if ( ! this.transcoderBinary ) {
+		if ( ! this.transcoderPending ) {
 
 			// Load transcoder wrapper.
 			var jsLoader = new THREE.FileLoader( this.manager );
@@ -239,7 +246,7 @@ THREE.BasisTextureLoader.prototype = Object.assign( Object.create( THREE.Loader.
 
 	},
 
-	_getWorker: function () {
+	_allocateWorker: function ( taskCost ) {
 
 		return this._initTranscoder().then( () => {
 
@@ -248,10 +255,8 @@ THREE.BasisTextureLoader.prototype = Object.assign( Object.create( THREE.Loader.
 				var worker = new Worker( this.workerSourceURL );
 
 				worker._callbacks = {};
-				worker._taskCosts = {};
 				worker._taskLoad = 0;
 
-        this.workerConfig.useAlpha = this.useAlpha;
 				worker.postMessage( {
 					type: 'init',
 					config: this.workerConfig,
@@ -291,7 +296,11 @@ THREE.BasisTextureLoader.prototype = Object.assign( Object.create( THREE.Loader.
 
 			}
 
-			return this.workerPool[ this.workerPool.length - 1 ];
+			var worker = this.workerPool[ this.workerPool.length - 1 ];
+
+			worker._taskLoad += taskCost;
+
+			return worker;
 
 		} );
 
@@ -323,16 +332,16 @@ THREE.BasisTextureLoader.BASIS_FORMAT = {
 	cTFBC4: 4,
 	cTFBC5: 5,
 	cTFBC7_M6_OPAQUE_ONLY: 6,
-  cTFBC7_M5: 7,
-  cTFPVRTC1_4_RGB: 8,
-  cTFPVRTC1_4_RGBA: 9,
-  cTFASTC_4x4: 10,
-  cTFATC_RGB: 11,
-  cTFATC_RGBA_INTERPOLATED_ALPHA: 12,
-  cTFRGBA32: 13,
-  cTFRGB565: 14,
-  cTFBGR565: 15,
-  cTFRGBA4444: 16,
+	cTFBC7_M5: 7,
+	cTFPVRTC1_4_RGB: 8,
+	cTFPVRTC1_4_RGBA: 9,
+	cTFASTC_4x4: 10,
+	cTFATC_RGB: 11,
+	cTFATC_RGBA_INTERPOLATED_ALPHA: 12,
+	cTFRGBA32: 13,
+	cTFRGB565: 14,
+	cTFBGR565: 15,
+	cTFRGBA4444: 16,
 };
 
 // DXT formats, from:
@@ -347,11 +356,15 @@ THREE.BasisTextureLoader.DXT_FORMAT_MAP = {};
 THREE.BasisTextureLoader.DXT_FORMAT_MAP[ THREE.BasisTextureLoader.BASIS_FORMAT.cTFBC1 ] =
 	THREE.BasisTextureLoader.DXT_FORMAT.COMPRESSED_RGB_S3TC_DXT1_EXT;
 THREE.BasisTextureLoader.DXT_FORMAT_MAP[ THREE.BasisTextureLoader.BASIS_FORMAT.cTFBC3 ] =
-  THREE.BasisTextureLoader.DXT_FORMAT.COMPRESSED_RGBA_S3TC_DXT5_EXT;
+	THREE.BasisTextureLoader.DXT_FORMAT.COMPRESSED_RGBA_S3TC_DXT5_EXT;
 
-// ASTC formats, from:
+	// ASTC formats, from:
 // https://www.khronos.org/registry/webgl/extensions/WEBGL_compressed_texture_astc/
 THREE.BasisTextureLoader.COMPRESSED_RGBA_ASTC_4x4_KHR = 0x93B0;
+
+// BC7/BPTC format, from:
+// https://www.khronos.org/registry/webgl/extensions/EXT_texture_compression_bptc/
+THREE.BasisTextureLoader.COMPRESSED_RGBA_BPTC_UNORM = 0x8E8C;
 
 /* WEB WORKER */
 
@@ -377,7 +390,7 @@ THREE.BasisTextureLoader.BasisWorker = function () {
 
 					try {
 
-						var { width, height, hasAlpha, mipmaps } = transcode( message.buffer );
+						var { width, height, hasAlpha, mipmaps, format } = transcode( message.buffer );
 
 						var buffers = [];
 
@@ -387,7 +400,7 @@ THREE.BasisTextureLoader.BasisWorker = function () {
 
 						}
 
-						self.postMessage( { type: 'transcode', id: message.id, width, height, hasAlpha, mipmaps }, buffers );
+						self.postMessage( { type: 'transcode', id: message.id, width, height, hasAlpha, mipmaps, format }, buffers );
 
 					} catch ( error ) {
 
@@ -406,15 +419,15 @@ THREE.BasisTextureLoader.BasisWorker = function () {
 
 	function init( wasmBinary ) {
 
-    var m;
-    transcoderPending = new Promise( ( resolve ) => {
+		var BasisModule;
+		transcoderPending = new Promise( ( resolve ) => {
 
-      m = { wasmBinary, onRuntimeInitialized: resolve };
-			BASIS(m);
+			BasisModule = { wasmBinary, onRuntimeInitialized: resolve };
+			BASIS( BasisModule );
 
 		} ).then( () => {
 
-      var { BasisFile, initializeBasis } = m;
+			var { BasisFile, initializeBasis } = BasisModule;
 
 			_BasisFile = BasisFile;
 
@@ -430,13 +443,27 @@ THREE.BasisTextureLoader.BasisWorker = function () {
 
 		var width = basisFile.getImageWidth( 0, 0 );
 		var height = basisFile.getImageHeight( 0, 0 );
-    var levels = basisFile.getNumLevels( 0 );
-    var hasAlpha = basisFile.getHasAlpha();
+		var levels = basisFile.getNumLevels( 0 );
+		var hasAlpha = basisFile.getHasAlpha();
 
 		function cleanup() {
 
 			basisFile.close();
 			basisFile.delete();
+
+		}
+
+		if ( ! hasAlpha ) {
+
+			switch ( config.format ) {
+
+				case 9: // Hardcoded: THREE.BasisTextureLoader.BASIS_FORMAT.cTFPVRTC1_4_RGBA
+					config.format = 8; // Hardcoded: THREE.BasisTextureLoader.BASIS_FORMAT.cTFPVRTC1_4_RGB;
+					break;
+				default:
+					break;
+
+			}
 
 		}
 
@@ -466,9 +493,9 @@ THREE.BasisTextureLoader.BasisWorker = function () {
 				dst,
 				0,
 				mip,
-        config.format,
-        config.useAlpha,
-				0
+				config.format,
+				0,
+				hasAlpha
 			);
 
 			if ( ! status ) {
@@ -484,7 +511,7 @@ THREE.BasisTextureLoader.BasisWorker = function () {
 
 		cleanup();
 
-		return { width, height, hasAlpha, mipmaps };
+		return { width, height, hasAlpha, mipmaps, format: config.format };
 
 	}
 
