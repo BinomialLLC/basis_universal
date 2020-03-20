@@ -29,6 +29,7 @@ Rename this file to lodepng.cpp to use it for C++, or to lodepng.c to use it for
 */
 
 #ifdef _MSC_VER
+#define _CRT_SECURE_NO_DEPRECATE
 #pragma warning (disable : 4201)
 
 #ifndef BASISU_NO_ITERATOR_DEBUG_LEVEL

@@ -1,5 +1,5 @@
 // basisu_enc.cpp
-// Copyright (C) 2019 Binomial LLC. All Rights Reserved.
+// Copyright (C) 2019-2020 Binomial LLC. All Rights Reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,6 +18,8 @@
 #include "basisu_resampler_filters.h"
 #include "basisu_etc.h"
 #include "transcoder/basisu_transcoder.h"
+#include "basisu_bc7enc.h"
+#include "apg_bmp.h"
 
 #if defined(_WIN32)
 // For QueryPerformanceCounter/QueryPerformanceFrequency
@@ -54,6 +56,9 @@ namespace basisu
 	void basisu_encoder_init()
 	{
 		basist::basisu_transcoder_init();
+		pack_etc1_solid_color_init();
+		//uastc_init();
+		bc7enc_compress_block_init(); // must be after uastc_init()
 	}
 
 	void error_printf(const char *pFmt, ...)
@@ -108,7 +113,7 @@ namespace basisu
 #else
 #error TODO
 #endif
-
+				
 	interval_timer::interval_timer() : m_start_time(0), m_stop_time(0), m_started(false), m_stopped(false)
 	{
 		if (!g_timer_freq)
@@ -169,6 +174,61 @@ namespace basisu
 		return ticks * g_timer_freq;
 	}
 		
+	const uint32_t MAX_32BIT_ALLOC_SIZE = 250000000;
+
+	bool load_bmp(const char* pFilename, image& img)
+	{
+		int w = 0, h = 0;
+		unsigned int n_chans = 0;
+		unsigned char* pImage_data = apg_bmp_read(pFilename, &w, &h, &n_chans);
+				
+		if ((!pImage_data) || (!w) || (!h) || ((n_chans != 3) && (n_chans != 4)))
+		{
+			error_printf("Failed loading .BMP image \"%s\"!\n", pFilename);
+
+			if (pImage_data)
+				apg_bmp_free(pImage_data);
+						
+			return false;
+		}
+
+		if (sizeof(void *) == sizeof(uint32_t))
+		{
+			if ((w * h * n_chans) > MAX_32BIT_ALLOC_SIZE)
+			{
+				error_printf("Image \"%s\" is too large (%ux%u) to process in a 32-bit build!\n", pFilename, w, h);
+
+				if (pImage_data)
+					apg_bmp_free(pImage_data);
+
+				return false;
+			}
+		}
+		
+		img.resize(w, h);
+
+		const uint8_t *pSrc = pImage_data;
+		for (int y = 0; y < h; y++)
+		{
+			color_rgba *pDst = &img(0, y);
+
+			for (int x = 0; x < w; x++)
+			{
+				pDst->r = pSrc[0];
+				pDst->g = pSrc[1];
+				pDst->b = pSrc[2];
+				pDst->a = (n_chans == 3) ? 255 : pSrc[3];
+
+				pSrc += n_chans;
+				++pDst;
+			}
+		}
+
+		apg_bmp_free(pImage_data);
+
+		return true;
+	}
+		
 	bool load_png(const char* pFilename, image& img)
 	{
 		std::vector<uint8_t> buffer;
@@ -187,10 +247,9 @@ namespace basisu
 				return false;
 
 			const uint32_t exepected_alloc_size = w * h * sizeof(uint32_t);
-			
+	
 			// If the file is too large on 32-bit builds then just bail now, to prevent causing a memory exception.
-			const uint32_t MAX_ALLOC_SIZE = 250000000;
-			if (exepected_alloc_size >= MAX_ALLOC_SIZE)
+			if (exepected_alloc_size >= MAX_32BIT_ALLOC_SIZE)
 			{
 				error_printf("Image \"%s\" is too large (%ux%u) to process in a 32-bit build!\n", pFilename, w, h);
 				return false;
@@ -213,10 +272,31 @@ namespace basisu
 
 		return true;
 	}
+
+	bool load_image(const char* pFilename, image& img)
+	{
+		std::string ext(string_get_extension(std::string(pFilename)));
+
+		if (ext.length() == 0)
+			return false;
+
+		const char *pExt = ext.c_str();
+
+		if (strcasecmp(pExt, "png") == 0)
+			return load_png(pFilename, img);
+		if (strcasecmp(pExt, "bmp") == 0)
+			return load_bmp(pFilename, img);
+
+		return false;
+	}
 	
-	bool save_png(const char* pFilename, const image & img, uint32_t image_save_flags, uint32_t grayscale_comp)
+	bool save_png(const char* pFilename, const image &img, uint32_t image_save_flags, uint32_t grayscale_comp)
 	{
 		if (!img.get_total_pixels())
+			return false;
+
+		const uint32_t MAX_PNG_IMAGE_DIM = 32768;
+		if ((img.get_width() > MAX_PNG_IMAGE_DIM) || (img.get_height() > MAX_PNG_IMAGE_DIM))
 			return false;
 
 		std::vector<uint8_t> out;
@@ -231,16 +311,17 @@ namespace basisu
 				for (uint32_t x = 0; x < img.get_width(); x++)
 					*pDst++ = img(x, y)[grayscale_comp];
 
-			err = lodepng::encode(out, (const uint8_t*)& g_pixels[0], img.get_width(), img.get_height(), LCT_GREY, 8);
+			err = lodepng::encode(out, (const uint8_t*)&g_pixels[0], img.get_width(), img.get_height(), LCT_GREY, 8);
 		}
 		else
 		{
 			bool has_alpha = img.has_alpha();
 			if ((!has_alpha) || ((image_save_flags & cImageSaveIgnoreAlpha) != 0))
 			{
-				uint8_vec rgb_pixels(img.get_width() * 3 * img.get_height());
+				const uint64_t total_bytes = (uint64_t)img.get_width() * 3U * (uint64_t)img.get_height();
+				uint8_vec rgb_pixels(total_bytes);
 				uint8_t *pDst = &rgb_pixels[0];
-
+								
 				for (uint32_t y = 0; y < img.get_height(); y++)
 				{
 					for (uint32_t x = 0; x < img.get_width(); x++)
@@ -1171,9 +1252,9 @@ namespace basisu
 			total_values *= (double)clamp<uint32_t>(total_chans, 1, 4);
 
 		m_mean = (float)clamp<double>(sum / total_values, 0.0f, 255.0);
-		m_mean_squared = (float)clamp<double>(sum2 / total_values, 0.0f, 255.0 * 255.0);
+		m_mean_squared = (float)clamp<double>(sum2 / total_values, 0.0f, 255.0f * 255.0f);
 		m_rms = (float)sqrt(m_mean_squared);
-		m_psnr = m_rms ? (float)clamp<double>(log10(255.0 / m_rms) * 20.0, 0.0f, 300.0f) : 1e+10f;
+		m_psnr = m_rms ? (float)clamp<double>(log10(255.0 / m_rms) * 20.0f, 0.0f, 100.0f) : 100.0f;
 	}
 
 	void fill_buffer_with_random_bytes(void *pBuf, size_t size, uint32_t seed)
@@ -1253,8 +1334,8 @@ namespace basisu
 	}
 
 	job_pool::job_pool(uint32_t num_threads) : 
-		m_kill_flag(false),
-		m_num_active_jobs(0)
+		m_num_active_jobs(0),
+		m_kill_flag(false)
 	{
 		assert(num_threads >= 1U);
 

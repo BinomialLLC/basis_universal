@@ -25,6 +25,7 @@ extern "C"
   uint basis_get_image_transcoded_size_in_bytes(void *h, uint image_index, uint level_index, uint format);
   
   uint basis_start_transcoding(void *h);
+  uint basis_stop_transcoding(void *h);
   
   uint basis_transcode_image(void *h, void *dst, uint dst_size_in_bytes, 
   uint image_index, uint level_index, uint format, 
@@ -184,14 +185,16 @@ uint basis_get_image_transcoded_size_in_bytes(void *h, uint image_index, uint le
 	
 	if (format >= (int)transcoder_texture_format::cTFTotalTextureFormats)
 		return 0;
-	
-	uint bytes_per_block = basis_get_bytes_per_block((transcoder_texture_format)format);
-	
+			
 	uint orig_width, orig_height, total_blocks;	
 	if (!f->m_transcoder.get_image_level_desc(f->m_pFile, f->m_file_size, image_index, level_index, orig_width, orig_height, total_blocks))
 		return 0;
+   
+   uint bytes_per_block_or_pixel = basis_get_bytes_per_block_or_pixel((transcoder_texture_format)format);   
+   if (basis_transcoder_format_is_uncompressed((transcoder_texture_format)format))
+      return orig_width * orig_height * bytes_per_block_or_pixel;
 	
-	return total_blocks * bytes_per_block;
+	return total_blocks * bytes_per_block_or_pixel;
 }
 
 uint basis_start_transcoding(void *h)
@@ -205,6 +208,19 @@ uint basis_start_transcoding(void *h)
 		return 0;	
 		
 	return f->m_transcoder.start_transcoding(f->m_pFile, f->m_file_size);
+}
+
+uint basis_stop_transcoding(void *h)
+{
+	basis_file *f = static_cast<basis_file *>(h);
+	if (!f)
+		return 0;
+    
+	assert(f->m_magic == MAGIC);
+	if (f->m_magic != MAGIC)
+		return 0;	
+		
+	return f->m_transcoder.stop_transcoding();
 }
 
 uint basis_transcode_image(void *h, void *dst, uint dst_size_in_bytes, 
@@ -222,10 +238,10 @@ uint basis_transcode_image(void *h, void *dst, uint dst_size_in_bytes,
 	if (format >= (int)transcoder_texture_format::cTFTotalTextureFormats)
 		return 0;
 		
-	uint bytes_per_block = basis_get_bytes_per_block((transcoder_texture_format)format);
+	uint bytes_per_block = basis_get_bytes_per_block_or_pixel((transcoder_texture_format)format);
 	
 	return f->m_transcoder.transcode_image_level(f->m_pFile, f->m_file_size, image_index, level_index,
 		dst, dst_size_in_bytes / bytes_per_block,
 		(basist::transcoder_texture_format)format, 
-		(get_alpha_for_opaque_formats ? basisu_transcoder::cDecodeFlagsTranscodeAlphaDataToOpaqueFormats : 0));
+		(get_alpha_for_opaque_formats ? (uint32_t)cDecodeFlagsTranscodeAlphaDataToOpaqueFormats : 0));
 }

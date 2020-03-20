@@ -90,6 +90,10 @@ COMPRESSED_RGBA_S3TC_DXT1_EXT = 0x83F1;
 COMPRESSED_RGBA_S3TC_DXT3_EXT = 0x83F2;
 COMPRESSED_RGBA_S3TC_DXT5_EXT = 0x83F3;
 
+// BC7 format, from:
+// https://www.khronos.org/registry/webgl/extensions/EXT_texture_compression_bptc/
+COMPRESSED_RGBA_BPTC_UNORM = 0x8E8C;
+
 // ETC format, from:
 // https://www.khronos.org/registry/webgl/extensions/WEBGL_compressed_texture_etc1/
 COMPRESSED_RGB_ETC1_WEBGL = 0x8D64;
@@ -106,8 +110,7 @@ BASIS_FORMAT = {
   cTFBC3: 3,
   cTFBC4: 4,
   cTFBC5: 5,
-  cTFBC7_M6_OPAQUE_ONLY: 6,
-  cTFBC7_M5: 7,
+  cTFBC7: 6,
   cTFPVRTC1_4_RGB: 8,
   cTFPVRTC1_4_RGBA: 9,
   cTFASTC_4x4: 10,
@@ -127,10 +130,12 @@ for (var name in BASIS_FORMAT) {
 DXT_FORMAT_MAP = {};
 DXT_FORMAT_MAP[BASIS_FORMAT.cTFBC1] = COMPRESSED_RGB_S3TC_DXT1_EXT;
 DXT_FORMAT_MAP[BASIS_FORMAT.cTFBC3] = COMPRESSED_RGBA_S3TC_DXT5_EXT;
+DXT_FORMAT_MAP[BASIS_FORMAT.cTFBC7] = COMPRESSED_RGBA_BPTC_UNORM; 
 
 var astcSupported = false;
 var etcSupported = false;
 var dxtSupported = false;
+var bc7Supported = false;
 var pvrtcSupported = false;
 var drawMode = 0;
 
@@ -167,12 +172,20 @@ function dataLoaded(data)
     basisFile.delete();
     return;
   }
+  
+  // Note: If the file is UASTC, the preferred formats are ASTC/BC7.
+  // If the file is ETC1S and doesn't have alpha, the preferred formats are ETC1 and BC1. For alpha, the preferred formats are ETC2, BC3 or BC7. 
 
   var formatString = 'UNKNOWN';
   if (astcSupported)
   {
     formatString = 'ASTC';
     format = BASIS_FORMAT.cTFASTC_4x4;
+  }
+  else if (bc7Supported)
+  {
+    formatString = 'BC7';
+    format = BASIS_FORMAT.cTFBC7;
   }
   else if (dxtSupported)
   {
@@ -235,6 +248,8 @@ function dataLoaded(data)
 
   const dstSize = basisFile.getImageTranscodedSizeInBytes(0, 0, format);
   const dst = new Uint8Array(dstSize);
+  
+  log(dstSize);
 
 //  if (!basisFile.transcodeImage(dst, 0, 0, format, 1, 0)) {
   if (!basisFile.transcodeImage(dst, 0, 0, format, 0, 0)) {
@@ -272,7 +287,7 @@ function dataLoaded(data)
   {
     tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_4x4_KHR);
   }
-  else if ((format === BASIS_FORMAT.cTFBC3 || format === BASIS_FORMAT.cTFBC1))
+  else if ((format === BASIS_FORMAT.cTFBC3) || (format === BASIS_FORMAT.cTFBC1) || (format == BASIS_FORMAT.cTFBC7))
   {
      tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, DXT_FORMAT_MAP[format]);
   }
@@ -332,7 +347,7 @@ function viewAlpha() { drawMode = 2; redraw(); }
   <br>
   <br>
       .basis file:
-      <input id="file" type="text" size=30 value="assets/kodim20_1024x1024.basis"></input>
+      <input id="file" type="text" size=30 value="assets/kodim26_uastc_1024.basis"></input>
       <input type="button" value="Run!" onclick="runLoadFile()"></input>
   <br>
   <br>
@@ -357,11 +372,13 @@ function viewAlpha() { drawMode = 2; redraw(); }
     etcSupported = !!gl.getExtension('WEBGL_compressed_texture_etc1');
     dxtSupported = !!gl.getExtension('WEBGL_compressed_texture_s3tc');
     pvrtcSupported = !!(gl.getExtension('WEBGL_compressed_texture_pvrtc')) || !!(gl.getExtension('WEBKIT_WEBGL_compressed_texture_pvrtc'));
+    bc7Supported = !!gl.getExtension('EXT_texture_compression_bptc');
     
    // HACK HACK - for testing uncompressed
    //astcSupported = false;
    //etcSupported = false;
    //dxtSupported = false;
+   //bc7Supported = false;
    //pvrtcSupported = false;
 
     window.renderer = new Renderer(gl);

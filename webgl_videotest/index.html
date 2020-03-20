@@ -85,6 +85,7 @@ COMPRESSED_RGB_S3TC_DXT1_EXT  = 0x83F0;
 COMPRESSED_RGBA_S3TC_DXT1_EXT = 0x83F1;
 COMPRESSED_RGBA_S3TC_DXT3_EXT = 0x83F2;
 COMPRESSED_RGBA_S3TC_DXT5_EXT = 0x83F3;
+COMPRESSED_RGBA_BPTC_UNORM = 0x8E8C;
 
 BASIS_FORMAT = {
    
@@ -94,8 +95,7 @@ BASIS_FORMAT = {
 	cTFBC3: 3,
 	cTFBC4: 4,
 	cTFBC5: 5,		
-	cTFBC7_M6_OPAQUE_ONLY: 6,
-	cTFBC7_M5: 7,
+	cTFBC7: 6,
 	cTFPVRTC1_4_RGB: 8,
 	cTFPVRTC1_4_RGBA: 9,
 	
@@ -113,7 +113,7 @@ BASIS_FORMAT = {
 BASIS_DEBUG_FLAGS = {
 	DEBUG_FLAG_VIS_CR: 1,
 	DEBUG_FLAG_VIS_SELS: 2,
-   	DEBUG_FLAG_VIS_ENDPOINTS: 4
+  	DEBUG_FLAG_VIS_ENDPOINTS: 4
 };
 
 BASIS_FORMAT_NAMES = {};
@@ -124,8 +124,10 @@ for (var name in BASIS_FORMAT) {
 DXT_FORMAT_MAP = {};
 DXT_FORMAT_MAP[BASIS_FORMAT.cTFBC1] = COMPRESSED_RGB_S3TC_DXT1_EXT;
 DXT_FORMAT_MAP[BASIS_FORMAT.cTFBC3] = COMPRESSED_RGBA_S3TC_DXT5_EXT;
+DXT_FORMAT_MAP[BASIS_FORMAT.cTFBC7] = COMPRESSED_RGBA_BPTC_UNORM; 
 
 var dxtSupported = true;
+var bc7Supported = false;
 var drawMode = 0;
 
 var basisHandle = 0, src = 0, srcSize = 0; 
@@ -182,7 +184,7 @@ function transcodeFrame()
   {  
 	  tex = renderer.createDxtTexture(dxtData, alignedWidth, alignedHeight, DXT_FORMAT_MAP[format]);  
   }
-  else
+  else if (format == BASIS_FORMAT.cTFBC1)
   {
   	  var rgb565Data = dxtToRgb565(Module.HEAPU16, dst / 2, alignedWidth, alignedHeight);
 	  
@@ -199,8 +201,26 @@ var g_paused = false;
 var g_Framerate = 24.0;
 var g_targetFrame = 0.0;
 
+var g_dataLoadedCountDown;
+var g_receivedData;
+var forceBC1 = 0;
+
 function frame(now)
 {
+   if (g_dataLoadedCountDown > 0)
+   {
+      g_dataLoadedCountDown = g_dataLoadedCountDown - 1;
+      if (g_dataLoadedCountDown == 0)
+      {
+         if (g_receivedData)
+         {
+            transcode(g_receivedData);
+            g_receivedData = 0;
+         }
+      }
+   }
+
+
 	now *= 0.001;  // convert to seconds
     const deltaTime = now - then;
     then = now;
@@ -249,10 +269,8 @@ function frame(now)
 //	log('Here!');
 }
 
-function dataLoaded(data) 
+function transcode(data)
 {
-  log('Done loading .basis file, decoded header:');
-  
   Module._basis_init();
 
   if (basisHandle != 0)
@@ -296,18 +314,26 @@ function dataLoaded(data)
 	log('Failed getting info from basis file!');
     return;    
   }
-    
-  format = BASIS_FORMAT.cTFBC1;
-  if (has_alpha)
-  {
-  	format = BASIS_FORMAT.cTFBC3;
 
-	log('Decoding .basis data to BC3');
+  if ((bc7Supported) && (forceBC1 == 0))
+  {
+     format = BASIS_FORMAT.cTFBC7;
+     log('Decoding .basis data to BC7/BPTC');
   }
   else
   {
-  	log('Decoding .basis data to BC1');
-  }
+     format = BASIS_FORMAT.cTFBC1;
+     if (has_alpha)
+     {
+  	   format = BASIS_FORMAT.cTFBC3;
+     
+      log('Decoding .basis data to BC3');
+     }
+     else
+     {
+  	   log('Decoding .basis data to BC1');
+     }
+   }
 
   log('.basis file size: ' + srcSize);
   if (levels == 1)
@@ -337,12 +363,19 @@ function dataLoaded(data)
   }
   
   curImageIndex = 0;
+}
+
+function dataLoaded(data) 
+{
+  log('Done loading .basis file');
   
-  //transcodeFrame();
- 
-  //redraw();
+  if (bc7Supported)
+    log('EXT_texture_compression_bptc is supported!')
+  else
+    log('EXT_texture_compression_bptc is NOT supported!')
   
-  //requestAnimationFrame(frame);
+  g_dataLoadedCountDown=50;
+  g_receivedData=data;
 }
 
 /**
@@ -373,12 +406,19 @@ function run() {
 
 function initialize() {
   var gl = elem('canvas').getContext('experimental-webgl');
+
   // Load the DXT extension, and verify it exists.
+
   if (!gl.getExtension('WEBKIT_WEBGL_compressed_texture_s3tc') && !gl.getExtension('WEBGL_compressed_texture_s3tc')) {
     dxtSupported = false;
     elem('nodxt').style.display = 'block';
   }
-
+  
+  if (gl.getExtension('EXT_texture_compression_bptc'))
+    bc7Supported = true;  
+  else
+    bc7Supported = false;  
+  
   window.renderer = new Renderer(gl);
 
   elem('file').addEventListener('keydown', function(e) {
@@ -393,6 +433,7 @@ function initialize() {
 function alphaBlend() { drawMode = 0; redraw(); }
 function viewRGB() { drawMode = 1; redraw(); }
 function viewAlpha() { drawMode = 2; redraw(); }
+function forceBC1Func() { forceBC1 = 1 - forceBC1; run(); }
 
 function visCR() 
 { 
@@ -456,20 +497,18 @@ function rewind()
 <body onload="initialize()">
   <br>
   <div style="font-size: 24pt; font-weight: bold">
-    Basis Universal GPU Texture Video Transcoding Test (ETC1S->BC1)
+    Basis Universal GPU Texture Video UASTC->BC7 Transcoding Test
   </div>
 
   <div style="font-size: 8pt;">
-  <br>This demo uses the <a href="https://github.com/BinomialLLC/basis_universal">Basis C++ transcoder</a> (compiled to Javascript using Emscripten) to transcode a .basis Universal Texture Video file directly to BC1/BC3 texture data, with no intermediate recompression step.
-  <br>.basis universal GPU texture files can be quickly transcoded directly to any other GPU texture format with little to no quality loss. For static texture content, .basis files are 10-25% smaller than rate distortion optimized (RDO) <a href="http://richg42.blogspot.com/2018/05/some-basis-baseline-universal-format.html">ETC1S</a> texture data losslessly compressed using LZMA. For video, we achieve bitrates that are significantly lower (average .5bpp vs. 2-3bpp) than I-Frame only (BC1+LZ4) Texture Video approaches such as <a href="https://hap.video/">HAP</a>.
-  <br>Currently, video is a new use case for .basis files, so video encoding using the reference encoder is quite slow and can require a lot of memory (16-32GB) on larger videos, but it will be optimized over time.
-  <br>Compared to regular pixel-based video, texture video doesn't utilize the IDCT and doesn't require colorspace conversion, chroma upsampling, SIMD, or deblocking filters.</br>
+  <br>This demo uses the <a href="https://github.com/BinomialLLC/basis_universal">Basis C++ transcoder</a> (compiled to Javascript using Emscripten) to transcode a .basis Universal Texture Video file directly to GPU texture data, with no intermediate recompression step.
+  <br>.basis universal GPU texture files can be quickly transcoded directly to any other GPU texture format with little to no quality loss. 
   <br>Thanks to Evan Parker for providing <a href="https://github.com/toji/webgl-texture-utils">webgl-texture-utils</a> and this test bed.
   </div>
   <br>
   <br>
       .basis file:
-      <input id="file" type="text" size=30 value="kodim18.basis"></input>
+      <input id="file" type="text" size=30 value="kodim03.basis"></input>
       <input type="button" value="Run!" onclick="run()"></input>
   <br>
   <br>
@@ -477,7 +516,10 @@ function rewind()
       <input type="button" value="View RGB" onclick="viewRGB()"></input>
 	  <input type="button" value="View Alpha" onclick="viewAlpha()"></input>
   <br>
+  <br>
+     <input type="button" value="Force BC1" onclick="forceBC1Func()"></input>
   <br>	  
+  <br>
 	  <input type="button" value="Visualize CR's" onclick="visCR()"></input>
 	  <input type="button" value="Visualize Selectors" onclick="visSels()"></input>
 	  <input type="button" value="Visualize Endpoints" onclick="visEndpoints()"></input>

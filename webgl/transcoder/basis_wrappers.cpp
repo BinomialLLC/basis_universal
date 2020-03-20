@@ -130,7 +130,7 @@ struct basis_file
 	 else
 	 {
 		 // Compressed formats are 2D arrays of blocks.
-		 const uint32_t bytes_per_block = basis_get_bytes_per_block(transcoder_format);
+		 const uint32_t bytes_per_block = basis_get_bytes_per_block_or_pixel(transcoder_format);
 
 		 if (transcoder_format == transcoder_texture_format::cTFPVRTC1_4_RGB || transcoder_format == transcoder_texture_format::cTFPVRTC1_4_RGBA)
 		 {
@@ -144,6 +144,14 @@ struct basis_file
 
 		 return total_blocks * bytes_per_block;
 	 }
+  }
+  
+  bool isUASTC() {
+    assert(m_magic == MAGIC);
+    if (m_magic != MAGIC)
+      return false;
+
+    return m_transcoder.get_tex_format(m_file.data(), m_file.size()) == basis_tex_format::cUASTC4x4;
   }
 
   uint32_t startTranscoding() {
@@ -172,7 +180,7 @@ struct basis_file
 	  
 	  std::vector<uint8_t> dst_data;
 	  
-	  uint32_t flags = get_alpha_for_opaque_formats ? basisu_transcoder::cDecodeFlagsTranscodeAlphaDataToOpaqueFormats : 0;
+	  uint32_t flags = get_alpha_for_opaque_formats ? cDecodeFlagsTranscodeAlphaDataToOpaqueFormats : 0;
 
 	  uint32_t status;
 
@@ -195,7 +203,7 @@ struct basis_file
 	  }
 	  else
 	  {
-		  uint32_t bytes_per_block = basis_get_bytes_per_block(transcoder_format);
+		  uint32_t bytes_per_block = basis_get_bytes_per_block_or_pixel(transcoder_format);
 
 		  uint32_t required_size = total_blocks * bytes_per_block;
 
@@ -238,6 +246,9 @@ EMSCRIPTEN_BINDINGS(basis_transcoder) {
     }))
     .function("getHasAlpha", optional_override([](basis_file& self) {
       return self.getHasAlpha();
+    }))
+    .function("isUASTC", optional_override([](basis_file& self) {
+      return self.isUASTC();
     }))
     .function("getNumImages", optional_override([](basis_file& self) {
       return self.getNumImages();
