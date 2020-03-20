@@ -201,6 +201,7 @@ static void uivector_init(uivector* p) {
 /*returns 1 if success, 0 if failure ==> nothing done*/
 static unsigned uivector_push_back(uivector* p, unsigned c) {
   if(!uivector_resize(p, p->size + 1)) return 0;
+  if (!p->data) return 0;
   p->data[p->size - 1] = c;
   return 1;
 }
