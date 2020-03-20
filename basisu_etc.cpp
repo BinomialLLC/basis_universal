@@ -860,9 +860,9 @@ namespace basisu
 			const float avg_delta_r_f = static_cast<float>(delta_sum_r) / n;
 			const float avg_delta_g_f = static_cast<float>(delta_sum_g) / n;
 			const float avg_delta_b_f = static_cast<float>(delta_sum_b) / n;
-			const int br1 = clamp<int>(static_cast<uint32_t>((m_avg_color[0] - avg_delta_r_f) * m_limit / 255.0f + .5f), 0, m_limit);
-			const int bg1 = clamp<int>(static_cast<uint32_t>((m_avg_color[1] - avg_delta_g_f) * m_limit / 255.0f + .5f), 0, m_limit);
-			const int bb1 = clamp<int>(static_cast<uint32_t>((m_avg_color[2] - avg_delta_b_f) * m_limit / 255.0f + .5f), 0, m_limit);
+			const int br1 = clamp<int>(static_cast<int32_t>((m_avg_color[0] - avg_delta_r_f) * m_limit / 255.0f + .5f), 0, m_limit);
+			const int bg1 = clamp<int>(static_cast<int32_t>((m_avg_color[1] - avg_delta_g_f) * m_limit / 255.0f + .5f), 0, m_limit);
+			const int bb1 = clamp<int>(static_cast<int32_t>((m_avg_color[2] - avg_delta_b_f) * m_limit / 255.0f + .5f), 0, m_limit);
 
 #if BASISU_DEBUG_ETC_ENCODER_DEEPER
 			printf("Refinement trial %u, avg_delta %f %f %f\n", refinement_trial, avg_delta_r_f, avg_delta_g_f, avg_delta_b_f);
