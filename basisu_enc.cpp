@@ -24,6 +24,7 @@
 #if defined(_WIN32)
 // For QueryPerformanceCounter/QueryPerformanceFrequency
 #define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
 #include <windows.h>
 #endif
 
