@@ -3,27 +3,29 @@ Basis Universal Supercompressed GPU Texture Codec
 
 Basis Universal is a ["supercompressed"](http://gamma.cs.unc.edu/GST/gst.pdf) GPU texture compression system that outputs a highly compressed intermediate file format (.basis) that can be quickly transcoded to a [very wide variety](https://github.com/BinomialLLC/basis_universal/wiki/OpenGL-texture-format-enums-table) of GPU compressed and uncompressed pixel formats: ASTC 4x4 L/LA/RGB/RGBA, PVRTC1 4bpp RGB/RGBA, PVRTC2 RGB/RGBA, BC7 mode 6 RGB, BC7 mode 5 RGB/RGBA, BC1-5 RGB/RGBA/X/XY, ETC1 RGB, ETC2 RGBA, ATC RGB/RGBA, ETC2 EAC R11 and RG11, FXT1 RGB, and uncompressed raster image formats 8888/565/4444. 
 
+The system now supports two modes: a high quality mode which is internally based off the [UASTC compressed texture format](https://richg42.blogspot.com/2020/01/uastc-block-format-encoding.html), and the original lower quality mode which is based off a subset of ETC1 called "ETC1S". UASTC is for extremely high quality (similar to BC7 quality) textures, and ETC1S is for very small files. The ETC1S system includes built-in data compression, while the UASTC system includes an optional Rate Distortion Optimization (RDO) post-process stage that conditions the encoded UASTC texture data in the .basis file so it can be more effectively LZ compressed by the end user.
+
 Basis files support non-uniform texture arrays, so cubemaps, volume textures, texture arrays, mipmap levels, video sequences, or arbitrary texture "tiles" can be stored in a single file. The compressor is able to exploit color and pattern correlations across the entire file, so multiple images with mipmaps can be stored very efficiently in a single file.
 
-The system's bitrate depends on the quality setting and image content, but common usable bitrates are .3-1.25 bits/texel. .basis files are typically 10-25% smaller than using RDO texture compression of the internal texture data stored in the .basis file followed by LZMA. The current system is what we've been calling the "baseline" system, which is designed to reach all the GPU formats. The next major step is to extend the system to allow for much higher quality for the ASTC and BC7 texture formats. 
+The system's bitrate depends on the quality setting and image content, but common usable ETC1S bitrates are .3-1.25 bits/texel. ETC1S .basis files are typically 10-25% smaller than using RDO texture compression of the internal texture data stored in the .basis file followed by LZMA. For UASTC files, the bitrate is fixed at 8bpp, but with RDO post-processing and user-provided LZ compression on the .basis file the effective bitrate can be as low as 2bpp for video or for individual textures approximately 4-6bpp.
 
 The transcoder has been fuzz tested using [zzuf](https://www.linux.com/news/fuzz-testing-zzuf).
 
 So far, we've compiled the code using MSVS 2019, under Ubuntu x64 using cmake with either clang 3.8 or gcc 5.4, and emscripten 1.35 to asm.js. (Be sure to use this version or later of emcc, as earlier versions fail with internal errors/exceptions during compilation.) The compressor is multithreaded by default, but this can be disabled using the -no_multithreading command line option. The transcoder is currently single threaded.
 
-Basis Universal supports "skip blocks" in compressed texture arrays, which makes it useful for basic compressed texture video applications. Note that Basis Universal is still at heart a GPU texture compression system, not a video codec, so bitrates will be larger than even MPEG1.
+Basis Universal supports "skip blocks" in ETC1S compressed texture arrays, which makes it useful for basic [compressed texture video](http://gamma.cs.unc.edu/MPTC/) applications. Note that Basis Universal is still at heart a GPU texture compression system, not a video codec, so bitrates will be larger than even MPEG1.
 
 ### Important Usage Notes
 
-**The "-q X" option controls the output quality.** The default is quality level 128. "-q 255" will increase quality quite a bit. If you want even higher quality, try "-max_selectors 16128 -max_endpoints 16128" instead of -q. -q internally tries to set the codebook sizes (or the # of quantization intervals for endpoints/selectors) for you. You need to experiment with the quality level on your content.
+**The "-q X" option controls the output quality in ETC1S mode.** The default is quality level 128. "-q 255" will increase quality quite a bit. If you want even higher quality, try "-max_selectors 16128 -max_endpoints 16128" instead of -q. -q internally tries to set the codebook sizes (or the # of quantization intervals for endpoints/selectors) for you. You need to experiment with the quality level on your content.
 
 For tangent space normal maps, you should separate X into RGB and Y into Alpha, and provide the compressor with 32-bit/pixel input images. Or use the "-separate_rg_to_color_alpha" command line option which does this for you. The internal texture format that Basis Universal uses (ETC1S) doesn't handle tangent space normal maps encoded into RGB well. You need to separate the channels and recover Z in the pixel shader using z=sqrt(1-x^2-y^2).
 
 ### 3rd party code dependencies
 
-The transcoder (in the "transcoder" directory) is a single .cpp source file library which has no 3rd party code dependencies.
+The stand-alone transcoder (in the "transcoder" directory) is a single .cpp source file library which has no 3rd party code dependencies.
 
-The encoder uses [lodepng](https://lodev.org/lodepng/) for loading and saving PNG images, which is Copyright (c) 2005-2019 Lode Vandevenne. It uses the zlib license.
+The encoder uses [lodepng](https://lodev.org/lodepng/) for loading and saving PNG images, which is Copyright (c) 2005-2019 Lode Vandevenne. It uses the zlib license. It also uses [apg_bmp](https://github.com/capnramses/apg/tree/master/apg_bmp) for loading BMP images, which is Copyright 2019 Anton Gerdelan. It uses the Apache 2.0 license.
 
 The encoder uses [tcuAstcUtil.cpp](https://chromium.googlesource.com/external/deqp/+/refs/heads/master/framework/common/tcuAstcUtil.cpp), from the [Android drawElements Quality Program (deqp) Testing Suite](https://source.android.com/devices/graphics/deqp-testing), for unpacking the transcoder's ASTC output for testing/validation purposes. This code is Copyright 2016 The Android Open Source Project, and uses the Apache 2.0 license. We have modified the code so it has no external dependencies, and disabled HDR support.
 
@@ -48,6 +50,10 @@ FXT1: See the OpenGL extension [GL_3DFX_texture_compression_FXT1](https://www.kh
 Also see [Intel® Open Source HD Graphics Programmers' Reference Manual (PRM)](https://01.org/sites/default/files/documentation/intel-gfx-bspec-osrc-chv-bsw-vol05-memory-views.pdf). This reference manual details how to encode FXT1, ETC1, ETC2, EAC, DXT/BC1-3, BC4/5/7, and ASTC.
 
 ### Release notes
+
+3/14/20 release notes:
+- UASTC support is in. We have removed BC7 mode 6 support from the ETC1S transcoder to reduce its size, although the format enum still works (it aliases to BC7 mode 5). We are still updating the docs for UASTC.
+- Adding fuzz-safe BMP support using apg_bmp. We will be adding fuzz-safe JPEG and TGA next.
 
 9/26/19 release notes:
 - Automatic global selector palettes are disabled by default, because searching the virtual selector codebook is very slow.
@@ -93,11 +99,25 @@ cmake CMakeLists.txt
 make
 ```
 
-To compress a sRGB image to .basis:
+For Visual Studio 2019, you can now either use the CMakeLists.txt file or the included `basisu.sln` file.
+
+To compress a sRGB image to an ETC1S .basis file:
 
 `basisu x.png`
 
-Note that basisu defaults to sRGB colorspace metrics. If the input is a normal map, or some other type of non-sRGB (non-photographic) texture content, be sure to use -linear to avoid extra unnecessary artifacts.
+To compress a image to a higher quality UASTC .basis file:
+
+`basisu -uastc -uastc_level 2 x.png`
+
+To compress a image to a higher quality UASTC .basis file with RDO post processing, so the .basis file is more compressible:
+
+`basisu -uastc -uastc_level 2 -uast_rdo_q .75 x.png`
+
+-uastc_level X ranges from 0-4 and controls the UASTC encode'sr performance vs. quality tradeoff. Level 0 is very fast, but low quality, level 2 is the default quality, while level 3 is the highest practical quality. Level 4 is impractically slow, but highest quality.
+
+-uastc_rdo_q X controls the rate distortion stage's quality setting. The lower this value, the higher the quality, but the larger the compressed file size. Good values to try are between .2-3.0. The default is 1.0. RDO post-processing is currently pretty slow, but we'll be optimizing it over time.
+
+Note that basisu defaults to sRGB colorspace metrics. If the input is a normal map, or some other type of non-sRGB (non-photographic) texture content, be sure to use -linear to avoid extra unnecessary artifacts. (Note: Currently, UASTC mode always uses linear colorspace metrics. sRGB and angulate metrics are comming soon.)
 
 To add automatically generated mipmaps to the .basis file, at a higher than default quality level (which ranges from [1,255]):
 
@@ -105,7 +125,7 @@ To add automatically generated mipmaps to the .basis file, at a higher than defa
 
 There are several mipmap options that allow you to change the filter kernel, the filter colorspace for the RGB channels (linear vs. sRGB), the smallest mipmap dimension, etc. The tool also supports generating cubemap files, 2D/cubemap texture arrays, etc.
 
-To create a slightly higher quality .basis file (one with better codebooks) at the default quality level (128) - note this is much slower to encode:
+To create a slightly higher quality ETC1S .basis file (one with better codebooks) at the default quality level (128) - note this is much slower to encode:
 
 `basisu -comp_level 2 x.png`
 
@@ -145,7 +165,7 @@ If you are doing rate distortion comparisons vs. other similar systems, be sure 
 
 For video, level 1 should result in decent results on most clips. For less banding, level 2 can make a big difference. This is still an active area of development, and quality/encoding perf. will improve over time.
 
-### Compression levels (advanced option)
+### ETC1S Compression levels (advanced option)
 
 The encoder supports multiple compression "effort" levels using the "-comp_level X" command line option, where X ranges from [0,5]. Note that most users shouldn't be messing around with -comp_level. The -q option is the main option to control the quality level of .basis files. -comp_level is mostly intended for harder to handle content such as texture video. It modifies a number of internal encoder configuration parameters, which slows it down a bunch but allows it to achieve slightly higher quality per output bit.
 
@@ -249,10 +269,10 @@ To get development error messages printed to stdout when something goes wrong in
 
 These transcoder macros control which formats are supported by the transcoder at compile-time:
 
+- BASISD_SUPPORT_UASTC
 - BASISD_SUPPORT_DXT1 (BC1)
 - BASISD_SUPPORT_DXT5A (BC3/4/5)
 - BASISD_SUPPORT_BC7
-- BASISD_SUPPORT_BC7_MODE6_OPAQUE_ONLY
 - BASISD_SUPPORT_BC7_MODE5
 - BASISD_SUPPORT_PVRTC1
 - BASISD_SUPPORT_ETC2_EAC_A8
@@ -271,7 +291,7 @@ The ATC format (which achieves nearly the same quality as BC1/BC3) is for Adreno
 
 ### Quick Basis file details
 
-Internally, Basis files are composed of a non-uniform texture array of one or more 2D ETC1S texture "slices". ETC1S is a simple subset of the ETC1 texture format popular on Android. ETC1S has no block flips, no 4x2 or 2x4 subblocks, and each block only uses 555 base colors. ETC1S is still 100% standard ETC1, so transcoding to ETC1 or the color block of ETC2 is a no-op. We chose ETC1S because it has the very valuable property that it can be quickly transcoded to almost any other GPU texture format at very high quality using only simple per-block operations with small 1D lookup tables. Transcoding ETC1S to BC1 usually only introduces around .3 dB Y PSNR quality loss, with less loss for ETC1S->BC7. Transcoding to PVRTC1 involves only simple block level operations to compute the endpoints, and simple per-pixel scalar operations to compute the modulation values.
+Internally, Basis files are composed of a non-uniform texture array of one or more 2D ETC1S or UASTC texture "slices". ETC1S is a simple subset of the ETC1 texture format popular on Android. ETC1S has no block flips, no 4x2 or 2x4 subblocks, and each block only uses 555 base colors. ETC1S is still 100% standard ETC1, so transcoding to ETC1 or the color block of ETC2 is a no-op. We chose ETC1S because it has the very valuable property that it can be quickly transcoded to almost any other GPU texture format at very high quality using only simple per-block operations with small 1D lookup tables. Transcoding ETC1S to BC1 usually only introduces around .3 dB Y PSNR quality loss, with less loss for ETC1S->BC7. Transcoding to PVRTC1 involves only simple block level operations to compute the endpoints, and simple per-pixel scalar operations to compute the modulation values.
 
 Basis files have a single set of compressed global endpoint/selector codebooks in ETC1S format, which all slices utilize. The ETC1S texture data is compressed using vector quantization (VQ) separately on the endpoints and selectors, followed by DPCM/RLE/psuedo-MTF/canonical Huffman coding. Each ETC1S texture slice may be a different resolution. Mipmaps (if any) are always stored in order from largest to smallest level. The file format supports either storing the selector codebook directly (using DPCM+Huffman), or storing the selector codebook using a hierarchical virtual codebook scheme. 
 
