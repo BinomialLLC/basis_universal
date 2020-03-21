@@ -117,6 +117,8 @@ To compress a image to a higher quality UASTC .basis file with RDO post processi
 
 -uastc_rdo_q X controls the rate distortion stage's quality setting. The lower this value, the higher the quality, but the larger the compressed file size. Good values to try are between .2-3.0. The default is 1.0. RDO post-processing is currently pretty slow, but we'll be optimizing it over time.
 
+UASTC texture video is supported and has been tested. In RDO mode with 7zip LZMA, we've seen average bitrates between 1-2 bpp. ETC1S mode is recommended for texture video, which gets bitrates around .25-.3 bpp.
+
 Note that basisu defaults to sRGB colorspace metrics. If the input is a normal map, or some other type of non-sRGB (non-photographic) texture content, be sure to use -linear to avoid extra unnecessary artifacts. (Note: Currently, UASTC mode always uses linear colorspace metrics. sRGB and angulate metrics are comming soon.)
 
 To add automatically generated mipmaps to the .basis file, at a higher than default quality level (which ranges from [1,255]):
