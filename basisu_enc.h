@@ -27,6 +27,8 @@
 #include <libgen.h>
 #endif
 
+// This module is really just a huge grab bag of classes and helper functions needed by the encoder.
+
 namespace basisu
 {
 	extern uint8_t g_hamming_dist[256];
@@ -2798,10 +2800,19 @@ namespace basisu
 		
 	bool load_png(const char* pFilename, image& img);
 	inline bool load_png(const std::string &filename, image &img) { return load_png(filename.c_str(), img); }
+
+	bool load_bmp(const char* pFilename, image& img);
+	inline bool load_bmp(const std::string &filename, image &img) { return load_bmp(filename.c_str(), img); }
+		
+	bool load_tga(const char* pFilename, image& img);
+	inline bool load_tga(const std::string &filename, image &img) { return load_tga(filename.c_str(), img); }
 	
-	// Currently loads .BMP or .PNG.
+	// Currently loads .BMP, .PNG, or .TGA.
 	bool load_image(const char* pFilename, image& img);
 	inline bool load_image(const std::string &filename, image &img) { return load_image(filename.c_str(), img); }
+
+	uint8_t *read_tga(const uint8_t *pBuf, uint32_t buf_size, int &width, int &height, int &n_chans);
+	uint8_t *read_tga(const char *pFilename, int &width, int &height, int &n_chans);
 
 	enum
 	{
@@ -2964,7 +2975,7 @@ namespace basisu
 	}
 
 	void fill_buffer_with_random_bytes(void *pBuf, size_t size, uint32_t seed = 1);
-
+		
 } // namespace basisu
 
 
