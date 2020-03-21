@@ -1,0 +1,3 @@
+# Single File Basis Universal Transcoder
+
+Header and implementation generated using the [single file transcoder](../../single_file_transcoder) post-process script. Unlike the examples in that subproject here the transcoder header was kept as a seperated file (using the `-k` option, then the header itself processed on its own).

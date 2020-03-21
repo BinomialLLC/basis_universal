@@ -1,5 +1,5 @@
 // basisu_transcoder.h
-// Copyright (C) 2019 Binomial LLC. All Rights Reserved.
+// Copyright (C) 2019-2020 Binomial LLC. All Rights Reserved.
 // Important: If compiling with gcc, be sure strict aliasing is disabled: -fno-strict-aliasing
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -15,12 +15,14 @@
 // limitations under the License.
 #pragma once
 
-// Set BASISU_DEVEL_MESSAGES to 1 to enable debug printf()'s whenever an error occurs, for easier debugging during development.
-//#define BASISU_DEVEL_MESSAGES 1
+// Set BASISU_FORCE_DEVEL_MESSAGES to 1 to enable debug printf()'s whenever an error occurs, for easier debugging during development.
+#ifndef BASISU_FORCE_DEVEL_MESSAGES
+#define BASISU_FORCE_DEVEL_MESSAGES 0
+#endif
 
 /**** start inlining basisu_transcoder_internal.h ****/
 // basisu_transcoder_internal.h - Universal texture format transcoder library.
-// Copyright (C) 2019 Binomial LLC. All Rights Reserved.
+// Copyright (C) 2019-2020 Binomial LLC. All Rights Reserved.
 //
 // Important: If compiling with gcc, be sure strict aliasing is disabled: -fno-strict-aliasing
 //
@@ -35,14 +37,13 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-#pragma once
 
 #ifdef _MSC_VER
 #pragma warning (disable: 4127) //  conditional expression is constant
 #endif
 
-#define BASISD_LIB_VERSION 107
-#define BASISD_VERSION_STRING "01.11"
+#define BASISD_LIB_VERSION 112
+#define BASISD_VERSION_STRING "01.12"
 
 #ifdef _DEBUG
 #define BASISD_BUILD_DEBUG
@@ -52,7 +53,7 @@
 
 /**** start inlining basisu.h ****/
 // basisu.h
-// Copyright (C) 2019 Binomial LLC. All Rights Reserved.
+// Copyright (C) 2019-2020 Binomial LLC. All Rights Reserved.
 // Important: If compiling with gcc, be sure strict aliasing is disabled: -fno-strict-aliasing
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -66,7 +67,6 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-#pragma once
 
 #ifdef _MSC_VER
 
@@ -132,9 +132,9 @@
 #define strcasecmp _stricmp
 #endif
 
-// Set to one to enable debug printf()'s when any errors occur, for development/debugging.
-#ifndef BASISU_DEVEL_MESSAGES
-#define BASISU_DEVEL_MESSAGES 0
+// Set to one to enable debug printf()'s when any errors occur, for development/debugging. Especially useful for WebGL development.
+#ifndef BASISU_FORCE_DEVEL_MESSAGES
+#define BASISU_FORCE_DEVEL_MESSAGES 0
 #endif
 
 #define BASISU_NOTE_UNUSED(x) (void)(x)
@@ -145,7 +145,7 @@
 #define BASISU_STRINGIZE(x) #x
 #define BASISU_STRINGIZE2(x) BASISU_STRINGIZE(x)
 
-#if BASISU_DEVEL_MESSAGES
+#if BASISU_FORCE_DEVEL_MESSAGES
 	#define BASISU_DEVEL_ERROR(...) do { basisu::debug_printf(__VA_ARGS__); } while(0)
 #else
 	#define BASISU_DEVEL_ERROR(...)
@@ -178,9 +178,25 @@ namespace basisu
 
 	template <typename S> inline S maximum(S a, S b) { return (a > b) ? a : b; }
 	template <typename S> inline S maximum(S a, S b, S c) { return maximum(maximum(a, b), c); }
+	template <typename S> inline S maximum(S a, S b, S c, S d) { return maximum(maximum(maximum(a, b), c), d); }
 	
 	template <typename S> inline S minimum(S a, S b) {	return (a < b) ? a : b; }
 	template <typename S> inline S minimum(S a, S b, S c) {	return minimum(minimum(a, b), c); }
+	template <typename S> inline S minimum(S a, S b, S c, S d) { return minimum(minimum(minimum(a, b), c), d); }
+
+	inline float clampf(float value, float low, float high) { if (value < low) value = low; else if (value > high) value = high;	return value; }
+	inline float saturate(float value) { return clampf(value, 0, 1.0f); }
+	inline uint8_t minimumub(uint8_t a, uint8_t b) { return (a < b) ? a : b; }
+	inline uint32_t minimumu(uint32_t a, uint32_t b) { return (a < b) ? a : b; }
+	inline int32_t minimumi(int32_t a, int32_t b) { return (a < b) ? a : b; }
+	inline float minimumf(float a, float b) { return (a < b) ? a : b; }
+	inline uint8_t maximumub(uint8_t a, uint8_t b) { return (a > b) ? a : b; }
+	inline uint32_t maximumu(uint32_t a, uint32_t b) { return (a > b) ? a : b; }
+	inline int32_t maximumi(int32_t a, int32_t b) { return (a > b) ? a : b; }
+	inline float maximumf(float a, float b) { return (a > b) ? a : b; }
+	inline int squarei(int i) { return i * i; }
+	inline float squaref(float i) { return i * i; }
+	template<typename T> inline T square(T a) { return a * a; }
 
 	template <typename S> inline S clamp(S value, S low, S high) { return (value < low) ? low : ((value > high) ? high : value); }
 
@@ -189,8 +205,6 @@ namespace basisu
 
 	template<typename T> inline void clear_vector(T &vec) { vec.erase(vec.begin(), vec.end()); }		
 	template<typename T> inline typename T::value_type *enlarge_vector(T &vec, size_t n) { size_t cs = vec.size(); vec.resize(cs + n); return &vec[cs]; }
-
-	template<typename S> inline S square(S val) { return val * val; }
 
 	inline bool is_pow2(uint32_t x) { return x && ((x & (x - 1U)) == 0U); }
 	inline bool is_pow2(uint64_t x) { return x && ((x & (x - 1U)) == 0U); }
@@ -309,6 +323,7 @@ namespace basisu
 		inline packed_uint(const packed_uint& other) { *this = other; }
 
 		inline packed_uint& operator= (uint32_t v) { for (uint32_t i = 0; i < NumBytes; i++) m_bytes[i] = static_cast<uint8_t>(v >> (i * 8)); return *this; }
+		inline packed_uint& operator= (const packed_uint& rhs) { memcpy(m_bytes, rhs.m_bytes, sizeof(m_bytes)); return *this; }
 
 		inline operator uint32_t() const
 		{
@@ -361,15 +376,15 @@ namespace basisu
 		// Block-based formats
 		cETC1,			// ETC1
 		cETC1S,			// ETC1 (subset: diff colors only, no subblocks)
-		cETC2_RGB,		// ETC2 color block
-		cETC2_RGBA,		// ETC2 alpha block followed by ETC2 color block
+		cETC2_RGB,		// ETC2 color block (basisu doesn't support ETC2 planar/T/H modes - just basic ETC1)
+		cETC2_RGBA,		// ETC2 EAC alpha block followed by ETC2 color block
 		cETC2_ALPHA,	// ETC2 EAC alpha block 
 		cBC1,				// DXT1
-		cBC3,				// DXT5 (DXT5A block followed by a DXT1 block)
+		cBC3,				// DXT5 (BC4/DXT5A block followed by a BC1/DXT1 block)
 		cBC4,				// DXT5A
-		cBC5,				// 3DC/DXN (two DXT5A blocks)
+		cBC5,				// 3DC/DXN (two BC4/DXT5A blocks)
 		cBC7,
-		cASTC4x4,		
+		cASTC4x4,		// LDR only
 		cPVRTC1_4_RGB,
 		cPVRTC1_4_RGBA,
 		cATC_RGB,
@@ -378,6 +393,7 @@ namespace basisu
 		cPVRTC2_4_RGBA,
 		cETC2_R11_EAC,
 		cETC2_RG11_EAC,
+		cUASTC4x4,		
 		
 		// Uncompressed/raw pixels
 		cRGBA32,
@@ -453,38 +469,44 @@ namespace basist
 	enum class block_format
 	{
 		cETC1,								// ETC1S RGB 
+		cETC2_RGBA,							// full ETC2 EAC RGBA8 block
 		cBC1,									// DXT1 RGB 
+		cBC3,									// BC4 block followed by a four color BC1 block
 		cBC4,									// DXT5A (alpha block only)
+		cBC5,									// two BC4 blocks
 		cPVRTC1_4_RGB,						// opaque-only PVRTC1 4bpp
 		cPVRTC1_4_RGBA,					// PVRTC1 4bpp RGBA
-		cBC7_M6_OPAQUE_ONLY,				// RGB BC7 mode 6
+		cBC7,									// Full BC7 block, any mode
 		cBC7_M5_COLOR,						// RGB BC7 mode 5 color (writes an opaque mode 5 block)
 		cBC7_M5_ALPHA,						// alpha portion of BC7 mode 5 (cBC7_M5_COLOR output data must have been written to the output buffer first to set the mode/rot fields etc.)
 		cETC2_EAC_A8,						// alpha block of ETC2 EAC (first 8 bytes of the 16-bit ETC2 EAC RGBA format)
 		cASTC_4x4,							// ASTC 4x4 (either color-only or color+alpha). Note that the transcoder always currently assumes sRGB is not enabled when outputting ASTC 
 												// data. If you use a sRGB ASTC format you'll get ~1 LSB of additional error, because of the different way ASTC decoders scale 8-bit endpoints to 16-bits during unpacking.
+		
 		cATC_RGB,
 		cATC_RGBA_INTERPOLATED_ALPHA,
 		cFXT1_RGB,							// Opaque-only, has oddball 8x4 pixel block size
+
+		cPVRTC2_4_RGB,
+		cPVRTC2_4_RGBA,
+
+		cETC2_EAC_R11,
+		cETC2_EAC_RG11,
 												
 		cIndices,							// Used internally: Write 16-bit endpoint and selector indices directly to output (output block must be at least 32-bits)
 
 		cRGB32,								// Writes RGB components to 32bpp output pixels
 		cRGBA32,								// Writes RGB255 components to 32bpp output pixels
 		cA32,									// Writes alpha component to 32bpp output pixels
-
+				
 		cRGB565,
 		cBGR565,
 		
 		cRGBA4444_COLOR,
 		cRGBA4444_ALPHA,
 		cRGBA4444_COLOR_OPAQUE,
-
-		cPVRTC2_4_RGB,
-		cPVRTC2_4_RGBA,
-
-		cETC2_EAC_R11,
-		
+		cRGBA4444,
+						
 		cTotalBlockFormats
 	};
 
@@ -1043,6 +1065,11 @@ namespace basist
 		return (uint8_t)((i & 0xFFFFFF00U) ? (~(i >> 31)) : i);
 	}
 
+	enum eNoClamp
+	{
+		cNoClamp = 0
+	};
+
 	struct color32
 	{
 		union
@@ -1063,8 +1090,12 @@ namespace basist
 		color32() { }
 
 		color32(uint32_t vr, uint32_t vg, uint32_t vb, uint32_t va) { set(vr, vg, vb, va); }
+		color32(eNoClamp unused, uint32_t vr, uint32_t vg, uint32_t vb, uint32_t va) { (void)unused; set_noclamp_rgba(vr, vg, vb, va); }
 
 		void set(uint32_t vr, uint32_t vg, uint32_t vb, uint32_t va) { c[0] = static_cast<uint8_t>(vr); c[1] = static_cast<uint8_t>(vg); c[2] = static_cast<uint8_t>(vb); c[3] = static_cast<uint8_t>(va); }
+
+		void set_noclamp_rgb(uint32_t vr, uint32_t vg, uint32_t vb) { c[0] = static_cast<uint8_t>(vr); c[1] = static_cast<uint8_t>(vg); c[2] = static_cast<uint8_t>(vb); }
+		void set_noclamp_rgba(uint32_t vr, uint32_t vg, uint32_t vb, uint32_t va) { set(vr, vg, vb, va); }
 
 		void set_clamped(int vr, int vg, int vb, int va) { c[0] = clamp255(vr); c[1] = clamp255(vg);	c[2] = clamp255(vb); c[3] = clamp255(va); }
 
@@ -1072,6 +1103,9 @@ namespace basist
 		uint8_t &operator[] (uint32_t idx) { assert(idx < 4); return c[idx]; }
 
 		bool operator== (const color32&rhs) const { return m == rhs.m; }
+
+		static color32 comp_min(const color32& a, const color32& b) { return color32(cNoClamp, std::min(a[0], b[0]), std::min(a[1], b[1]), std::min(a[2], b[2]), std::min(a[3], b[3])); }
+		static color32 comp_max(const color32& a, const color32& b) { return color32(cNoClamp, std::max(a[0], b[0]), std::max(a[1], b[1]), std::max(a[2], b[2]), std::max(a[3], b[3])); }
 	};
 
 	struct endpoint
@@ -1161,9 +1195,304 @@ namespace basist
 
 
 /**** ended inlining basisu_transcoder_internal.h ****/
+/**** start inlining basisu_transcoder_uastc.h ****/
+// basisu_transcoder_uastc.h
+/**** skipping file: basisu_transcoder_internal.h ****/
+
+namespace basist
+{
+	struct color_quad_u8
+	{ 
+		uint8_t m_c[4]; 
+	};
+
+	const uint32_t TOTAL_UASTC_MODES = 19;
+	const uint32_t UASTC_MODE_INDEX_SOLID_COLOR = 8;
+
+	const uint32_t TOTAL_ASTC_BC7_COMMON_PARTITIONS2 = 30;
+	const uint32_t TOTAL_ASTC_BC7_COMMON_PARTITIONS3 = 11;
+	const uint32_t TOTAL_BC7_3_ASTC2_COMMON_PARTITIONS = 19;
+
+	extern const uint8_t g_uastc_mode_weight_bits[TOTAL_UASTC_MODES];
+	extern const uint8_t g_uastc_mode_weight_ranges[TOTAL_UASTC_MODES];
+	extern const uint8_t g_uastc_mode_endpoint_ranges[TOTAL_UASTC_MODES];
+	extern const uint8_t g_uastc_mode_subsets[TOTAL_UASTC_MODES];
+	extern const uint8_t g_uastc_mode_planes[TOTAL_UASTC_MODES];
+	extern const uint8_t g_uastc_mode_comps[TOTAL_UASTC_MODES];
+	extern const uint8_t g_uastc_mode_has_etc1_bias[TOTAL_UASTC_MODES];
+	extern const uint8_t g_uastc_mode_has_bc1_hint0[TOTAL_UASTC_MODES];
+	extern const uint8_t g_uastc_mode_has_bc1_hint1[TOTAL_UASTC_MODES];
+	extern const uint8_t g_uastc_mode_has_alpha[TOTAL_UASTC_MODES];
+	extern const uint8_t g_uastc_mode_is_la[TOTAL_UASTC_MODES];
+
+	struct astc_bc7_common_partition2_desc
+	{
+		uint8_t m_bc7;
+		uint16_t m_astc;
+		bool m_invert;
+	};
+
+	extern const astc_bc7_common_partition2_desc g_astc_bc7_common_partitions2[TOTAL_ASTC_BC7_COMMON_PARTITIONS2];
+
+	struct bc73_astc2_common_partition_desc
+	{
+		uint8_t m_bc73;
+		uint16_t m_astc2;
+		uint8_t k;		// 0-5 - how to modify the BC7 3-subset pattern to match the ASTC pattern (LSB=invert)
+	};
+
+	extern const bc73_astc2_common_partition_desc g_bc7_3_astc2_common_partitions[TOTAL_BC7_3_ASTC2_COMMON_PARTITIONS];
+
+	struct astc_bc7_common_partition3_desc
+	{
+		uint8_t m_bc7;
+		uint16_t m_astc;
+		uint8_t m_astc_to_bc7_perm; // converts ASTC to BC7 partition using g_astc_bc7_partition_index_perm_tables[][]
+	};
+
+	extern const astc_bc7_common_partition3_desc g_astc_bc7_common_partitions3[TOTAL_ASTC_BC7_COMMON_PARTITIONS3];
+
+	extern const uint8_t g_astc_bc7_patterns2[TOTAL_ASTC_BC7_COMMON_PARTITIONS2][16];
+	extern const uint8_t g_astc_bc7_patterns3[TOTAL_ASTC_BC7_COMMON_PARTITIONS3][16];
+	extern const uint8_t g_bc7_3_astc2_patterns2[TOTAL_BC7_3_ASTC2_COMMON_PARTITIONS][16];
+
+	extern const uint8_t g_astc_bc7_pattern2_anchors[TOTAL_ASTC_BC7_COMMON_PARTITIONS2][3];
+	extern const uint8_t g_astc_bc7_pattern3_anchors[TOTAL_ASTC_BC7_COMMON_PARTITIONS3][3];
+	extern const uint8_t g_bc7_3_astc2_patterns2_anchors[TOTAL_BC7_3_ASTC2_COMMON_PARTITIONS][3];
+
+	extern const uint32_t g_uastc_mode_huff_codes[TOTAL_UASTC_MODES + 1][2];
+
+	extern const uint8_t g_astc_to_bc7_partition_index_perm_tables[6][3];
+	extern const uint8_t g_bc7_to_astc_partition_index_perm_tables[6][3]; // inverse of g_astc_to_bc7_partition_index_perm_tables
+
+	extern const uint8_t* s_uastc_to_bc1_weights[6];
+
+	uint32_t bc7_convert_partition_index_3_to_2(uint32_t p, uint32_t k);
+
+	inline uint32_t astc_interpolate(uint32_t l, uint32_t h, uint32_t w, bool srgb)
+	{
+		if (srgb)
+		{
+			l = (l << 8) | 0x80;
+			h = (h << 8) | 0x80;
+		}
+		else
+		{
+			l = (l << 8) | l;
+			h = (h << 8) | h;
+		}
+
+		uint32_t k = (l * (64 - w) + h * w + 32) >> 6;
+
+		return k >> 8;
+	}
+
+	struct astc_block_desc
+	{
+		int m_weight_range;	// weight BISE range
+
+		int m_subsets;			// number of ASTC partitions
+		int m_partition_seed;	// partition pattern seed
+		int m_cem;				// color endpoint mode used by all subsets
+
+		int m_ccs;				// color component selector (dual plane only)
+		bool m_dual_plane;	// true if dual plane
+
+		// Weight and endpoint BISE values. 
+		// Note these values are NOT linear, they must be BISE encoded. See Table 97 and Table 107.
+		uint8_t m_endpoints[18];	// endpoint values, in RR GG BB etc. order 
+		uint8_t m_weights[64];		// weight index values, raster order, in P0 P1, P0 P1, etc. or P0, P0, P0, P0, etc. order
+	};
+
+	const uint32_t BC7ENC_TOTAL_ASTC_RANGES = 21;
+
+	// See tables 81, 93, 18.13.Endpoint Unquantization
+	const uint32_t TOTAL_ASTC_RANGES = 21;
+	extern const int g_astc_bise_range_table[TOTAL_ASTC_RANGES][3];
+
+	struct astc_quant_bin
+	{
+		uint8_t m_unquant; // unquantized value
+		uint8_t m_index; // sorted index
+	};
+
+	extern astc_quant_bin g_astc_unquant[BC7ENC_TOTAL_ASTC_RANGES][256]; // [ASTC encoded endpoint index]
+
+	int astc_get_levels(int range);
+	bool astc_is_valid_endpoint_range(uint32_t range);
+	uint32_t unquant_astc_endpoint(uint32_t packed_bits, uint32_t packed_trits, uint32_t packed_quints, uint32_t range);
+	uint32_t unquant_astc_endpoint_val(uint32_t packed_val, uint32_t range);
+
+	const uint8_t* get_anchor_indices(uint32_t subsets, uint32_t mode, uint32_t common_pattern, const uint8_t*& pPartition_pattern);
+
+	// BC7
+	const uint32_t BC7ENC_BLOCK_SIZE = 16;
+
+	struct bc7_block
+	{
+		uint64_t m_qwords[2];
+	};
+
+	struct bc7_optimization_results
+	{
+		uint32_t m_mode;
+		uint32_t m_partition;
+		uint8_t m_selectors[16];
+		uint8_t m_alpha_selectors[16];
+		color_quad_u8 m_low[3];
+		color_quad_u8 m_high[3];
+		uint32_t m_pbits[3][2];
+		uint32_t m_index_selector;
+		uint32_t m_rotation;
+	};
+
+	extern const uint32_t g_bc7_weights1[2];
+	extern const uint32_t g_bc7_weights2[4];
+	extern const uint32_t g_bc7_weights3[8];
+	extern const uint32_t g_bc7_weights4[16];
+	extern const uint32_t g_astc_weights4[16];
+	extern const uint32_t g_astc_weights5[32];
+	extern const uint32_t g_astc_weights_3levels[3];
+	extern const uint8_t g_bc7_partition1[16];
+	extern const uint8_t g_bc7_partition2[64 * 16];
+	extern const uint8_t g_bc7_partition3[64 * 16];
+	extern const uint8_t g_bc7_table_anchor_index_second_subset[64];
+	extern const uint8_t g_bc7_table_anchor_index_third_subset_1[64];
+	extern const uint8_t g_bc7_table_anchor_index_third_subset_2[64];
+	extern const uint8_t g_bc7_num_subsets[8];
+	extern const uint8_t g_bc7_partition_bits[8];
+	extern const uint8_t g_bc7_color_index_bitcount[8];
+	extern const uint8_t g_bc7_mode_has_p_bits[8];
+	extern const uint8_t g_bc7_mode_has_shared_p_bits[8];
+	extern const uint8_t g_bc7_color_precision_table[8];
+	extern const int8_t g_bc7_alpha_precision_table[8];
+	extern const uint8_t g_bc7_alpha_index_bitcount[8];
+
+	inline bool get_bc7_mode_has_seperate_alpha_selectors(int mode) { return (mode == 4) || (mode == 5); }
+	inline int get_bc7_color_index_size(int mode, int index_selection_bit) { return g_bc7_color_index_bitcount[mode] + index_selection_bit; }
+	inline int get_bc7_alpha_index_size(int mode, int index_selection_bit) { return g_bc7_alpha_index_bitcount[mode] - index_selection_bit; }
+
+	struct endpoint_err
+	{
+		uint16_t m_error; uint8_t m_lo; uint8_t m_hi;
+	};
+
+	extern endpoint_err g_bc7_mode_6_optimal_endpoints[256][2]; // [c][pbit]
+	const uint32_t BC7ENC_MODE_6_OPTIMAL_INDEX = 5;
+
+	extern endpoint_err g_bc7_mode_5_optimal_endpoints[256]; // [c]
+	const uint32_t BC7ENC_MODE_5_OPTIMAL_INDEX = 1;
+
+	// Packs a BC7 block from a high-level description. Handles all BC7 modes.
+	void encode_bc7_block(void* pBlock, const bc7_optimization_results* pResults);
+
+	// Packs an ASTC block
+	// Constraints: Always 4x4, all subset CEM's must be equal, only tested with LDR CEM's.
+	bool pack_astc_block(uint32_t* pDst, const astc_block_desc* pBlock, uint32_t mode);
+
+	void pack_astc_solid_block(void* pDst_block, const color32& color);
+
+#ifdef _DEBUG
+	int astc_compute_texel_partition(int seed, int x, int y, int z, int partitioncount, bool small_block);
+#endif
+		
+	struct uastc_block
+	{
+		union
+		{
+			uint8_t m_bytes[16];
+			uint32_t m_dwords[4];
+			uint64_t m_qwords[2];
+		};
+	};
+
+	struct unpacked_uastc_block
+	{
+		astc_block_desc m_astc;
+
+		uint32_t m_mode;
+		uint32_t m_common_pattern;
+
+		color32 m_solid_color;
+
+		bool m_bc1_hint0;
+		bool m_bc1_hint1;
+
+		bool m_etc1_flip;
+		bool m_etc1_diff;
+		uint32_t m_etc1_inten0;
+		uint32_t m_etc1_inten1;
+
+		uint32_t m_etc1_bias;
+
+		uint32_t m_etc2_hints;
+
+		uint32_t m_etc1_selector;
+		uint32_t m_etc1_r, m_etc1_g, m_etc1_b;
+	};
+
+	color32 apply_etc1_bias(const color32 &block_color, uint32_t bias, uint32_t limit, uint32_t subblock);
+	
+	struct decoder_etc_block;
+	struct eac_block;
+		
+	bool unpack_uastc(uint32_t mode, uint32_t common_pattern, const color32& solid_color, const astc_block_desc& astc, color32* pPixels, bool srgb);
+	bool unpack_uastc(const unpacked_uastc_block& unpacked_blk, color32* pPixels, bool srgb);
+
+	bool unpack_uastc(const uastc_block& blk, color32* pPixels, bool srgb);
+	bool unpack_uastc(const uastc_block& blk, unpacked_uastc_block& unpacked, bool undo_blue_contract, bool read_hints = true);
+
+	bool transcode_uastc_to_astc(const uastc_block& src_blk, void* pDst);
+
+	bool transcode_uastc_to_bc7(const unpacked_uastc_block& unpacked_src_blk, bc7_optimization_results& dst_blk);
+	bool transcode_uastc_to_bc7(const uastc_block& src_blk, bc7_optimization_results& dst_blk);
+	bool transcode_uastc_to_bc7(const uastc_block& src_blk, void* pDst);
+
+	void transcode_uastc_to_etc1(unpacked_uastc_block& unpacked_src_blk, color32 block_pixels[4][4], void* pDst);
+	bool transcode_uastc_to_etc1(const uastc_block& src_blk, void* pDst);
+	bool transcode_uastc_to_etc1(const uastc_block& src_blk, void* pDst, uint32_t channel);
+
+	void transcode_uastc_to_etc2_eac_a8(unpacked_uastc_block& unpacked_src_blk, color32 block_pixels[4][4], void* pDst);
+	bool transcode_uastc_to_etc2_rgba(const uastc_block& src_blk, void* pDst);
+
+	// Packs 16 scalar values to BC4. Same PSNR as stb_dxt's BC4 encoder, around 13% faster.
+	void encode_bc4(void* pDst, const uint8_t* pPixels, uint32_t stride);
+	
+	void encode_bc1_solid_block(void* pDst, uint32_t fr, uint32_t fg, uint32_t fb);
+
+	enum
+	{
+		cEncodeBC1HighQuality = 1,
+		cEncodeBC1HigherQuality = 2,
+		cEncodeBC1UseSelectors = 4,
+	};
+	void encode_bc1(void* pDst, const uint8_t* pPixels, uint32_t flags);
+	
+	// Alternate PCA-free encoder, around 15% faster, same (or slightly higher) avg. PSNR
+	void encode_bc1_alt(void* pDst, const uint8_t* pPixels, uint32_t flags);
+
+	void transcode_uastc_to_bc1_hint0(const unpacked_uastc_block& unpacked_src_blk, void* pDst);
+	void transcode_uastc_to_bc1_hint1(const unpacked_uastc_block& unpacked_src_blk, const color32 block_pixels[4][4], void* pDst, bool high_quality);
+
+	bool transcode_uastc_to_bc1(const uastc_block& src_blk, void* pDst, bool high_quality);
+	bool transcode_uastc_to_bc3(const uastc_block& src_blk, void* pDst, bool high_quality);
+	bool transcode_uastc_to_bc4(const uastc_block& src_blk, void* pDst, bool high_quality, uint32_t chan0);
+	bool transcode_uastc_to_bc5(const uastc_block& src_blk, void* pDst, bool high_quality, uint32_t chan0, uint32_t chan1);
+
+	bool transcode_uastc_to_etc2_eac_r11(const uastc_block& src_blk, void* pDst, bool high_quality, uint32_t chan0);
+	bool transcode_uastc_to_etc2_eac_rg11(const uastc_block& src_blk, void* pDst, bool high_quality, uint32_t chan0, uint32_t chan1);
+
+	bool transcode_uastc_to_pvrtc1_4_rgb(const uastc_block* pSrc_blocks, void* pDst_blocks, uint32_t num_blocks_x, uint32_t num_blocks_y, bool high_quality, bool from_alpha);
+	bool transcode_uastc_to_pvrtc1_4_rgba(const uastc_block* pSrc_blocks, void* pDst_blocks, uint32_t num_blocks_x, uint32_t num_blocks_y, bool high_quality);
+		
+	// uastc_init() MUST be called before using this module.
+	void uastc_init();
+
+} // namespace basist
+/**** ended inlining basisu_transcoder_uastc.h ****/
 /**** start inlining basisu_global_selector_palette.h ****/
 // basisu_global_selector_palette.h
-// Copyright (C) 2019 Binomial LLC. All Rights Reserved.
+// Copyright (C) 2019-2020 Binomial LLC. All Rights Reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -1176,7 +1505,6 @@ namespace basist
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-#pragma once
 /**** skipping file: basisu_transcoder_internal.h ****/
 #include <algorithm>
 
@@ -1838,7 +2166,7 @@ namespace basist
 /**** ended inlining basisu_global_selector_palette.h ****/
 /**** start inlining basisu_file_headers.h ****/
 // basis_file_headers.h
-// Copyright (C) 2019 Binomial LLC. All Rights Reserved.
+// Copyright (C) 2019-2020 Binomial LLC. All Rights Reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -1851,7 +2179,6 @@ namespace basist
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-#pragma once
 /**** skipping file: basisu_transcoder_internal.h ****/
 
 namespace basist
@@ -1859,7 +2186,7 @@ namespace basist
 	// Slice desc header flags
 	enum basis_slice_desc_flags
 	{
-		cSliceDescFlagsIsAlphaData = 1,
+		cSliceDescFlagsHasAlpha = 1,
 		cSliceDescFlagsFrameIsIFrame = 2			// Video only: Frame doesn't refer to previous frame (no usage of conditional replenishment pred symbols)
 	};
 
@@ -1886,9 +2213,9 @@ namespace basist
 	// File header files
 	enum basis_header_flags
 	{
-		cBASISHeaderFlagETC1S = 1,					// Always set for basis universal files
+		cBASISHeaderFlagETC1S = 1,					// Always set for ETC1S files. Not set for UASTC files.
 		cBASISHeaderFlagYFlipped = 2,				// Set if the texture had to be Y flipped before encoding
-		cBASISHeaderFlagHasAlphaSlices = 4		// True if the odd slices contain alpha data
+		cBASISHeaderFlagHasAlphaSlices = 4		// True if any slices contain alpha (for ETC1S, if the odd slices contain alpha data)
 	};
 
 	// The image type field attempts to describe how to interpret the image data in a Basis file.
@@ -1908,6 +2235,12 @@ namespace basist
 	enum
 	{
 		cBASISMaxUSPerFrame = 0xFFFFFF
+	};
+
+	enum class basis_tex_format
+	{
+		cETC1S = 0,
+		cUASTC4x4 = 1
 	};
 
 	struct basis_file_header
@@ -1930,7 +2263,7 @@ namespace basist
 
 		basisu::packed_uint<3>      m_total_images;	// The total # of images
 				
-		basisu::packed_uint<1>      m_format;			// enum basist::block_format
+		basisu::packed_uint<1>      m_tex_format;		// enum basis_tex_format
 		basisu::packed_uint<2>      m_flags;			// enum basist::header_flags
 		basisu::packed_uint<1>      m_tex_type;		// enum basist::basis_texture_type
 		basisu::packed_uint<3>      m_us_per_frame;	// Framerate of video, in microseconds per frame
@@ -1983,12 +2316,11 @@ namespace basist
 		cTFBC3_RGBA = 3, 							// Opaque+alpha, BC4 followed by a BC1 block, alpha channel will be opaque for opaque .basis files
 		cTFBC4_R = 4,								// Red only, alpha slice is transcoded to output if cDecodeFlagsTranscodeAlphaDataToOpaqueFormats flag is specified
 		cTFBC5_RG = 5,								// XY: Two BC4 blocks, X=R and Y=Alpha, .basis file should have alpha data (if not Y will be all 255's)
-		cTFBC7_M6_RGB = 6,						// Opaque only, RGB or alpha if cDecodeFlagsTranscodeAlphaDataToOpaqueFormats flag is specified. Highest quality of all the non-ETC1 formats.
-		cTFBC7_M5_RGBA = 7,						// Opaque+alpha, alpha channel will be opaque for opaque .basis files
-
+		cTFBC7_RGBA = 6,							// RGB or RGBA, mode 5 for ETC1S, modes (1,2,3,5,6,7) for UASTC
+				
 		// PVRTC1 4bpp (mobile, PowerVR devices)
 		cTFPVRTC1_4_RGB = 8,						// Opaque only, RGB or alpha if cDecodeFlagsTranscodeAlphaDataToOpaqueFormats flag is specified, nearly lowest quality of any texture format.
-		cTFPVRTC1_4_RGBA = 9,					// Opaque+alpha, most useful for simple opacity maps. If .basis file doens't have alpha cTFPVRTC1_4_RGB will be used instead. Lowest quality of any supported texture format.
+		cTFPVRTC1_4_RGBA = 9,					// Opaque+alpha, most useful for simple opacity maps. If .basis file doesn't have alpha cTFPVRTC1_4_RGB will be used instead. Lowest quality of any supported texture format.
 
 		// ASTC (mobile, Intel devices, hopefully all desktop GPU's one day)
 		cTFASTC_4x4_RGBA = 10,					// Opaque+alpha, ASTC 4x4, alpha channel will be opaque for opaque .basis files. Transcoder uses RGB/RGBA/L/LA modes, void extent, and up to two ([0,47] and [0,255]) endpoint precisions.
@@ -2023,26 +2355,49 @@ namespace basist
 		cTFBC3 = cTFBC3_RGBA,
 		cTFBC4 = cTFBC4_R,
 		cTFBC5 = cTFBC5_RG,
-		cTFBC7_M6_OPAQUE_ONLY = cTFBC7_M6_RGB,
-		cTFBC7_M5 = cTFBC7_M5_RGBA,
+		
+		// Previously, the caller had some control over which BC7 mode the transcoder output. We've simplified this due to UASTC, which supports numerous modes.
+		cTFBC7_M6_RGB = cTFBC7_RGBA,			// Opaque only, RGB or alpha if cDecodeFlagsTranscodeAlphaDataToOpaqueFormats flag is specified. Highest quality of all the non-ETC1 formats.
+		cTFBC7_M5_RGBA = cTFBC7_RGBA,			// Opaque+alpha, alpha channel will be opaque for opaque .basis files
+		cTFBC7_M6_OPAQUE_ONLY = cTFBC7_RGBA,
+		cTFBC7_M5 = cTFBC7_RGBA,
+		cTFBC7_ALT = 7,
+
 		cTFASTC_4x4 = cTFASTC_4x4_RGBA,
+		
 		cTFATC_RGBA_INTERPOLATED_ALPHA = cTFATC_RGBA,
 	};
 
-	uint32_t basis_get_bytes_per_block(transcoder_texture_format fmt);
+	// For compressed texture formats, this returns the # of bytes per block. For uncompressed, it returns the # of bytes per pixel.
+	// NOTE: Previously, this function was called basis_get_bytes_per_block(), and it always returned 16*bytes_per_pixel for uncompressed formats which was confusing.
+	uint32_t basis_get_bytes_per_block_or_pixel(transcoder_texture_format fmt);
+
+	// Returns format's name in ASCII
 	const char* basis_get_format_name(transcoder_texture_format fmt);
+
+	// Returns true if the format supports an alpha channel.
 	bool basis_transcoder_format_has_alpha(transcoder_texture_format fmt);
+
+	// Returns the basisu::texture_format corresponding to the specified transcoder_texture_format.
 	basisu::texture_format basis_get_basisu_texture_format(transcoder_texture_format fmt);
+
+	// Returns the texture type's name in ASCII.
 	const char* basis_get_texture_type_name(basis_texture_type tex_type);
 	
+	// Returns true if the transcoder texture type is an uncompressed (raw pixel) format.
 	bool basis_transcoder_format_is_uncompressed(transcoder_texture_format tex_type);
+
+	// Returns the # of bytes per pixel for uncompressed formats, or 0 for block texture formats.
 	uint32_t basis_get_uncompressed_bytes_per_pixel(transcoder_texture_format fmt);
 	
+	// Returns the block width for the specified texture format, which is currently either 4 or 8 for FXT1.
 	uint32_t basis_get_block_width(transcoder_texture_format tex_type);
+	
+	// Returns the block height for the specified texture format, which is currently always 4.
 	uint32_t basis_get_block_height(transcoder_texture_format tex_type);
 
 	// Returns true if the specified format was enabled at compile time.
-	bool basis_is_format_supported(transcoder_texture_format tex_type);
+	bool basis_is_format_supported(transcoder_texture_format tex_type, basis_tex_format fmt = basis_tex_format::cETC1S);
 		
 	class basisu_transcoder;
 
@@ -2063,12 +2418,12 @@ namespace basist
 	};
 	
 	// Low-level helper class that does the actual transcoding.
-	class basisu_lowlevel_transcoder
+	class basisu_lowlevel_etc1s_transcoder
 	{
 		friend class basisu_transcoder;
 	
 	public:
-		basisu_lowlevel_transcoder(const basist::etc1_global_selector_codebook *pGlobal_sel_codebook);
+		basisu_lowlevel_etc1s_transcoder(const basist::etc1_global_selector_codebook *pGlobal_sel_codebook);
 
 		bool decode_palettes(
 			uint32_t num_endpoints, const uint8_t *pEndpoints_data, uint32_t endpoints_data_size,
@@ -2079,6 +2434,17 @@ namespace basist
 		bool transcode_slice(void *pDst_blocks, uint32_t num_blocks_x, uint32_t num_blocks_y, const uint8_t *pImage_data, uint32_t image_data_size, block_format fmt, 
 			uint32_t output_block_or_pixel_stride_in_bytes, bool bc1_allow_threecolor_blocks, const basis_file_header &header, const basis_slice_desc& slice_desc, uint32_t output_row_pitch_in_blocks_or_pixels = 0,
 			basisu_transcoder_state *pState = nullptr, bool astc_transcode_alpha = false, void* pAlpha_blocks = nullptr, uint32_t output_rows_in_pixels = 0);
+
+		void clear()
+		{
+			m_endpoints.clear();
+			m_selectors.clear();
+			m_endpoint_pred_model.clear();
+			m_delta_endpoint_model.clear();
+			m_selector_model.clear();
+			m_selector_history_buf_rle_model.clear();
+			m_selector_history_buf_size = 0;
+		}
 
 	private:
 		typedef std::vector<endpoint> endpoint_vec;
@@ -2094,6 +2460,38 @@ namespace basist
 		uint32_t m_selector_history_buf_size;
 		
 		basisu_transcoder_state m_def_state;
+	};
+
+	enum
+	{
+		// PVRTC1: decode non-pow2 ETC1S texture level to the next larger power of 2 (not implemented yet, but we're going to support it). Ignored if the slice's dimensions are already a power of 2.
+		cDecodeFlagsPVRTCDecodeToNextPow2 = 2,
+
+		// When decoding to an opaque texture format, if the basis file has alpha, decode the alpha slice instead of the color slice to the output texture format.
+		// This is primarily to allow decoding of textures with alpha to multiple ETC1 textures (one for color, another for alpha).
+		cDecodeFlagsTranscodeAlphaDataToOpaqueFormats = 4,
+
+		// Forbid usage of BC1 3 color blocks (we don't support BC1 punchthrough alpha yet).
+		// This flag is used internally when decoding to BC3.
+		cDecodeFlagsBC1ForbidThreeColorBlocks = 8,
+
+		// The output buffer contains alpha endpoint/selector indices. 
+		// Used internally when decoding formats like ASTC that require both color and alpha data to be available when transcoding to the output format.
+		cDecodeFlagsOutputHasAlphaIndices = 16,
+
+		cDecodeFlagsHighQuality = 32
+	};
+
+	class basisu_lowlevel_uastc_transcoder
+	{
+		friend class basisu_transcoder;
+
+	public:
+		basisu_lowlevel_uastc_transcoder();
+
+		bool transcode_slice(void* pDst_blocks, uint32_t num_blocks_x, uint32_t num_blocks_y, const uint8_t* pImage_data, uint32_t image_data_size, block_format fmt,
+			uint32_t output_block_or_pixel_stride_in_bytes, bool bc1_allow_threecolor_blocks, const basis_file_header& header, const basis_slice_desc& slice_desc, uint32_t output_row_pitch_in_blocks_or_pixels = 0,
+			basisu_transcoder_state* pState = nullptr, uint32_t output_rows_in_pixels = 0, int channel0 = -1, int channel1 = -1, uint32_t decode_flags = 0);
 	};
 
 	struct basisu_slice_info
@@ -2189,10 +2587,12 @@ namespace basist
 
 		uint32_t m_userdata0;
 		uint32_t m_userdata1;
-		
-		bool m_etc1s;					// always true for basis universal
+
+		basis_tex_format m_tex_format; // ETC1S, UASTC, etc.
+				
 		bool m_y_flipped;				// true if the image was Y flipped
-		bool m_has_alpha_slices;	// true if the texture has alpha slices (even slices RGB, odd slices alpha)
+		bool m_etc1s;					// true if the file is ETC1S
+		bool m_has_alpha_slices;	// true if the texture has alpha slices (for ETC1S: even slices RGB, odd slices alpha)
 	};
 
 	// High-level transcoder class which accepts .basis file data and allows the caller to query information about the file and transcode image levels to various texture formats.
@@ -2218,6 +2618,8 @@ namespace basist
 		// Note that the number of mipmap levels for each image may differ, and that images may have different resolutions.
 		uint32_t get_total_images(const void *pData, uint32_t data_size) const;
 
+		basis_tex_format get_tex_format(const void* pData, uint32_t data_size) const;
+
 		// Returns the number of mipmap levels in an image.
 		uint32_t get_total_image_levels(const void *pData, uint32_t data_size, uint32_t image_index) const;
 		
@@ -2234,30 +2636,14 @@ namespace basist
 		bool get_file_info(const void *pData, uint32_t data_size, basisu_file_info &file_info) const;
 				
 		// start_transcoding() must be called before calling transcode_slice() or transcode_image_level().
-		// This decompresses the selector/endpoint codebooks, so ideally you would only call this once per .basis file (not each image/mipmap level).
-		bool start_transcoding(const void *pData, uint32_t data_size) const;
+		// For ETC1S files, this call decompresses the selector/endpoint codebooks, so ideally you would only call this once per .basis file (not each image/mipmap level).
+		bool start_transcoding(const void *pData, uint32_t data_size);
+		
+		bool stop_transcoding();
 		
 		// Returns true if start_transcoding() has been called.
-		bool get_ready_to_transcode() const { return m_lowlevel_decoder.m_endpoints.size() > 0; }
-
-		enum 
-		{
-			// PVRTC1: decode non-pow2 ETC1S texture level to the next larger power of 2 (not implemented yet, but we're going to support it). Ignored if the slice's dimensions are already a power of 2.
-			cDecodeFlagsPVRTCDecodeToNextPow2 = 2,	
-			
-			// When decoding to an opaque texture format, if the basis file has alpha, decode the alpha slice instead of the color slice to the output texture format.
-			// This is primarily to allow decoding of textures with alpha to multiple ETC1 textures (one for color, another for alpha).
-			cDecodeFlagsTranscodeAlphaDataToOpaqueFormats = 4,
-
-			// Forbid usage of BC1 3 color blocks (we don't support BC1 punchthrough alpha yet).
-			// This flag is used internally when decoding to BC3.
-			cDecodeFlagsBC1ForbidThreeColorBlocks = 8,
-
-			// The output buffer contains alpha endpoint/selector indices. 
-			// Used internally when decoding formats like ASTC that require both color and alpha data to be available when transcoding to the output format.
-			cDecodeFlagsOutputHasAlphaIndices = 16
-		};
-								
+		bool get_ready_to_transcode() const { return m_ready_to_transcode; }
+											
 		// transcode_image_level() decodes a single mipmap level from the .basis file to any of the supported output texture formats.
 		// It'll first find the slice(s) to transcode, then call transcode_slice() one or two times to decode both the color and alpha texture data (or RG texture data from two slices for BC5).
 		// If the .basis file doesn't have alpha slices, the output alpha blocks will be set to fully opaque (all 255's).
@@ -2290,10 +2676,14 @@ namespace basist
 		// - basisu_transcoder_init() must have been called first to initialize the transcoder lookup tables before calling this function.
 		bool transcode_slice(const void *pData, uint32_t data_size, uint32_t slice_index, 
 			void *pOutput_blocks, uint32_t output_blocks_buf_size_in_blocks_or_pixels,
-			block_format fmt, uint32_t output_block_stride_in_bytes, uint32_t decode_flags = 0, uint32_t output_row_pitch_in_blocks_or_pixels = 0, basisu_transcoder_state * pState = nullptr, void* pAlpha_blocks = nullptr, uint32_t output_rows_in_pixels = 0) const;
+			block_format fmt, uint32_t output_block_stride_in_bytes, uint32_t decode_flags = 0, uint32_t output_row_pitch_in_blocks_or_pixels = 0, basisu_transcoder_state * pState = nullptr, void* pAlpha_blocks = nullptr, 
+			uint32_t output_rows_in_pixels = 0, int channel0 = -1, int channel1 = -1) const;
 
 	private:
-		mutable basisu_lowlevel_transcoder m_lowlevel_decoder;
+		mutable basisu_lowlevel_etc1s_transcoder m_lowlevel_etc1s_decoder;
+		mutable basisu_lowlevel_uastc_transcoder m_lowlevel_uastc_decoder;
+
+		bool m_ready_to_transcode;
 
 		int find_first_slice_index(const void* pData, uint32_t data_size, uint32_t image_index, uint32_t level_index) const;
 		
