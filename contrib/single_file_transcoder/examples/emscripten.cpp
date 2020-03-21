@@ -379,7 +379,7 @@ bool upload(EMSCRIPTEN_WEBGL_CONTEXT_HANDLE const ctx, GLuint const name, const 
 								decSize = (std::max(8U, (descW + 3) & ~3) *
 										   std::max(8U, (descH + 3) & ~3) * 4 + 7) / 8;
 							} else {
-								decSize = basis_get_bytes_per_block(type) * blocks;
+								decSize = basis_get_bytes_per_block_or_pixel(type) * blocks;
 							}
 							if (void* decBuf = malloc(decSize)) {
 								if (type >= transcoder_texture_format::cTFTotalTextureFormats) {
