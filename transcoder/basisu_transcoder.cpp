@@ -7878,6 +7878,10 @@ namespace basist
 		uint32_t output_block_or_pixel_stride_in_bytes, bool bc1_allow_threecolor_blocks, const basis_file_header& header, const basis_slice_desc& slice_desc, uint32_t output_row_pitch_in_blocks_or_pixels,
 		basisu_transcoder_state* pState, bool transcode_alpha, void *pAlpha_blocks, uint32_t output_rows_in_pixels)
 	{
+		// 'pDst_blocks' unused when disabling *all* hardware transcode options
+		// (and 'bc1_allow_threecolor_blocks' when disabling DXT)
+		BASISU_NOTE_UNUSED(pDst_blocks);
+		BASISU_NOTE_UNUSED(bc1_allow_threecolor_blocks);
 		BASISU_NOTE_UNUSED(transcode_alpha);
 		BASISU_NOTE_UNUSED(pAlpha_blocks);
 
@@ -8187,9 +8191,8 @@ namespace basist
 				}
 				case block_format::cBC1:
 				{
-					void* pDst_block = static_cast<uint8_t*>(pDst_blocks) + (block_x + block_y * output_row_pitch_in_blocks_or_pixels) * output_block_or_pixel_stride_in_bytes;
-
 #if BASISD_SUPPORT_DXT1
+					void* pDst_block = static_cast<uint8_t*>(pDst_blocks) + (block_x + block_y * output_row_pitch_in_blocks_or_pixels) * output_block_or_pixel_stride_in_bytes;
 #if BASISD_ENABLE_DEBUG_FLAGS
 					if (g_debug_flags & (cDebugFlagVisBC1Sels | cDebugFlagVisBC1Endpoints))
 						convert_etc1s_to_dxt1_vis(static_cast<dxt1_block*>(pDst_block), pEndpoints, pSelector, bc1_allow_threecolor_blocks);
@@ -9683,6 +9686,11 @@ namespace basist
 		void* pOutput_blocks, uint32_t output_blocks_buf_size_in_blocks_or_pixels, block_format fmt,
 		uint32_t block_stride_in_bytes, uint32_t output_row_pitch_in_blocks_or_pixels)
 	{
+		// 'num_blocks_y', 'pOutput_blocks' & 'block_stride_in_bytes' unused
+		// when disabling BASISD_SUPPORT_ETC2_EAC_A8 *and* BASISD_SUPPORT_DXT5A
+		BASISU_NOTE_UNUSED(num_blocks_y);
+		BASISU_NOTE_UNUSED(pOutput_blocks);
+		BASISU_NOTE_UNUSED(block_stride_in_bytes);
 		BASISU_NOTE_UNUSED(output_blocks_buf_size_in_blocks_or_pixels);
 
 		if (!output_row_pitch_in_blocks_or_pixels)
