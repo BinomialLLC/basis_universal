@@ -86,7 +86,7 @@ endif()
 
 install(TARGETS basisu DESTINATION bin)
 
-if (NOT MSVC)
+if (UNIX)
    if (CMAKE_BUILD_TYPE STREQUAL Release)
        if (APPLE)
 	      add_custom_command(TARGET basisu POST_BUILD COMMAND strip -X -x ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/basisu)
