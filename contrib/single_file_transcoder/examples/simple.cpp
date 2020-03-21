@@ -11,7 +11,7 @@
  * 
  * Example code released under a CC0 license.
  */
-#include "../../../transcoder/basisu_transcoder.h"
+#include "../basisu_transcoder.cpp"
 
 using namespace basist;
 
