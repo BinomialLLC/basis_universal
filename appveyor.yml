@@ -5,4 +5,4 @@ build:
   project: basisu.sln
   
 artifacts:
-  - path: bin\Release\*.*
+  - path: bin\basisu.exe
