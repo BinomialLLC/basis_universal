@@ -1,0 +1,8 @@
+image: Visual Studio 2019
+configuration: Release
+    
+build:
+  project: basisu.sln
+  
+artifacts:
+  - path: bin\basisu.exe
