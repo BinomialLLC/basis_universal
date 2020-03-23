@@ -1533,9 +1533,9 @@ namespace basisu
 
 	enum tga_image_type
 	{
-		cITPalettized = 0,
-		cITRGB = 1,
-		cITGrayscale = 2
+		cITPalettized = 1,
+		cITRGB = 2,
+		cITGrayscale = 3
 	};
 
 	uint8_t *read_tga(const uint8_t *pBuf, uint32_t buf_size, int &width, int &height, int &n_chans)
@@ -1561,8 +1561,7 @@ namespace basisu
 		
 		if (hdr.m_cmap)
 		{
-			// We don't support 32-bit palettized RGBA .TGA files (we have nothing to test with!).
-			if ((hdr.m_cmap_bpp == 0) || (hdr.m_cmap_bpp > 24))
+			if ((hdr.m_cmap_bpp == 0) || (hdr.m_cmap_bpp > 32))
 				return nullptr;
 
 			// Nobody implements CMapFirst correctly, so we're not supporting it. Never seen it used, either.
@@ -1581,55 +1580,56 @@ namespace basisu
 			rle_flag = true;
 		}
 
-		tga_image_type image_type;
+		const tga_image_type image_type = static_cast<tga_image_type>(file_image_type);
 
 		switch (file_image_type)
 		{
-		case 2:
+		case cITRGB:
 			if (hdr.m_depth == 8)
 				return nullptr;
-			image_type = cITRGB;
 			break;
-		case 1:
+		case cITPalettized:
 			if ((hdr.m_depth != 8) || (hdr.m_cmap != 1) || (hdr.m_cmap_len == 0))
 				return nullptr;
-			image_type = cITPalettized;
 			break;
-		case 3:
-			if ((hdr.m_depth != 8) || (hdr.m_cmap != 0) || (hdr.m_cmap_len != 0))
+		case cITGrayscale:
+			if ((hdr.m_cmap != 0) || (hdr.m_cmap_len != 0))
 				return nullptr;
-			image_type = cITGrayscale;
+			if ((hdr.m_depth != 8) && (hdr.m_depth != 16))
+				return nullptr;
 			break;
 		default:
 			return nullptr;
 		}
 
-		uint32_t bytes_per_pixel = 0;
+		uint32_t tga_bytes_per_pixel = 0;
 
 		switch (hdr.m_depth)
 		{
 		case 32:
-			bytes_per_pixel = 4;
+			tga_bytes_per_pixel = 4;
 			n_chans = 4;
 			break;
 		case 24:
-			bytes_per_pixel = 3;
+			tga_bytes_per_pixel = 3;
 			n_chans = 3;
 			break;
 		case 16:
 		case 15:
-			bytes_per_pixel = 2;
-			n_chans = 3;
+			tga_bytes_per_pixel = 2;
+			// For compatibility with stb_image_write.h
+			n_chans = ((file_image_type == cITGrayscale) && (hdr.m_depth == 16)) ? 4 : 3;
 			break;
 		case 8:
-			bytes_per_pixel = 1;
-			n_chans = 3;
+			tga_bytes_per_pixel = 1;
+			// For palettized RGBA support, which both FreeImage and stb_image support.
+			n_chans = ((file_image_type == cITPalettized) && (hdr.m_cmap_bpp == 32)) ? 4 : 3;
 			break;
 		default:
 			return nullptr;
 		}
 
-		const uint32_t bytes_per_line = hdr.m_width * bytes_per_pixel;
+		const uint32_t bytes_per_line = hdr.m_width * tga_bytes_per_pixel;
 
 		const uint8_t *pSrc = pBuf + sizeof(tga_header);
 		uint32_t bytes_remaining = buf_size - sizeof(tga_header);
@@ -1650,11 +1650,28 @@ namespace basisu
 		{
 			if (image_type == cITPalettized)
 			{
-				// I cannot find any files using 32bpp palettes in the wild (never seen any in ~30 years).
-				if ( ((hdr.m_cmap_bpp != 24) && (hdr.m_cmap_bpp != 15) && (hdr.m_cmap_bpp != 16)) || (hdr.m_cmap_len > 256) )
+				// Note I cannot find any files using 32bpp palettes in the wild (never seen any in ~30 years).
+				if ( ((hdr.m_cmap_bpp != 32) && (hdr.m_cmap_bpp != 24) && (hdr.m_cmap_bpp != 15) && (hdr.m_cmap_bpp != 16)) || (hdr.m_cmap_len > 256) )
 					return nullptr;
 
-				if (hdr.m_cmap_bpp == 24)
+				if (hdr.m_cmap_bpp == 32)
+				{
+					const uint32_t pal_size = hdr.m_cmap_len * 4;
+					if (bytes_remaining < pal_size)
+						return nullptr;
+
+					for (uint32_t i = 0; i < hdr.m_cmap_len; i++)
+					{
+						pal[i].r = pSrc[i * 4 + 2];
+						pal[i].g = pSrc[i * 4 + 1];
+						pal[i].b = pSrc[i * 4 + 0];
+						pal[i].a = pSrc[i * 4 + 3];
+					}
+
+					bytes_remaining -= pal_size;
+					pSrc += pal_size;
+				}
+				else if (hdr.m_cmap_bpp == 24)
 				{
 					const uint32_t pal_size = hdr.m_cmap_len * 3;
 					if (bytes_remaining < pal_size)
@@ -1700,16 +1717,11 @@ namespace basisu
 				bytes_remaining += bytes_to_skip;
 			}
 		}
-		else if (image_type == cITPalettized)
-		{
-			for (uint32_t i = 0; i < 256; i++)
-				pal[i].set(i, i, i, 255);
-		}
-
+		
 		width = hdr.m_width;
 		height = hdr.m_height;
 
-		const uint32_t source_pitch = width * bytes_per_pixel;
+		const uint32_t source_pitch = width * tga_bytes_per_pixel;
 		const uint32_t dest_pitch = width * n_chans;
 		
 		uint8_t *pImage = (uint8_t *)malloc(dest_pitch * height);
@@ -1751,15 +1763,15 @@ namespace basisu
 
 						if (run_type)
 						{
-							if (bytes_remaining < bytes_per_pixel)
+							if (bytes_remaining < tga_bytes_per_pixel)
 							{
 								free(pImage);
 								return nullptr;
 							}
 
-							memcpy(run_pixel, pSrc, bytes_per_pixel);
-							pSrc += bytes_per_pixel;
-							bytes_remaining -= bytes_per_pixel;
+							memcpy(run_pixel, pSrc, tga_bytes_per_pixel);
+							pSrc += tga_bytes_per_pixel;
+							bytes_remaining -= tga_bytes_per_pixel;
 						}
 					}
 
@@ -1770,12 +1782,12 @@ namespace basisu
 					if (run_type)
 					{
 						for (uint32_t i = 0; i < n; i++)
-							for (uint32_t j = 0; j < bytes_per_pixel; j++)
+							for (uint32_t j = 0; j < tga_bytes_per_pixel; j++)
 								*pDst++ = run_pixel[j];
 					}
 					else
 					{
-						const uint32_t bytes_wanted = n * bytes_per_pixel;
+						const uint32_t bytes_wanted = n * tga_bytes_per_pixel;
 
 						if (bytes_remaining < bytes_wanted)
 						{
@@ -1792,7 +1804,7 @@ namespace basisu
 
 				} while (pixels_remaining);
 
-				assert((pDst - &input_line_buf[0]) == width * bytes_per_pixel);
+				assert((pDst - &input_line_buf[0]) == width * tga_bytes_per_pixel);
 
 				pLine_data = &input_line_buf[0];
 			}
@@ -1816,7 +1828,7 @@ namespace basisu
 			switch (hdr.m_depth)
 			{
 			case 32:
-				assert(n_chans == 4);
+				assert(tga_bytes_per_pixel == 4 && n_chans == 4);
 				for (int i = 0; i < width; i++, pLine_data += 4, pDst += dst_stride)
 				{
 					pDst[0] = pLine_data[2];
@@ -1826,7 +1838,7 @@ namespace basisu
 				}
 				break;
 			case 24:
-				assert(n_chans == 3);
+				assert(tga_bytes_per_pixel == 3 && n_chans == 3);
 				for (int i = 0; i < width; i++, pLine_data += 3, pDst += dst_stride)
 				{
 					pDst[0] = pLine_data[2];
@@ -1836,29 +1848,60 @@ namespace basisu
 				break;
 			case 16:
 			case 15:
-				assert(n_chans == 3);
-				for (int i = 0; i < width; i++, pLine_data += 2, pDst += dst_stride)
+				if (image_type == cITRGB)
 				{
-					const uint32_t v = pLine_data[0] | (pLine_data[1] << 8);
-					pDst[0] = (((v >> 10) & 31) * 255 + 15) / 31;
-					pDst[1] = (((v >> 5) & 31) * 255 + 15) / 31;
-					pDst[2] = ((v & 31) * 255 + 15) / 31;
-				}
-				break;
-			case 8:
-				assert(n_chans == 3);
-				if (image_type == cITPalettized)
-				{
-					for (int i = 0; i < width; i++, pLine_data++, pDst += dst_stride)
+					assert(tga_bytes_per_pixel == 2 && n_chans == 3);
+					for (int i = 0; i < width; i++, pLine_data += 2, pDst += dst_stride)
 					{
-						const uint32_t c = *pLine_data;
-						pDst[0] = pal[c].r;
-						pDst[1] = pal[c].g;
-						pDst[2] = pal[c].b;
+						const uint32_t v = pLine_data[0] | (pLine_data[1] << 8);
+						pDst[0] = (((v >> 10) & 31) * 255 + 15) / 31;
+						pDst[1] = (((v >> 5) & 31) * 255 + 15) / 31;
+						pDst[2] = ((v & 31) * 255 + 15) / 31;
 					}
 				}
 				else
 				{
+					assert(image_type == cITGrayscale && tga_bytes_per_pixel == 2 && n_chans == 4);
+					for (int i = 0; i < width; i++, pLine_data += 2, pDst += dst_stride)
+					{
+						pDst[0] = pLine_data[0];
+						pDst[1] = pLine_data[0];
+						pDst[2] = pLine_data[0];
+						pDst[3] = pLine_data[1];
+					}
+				}
+				break;
+			case 8:
+				assert(tga_bytes_per_pixel == 1);
+				if (image_type == cITPalettized)
+				{
+					if (hdr.m_cmap_bpp == 32)
+					{
+						assert(n_chans == 4);
+						for (int i = 0; i < width; i++, pLine_data++, pDst += dst_stride)
+						{
+							const uint32_t c = *pLine_data;
+							pDst[0] = pal[c].r;
+							pDst[1] = pal[c].g;
+							pDst[2] = pal[c].b;
+							pDst[3] = pal[c].a;
+						}
+					}
+					else
+					{
+						assert(n_chans == 3);
+						for (int i = 0; i < width; i++, pLine_data++, pDst += dst_stride)
+						{
+							const uint32_t c = *pLine_data;
+							pDst[0] = pal[c].r;
+							pDst[1] = pal[c].g;
+							pDst[2] = pal[c].b;
+						}
+					}
+				}
+				else
+				{
+					assert(n_chans == 3);
 					for (int i = 0; i < width; i++, pLine_data++, pDst += dst_stride)
 					{
 						const uint8_t c = *pLine_data;
