@@ -62,10 +62,7 @@ void _basisu_translib_dummy() {
 	// Unused but only when building with EAC
 	BASISU_NOTE_UNUSED(basist::g_eac_modifier_table);
 #endif
-#if BASISD_SUPPORT_PVRTC1
-	// Unused but only when building with PVRTC
-	BASISU_NOTE_UNUSED(basist::g_pvrtc_bilinear_weights);
-#else
+#if BASISD_SUPPORT_PVRTC1 == 0
 	// Unused only when not building with PVRTC
 	BASISU_NOTE_UNUSED(basist::g_etc1_inten_tables16);
 	BASISU_NOTE_UNUSED(basist::g_etc1_inten_tables48);

@@ -379,20 +379,25 @@ bool upload(EMSCRIPTEN_WEBGL_CONTEXT_HANDLE const ctx, GLuint const name, const 
 								decSize = (std::max(8U, (descW + 3) & ~3) *
 										   std::max(8U, (descH + 3) & ~3) * 4 + 7) / 8;
 							} else {
-								decSize = basis_get_bytes_per_block(type) * blocks;
+								decSize = basis_get_bytes_per_block_or_pixel(type);
+								if (basis_transcoder_format_is_uncompressed(type)) {
+									decSize *= descW * descH;
+								} else {
+									decSize *= blocks;
+								}
 							}
 							if (void* decBuf = malloc(decSize)) {
-								if (type >= transcoder_texture_format::cTFTotalTextureFormats) {
+								if (basis_transcoder_format_is_uncompressed(type)) {
 									// note that blocks becomes total number of pixels for RGB/RGBA
 									blocks = descW * descH;
 								}
 								if (transcoder.transcode_image_level(data, size, 0, level, decBuf, blocks, type)) {
-									if (type < transcoder_texture_format::cTFTotalTextureFormats) {
-										glCompressedTexImage2D(GL_TEXTURE_2D, level,
-											toGlType(type), descW, descH, 0, decSize, decBuf);
-									} else {
+									if (basis_transcoder_format_is_uncompressed(type)) {
 										glTexImage2D(GL_TEXTURE_2D, level, GL_RGBA,
 											descW, descH, 0, GL_RGBA, toGlType(type), decBuf);
+									} else {
+										glCompressedTexImage2D(GL_TEXTURE_2D, level,
+											toGlType(type), descW, descH, 0, decSize, decBuf);
 									}
 									success = true;
 								}
