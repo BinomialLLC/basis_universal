@@ -51,6 +51,9 @@ Also see [Intel® Open Source HD Graphics Programmers' Reference Manual (PRM)](h
 
 ### Release notes
 
+3/25/20 release notes:
+- Added fuzz-safe JPEG reading. We support full-safe JPEG/BMP/TGA/PNG now.
+
 3/14/20 release notes:
 - UASTC support is in. We have removed BC7 mode 6 support from the ETC1S transcoder to reduce its size, although the format enum still works (it aliases to BC7 mode 5). We are still updating the docs for UASTC.
 - Adding fuzz-safe BMP support using apg_bmp. We will be adding fuzz-safe JPEG and TGA next.
@@ -90,7 +93,7 @@ A couple of the parameters to basisu_transcoder::transcode_image_level() and  ba
 
 ### Command Line Compression Tool
 
-The command line tool used to create, validate, and transcode/unpack .basis files is named "basisu". Run basisu without any parameters for help. Note this tool uses the reference encoder.
+The command line tool used to create, validate, and transcode/unpack .basis files is named "basisu". Run basisu without any parameters for help. 
 
 To build basisu:
 
@@ -101,7 +104,7 @@ make
 
 For Visual Studio 2019, you can now either use the CMakeLists.txt file or the included `basisu.sln` file.
 
-To compress a sRGB image to an ETC1S .basis file:
+To compress a sRGB PNG/BMP/TGA/JPEG image to an ETC1S .basis file:
 
 `basisu x.png`
 
