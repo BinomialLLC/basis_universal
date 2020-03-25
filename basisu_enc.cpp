@@ -20,6 +20,7 @@
 #include "transcoder/basisu_transcoder.h"
 #include "basisu_bc7enc.h"
 #include "apg_bmp.h"
+#include "jpgd.h"
 
 #if defined(_WIN32)
 // For QueryPerformanceCounter/QueryPerformanceFrequency
@@ -229,7 +230,7 @@ namespace basisu
 
 		return true;
 	}
-
+		
 	bool load_tga(const char* pFilename, image& img)
 	{
 		int w = 0, h = 0, n_chans = 0;
@@ -326,6 +327,20 @@ namespace basisu
 		return true;
 	}
 
+	bool load_jpg(const char *pFilename, image& img)
+	{
+		int width = 0, height = 0, actual_comps = 0;
+		uint8_t *pImage_data = jpgd::decompress_jpeg_image_from_file(pFilename, &width, &height, &actual_comps, 4, 0);
+		if (!pImage_data)
+			return false;
+		
+		img.init(pImage_data, width, height, 4);
+		
+		free(pImage_data);
+
+		return true;
+	}
+
 	bool load_image(const char* pFilename, image& img)
 	{
 		std::string ext(string_get_extension(std::string(pFilename)));
@@ -341,6 +356,8 @@ namespace basisu
 			return load_bmp(pFilename, img);
 		if (strcasecmp(pExt, "tga") == 0)
 			return load_tga(pFilename, img);
+		if ( (strcasecmp(pExt, "jpg") == 0) || (strcasecmp(pExt, "jfif") == 0) || (strcasecmp(pExt, "jpeg") == 0) )
+			return load_jpg(pFilename, img);
 
 		return false;
 	}
@@ -1933,5 +1950,5 @@ namespace basisu
 		
 		return read_tga(&filedata[0], (uint32_t)filedata.size(), width, height, n_chans);
 	}
-
+		
 } // namespace basisu

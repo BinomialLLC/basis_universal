@@ -67,6 +67,7 @@ set(BASISU_SRC_LIST ${COMMON_SRC_LIST}
 	basisu_bc7enc.cpp
 	lodepng.cpp
 	apg_bmp.c
+	jpgd.cpp
 	transcoder/basisu_transcoder.cpp
 	)
 

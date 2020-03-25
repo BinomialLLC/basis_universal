@@ -154,6 +154,7 @@
     <ClCompile Include="basisu_bc7enc.cpp" />
     <ClCompile Include="basisu_ssim.cpp" />
     <ClCompile Include="basisu_uastc_enc.cpp" />
+    <ClCompile Include="jpgd.cpp" />
     <ClCompile Include="transcoder\basisu_transcoder.cpp" />
     <ClInclude Include="apg_bmp.h" />
     <ClInclude Include="basisu_bc7enc.h" />
@@ -173,6 +174,7 @@
     <ClCompile Include="basisu_resample_filters.cpp" />
     <ClInclude Include="basisu_ssim.h" />
     <ClInclude Include="basisu_uastc_enc.h" />
+    <ClInclude Include="jpgd.h" />
     <ClInclude Include="lodepng.h" />
     <ClInclude Include="transcoder\basisu.h" />
     <ClInclude Include="transcoder\basisu_transcoder.h" />
