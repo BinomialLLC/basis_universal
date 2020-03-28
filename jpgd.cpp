@@ -23,7 +23,6 @@
 // v1.04, May. 19, 2012: Code tweaks to fix VS2008 static code analysis warnings
 // v2.00, March 20, 2020: Fuzzed with zzuf and afl. Fixed several issues, converted most assert()'s to run-time checks. Added chroma upsampling. Removed freq. domain upsampling. gcc/clang warnings.
 //
-
 #ifdef _MSC_VER
 #ifndef BASISU_NO_ITERATOR_DEBUG_LEVEL
 #if defined(_DEBUG) || defined(DEBUG)
@@ -94,6 +93,11 @@ namespace jpgd {
 
 #define CLAMP(i) ((static_cast<uint>(i) > 255) ? (((~i) >> 31) & 0xFF) : (i))
 
+	static inline int left_shifti(int val, uint32_t bits)
+	{
+		return static_cast<int>(static_cast<uint32_t>(val) << bits);
+	}
+
 	// Compiler creates a fast path 1D IDCT for X non-zero columns
 	template <int NONZERO_COLS>
 	struct Row
@@ -109,8 +113,8 @@ namespace jpgd {
 			const int tmp2 = z1 + MULTIPLY(z3, -FIX_1_847759065);
 			const int tmp3 = z1 + MULTIPLY(z2, FIX_0_765366865);
 
-			const int tmp0 = (ACCESS_COL(0) + ACCESS_COL(4)) << CONST_BITS;
-			const int tmp1 = (ACCESS_COL(0) - ACCESS_COL(4)) << CONST_BITS;
+			const int tmp0 = left_shifti(ACCESS_COL(0) + ACCESS_COL(4), CONST_BITS);
+			const int tmp1 = left_shifti(ACCESS_COL(0) - ACCESS_COL(4), CONST_BITS);
 
 			const int tmp10 = tmp0 + tmp3, tmp13 = tmp0 - tmp3, tmp11 = tmp1 + tmp2, tmp12 = tmp1 - tmp2;
 
@@ -145,9 +149,8 @@ namespace jpgd {
 	{
 		static void idct(int* pTemp, const jpgd_block_t* pSrc)
 		{
-#ifdef _MSC_VER
-			pTemp; pSrc;
-#endif
+			(void)pTemp; 
+			(void)pSrc;
 		}
 	};
 
@@ -156,7 +159,7 @@ namespace jpgd {
 	{
 		static void idct(int* pTemp, const jpgd_block_t* pSrc)
 		{
-			const int dcval = (pSrc[0] << PASS1_BITS);
+			const int dcval = left_shifti(pSrc[0], PASS1_BITS);
 
 			pTemp[0] = dcval;
 			pTemp[1] = dcval;
@@ -185,8 +188,8 @@ namespace jpgd {
 			const int tmp2 = z1 + MULTIPLY(z3, -FIX_1_847759065);
 			const int tmp3 = z1 + MULTIPLY(z2, FIX_0_765366865);
 
-			const int tmp0 = (ACCESS_ROW(0) + ACCESS_ROW(4)) << CONST_BITS;
-			const int tmp1 = (ACCESS_ROW(0) - ACCESS_ROW(4)) << CONST_BITS;
+			const int tmp0 = left_shifti(ACCESS_ROW(0) + ACCESS_ROW(4), CONST_BITS);
+			const int tmp1 = left_shifti(ACCESS_ROW(0) - ACCESS_ROW(4), CONST_BITS);
 
 			const int tmp10 = tmp0 + tmp3, tmp13 = tmp0 - tmp3, tmp11 = tmp1 + tmp2, tmp12 = tmp1 - tmp2;
 
@@ -593,7 +596,7 @@ namespace jpgd {
 	// Tables and macro used to fully decode the DPCM differences.
 	static const int s_extend_test[16] = { 0, 0x0001, 0x0002, 0x0004, 0x0008, 0x0010, 0x0020, 0x0040, 0x0080, 0x0100, 0x0200, 0x0400, 0x0800, 0x1000, 0x2000, 0x4000 };
 	static const int s_extend_offset[16] = { 0, -1, -3, -7, -15, -31, -63, -127, -255, -511, -1023, -2047, -4095, -8191, -16383, -32767 };
-	static const int s_extend_mask[] = { 0, (1 << 0), (1 << 1), (1 << 2), (1 << 3), (1 << 4), (1 << 5), (1 << 6), (1 << 7), (1 << 8), (1 << 9), (1 << 10), (1 << 11), (1 << 12), (1 << 13), (1 << 14), (1 << 15), (1 << 16) };
+	//static const int s_extend_mask[] = { 0, (1 << 0), (1 << 1), (1 << 2), (1 << 3), (1 << 4), (1 << 5), (1 << 6), (1 << 7), (1 << 8), (1 << 9), (1 << 10), (1 << 11), (1 << 12), (1 << 13), (1 << 14), (1 << 15), (1 << 16) };
 
 #define JPGD_HUFF_EXTEND(x, s) (((x) < s_extend_test[s & 15]) ? ((x) + s_extend_offset[s & 15]) : (x))
 
@@ -2907,6 +2910,10 @@ namespace jpgd {
 			m_ac_coeffs[i] = coeff_buf_open(m_max_mcus_per_row * m_comp_h_samp[i], m_max_mcus_per_col * m_comp_v_samp[i], 8, 8);
 		}
 
+		// See https://libjpeg-turbo.org/pmwiki/uploads/About/TwoIssueswiththeJPEGStandard.pdf
+		uint32_t total_scans = 0;
+		const uint32_t MAX_SCANS_TO_PROCESS = 1000;
+
 		for (; ; )
 		{
 			int dc_only_scan, refinement_scan;
@@ -2952,6 +2959,10 @@ namespace jpgd {
 			m_bits_left = 16;
 			get_bits(16);
 			get_bits(16);
+
+			total_scans++;
+			if (total_scans > MAX_SCANS_TO_PROCESS)
+				stop_decoding(JPGD_TOO_MANY_SCANS);
 		}
 
 		m_comps_in_scan = m_comps_in_frame;
