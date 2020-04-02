@@ -22,6 +22,7 @@
     <ClCompile Include="basisu_uastc_enc.cpp" />
     <ClCompile Include="basisu_bc7enc.cpp" />
     <ClCompile Include="apg_bmp.c" />
+    <ClCompile Include="jpgd.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="basisu_basis_file.h" />
@@ -58,6 +59,7 @@
       <Filter>transcoder</Filter>
     </ClInclude>
     <ClInclude Include="apg_bmp.h" />
+    <ClInclude Include="jpgd.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="transcoder\basisu_transcoder_tables_dxt1_6.inc">

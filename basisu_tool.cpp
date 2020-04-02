@@ -52,11 +52,11 @@ static void print_usage()
 	printf("\nUsage: basisu filename [filename ...] <options>\n");
 	
 	puts("\n"
-		"The default mode is compression of one or more PNG files to a .basis file. Alternate modes:\n"
+		"The default mode is compression of one or more PNG/BMP/TGA/JPG files to a .basis file. Alternate modes:\n"
 		" -unpack: Use transcoder to unpack .basis file to one or more .ktx/.png files\n"
 		" -validate: Validate and display information about a .basis file\n"
 		" -info: Display high-level information about a .basis file\n"
-		" -compare: Compare two PNG images specified with -file, output PSNR and SSIM statistics and RGB/A delta images\n"
+		" -compare: Compare two PNG/BMP/TGA/JPG images specified with -file, output PSNR and SSIM statistics and RGB/A delta images\n"
 		" -version: Print basisu version and exit\n"
 		"Unless an explicit mode is specified, if one or more files have the .basis extension this tool defaults to unpack mode.\n"
 		"\n"
@@ -66,8 +66,8 @@ static void print_usage()
 		"Filenames prefixed with a @ symbol are read as filename listing files. Listing text files specify which actual filenames to process (one filename per line).\n"
 		"\n"
 		"Options:\n"
-		" -file filename.png: Input image filename, multiple images are OK, use -file X for each input filename (prefixing input filenames with -file is optional)\n"
-		" -alpha_file filename.png: Input alpha image filename, multiple images are OK, use -file X for each input filename (must be paired with -file), images converted to REC709 grayscale and used as input alpha\n"
+		" -file filename.png/bmp/tga/jpg: Input image filename, multiple images are OK, use -file X for each input filename (prefixing input filenames with -file is optional)\n"
+		" -alpha_file filename.png/bmp/tga/jpg: Input alpha image filename, multiple images are OK, use -file X for each input filename (must be paired with -file), images converted to REC709 grayscale and used as input alpha\n"
 		" -multifile_printf: printf() format strint to use to compose multiple filenames\n"
 		" -multifile_first: The index of the first file to process, default is 0 (must specify -multifile_printf and -multifile_num)\n"
 		" -multifile_num: The total number of files to process.\n"
@@ -99,6 +99,7 @@ static void print_usage()
 		" -no_alpha: Always output non-alpha basis files, even if one or more inputs has alpha\n"
 		" -force_alpha: Always output alpha basis files, even if no inputs has alpha\n"
 		" -separate_rg_to_color_alpha: Separate input R and G channels to RGB and A (for tangent space XY normal maps)\n"
+		" -renorm: Renormalize each input image before any further processing/compression\n"
 		" -no_multithreading: Disable multithreading\n"
 		" -no_ktx: Disable KTX writing when unpacking (faster)\n"
 		" -etc1_only: Only unpack to ETC1, skipping the other texture formats during -unpack\n"
@@ -407,6 +408,8 @@ public:
 			else if ((strcasecmp(pArg, "-separate_rg_to_color_alpha") == 0) ||
 			        (strcasecmp(pArg, "-seperate_rg_to_color_alpha") == 0)) // was mispelled for a while - whoops!
 				m_comp_params.m_seperate_rg_to_color_alpha = true;
+			else if (strcasecmp(pArg, "-renorm") == 0)
+				m_comp_params.m_renormalize = true;
 			else if (strcasecmp(pArg, "-no_multithreading") == 0)
 			{
 				m_comp_params.m_multithreading = false;

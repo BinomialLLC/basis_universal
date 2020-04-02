@@ -19,4 +19,3 @@ if (typeof exports === 'object' && typeof module === 'object')
       define([], function() { return BASIS; });
     else if (typeof exports === 'object')
       exports["BASIS"] = BASIS;
-    

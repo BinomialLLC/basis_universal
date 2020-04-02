@@ -237,6 +237,7 @@ namespace basisu
 			m_force_alpha.clear();
 			m_multithreading.clear();
 			m_seperate_rg_to_color_alpha.clear();
+			m_renormalize.clear();
 			m_hybrid_sel_cb_quality_thresh.clear();
 			m_global_pal_bits.clear();
 			m_global_mod_bits.clear();
@@ -338,6 +339,8 @@ namespace basisu
 		
 		// Split the R channel to RGB and the G channel to alpha, then write a basis file with alpha channels
 		bool_param<false> m_seperate_rg_to_color_alpha;
+
+		bool_param<false> m_renormalize;
 
 		bool_param<false> m_disable_hierarchical_endpoint_codebooks;
 

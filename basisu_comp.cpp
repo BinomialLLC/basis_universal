@@ -73,6 +73,7 @@ namespace basisu
 			PRINT_BOOL_VALUE(m_check_for_alpha)
 			PRINT_BOOL_VALUE(m_force_alpha)
 			PRINT_BOOL_VALUE(m_seperate_rg_to_color_alpha);
+			PRINT_BOOL_VALUE(m_renormalize);
 			PRINT_BOOL_VALUE(m_multithreading);
 			PRINT_BOOL_VALUE(m_disable_hierarchical_endpoint_codebooks);
 			
@@ -397,6 +398,9 @@ namespace basisu
 			{
 				file_image = m_params.m_source_images[source_file_index];
 			}
+
+			if (m_params.m_renormalize)
+				file_image.renormalize_normal_map();
 
 			if (m_params.m_seperate_rg_to_color_alpha)
 			{

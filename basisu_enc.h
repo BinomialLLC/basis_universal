@@ -22,10 +22,13 @@
 #include <functional>
 #include <thread>
 #include <unordered_map>
+#include <ostream>
 
 #if !defined(_WIN32) || defined(__MINGW32__)
 #include <libgen.h>
 #endif
+
+// This module is really just a huge grab bag of classes and helper functions needed by the encoder.
 
 namespace basisu
 {
@@ -127,6 +130,16 @@ namespace basisu
 		v ^= (v << 10);
 		v ^= (v >> 15);
 		return v;
+	}
+
+	inline uint32_t wang_hash(uint32_t seed)
+	{
+		 seed = (seed ^ 61) ^ (seed >> 16);
+		 seed *= 9;
+		 seed = seed ^ (seed >> 4);
+		 seed *= 0x27d4eb2d;
+		 seed = seed ^ (seed >> 15);
+		 return seed;
 	}
 
 	uint32_t hash_hsieh(const uint8_t* pBuf, size_t len);
@@ -2264,6 +2277,12 @@ namespace basisu
 			resize(w, h, p);
 		}
 
+		image(const uint8_t *pImage, uint32_t width, uint32_t height, uint32_t comps) :
+			m_width(0), m_height(0), m_pitch(0)
+		{
+			init(pImage, width, height, comps);
+		}
+
 		image(const image &other) :
 			m_width(0), m_height(0), m_pitch(0)
 		{
@@ -2310,6 +2329,47 @@ namespace basisu
 			for (uint32_t i = 0; i < m_pixels.size(); i++)
 				m_pixels[i] = c;
 			return *this;
+		}
+
+		void init(const uint8_t *pImage, uint32_t width, uint32_t height, uint32_t comps)
+		{
+			assert(comps >= 1 && comps <= 4);
+			
+			resize(width, height);
+
+			for (uint32_t y = 0; y < height; y++)
+			{
+				for (uint32_t x = 0; x < width; x++)
+				{
+					const uint8_t *pSrc = &pImage[(x + y * width) * comps];
+					color_rgba &dst = (*this)(x, y);
+
+					if (comps == 1)
+					{
+						dst.r = pSrc[0];
+						dst.g = pSrc[0];
+						dst.b = pSrc[0];
+						dst.a = 255;
+					}
+					else if (comps == 2)
+					{
+						dst.r = pSrc[0];
+						dst.g = pSrc[0];
+						dst.b = pSrc[0];
+						dst.a = pSrc[1];
+					}
+					else
+					{
+						dst.r = pSrc[0];
+						dst.g = pSrc[1];
+						dst.b = pSrc[2];
+						if (comps == 4)
+							dst.a = pSrc[3];
+						else
+							dst.a = 255;
+					}
+				}
+			}
 		}
 
 		image &fill_box(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const color_rgba &c)
@@ -2795,11 +2855,23 @@ namespace basisu
 		
 	bool load_png(const char* pFilename, image& img);
 	inline bool load_png(const std::string &filename, image &img) { return load_png(filename.c_str(), img); }
+
+	bool load_bmp(const char* pFilename, image& img);
+	inline bool load_bmp(const std::string &filename, image &img) { return load_bmp(filename.c_str(), img); }
+		
+	bool load_tga(const char* pFilename, image& img);
+	inline bool load_tga(const std::string &filename, image &img) { return load_tga(filename.c_str(), img); }
+
+	bool load_jpg(const char *pFilename, image& img);
+	inline bool load_jpg(const std::string &filename, image &img) { return load_jpg(filename.c_str(), img); }
 	
-	// Currently loads .BMP or .PNG.
+	// Currently loads .BMP, .PNG, or .TGA.
 	bool load_image(const char* pFilename, image& img);
 	inline bool load_image(const std::string &filename, image &img) { return load_image(filename.c_str(), img); }
 
+	uint8_t *read_tga(const uint8_t *pBuf, uint32_t buf_size, int &width, int &height, int &n_chans);
+	uint8_t *read_tga(const char *pFilename, int &width, int &height, int &n_chans);
+		
 	enum
 	{
 		cImageSaveGrayscale = 1,
@@ -2961,7 +3033,7 @@ namespace basisu
 	}
 
 	void fill_buffer_with_random_bytes(void *pBuf, size_t size, uint32_t seed = 1);
-
+		
 } // namespace basisu
 
 

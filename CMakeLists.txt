@@ -67,6 +67,7 @@ set(BASISU_SRC_LIST ${COMMON_SRC_LIST}
 	basisu_bc7enc.cpp
 	lodepng.cpp
 	apg_bmp.c
+	jpgd.cpp
 	transcoder/basisu_transcoder.cpp
 	)
 
@@ -86,7 +87,7 @@ endif()
 
 install(TARGETS basisu DESTINATION bin)
 
-if (NOT MSVC)
+if (UNIX)
    if (CMAKE_BUILD_TYPE STREQUAL Release)
        if (APPLE)
 	      add_custom_command(TARGET basisu POST_BUILD COMMAND strip -X -x ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/basisu)

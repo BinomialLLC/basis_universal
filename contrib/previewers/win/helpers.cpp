@@ -4,6 +4,7 @@
 #include <cstdio>
 
 void dprintf(char* const fmt, ...) {
+#ifdef _DEBUG
 	va_list  args;
 	char buf[256];
 	va_start(args, fmt);
@@ -13,6 +14,7 @@ void dprintf(char* const fmt, ...) {
 		buf[sizeof buf - 1] = 0;
 		OutputDebugStringA(buf);
 	}
+#endif
 }
 
 HBITMAP rgbToBitmap(const uint32_t* src, uint32_t const imgW, uint32_t const imgH, bool const flip) {
