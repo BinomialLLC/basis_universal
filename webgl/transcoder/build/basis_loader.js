@@ -257,7 +257,7 @@ if (!IN_WORKER) {
   const COMPRESSED_RGBA_S3TC_DXT5_EXT = 0x83F3;
 
   // https://www.khronos.org/registry/webgl/extensions/WEBGL_compressed_texture_etc1/
-  const COMPRESSED_RGB_ETC1_WEBGL = 0x8D64
+  const COMPRESSED_RGB_ETC1_WEBGL = 0x8D64;
 
   // https://www.khronos.org/registry/webgl/extensions/WEBGL_compressed_texture_etc/
   const COMPRESSED_R11_EAC                        = 0x9270;
@@ -351,6 +351,7 @@ if (!IN_WORKER) {
       } else if (supportedFormats.pvrtc) {
         if (allowSeparateAlpha) {
           basisFormat = BASIS_FORMAT.cTFPVRTC1_4_RGB;
+          needsSecondaryAlpha = true;
         } else {
           basisFormat = BASIS_FORMAT.cTFPVRTC1_4_RGBA;
         }
@@ -463,7 +464,7 @@ if (!IN_WORKER) {
 
     if (url) {
       // Make the call to fetch the basis texture data
-      fetch(`../../${url}`).then(function(response) {
+      fetch(url).then(function(response) {
         if (response.ok) {
           response.arrayBuffer().then((arrayBuffer) => {
             if (BasisFile) {
