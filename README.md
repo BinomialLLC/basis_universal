@@ -152,7 +152,7 @@ After compression, the compressor transcodes all slices in the output .basis fil
 
 For best quality, you must supply basisu with original uncompressed source images. Any other type of lossy compression applied before basisu (including ETC1/BC1-5, BC7, JPEG, etc.) will cause multi-generational artifacts to appear in the final output textures. 
 
-For the maximum possible achievable quality with the current format and encoder (completely ignoring encoding speed!), use:
+For the maximum possible achievable ETC1S mode quality with the current format and encoder (completely ignoring encoding speed!), use:
 
 `basisu x.png -comp_level 5 -max_endpoints 16128 -max_selectors 16128 -no_selector_rdo -no_endpoint_rdo`
 
@@ -189,7 +189,10 @@ Note that -comp_level 2 is equivalent to the initial release's default, and -com
 ### More detailed examples
 
 `basisu x.png`\
-Compress sRGB image x.png to x.basis using default settings (multiple filenames OK)
+Compress sRGB image x.png to a ETC1S format x.basis file using default settings (multiple filenames OK). ETC1S format files are typically very small on disk (around .5-1.5 bits/texel).
+
+`basisu -uastc x.png`\
+Compress image x.png to a UASTC format x.basis file using default settings (multiple filenames OK). UASTC files are the same size as BC7 on disk (8-bpp). Be sure to compress UASTC .basis files yourself using Deflate, zstd, etc. To increase .basis file compressibility (trading off quality for smaller compressed files) use the "-uastc_rdo_q X" command line parameter.
 
 `basisu -q 255 x.png`\
 Compress sRGB image x.png to x.basis at max quality level achievable without  manually setting the codebook sizes (multiple filenames OK)
@@ -240,7 +243,7 @@ Note: The one exception to this promise are .basis textures marked as video. We 
 
 ### Encoder speed
 
-Total time for basisu.exe to compress a 1024x1024 texture on a 7 year old 4-core 2.2GHz Core i7 laptop - timings are "without mipmaps/with mipmaps":
+Total time for basisu.exe to compress a 1024x1024 ETC1S texture on a 7 year old 4-core 2.2GHz Core i7 laptop - timings are "without mipmaps/with mipmaps":
 
 * -comp_level 0: 
 
