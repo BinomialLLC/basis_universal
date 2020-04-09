@@ -1256,8 +1256,7 @@ namespace basisu
 			ccell_results_rgb.m_pSelectors_temp = &ccell_result_selectors_temp[0];
 
 			uint64_t part_err_rgb = color_cell_compression(255, &ccell_params_rgb, &ccell_results_rgb, &comp_params);
-			assert(ccell_results_rgb.m_low_endpoint.m_c[rot_comp] == ccell_results_rgb.m_high_endpoint.m_c[rot_comp]);
-
+			
 			color_cell_compressor_params ccell_params_a;
 			memset(&ccell_params_a, 0, sizeof(ccell_params_a));
 
