@@ -1,0 +1,389 @@
+[WORK IN PROGRESS]
+
+File: basis_spec.txt
+Version 1.00
+
+1.0 Introduction
+----------------
+
+The Basis Universal GPU texture codec supports reading and writing ".basis" files. 
+The .basis file format supports ETC1S or UASTC 4x4 texture data.
+
+* ETC1S is a simplified subset of ETC1.
+
+The mode is always differential (diff bit=1), the Rd, Gd, and Bd color deltas 
+are always (0,0,0), and the flip bit is always set. ETC1S texture data is fully 
+compliant with all existing software and hardware ETC1 decoders. Existing encoders 
+can be easily modified to limit their output to ETC1S.
+
+* UASTC 4x4 is a 19 mode subset of the ASTC texture format. Its specification is 
+[here](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-Texture-Specification). UASTC texture data can always be losslessly transcoded to ASTC.
+
+2.0 High-Level File Structure
+-----------------------------
+
+A .basis file consists of multiple sections. Apart from the header, which must always
+be at the start of the file, the other sections may appear in any order. 
+
+Here's the high level organization of a typical .basis file:
+
+* The file header
+* Optional ETC1S compressed endpoint/selector codebooks
+* Optional ETC1S Huffman table information
+* A required "slice" description array describing the resolutions and file offset/compressed sizes of each texture slice present in the file
+* 1 or more slices containing ETC1S or UASTC compressed texture data. 
+* For future expansion, the format supports an "extended" header which may be located anywhere in the file. This section contains .PNG-like chunked data. 
+
+3.0 File Enums
+--------------
+
+// basis_file_header::m_tex_type
+enum basis_texture_type
+{
+  cBASISTexType2D = 0,     
+  cBASISTexType2DArray = 1,   
+  cBASISTexTypeCubemapArray = 2, 
+  cBASISTexTypeVideoFrames = 3, 
+  cBASISTexTypeVolume = 4,  
+  cBASISTexTypeTotal
+};
+
+// basis_slice_desc::flags
+enum basis_slice_desc_flags
+{
+  cSliceDescFlagsHasAlpha = 1,
+  cSliceDescFlagsFrameIsIFrame = 2   
+};
+
+// basis_file_header::m_tex_format enum basis_tex_format
+{
+  cETC1S = 0,
+  cUASTC4x4 = 1
+};
+
+// basis_file_header::m_flags enum basis_header_flags
+{
+  cBASISHeaderFlagETC1S = 1.
+  cBASISHeaderFlagYFlipped = 2,
+  cBASISHeaderFlagHasAlphaSlices = 4
+};
+
+
+4.0 File Structures
+-------------------
+
+All individual members in all file structures are byte aligned and little endian. The structs 
+have no padding (i.e. they are declared with #pragma pack(1)).
+
+4.1 "basis_file_header" structure
+---------------------------------
+
+The file header must always be at the beginning of the file.
+
+struct basis_file_header
+{
+  uint16      m_sig;              // 2 byte file signature
+  uint16      m_ver;              // File version
+  uint16      m_header_size;      // Header size in bytes, sizeof(basis_file_header) or 0x4D
+  uint16      m_header_crc16;     // CRC16/genibus of the remaining header data
+
+  uint32      m_data_size;        // The total size of all data after the header
+  uint16      m_data_crc16;       // The CRC16 of all data after the header
+
+  uint24      m_total_slices;     // The number of compressed slices 
+  uint24      m_total_images;     // The total # of images
+
+  byte        m_tex_format;       // enum basis_tex_format
+  uint16      m_flags;            // enum basis_header_flags
+  byte        m_tex_type;         // enum basis_texture_type
+  uint24      m_us_per_frame;     // Video: microseconds per frame
+
+  uint32      m_reserved;         // For future use
+  uint32      m_userdata0;        // For client use
+  uint32      m_userdata1;        // For client use
+
+  uint16      m_total_endpoints;          // ETC1S: The number of endpoints in the endpoint codebook 
+  uint32      m_endpoint_cb_file_ofs;     // ETC1S: The compressed endpoint codebook's file offset relative to the header
+  uint24      m_endpoint_cb_file_size;    // ETC1S: The compressed endpoint codebook's size in bytes
+
+  uint16      m_total_selectors;          // ETC1S: The number of selectors in the selector codebook 
+  uint32      m_selector_cb_file_ofs;     // ETC1S: The compressed selector codebook's file offset relative to the header
+  uint24      m_selector_cb_file_size;    // ETC1S: The compressed selector codebook's size in bytes
+
+  uint32      m_tables_file_ofs;          // ETC1S: The file offset of the compressed Huffman codelength tables.
+  uint32      m_tables_file_size;         // ETC1S: The file size in bytes of the compressed Huffman codelength tables.
+
+  uint32      m_slice_desc_file_ofs;      // The file offset to the slice description array, usually follows the header
+  uint32      m_extended_file_ofs;        // The file offset of the "extended" header and compressed data, for future use
+  uint32      m_extended_file_size;       // The file size in bytes of the "extended" header and compressed data, for future use
+};
+
+4.1.1 Details:
+
+* m_sig is always 'B' * 256 + 's', or 0x4273.
+* m_ver is currently always 0x10.
+* m_header_size is sizeof(basis_file_header). It's always 0x4D.
+* m_header_crc16 is the CRC-16 of the remaining header data. See the "CRC-16" section for more information.
+* m_data_size, m_data_crc16: The size of all data following the header, and its CRC-16.
+* m_total_slices: The total number of slices, from [1,2^24-1]
+* m_total_images: The total number of images (where one image can contain multiple mipmap levels, and each mipmap level is a different slice).
+* m_tex_format: basis_tex_format. Either cETC1S (0), or cUASTC4x4 (1).
+* m_flags: A combination of flags from the basis_header_flags enum.
+* m_tex_type: The texture type, from enum basis_texture_type
+* m_us_per_frame: Microseconds per frame, only valid for cBASISTexTypeVideoFrames texture types.
+* m_total_endpoints, m_endpoint_cb_file_ofs, m_endpoint_cb_file_size: Information about the compressed ETC1S endpoint codebook: The total # of entries, the offset to the compressed data, and the compressed data's size.
+* m_total_selectors, m_selector_cb_file_ofs, m_selector_cb_file_size: Information about the compressed ETC1S selector codebook: The total # of entries, the offset to the compressed data, and the compressed data's size.
+* m_tables_file_ofs, m_tables_file_size: The file offset and size of the compressed Huffman tables for ETC1S format files. 
+* m_slice_desc_file_ofs: The file offset to the array of slice description structures. There will be m_total_slices structures at this file offset.
+* m_extended_file_ofs, m_extended_file_size: The "extended" header, for future expansion. Currently unused.
+
+4.2 "basis_slice_desc" structure
+--------------------------------
+
+struct basis_slice_desc
+{
+    uint24 m_image_index;  
+    uint8 m_level_index;   
+    uint8 m_flags;         
+
+    uint16 m_orig_width;   
+    uint16 m_orig_height;  
+
+    uint16 m_num_blocks_x; 
+    uint16 m_num_blocks_y; 
+
+    uint32 m_file_ofs;     
+    uint32 m_file_size;    
+
+    uint16 m_slice_data_crc16; 
+};
+
+4.2.1 Details:
+
+* m_image_index: The index of the source image provided to the encoder (will always appear in order from first to last, first image index is 0, no skipping allowed)
+* m_level_index: The mipmap level index (mipmaps will always appear from largest to smallest)
+* m_flags: enum basis_slice_desc_flags
+* m_orig_width: The original image width (may not be a multiple of 4 pixels)
+* m_orig_height: The original image height (may not be a multiple of 4 pixels)
+* m_num_blocks_x: The slice's block X dimensions. Each block is 4x4 pixels. The slice's pixel resolution may or may not be a power of 2.
+* m_num_blocks_y: The slice's block Y dimensions. 
+* m_file_ofs: Offset from the header to the start of the slice's data
+* m_file_size: The size of the compressed slice data in bytes
+* m_slice_data_crc16: The CRC16 of the compressed slice data, for extra-paranoid use cases
+
+5.0 CRC-16 Function
+-------------------
+
+.basis files use CRC-16/genibus(aka CRC-16 EPC, CRC-16 I-CODE, CRC-16 DARC) format CRC-16's. 
+
+Here's an example function in C++:
+
+uint16_t crc16(const void* r, size_t size, uint16_t crc)
+{
+  crc = ~crc;
+  const uint8_t* p = static_cast<const uint8_t*>(r);
+  for ( ; size; --size)
+  {
+    const uint16_t q = *p++ ^ (crc >> 8);
+    uint16_t k = (q >> 4) ^ q;
+    crc = (((crc << 8) ^ k) ^ (k << 5)) ^ (k << 12);
+  }
+
+  return static_cast<uint16_t>(~crc);
+}
+
+This function is called with 0 in the final "crc" parameter when computing CRC-16's of file data.
+
+6.0 Compressed Huffman Tables
+-----------------------------
+
+ETC1S format .basis files rely heavily on static [canonical Huffman
+prefix coding](https://en.wikipedia.org/wiki/Canonical_Huffman_code).  Multiple
+Huffman tables are used by each compressed section. Huffman codes are stored in
+each output byte in LSB to MSB order. (This is opposite of the JPEG format,
+which stores the codes in MSB to LSB order.)
+
+Huffman coding in .basis is compatible with the canonical Huffman methods used
+by Deflate encoders/decoders. Section 3.2.2 of [Deflate - RFC
+1951](https://tools.ietf.org/html/rfc1951), which describes how to compute the
+value of each Huffman code given an array of symbol codelengths. This document
+assumes familiarity with how Huffman coding works in Deflate.
+
+First, some enums:
+
+enum
+{
+	// Max supported Huffman code size is 16-bits
+	cHuffmanMaxSupportedCodeSize = 16, 
+
+	// The maximum number of symbols  is 2^14
+	cHuffmanMaxSymsLog2 = 14, 
+	cHuffmanMaxSyms = 1 << cHuffmanMaxSymsLog2,
+
+	// Small zero runs may range from 3-10 entries
+	cHuffmanSmallZeroRunSizeMin = 3, 
+	cHuffmanSmallZeroRunSizeMax = 10, 
+	cHuffmanSmallZeroRunExtraBits = 3,
+
+	// Big zero runs may range from 11-138 entries
+	cHuffmanBigZeroRunSizeMin = 11, 
+	cHuffmanBigZeroRunSizeMax = 138, 
+	cHuffmanBigZeroRunExtraBits = 7,
+
+	// Small non-zero runs may range from 3-6 entries
+	cHuffmanSmallRepeatSizeMin = 3, 
+	cHuffmanSmallRepeatSizeMax = 6, 
+	cHuffmanSmallRepeatExtraBits = 2,
+
+	// Big non-zero run may range from 7-134 entries
+	cHuffmanBigRepeatSizeMin = 7, 
+	cHuffmanBigRepeatSizeMax = 134, 
+	cHuffmanBigRepeatExtraBits = 7,
+
+	// There are a maximum of 21 symbols in a compressed Huffman code length table.
+	cHuffmanTotalCodelengthCodes = 21, 
+	
+	// Symbols [0,16] indicate code sizes. Other symbols indicate zero runs or repeats:
+	cHuffmanSmallZeroRunCode = 17, 
+	cHuffmanBigZeroRunCode = 18, 
+	cHuffmanSmallRepeatCode = 19, 
+	cHuffmanBigRepeatCode = 20
+};
+
+A .basis Huffman table consists of 1 to cHuffmanMaxSyms symbols. Each compressed
+Huffman table is described by an array of symbol code lengths in bits.
+
+The table's symbol code lengths are themselves RLE+Huffman coded, just like
+Deflate. (Note this can be confusing to developers unfamiliar with Deflate.)
+Each table begins with a small fixed header:
+
+	14 bits: total_used_syms [1, cHuffmanMaxSyms]
+	5 bits: num_codelength_codes [1, cHuffmanTotalCodelengthCodes]
+	
+Next, the code lengths for the small Huffman table which is used to send the compressed codelengths (and RLE/repeat codes) are sent uncompressed but in a reordered manner:
+	
+	3*num_codelength_codes bits: Code size of each Huffman symbol for the compressed Huffman codelength table.
+    
+	These code lengths are sent in this order (to help reduce the number that must be sent):
+	
+	{ 
+		cHuffmanSmallZeroRunCode, cHuffmanBigZeroRunCode, cHuffmanSmallRepeatCode, cHuffmanBigRepeatCode, 
+		0, 8, 7, 9, 6, 0xA, 5, 0xB, 4, 0xC, 3, 0xD, 2, 0xE, 1, 0xF, 0x10 
+	};
+			
+A canonical Huffman decoding table (of up to 21 symbols) should be built from
+these code lengths. Immediately following this data are the Huffman symbols
+(sometimes intermixed with raw bits) which describe how to unpack the
+codelengths of each symbol in the Huffman table:
+
+	- Symbols [0,16] indicate a specific symbol code length in bits.
+	
+	- Symbol cHuffmanSmallZeroRunCode (17) indicates a short run of symbols with 0 bit code lengths.
+	  cHuffmanSmallZeroRunExtraBits (3) bits are sent after this symbol, which indicates the run's size after adding the minimum size (cHuffmanSmallZeroRunSizeMin).
+	  
+	- Symbol cHuffmanBigZeroRunCode (18) indicates a long run of symbols with 0 bit code lengths. 
+	  cHuffmanBigZeroRunExtraBits (7) bits are sent after this symbol, which indicates the run's size after adding the minimum size (cHuffmanBigZeroRunSizeMin)
+
+	- Symbol cHuffmanSmallRepeatCode (19) indicates a short run of symbols that repeat the previous symbol's code length.
+	  cHuffmanSmallRepeatExtraBits (2) bits are sent after this symbol, which indicates the number of times to repeat the previous symbol's code length, 
+	  after adding the minimum size (cHuffmanSmallRepeatSizeMin).
+	  Cannot be the first symbol, and the previous symbol cannot have a code length of 0.
+	  
+ 	- Symbol cHuffmanBigRepeatCode (20) indicates a short run of symbols that repeat the previous symbol's code length.
+	  cHuffmanBigRepeatExtraBits (7) bits are sent after this symbol, which indicates the number of times to repeat the previous symbol's code length,
+	  after adding the minimum size (cHuffmanBigRepeatSizeMin).
+	  Cannot be the first symbol, and the previous symbol cannot have a code length of 0.
+	  
+There should be exactly total_used_syms code lengths stored in the compressed Huffman table. If not the stream is either corrupted or invalid.
+
+After all the symbol codelengths are uncompressed, the symbol codes can be computed and the canonical Huffman decoding tables can be built.
+
+7.0 ETC1S Endpoint Codebooks
+----------------------------
+
+The endpoint codebook section starts at file offset
+basis_file_header::m_endpoint_cb_file_ofs and is m_endpoint_cb_file_size bytes
+long. The endpoint codebook will have basis_file_header::m_total_endpoints total
+entries.
+
+At the beginning of the compressed endpoint codebook section are four compressed
+Huffman tables, stored using the procedure outlined in section 6.0. The Huffman tables
+appear in this order:
+
+	1. color5_delta_model0
+	2. color5_delta_model1
+	3. color5_delta_model2
+	4. inten_delta_model
+
+Following the data for these Huffman tables is a single 1-bit code which
+indicates if the color endpoint codebook is grayscale or not. 
+
+Immediately following this code is the compressed color endpoint codebook data. 
+A simple form of DPCM coding is used to send the ETC1S intensity table indices and
+color values. Here is the procedure to decode the endpoint codebook:
+
+	const int COLOR5_PAL0_PREV_HI = 9, COLOR5_PAL0_DELTA_LO = -9, COLOR5_PAL0_DELTA_HI = 31;
+	const int COLOR5_PAL1_PREV_HI = 21, COLOR5_PAL1_DELTA_LO = -21, COLOR5_PAL1_DELTA_HI = 21;
+	const int COLOR5_PAL2_PREV_HI = 31, COLOR5_PAL2_DELTA_LO = -31, COLOR5_PAL2_DELTA_HI = 9;
+
+	// Assume previous endpoint color is (16, 16, 16), and the previous intensity is 0.
+	color32 prev_color5(16, 16, 16, 0);
+	uint32_t prev_inten = 0;
+
+	// For each endpoint codebook entry
+	for (uint32_t i = 0; i < num_endpoints; i++)
+	{
+		// Decode the intensity delta Huffman code
+		uint32_t inten_delta = sym_codec.decode_huffman(inten_delta_model);
+		m_endpoints[i].m_inten5 = static_cast<uint8_t>((inten_delta + prev_inten) & 7);
+		prev_inten = m_endpoints[i].m_inten5;
+
+		// Now decode the endpoint entry's color or intensity value
+		for (uint32_t c = 0; c < (endpoints_are_grayscale ? 1U : 3U); c++)
+		{
+			// The Huffman table we used to decode the delta depends on the previous color's value
+			int delta;
+			if (prev_color5[c] <= basist::COLOR5_PAL0_PREV_HI)
+				delta = sym_codec.decode_huffman(color5_delta_model0);
+			else if (prev_color5[c] <= basist::COLOR5_PAL1_PREV_HI)
+				delta = sym_codec.decode_huffman(color5_delta_model1);
+			else
+				delta = sym_codec.decode_huffman(color5_delta_model2);
+
+        	// Apply the delta
+			int v = (prev_color5[c] + delta) & 31;
+
+			m_endpoints[i].m_color5[c] = static_cast<uint8_t>(v);
+
+			prev_color5[c] = static_cast<uint8_t>(v);
+		}
+
+		// If the endpoints are grayscale, set G and B to match R.
+		if (endpoints_are_grayscale)
+		{
+			m_endpoints[i].m_color5[1] = m_endpoints[i].m_color5[0];
+			m_endpoints[i].m_color5[2] = m_endpoints[i].m_color5[0];
+		}
+	}
+
+The rest of the section's data (if any) can be ignored.
+
+8.0 ETC1S Selector Codebooks
+----------------------------
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
