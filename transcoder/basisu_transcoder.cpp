@@ -7392,7 +7392,7 @@ namespace basist
 
 					uint32_t m = (le * 5 + he * 3) / 8;
 
-					int err = labs((int)v - (int)m);
+					int err = (int)labs((int)v - (int)m);
 					if (err < lowest_err)
 					{
 						lowest_err = err;
@@ -7415,7 +7415,7 @@ namespace basist
 				uint32_t le = (l << 1);
 				le = (le << 4) | le;
 
-				int err = labs((int)v - (int)le);
+				int err = (int)labs((int)v - (int)le);
 				if (err < lowest_err)
 				{
 					lowest_err = err;
@@ -7437,7 +7437,7 @@ namespace basist
 				uint32_t he = (h << 1) | 1;
 				he = (he << 4) | he;
 
-				int err = labs((int)v - (int)he);
+				int err = (int)labs((int)v - (int)he);
 				if (err < lowest_err)
 				{
 					lowest_err = err;
@@ -7466,7 +7466,7 @@ namespace basist
 
 					uint32_t m = (le * 5 + he * 3) / 8;
 
-					int err = labs((int)v - (int)m);
+					int err = (int)labs((int)v - (int)m);
 					if (err < lowest_err)
 					{
 						lowest_err = err;
@@ -7496,7 +7496,7 @@ namespace basist
 
 					uint32_t m = (le * 5 + he * 3) / 8;
 
-					int err = labs((int)v - (int)m);
+					int err = (int)labs((int)v - (int)m);
 					if (err < lowest_err)
 					{
 						lowest_err = err;
@@ -14687,7 +14687,9 @@ namespace basist
 				total_r += r; total_g += g; total_b += b;
 			}
 
-			avg_r = (total_r + 8) >> 4, avg_g = (total_g + 8) >> 4, avg_b = (total_b + 8) >> 4;
+			avg_r = (total_r + 8) >> 4;
+			avg_g = (total_g + 8) >> 4;
+			avg_b = (total_b + 8) >> 4;
 
 			int icov[6] = { 0, 0, 0, 0, 0, 0 };
 			for (uint32_t i = 0; i < 16; i++)
@@ -14783,7 +14785,9 @@ namespace basist
 						total_b += pSrc_pixels[i].b;
 					}
 
-					avg_r = (total_r + 8) >> 4, avg_g = (total_g + 8) >> 4, avg_b = (total_b + 8) >> 4;
+					avg_r = (total_r + 8) >> 4;
+					avg_g = (total_g + 8) >> 4;
+					avg_b = (total_b + 8) >> 4;
 				}
 
 				// All selectors equal - treat it as a solid block which should always be equal or better.
@@ -14934,7 +14938,9 @@ namespace basist
 			}
 			else
 			{
-				avg_r = (total_r + 8) >> 4, avg_g = (total_g + 8) >> 4, avg_b = (total_b + 8) >> 4;
+				avg_r = (total_r + 8) >> 4;
+				avg_g = (total_g + 8) >> 4;
+				avg_b = (total_b + 8) >> 4;
 
 				// Find the shortest vector from a AABB corner to the block's average color.
 				// This is to help avoid outliers.
@@ -15044,20 +15050,29 @@ namespace basist
 						}
 					}
 
-					low_c = low_dot0 & 15, high_c = ~high_dot0 & 15;
+					low_c = low_dot0 & 15;
+					high_c = ~high_dot0 & 15;
 					uint32_t r = (high_dot0 & ~15) - (low_dot0 & ~15);
 
 					uint32_t tr = (high_dot1 & ~15) - (low_dot1 & ~15);
-					if (tr > r)
-						low_c = low_dot1 & 15, high_c = ~high_dot1 & 15, r = tr;
+					if (tr > r) {
+						low_c = low_dot1 & 15;
+						high_c = ~high_dot1 & 15;
+						r = tr;
+					}
 
 					tr = (high_dot2 & ~15) - (low_dot2 & ~15);
-					if (tr > r)
-						low_c = low_dot2 & 15, high_c = ~high_dot2 & 15, r = tr;
+					if (tr > r) {
+						low_c = low_dot2 & 15;
+						high_c = ~high_dot2 & 15;
+						r = tr;
+					}
 
 					tr = (high_dot3 & ~15) - (low_dot3 & ~15);
-					if (tr > r)
-						low_c = low_dot3 & 15, high_c = ~high_dot3 & 15;
+					if (tr > r) {
+						low_c = low_dot3 & 15;
+						high_c = ~high_dot3 & 15;
+					}
 				}
 
 				lr = to_5(pSrc_pixels[low_c].r);
@@ -15091,7 +15106,9 @@ namespace basist
 						total_b += pSrc_pixels[i].b;
 					}
 
-					avg_r = (total_r + 8) >> 4, avg_g = (total_g + 8) >> 4, avg_b = (total_b + 8) >> 4;
+					avg_r = (total_r + 8) >> 4;
+					avg_g = (total_g + 8) >> 4;
+					avg_b = (total_b + 8) >> 4;
 				}
 
 				// All selectors equal - treat it as a solid block which should always be equal or better.
