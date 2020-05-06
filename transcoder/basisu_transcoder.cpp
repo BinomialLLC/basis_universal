@@ -195,7 +195,7 @@ namespace basist
 	{
 		crc = ~crc;
 
-		const uint8_t* p = reinterpret_cast<const uint8_t*>(r);
+		const uint8_t* p = static_cast<const uint8_t*>(r);
 		for (; size; --size)
 		{
 			const uint16_t q = *p++ ^ (crc >> 8);

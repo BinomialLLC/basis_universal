@@ -122,7 +122,7 @@ namespace basist
 			basisu::clear_vector(m_tree);
 		}
 
-		bool init(uint32_t total_syms, const uint8_t *pCode_sizes)
+		bool init(uint32_t total_syms, const uint8_t *pCode_sizes, uint32_t fast_lookup_bits = basisu::cHuffmanFastLookupBits)
 		{
 			if (!total_syms)
 			{
@@ -133,8 +133,10 @@ namespace basist
 			m_code_sizes.resize(total_syms);
 			memcpy(&m_code_sizes[0], pCode_sizes, total_syms);
 
+			const uint32_t huffman_fast_lookup_size = 1 << fast_lookup_bits;
+
 			m_lookup.resize(0);
-			m_lookup.resize(basisu::cHuffmanFastLookupSize);
+			m_lookup.resize(huffman_fast_lookup_size);
 
 			m_tree.resize(0);
 			m_tree.resize(total_syms * 2);
@@ -172,10 +174,10 @@ namespace basist
 				for (l = code_size; l > 0; l--, cur_code >>= 1)
 					rev_code = (rev_code << 1) | (cur_code & 1);
 
-				if (code_size <= basisu::cHuffmanFastLookupBits)
+				if (code_size <= fast_lookup_bits)
 				{
 					uint32_t k = (code_size << 16) | sym_index;
-					while (rev_code < basisu::cHuffmanFastLookupSize)
+					while (rev_code < huffman_fast_lookup_size)
 					{
 						if (m_lookup[rev_code] != 0)
 						{
@@ -190,9 +192,9 @@ namespace basist
 				}
 
 				int tree_cur;
-				if (0 == (tree_cur = m_lookup[rev_code & (basisu::cHuffmanFastLookupSize - 1)]))
+				if (0 == (tree_cur = m_lookup[rev_code & (huffman_fast_lookup_size - 1)]))
 				{
-					const uint32_t idx = rev_code & (basisu::cHuffmanFastLookupSize - 1);
+					const uint32_t idx = rev_code & (huffman_fast_lookup_size - 1);
 					if (m_lookup[idx] != 0)
 					{
 						// Supplied codesizes can't create a valid prefix code.
@@ -210,9 +212,9 @@ namespace basist
 					return false;
 				}
 
-				rev_code >>= (basisu::cHuffmanFastLookupBits - 1);
+				rev_code >>= (fast_lookup_bits - 1);
 
-				for (int j = code_size; j > (basisu::cHuffmanFastLookupBits + 1); j--)
+				for (int j = code_size; j > ((int)fast_lookup_bits + 1); j--)
 				{
 					tree_cur -= ((rev_code >>= 1) & 1);
 
@@ -260,6 +262,8 @@ namespace basist
 		}
 
 		const basisu::uint8_vec &get_code_sizes() const { return m_code_sizes; }
+		const basisu::int_vec get_lookup() const { return m_lookup; }
+		const basisu::int16_vec get_tree() const { return m_tree; }
 
 		bool is_valid() const { return m_code_sizes.size() > 0; }
 
@@ -436,9 +440,11 @@ namespace basist
 			return v;
 		}
 
-		inline uint32_t decode_huffman(const huffman_decoding_table &ct)
+		inline uint32_t decode_huffman(const huffman_decoding_table &ct, int fast_lookup_bits = basisu::cHuffmanFastLookupBits)
 		{
 			assert(ct.m_code_sizes.size());
+
+			const uint32_t huffman_fast_lookup_size = 1 << fast_lookup_bits;
 						
 			while (m_bit_buf_size < 16)
 			{
@@ -454,14 +460,14 @@ namespace basist
 			int code_len;
 
 			int sym;
-			if ((sym = ct.m_lookup[m_bit_buf & (basisu::cHuffmanFastLookupSize - 1)]) >= 0)
+			if ((sym = ct.m_lookup[m_bit_buf & (huffman_fast_lookup_size - 1)]) >= 0)
 			{
 				code_len = sym >> 16;
 				sym &= 0xFFFF;
 			}
 			else
 			{
-				code_len = basisu::cHuffmanFastLookupBits;
+				code_len = fast_lookup_bits;
 				do
 				{
 					sym = ct.m_tree[~sym + ((m_bit_buf >> code_len++) & 1)]; // ~sym = -sym - 1

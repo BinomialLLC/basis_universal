@@ -1927,7 +1927,8 @@ namespace basisu
 		
 	struct sym_freq
 	{
-		uint16_t m_key, m_sym_index;
+		uint32_t m_key;
+		uint16_t m_sym_index;
 	};
 
 	sym_freq *canonical_huffman_radix_sort_syms(uint32_t num_syms, sym_freq *pSyms0, sym_freq *pSyms1);
@@ -2008,7 +2009,7 @@ namespace basisu
 		{
 			if (m_bit_buffer_size)
 			{
-				m_total_bits += 8;
+				m_total_bits += 8 - (m_bit_buffer_size & 7);
 				append_byte(static_cast<uint8_t>(m_bit_buffer));
 
 				m_bit_buffer = 0;

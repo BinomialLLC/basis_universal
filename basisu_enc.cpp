@@ -678,7 +678,7 @@ namespace basisu
 			if ((s >= num_syms) || (A[r].m_key < A[s].m_key))
 			{
 				A[next].m_key = A[r].m_key;
-				A[r].m_key = static_cast<uint16_t>(next);
+				A[r].m_key = next;
 				++r;
 			}
 			else
@@ -689,13 +689,13 @@ namespace basisu
 
 			if ((s >= num_syms) || ((r < next) && A[r].m_key < A[s].m_key))
 			{
-				A[next].m_key = static_cast<uint16_t>(A[next].m_key + A[r].m_key);
-				A[r].m_key = static_cast<uint16_t>(next);
+				A[next].m_key = A[next].m_key + A[r].m_key;
+				A[r].m_key = next;
 				++r;
 			}
 			else
 			{
-				A[next].m_key = static_cast<uint16_t>(A[next].m_key + A[s].m_key);
+				A[next].m_key = A[next].m_key + A[s].m_key;
 				++s;
 			}
 		}
@@ -715,7 +715,7 @@ namespace basisu
 				;
 
 			for ( ; num_avail > num_used; --next, --num_avail)
-				A[next].m_key = static_cast<uint16_t>(depth);
+				A[next].m_key = depth;
 
 			num_avail = 2 * num_used;
 			num_used = 0;
@@ -763,6 +763,10 @@ namespace basisu
 		for (i = 0; i < num_syms; i++)
 		{
 			uint32_t freq = pSyms0[i].m_key;
+			
+			// We scale all input frequencies to 16-bits.
+			assert(freq <= UINT16_MAX);
+
 			hist[freq & 0xFF]++;
 			hist[256 + ((freq >> 8) & 0xFF)]++;
 		}
@@ -884,8 +888,13 @@ namespace basisu
 		else
 		{
 			for (uint32_t i = 0; i < num_syms; i++)
+			{
 				if (pSym_freq[i])
-					sym_freq[i] = static_cast<uint16_t>(maximum<uint32_t>((pSym_freq[i] * 65534U + (max_freq >> 1)) / max_freq, 1));
+				{
+					uint32_t f = static_cast<uint32_t>((static_cast<uint64_t>(pSym_freq[i]) * 65534U + (max_freq >> 1)) / max_freq);
+					sym_freq[i] = static_cast<uint16_t>(clamp<uint32_t>(f, 1, 65534));
+				}
+			}
 		}
 
 		return init(num_syms, &sym_freq[0], max_code_size);

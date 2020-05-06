@@ -293,7 +293,7 @@ namespace basisu
 	enum
 	{
 		cHuffmanMaxSupportedCodeSize = 16, cHuffmanMaxSupportedInternalCodeSize = 31, 
-		cHuffmanFastLookupBits = 10, cHuffmanFastLookupSize = 1 << cHuffmanFastLookupBits,
+		cHuffmanFastLookupBits = 10, 
 		cHuffmanMaxSymsLog2 = 14, cHuffmanMaxSyms = 1 << cHuffmanMaxSymsLog2,
 
 		// Small zero runs
@@ -341,6 +341,8 @@ namespace basisu
 		cETC2_R11_EAC,
 		cETC2_RG11_EAC,
 		cUASTC4x4,		
+		cBC1_NV,
+		cBC1_AMD,
 		
 		// Uncompressed/raw pixels
 		cRGBA32,
@@ -359,6 +361,8 @@ namespace basisu
 		case texture_format::cETC2_RGB:
 		case texture_format::cETC2_ALPHA:
 		case texture_format::cBC1:
+		case texture_format::cBC1_NV:
+		case texture_format::cBC1_AMD:
 		case texture_format::cBC4:
 		case texture_format::cPVRTC1_4_RGB:
 		case texture_format::cPVRTC1_4_RGBA:

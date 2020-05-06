@@ -95,20 +95,155 @@ namespace basisu
 		bc1_block::unpack_color(l, r0, g0, b0);
 		bc1_block::unpack_color(h, r1, g1, b1);
 
+		c[0].set_noclamp_rgba(r0, g0, b0, 255);
+		c[1].set_noclamp_rgba(r1, g1, b1, 255);
+
 		bool used_punchthrough = false;
 
 		if (l > h)
 		{
-			c[0].set_noclamp_rgba(r0, g0, b0, 255);
-			c[1].set_noclamp_rgba(r1, g1, b1, 255);
 			c[2].set_noclamp_rgba((r0 * 2 + r1) / 3, (g0 * 2 + g1) / 3, (b0 * 2 + b1) / 3, 255);
 			c[3].set_noclamp_rgba((r1 * 2 + r0) / 3, (g1 * 2 + g0) / 3, (b1 * 2 + b0) / 3, 255);
 		}
 		else
 		{
-			c[0].set_noclamp_rgba(r0, g0, b0, 255);
-			c[1].set_noclamp_rgba(r1, g1, b1, 255);
 			c[2].set_noclamp_rgba((r0 + r1) / 2, (g0 + g1) / 2, (b0 + b1) / 2, 255);
+			c[3].set_noclamp_rgba(0, 0, 0, 0);
+			used_punchthrough = true;
+		}
+
+		if (set_alpha)
+		{
+			for (uint32_t y = 0; y < 4; y++, pPixels += 4)
+			{
+				pPixels[0] = c[pBlock->get_selector(0, y)]; 
+				pPixels[1] = c[pBlock->get_selector(1, y)]; 
+				pPixels[2] = c[pBlock->get_selector(2, y)]; 
+				pPixels[3] = c[pBlock->get_selector(3, y)];
+			}
+		}
+		else
+		{
+			for (uint32_t y = 0; y < 4; y++, pPixels += 4)
+			{
+				pPixels[0].set_rgb(c[pBlock->get_selector(0, y)]); 
+				pPixels[1].set_rgb(c[pBlock->get_selector(1, y)]); 
+				pPixels[2].set_rgb(c[pBlock->get_selector(2, y)]); 
+				pPixels[3].set_rgb(c[pBlock->get_selector(3, y)]);
+			}
+		}
+
+		return used_punchthrough;
+	}
+
+	bool unpack_bc1_nv(const void *pBlock_bits, color_rgba *pPixels, bool set_alpha)
+	{
+		static_assert(sizeof(bc1_block) == 8, "sizeof(bc1_block) == 8");
+
+		const bc1_block *pBlock = static_cast<const bc1_block *>(pBlock_bits);
+
+		const uint32_t l = pBlock->get_low_color();
+		const uint32_t h = pBlock->get_high_color();
+
+		color_rgba c[4];
+
+		int r0 = (l >> 11) & 31;
+		int g0 = (l >> 5) & 63;
+		int b0 = l & 31;
+		int r1 = (h >> 11) & 31;
+		int g1 = (h >> 5) & 63;
+		int b1 = h & 31;
+
+		c[0].b = (uint8_t)((3 * b0 * 22) / 8);
+		c[0].g = (uint8_t)((g0 << 2) | (g0 >> 4));
+		c[0].r = (uint8_t)((3 * r0 * 22) / 8);
+		c[0].a = 0xFF;
+
+		c[1].r = (uint8_t)((3 * r1 * 22) / 8);
+		c[1].g = (uint8_t)((g1 << 2) | (g1 >> 4));
+		c[1].b = (uint8_t)((3 * b1 * 22) / 8);
+		c[1].a = 0xFF;
+
+		int gdiff = c[1].g - c[0].g;
+
+		bool used_punchthrough = false;
+
+		if (l > h)
+		{
+			c[2].r = (uint8_t)(((2 * r0 + r1) * 22) / 8);
+			c[2].g = (uint8_t)(((256 * c[0].g + gdiff/4 + 128 + gdiff * 80) / 256));
+			c[2].b = (uint8_t)(((2 * b0 + b1) * 22) / 8);
+			c[2].a = 0xFF;
+
+			c[3].r = (uint8_t)(((2 * r1 + r0) * 22) / 8);
+			c[3].g = (uint8_t)((256 * c[1].g - gdiff/4 + 128 - gdiff * 80) / 256);
+			c[3].b = (uint8_t)(((2 * b1 + b0) * 22) / 8);
+			c[3].a = 0xFF;
+		}
+		else
+		{
+			c[2].r = (uint8_t)(((r0 + r1) * 33) / 8);
+			c[2].g = (uint8_t)((256 * c[0].g + gdiff/4 + 128 + gdiff * 128) / 256);
+			c[2].b = (uint8_t)(((b0 + b1) * 33) / 8);
+			c[2].a = 0xFF;
+
+			c[3].set_noclamp_rgba(0, 0, 0, 0);
+			used_punchthrough = true;
+		}
+
+		if (set_alpha)
+		{
+			for (uint32_t y = 0; y < 4; y++, pPixels += 4)
+			{
+				pPixels[0] = c[pBlock->get_selector(0, y)]; 
+				pPixels[1] = c[pBlock->get_selector(1, y)]; 
+				pPixels[2] = c[pBlock->get_selector(2, y)]; 
+				pPixels[3] = c[pBlock->get_selector(3, y)];
+			}
+		}
+		else
+		{
+			for (uint32_t y = 0; y < 4; y++, pPixels += 4)
+			{
+				pPixels[0].set_rgb(c[pBlock->get_selector(0, y)]); 
+				pPixels[1].set_rgb(c[pBlock->get_selector(1, y)]); 
+				pPixels[2].set_rgb(c[pBlock->get_selector(2, y)]); 
+				pPixels[3].set_rgb(c[pBlock->get_selector(3, y)]);
+			}
+		}
+
+		return used_punchthrough;
+	}
+
+	static inline int interp_5_6_amd(int c0, int c1) { assert(c0 < 256 && c1 < 256); return (c0 * 43 + c1 * 21 + 32) >> 6; }
+	static inline int interp_half_5_6_amd(int c0, int c1) { assert(c0 < 256 && c1 < 256); return (c0 + c1 + 1) >> 1; }
+
+	bool unpack_bc1_amd(const void *pBlock_bits, color_rgba *pPixels, bool set_alpha)
+	{
+		const bc1_block *pBlock = static_cast<const bc1_block *>(pBlock_bits);
+
+		const uint32_t l = pBlock->get_low_color();
+		const uint32_t h = pBlock->get_high_color();
+
+		color_rgba c[4];
+
+		uint32_t r0, g0, b0, r1, g1, b1;
+		bc1_block::unpack_color(l, r0, g0, b0);
+		bc1_block::unpack_color(h, r1, g1, b1);
+
+		c[0].set_noclamp_rgba(r0, g0, b0, 255);
+		c[1].set_noclamp_rgba(r1, g1, b1, 255);
+				
+		bool used_punchthrough = false;
+
+		if (l > h)
+		{
+			c[2].set_noclamp_rgba(interp_5_6_amd(r0, r1), interp_5_6_amd(g0, g1), interp_5_6_amd(b0, b1), 255);
+			c[3].set_noclamp_rgba(interp_5_6_amd(r1, r0), interp_5_6_amd(g1, g0), interp_5_6_amd(b1, b0), 255);
+		}
+		else
+		{
+			c[2].set_noclamp_rgba(interp_half_5_6_amd(r0, r1), interp_half_5_6_amd(g0, g1), interp_half_5_6_amd(b0, b1), 255);
 			c[3].set_noclamp_rgba(0, 0, 0, 0);
 			used_punchthrough = true;
 		}
@@ -964,6 +1099,16 @@ namespace basisu
 			unpack_bc1(pBlock, pPixels, true);
 			break;
 		}
+		case texture_format::cBC1_NV:
+		{
+			unpack_bc1_nv(pBlock, pPixels, true);
+			break;
+		}
+		case texture_format::cBC1_AMD:
+		{
+			unpack_bc1_amd(pBlock, pPixels, true);
+			break;
+		}
 		case texture_format::cBC3:
 		{
 			return unpack_bc3(pBlock, pPixels);
@@ -1234,6 +1379,8 @@ namespace basisu
 		switch (fmt)
 		{
 		case texture_format::cBC1:
+		case texture_format::cBC1_NV:
+		case texture_format::cBC1_AMD:
 		{
 			internal_fmt = KTX_COMPRESSED_RGB_S3TC_DXT1_EXT;
 			break;
