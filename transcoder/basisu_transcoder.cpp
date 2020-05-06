@@ -17,17 +17,22 @@
 #include <limits.h>
 #include <vector>
 
-#ifndef IS_BIG_ENDIAN
+#ifndef BASISD_IS_BIG_ENDIAN
 // TODO: This doesn't work on OSX. How can this be so difficult?
 //#if defined(__BIG_ENDIAN__) || defined(_BIG_ENDIAN) || defined(BIG_ENDIAN)
-//	#define IS_BIG_ENDIAN (1)
+//	#define BASISD_IS_BIG_ENDIAN (1)
 //#else
-	#define IS_BIG_ENDIAN (0)
+	#define BASISD_IS_BIG_ENDIAN (0)
 //#endif
 #endif
 
-#ifndef USE_UNALIGNED_WORD_READS
-#define USE_UNALIGNED_WORD_READS (1)
+#ifndef BASISD_USE_UNALIGNED_WORD_READS
+	#ifdef __EMSCRIPTEN__
+		// Can't use unaligned loads/stores with WebAssembly.
+		#define BASISD_USE_UNALIGNED_WORD_READS (0)
+	#else
+		#define BASISD_USE_UNALIGNED_WORD_READS (1)
+	#endif
 #endif
 
 #define BASISD_SUPPORTED_BASIS_VERSION (0x13)
@@ -8510,7 +8515,7 @@ namespace basist
 						for (uint32_t i = 0; i < 4; i++)
 						{
 							packed_colors[i] = static_cast<uint16_t>((mul_8(colors[i].r, 31) << 11) | (mul_8(colors[i].g, 63) << 5) | mul_8(colors[i].b, 31));
-							if (IS_BIG_ENDIAN)
+							if (BASISD_IS_BIG_ENDIAN)
 								packed_colors[i] = byteswap_uint16(packed_colors[i]);
 						}
 					}
@@ -8519,7 +8524,7 @@ namespace basist
 						for (uint32_t i = 0; i < 4; i++)
 						{
 							packed_colors[i] = static_cast<uint16_t>((mul_8(colors[i].b, 31) << 11) | (mul_8(colors[i].g, 63) << 5) | mul_8(colors[i].r, 31));
-							if (IS_BIG_ENDIAN)
+							if (BASISD_IS_BIG_ENDIAN)
 								packed_colors[i] = byteswap_uint16(packed_colors[i]);
 						}
 					}
@@ -8560,12 +8565,12 @@ namespace basist
 						for (uint32_t x = 0; x < max_x; x++)
 						{
 							uint16_t cur = reinterpret_cast<uint16_t*>(pDst_pixels)[x];
-							if (IS_BIG_ENDIAN)
+							if (BASISD_IS_BIG_ENDIAN)
 								cur = byteswap_uint16(cur);
 
 							cur = (cur & 0xF) | packed_colors[(s >> (x * 2)) & 3];
 							
-							if (IS_BIG_ENDIAN)
+							if (BASISD_IS_BIG_ENDIAN)
 								cur = byteswap_uint16(cur);
 
 							reinterpret_cast<uint16_t*>(pDst_pixels)[x] = cur;
@@ -8591,7 +8596,7 @@ namespace basist
 					for (uint32_t i = 0; i < 4; i++)
 					{
 						packed_colors[i] = static_cast<uint16_t>((mul_8(colors[i].r, 15) << 12) | (mul_8(colors[i].g, 15) << 8) | (mul_8(colors[i].b, 15) << 4) | 0xF);
-						if (IS_BIG_ENDIAN)
+						if (BASISD_IS_BIG_ENDIAN)
 							packed_colors[i] = byteswap_uint16(packed_colors[i]);
 					}
 
@@ -8622,7 +8627,7 @@ namespace basist
 					for (uint32_t i = 0; i < 4; i++)
 					{
 						packed_colors[i] = mul_8(colors[i].g, 15);
-						if (IS_BIG_ENDIAN)
+						if (BASISD_IS_BIG_ENDIAN)
 							packed_colors[i] = byteswap_uint16(packed_colors[i]);
 					}
 
@@ -11795,7 +11800,7 @@ namespace basist
 		if (!codesize)
 			return 0;
 
-		if ((IS_BIG_ENDIAN) || (!USE_UNALIGNED_WORD_READS) || (bit_offset >= 112))
+		if ((BASISD_IS_BIG_ENDIAN) || (!BASISD_USE_UNALIGNED_WORD_READS) || (bit_offset >= 112))
 		{
 			const uint8_t* pBytes = &pBuf[bit_offset >> 3U];
 
@@ -11849,7 +11854,7 @@ namespace basist
 			return 0;
 		assert(bit_offset < 112);
 
-		if ((IS_BIG_ENDIAN) || (!USE_UNALIGNED_WORD_READS))
+		if ((BASISD_IS_BIG_ENDIAN) || (!BASISD_USE_UNALIGNED_WORD_READS))
 		{
 			const uint8_t* pBytes = &pBuf[bit_offset >> 3U];
 
@@ -12179,7 +12184,7 @@ namespace basist
 			uint64_t bits;
 			
 			// Read the weight bits
-			if ((IS_BIG_ENDIAN) || (!USE_UNALIGNED_WORD_READS))
+			if ((BASISD_IS_BIG_ENDIAN) || (!BASISD_USE_UNALIGNED_WORD_READS))
 				bits = read_bits64(blk.m_bytes, bit_ofs, std::min<int>(64, 128 - (int)bit_ofs));
 			else
 			{
