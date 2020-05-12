@@ -24,7 +24,9 @@
 
 #if defined(_WIN32)
 // For QueryPerformanceCounter/QueryPerformanceFrequency
+#ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
+#endif
 #define NOMINMAX
 #include <windows.h>
 #endif
@@ -390,7 +392,7 @@ namespace basisu
 			bool has_alpha = img.has_alpha();
 			if ((!has_alpha) || ((image_save_flags & cImageSaveIgnoreAlpha) != 0))
 			{
-				const uint64_t total_bytes = (uint64_t)img.get_width() * 3U * (uint64_t)img.get_height();
+				const uint8_vec::size_type total_bytes = uint8_vec::size_type(3) * img.get_width() * img.get_height();
 				uint8_vec rgb_pixels(total_bytes);
 				uint8_t *pDst = &rgb_pixels[0];
 								
@@ -1830,7 +1832,7 @@ namespace basisu
 
 				} while (pixels_remaining);
 
-				assert((pDst - &input_line_buf[0]) == width * tga_bytes_per_pixel);
+				assert((pDst - &input_line_buf[0]) == (std::ptrdiff_t)(width * tga_bytes_per_pixel));
 
 				pLine_data = &input_line_buf[0];
 			}

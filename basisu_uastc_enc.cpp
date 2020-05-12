@@ -3761,7 +3761,7 @@ namespace basisu
 	{
 		std::size_t operator()(selector_bitsequence const& s) const noexcept
 		{
-			return hash_hsieh((uint8_t *)&s, sizeof(s)) ^ s.m_sel;
+			return hash_hsieh((uint8_t *)&s, sizeof(s)) ^ (std::size_t)s.m_sel;
 		}
 	};
 		
