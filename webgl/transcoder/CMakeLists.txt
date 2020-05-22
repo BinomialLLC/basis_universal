@@ -18,4 +18,18 @@ if (EMSCRIPTEN)
       OUTPUT_NAME "basis_transcoder"
       SUFFIX ".js"
       LINK_FLAGS "--bind -s ALLOW_MEMORY_GROWTH=1 -O3 -s ASSERTIONS=0 -s MALLOC=emmalloc -s MODULARIZE=1 -s EXPORT_NAME=BASIS ")
+
+  add_executable(msc_basis_transcoder.js
+    ../../transcoder/basisu_transcoder.cpp
+    image_transcoder_wrapper.cpp
+  )
+
+  target_compile_definitions(msc_basis_transcoder.js PRIVATE NDEBUG BASISD_SUPPORT_UASTC=1 BASISD_SUPPORT_BC7=0 BASISD_SUPPORT_ATC=0 BASISD_SUPPORT_ASTC_HIGHER_OPAQUE_QUALITY=0 BASISD_SUPPORT_PVRTC2=0 BASISD_SUPPORT_FXT1=0 BASISD_SUPPORT_ETC2_EAC_RG11=0)
+  target_compile_options(msc_basis_transcoder.js PRIVATE -O3)
+  target_include_directories(msc_basis_transcoder.js PRIVATE ../../transcoder)
+
+  set_target_properties(msc_basis_transcoder.js PROPERTIES
+      OUTPUT_NAME "msc_basis_transcoder"
+      SUFFIX ".js"
+      LINK_FLAGS "--bind -s ALLOW_MEMORY_GROWTH=1 -O3 -s ASSERTIONS=0 -s MALLOC=emmalloc -s MODULARIZE=1 -s EXPORT_NAME=MSC_TRANSCODER")
 endif()

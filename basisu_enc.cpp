@@ -29,6 +29,14 @@
 #include <windows.h>
 #endif
 
+#ifdef max
+#undef max
+#endif
+
+#ifdef min
+#undef min
+#endif
+
 namespace basisu
 {
 	uint64_t interval_timer::g_init_ticks, interval_timer::g_freq;
@@ -1219,7 +1227,7 @@ namespace basisu
 		uint32_t max_count = 0, max_index = 0;
 		for (uint32_t i = 0; i < num_syms * num_syms; i++)
 			if (m_hist[i] > max_count)
-				max_count = m_hist[i], max_index = i;
+              static_cast<void>(max_count = m_hist[i]), max_index = i;
 
 		uint32_t a = max_index / num_syms, b = max_index % num_syms;
 
@@ -1655,7 +1663,7 @@ namespace basisu
 			return nullptr;
 		}
 
-		const uint32_t bytes_per_line = hdr.m_width * tga_bytes_per_pixel;
+		//const uint32_t bytes_per_line = hdr.m_width * tga_bytes_per_pixel;
 
 		const uint8_t *pSrc = pBuf + sizeof(tga_header);
 		uint32_t bytes_remaining = buf_size - sizeof(tga_header);

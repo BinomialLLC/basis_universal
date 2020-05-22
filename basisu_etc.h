@@ -116,7 +116,7 @@ namespace basisu
 		{
 			assert((ofs + num) <= 64U);
 			assert(num && (num < 32U));
-			return (read_be64(&m_uint64) >> ofs) & ((1UL << num) - 1UL);
+			return (uint32_t)((read_be64(&m_uint64) >> ofs) & ((1UL << num) - 1UL));
 		}
 
 		inline void set_general_bits(uint32_t ofs, uint32_t num, uint32_t bits)

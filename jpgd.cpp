@@ -637,7 +637,7 @@ namespace jpgd {
 		}
 		if (!rv)
 		{
-			int capacity = JPGD_MAX(32768 - 256, (nSize + 2047) & ~2047);
+			long capacity = JPGD_MAX(32768 - 256, (nSize + 2047) & ~2047);
 			mem_block* b = (mem_block*)jpgd_malloc(sizeof(mem_block) + capacity);
 			if (!b)
 			{
