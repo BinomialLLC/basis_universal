@@ -832,7 +832,19 @@ At this point, the decoder has decoded each block's endpoint and selector codebo
 It can now fetch the actual ETC1S endpoints/selectors from the codebooks and write out ETC1S
 texture data, or it can immedately transcode the ETC1S data to another GPU texture format.
 
-11.0 Example Bitstreams
+11.0 Alpha Channels in ETC1S Format Files
+-----------------------------------------
+
+If the ETC1S .basis file has an alpha channel, basis_file_header::m_flags will be logically OR's with cBASISHeaderFlagHasAlphaSlices. Alpha channel ETC1S files will contain two slices for each mipmap level (or face, or video frame, etc.). The even slices will contain the RGB data, and the odd slices will contain the alpha data. A decoder can first decode the RGB data slice, then the next alpha channel slice, or it can decode them in parallel using multithreading.
+
+12.0 Texture Video
+------------------
+
+Both ETC1S and UASTC format files support texture video. Texture video files can be optionally mipmapped, and can contain optional alpha channels (stored as separate slices in ETC1S format files). Currently, the first frame is always an i-frame, and all subsequent frames are p-frames, but the file format and transcoder supports any frame being an i-frame (and the encoder will be enhanced to support this feature). 
+
+Skip blocks always refer to the previous frame. i-frames cannot use skip blocks (encoded as endpoint predictor index 2).
+
+12.0 Example Bitstreams
 -----------------------
 
 This section will include several example .basis file bitstreams, along with their decoded equivalents, which should be helpful for new decoder verification.
