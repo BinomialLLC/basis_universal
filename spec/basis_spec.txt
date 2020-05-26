@@ -563,7 +563,7 @@ the selector codebook contains the 4x4 texel selector entry (which are 2-bits
 each) information. This is all the information needed to fully represent the
 texels within each block.
 
-The decoding procedural loops over all the blocks in raster order, and decodes
+The decoding procedure loops over all the blocks in raster order, and decodes
 the endpoint and selector indices used to represent each block. The decoding
 procedural is complex enough that commented code is best used to describe it.
 
