@@ -824,3 +824,9 @@ The code to decode the selector codebook index immediately follows the code abov
 At this point, the decoder has decoded each block's  endpoint and selector codebook indices.
 It can now fetch the actual ETC1S endpoints/selectors from the codebooks and write out ETC1S
 texture data, or it can transcode the ETC1S data to another texture format.
+
+11.0 Example Bitstreams
+-----------------------
+
+This section will include several example .basis file bitstreams, along with their decoded equivalents, which should be helpful for new decoder verification.
+
