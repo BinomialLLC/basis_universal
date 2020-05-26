@@ -602,7 +602,7 @@ selector codebook indices are decoded.
     uint32_t prev_endpoint_index = 0;
 
     // This array is only used for texture video. It holds the previous frame's endpoint and selector indices (each 16-bits, for 32-bits total).
-    uint32_t prev_frame_indices[block_x][block_y]; 
+    uint32_t prev_frame_indices[num_blocks_x][num_blocks_y]; 
     
     // Selector history buffer - See section 10.1.
     // For the selector history buffer's size, see section 9.0. 
