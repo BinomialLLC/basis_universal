@@ -605,7 +605,8 @@ selector codebook indices are decoded.
     uint32_t prev_frame_indices[block_x][block_y]; 
     
     // Selector history buffer - See section 10.1.
-    approx_move_to_front selector_history_buf;
+    // For the selector history buffer's size, see section 9.0. 
+    approx_move_to_front selector_history_buf(selector_history_buf_size);
 
     // Loop over all slice blocks in raster order
     for (uint32_t block_y = 0; block_y < num_blocks_y; block_y++)
