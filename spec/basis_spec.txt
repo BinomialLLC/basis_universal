@@ -597,8 +597,8 @@ selector codebook indices are decoded.
     
     // Some constants and state used during block decoding
     const uint32_t SELECTOR_HISTORY_BUF_FIRST_SYMBOL_INDEX = selector_codebook_size;
-		const uint32_t SELECTOR_HISTORY_BUF_RLE_SYMBOL_INDEX = selector_history_buf_size + SELECTOR_HISTORY_BUF_FIRST_SYMBOL_INDEX;
-		uint32_t cur_selector_rle_count = 0;
+    const uint32_t SELECTOR_HISTORY_BUF_RLE_SYMBOL_INDEX = selector_history_buf_size + SELECTOR_HISTORY_BUF_FIRST_SYMBOL_INDEX;
+    uint32_t cur_selector_rle_count = 0;
     
     uint32_t cur_pred_bits = 0;
     int prev_endpoint_pred_sym = 0;
