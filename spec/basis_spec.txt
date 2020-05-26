@@ -124,7 +124,7 @@ struct basis_file_header
 * m_sig is always 'B' * 256 + 's', or 0x4273.
 * m_ver is currently always 0x10.
 * m_header_size is sizeof(basis_file_header). It's always 0x4D.
-* m_header_crc16 is the CRC-16 of the remaining header data. See the "CRC-16" section for more information.
+* m_header_crc16 is the CRC-16 of the remaining header data. See the "CRC-16" section 5.0 below for more information.
 * m_data_size, m_data_crc16: The size of all data following the header, and its CRC-16.
 * m_total_slices: The total number of slices, from [1,2^24-1]
 * m_total_images: The total number of images (where one image can contain multiple mipmap levels, and each mipmap level is a different slice).
