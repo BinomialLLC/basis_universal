@@ -840,8 +840,8 @@ all slices must have alpha channels. basis_file_header::m_flags will be logicall
 cBASISHeaderFlagHasAlphaSlices. Alpha channel ETC1S files will contain two slices for each mipmap level 
 (or face, or video frame, etc.). The even slices will contain the RGB data, and the odd slices will contain 
 the alpha data, both stored in ETC1S format. A decoder can first decode the RGB data slice, then the next alpha
-channel slice, or it can decode them in parallel using multithreading. The ETC1S green channel contains the 
-alpha values.
+channel slice, or it can decode them in parallel using multithreading. The ETC1S green channel (on the odd slices) 
+contains the alpha values.
 
 12.0 Texture Video
 ------------------
