@@ -800,7 +800,7 @@ The code to decode the selector codebook index immediately follows the code abov
             // Compute the history buffer index
             int history_buf_index = selector_sym - (int)selectors.size();
 
-            if (history_buf_index < selector_history_buf.size());
+            assert(history_buf_index < selector_history_buf.size());
 
             // Access the history buffer
             selector_index = selector_history_buf[history_buf_index];
