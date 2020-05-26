@@ -1,5 +1,7 @@
+[WORK IN PROGRESS]
+
 File: basis_spec.txt
-Version 1.01
+Version 1.00
 
 1.0 Introduction
 ----------------
@@ -401,7 +403,7 @@ Here is the DPCM decoding procedure for selector codebooks:
         {
             if (!i)
             {
-				// First selector is sent raw
+                // First selector is sent raw
                 for (uint32_t j = 0; j < 4; j++)
                 {
                     uint32_t cur_byte = get_bits(8);
@@ -414,7 +416,7 @@ Here is the DPCM decoding procedure for selector codebooks:
                 continue;
             }
 
-			// Subsequent selectors are sent with a simple form of byte-wise DPCM coding.
+            // Subsequent selectors are sent with a simple form of byte-wise DPCM coding.
             for (uint32_t j = 0; j < 4; j++)
             {
                 int delta_byte = decode_huffman(delta_selector_pal_model);
@@ -439,10 +441,10 @@ basis_file_header::m_tables_file_size bytes long.
 
 The following four Huffman tables are sent, in this order:
 
-	1. endpoint_pred_model
-	2. delta_endpoint_model
-	3. selector_model
-	4. selector_history_buf_rle_model
+    1. endpoint_pred_model
+    2. delta_endpoint_model
+    3. selector_model
+    4. selector_history_buf_rle_model
 
 Following the last Huffman table are 13-bits indicating the size of the selector
 history buffer. Any remaining bits may be safely ignored.
@@ -467,47 +469,47 @@ An approximate Move to Front (MTF) approach is used to efficiently encode the
 selector codebook references. Here is the C++ example class for approximate MTF
 decoding:
 
-	class approx_move_to_front
-	{
-	public:
-		approx_move_to_front(uint32_t n)
-		{
-			init(n);
-		}
+    class approx_move_to_front
+    {
+    public:
+        approx_move_to_front(uint32_t n)
+        {
+            init(n);
+        }
 
-		void init(uint32_t n)
-		{
-			m_values.resize(n);
-			m_rover = n / 2;
-		}
+        void init(uint32_t n)
+        {
+            m_values.resize(n);
+            m_rover = n / 2;
+        }
 
-		size_t size() const { return m_values.size(); }
+        size_t size() const { return m_values.size(); }
 
-		const int& operator[] (uint32_t index) const { return m_values[index]; }
-			  int operator[] (uint32_t index)        { return m_values[index]; }
+        const int& operator[] (uint32_t index) const { return m_values[index]; }
+              int operator[] (uint32_t index)        { return m_values[index]; }
 
-		void add(int new_value)
-		{
-			m_values[m_rover++] = new_value;
-			if (m_rover == m_values.size())
-				m_rover = (uint32_t)m_values.size() / 2;
-		}
+        void add(int new_value)
+        {
+            m_values[m_rover++] = new_value;
+            if (m_rover == m_values.size())
+                m_rover = (uint32_t)m_values.size() / 2;
+        }
 
-		void use(uint32_t index)
-		{
-			if (index)
-			{
-				int x = m_values[index / 2];
-				int y = m_values[index];
-				m_values[index / 2] = y;
-				m_values[index] = x;
-			}
-		}
-    	
-	private:
-		std::vector<int> m_values;
-		uint32_t m_rover;
-	};
+        void use(uint32_t index)
+        {
+            if (index)
+            {
+                int x = m_values[index / 2];
+                int y = m_values[index];
+                m_values[index / 2] = y;
+                m_values[index] = x;
+            }
+        }
+        
+    private:
+        std::vector<int> m_values;
+        uint32_t m_rover;
+    };
 
 10.2 VLC Decoding Procedure
 ---------------------------
@@ -515,34 +517,34 @@ decoding:
 ETC1S slice decoding utilizes a simple Variable Length Coding (VLC) scheme that
 sends raw bits using variable-size chunks. Here is the VLC decoding procedure:
 
-	uint32_t decode_vlc(uint32_t chunk_bits)
-	{
-		assert(chunk_bits);
+    uint32_t decode_vlc(uint32_t chunk_bits)
+    {
+        assert(chunk_bits);
 
-		const uint32_t chunk_size = 1 << chunk_bits;
-		const uint32_t chunk_mask = chunk_size - 1;
-				
-		uint32_t v = 0;
-		uint32_t ofs = 0;
+        const uint32_t chunk_size = 1 << chunk_bits;
+        const uint32_t chunk_mask = chunk_size - 1;
+                
+        uint32_t v = 0;
+        uint32_t ofs = 0;
 
-		for ( ; ; )
-		{
-			uint32_t s = get_bits(chunk_bits + 1);
-			v |= ((s & chunk_mask) << ofs);
-			ofs += chunk_bits;
+        for ( ; ; )
+        {
+            uint32_t s = get_bits(chunk_bits + 1);
+            v |= ((s & chunk_mask) << ofs);
+            ofs += chunk_bits;
 
-			if ((s & chunk_size) == 0)
-				break;
-			
-			if (ofs >= 32)
-			{
-				assert(0);
-				break;
-			}
-		}
+            if ((s & chunk_size) == 0)
+                break;
+            
+            if (ofs >= 32)
+            {
+                assert(0);
+                break;
+            }
+        }
 
-		return v;
-	}
+        return v;
+    }
 
 10.3 ETC1S Slice Block Decoding
 -------------------------------
@@ -569,158 +571,158 @@ Here's the slice decoding procedure. This block of code shows the block loop,
 and how endpoint codebook indices are decoded. The next block of code shows how
 selector codebook indices are decoded.
 
-	// Constants used by the decoder
-	const uint32_t ENDPOINT_PRED_TOTAL_SYMBOLS = (4 * 4 * 4 * 4) + 1;
-	const uint32_t ENDPOINT_PRED_REPEAT_LAST_SYMBOL = ENDPOINT_PRED_TOTAL_SYMBOLS - 1;
-	const uint32_t ENDPOINT_PRED_MIN_REPEAT_COUNT = 3;
-	const uint32_t ENDPOINT_PRED_COUNT_VLC_BITS = 4;
+    // Constants used by the decoder
+    const uint32_t ENDPOINT_PRED_TOTAL_SYMBOLS = (4 * 4 * 4 * 4) + 1;
+    const uint32_t ENDPOINT_PRED_REPEAT_LAST_SYMBOL = ENDPOINT_PRED_TOTAL_SYMBOLS - 1;
+    const uint32_t ENDPOINT_PRED_MIN_REPEAT_COUNT = 3;
+    const uint32_t ENDPOINT_PRED_COUNT_VLC_BITS = 4;
 
-	const uint32_t NUM_ENDPOINT_PREDS = 3;
-	const uint32_t CR_ENDPOINT_PRED_INDEX = NUM_ENDPOINT_PREDS - 1;
-	const uint32_t NO_ENDPOINT_PRED_INDEX = 3;
-	
-	// Endpoint/selector codebooks - decoded previously. See sections 7.0 and 8.0.
-	endpoint endpoints[endpoint_codebook_size];
-	selector selectors[selector_codebook_size]; 
-	
-	// Array of per-block values used for endpoint index prediction (enough for 2 rows).
-	struct block_preds
-	{
-		uint16_t m_endpoint_index;
-		uint8_t m_pred_bits;
-	};
-	block_preds block_endpoint_preds[2][num_blocks_x];
-	
-	// State used during block decoding
-	uint32_t cur_pred_bits = 0;
-	int prev_endpoint_pred_sym = 0;
-	int endpoint_pred_repeat_count = 0;
-	uint32_t prev_endpoint_index = 0;
+    const uint32_t NUM_ENDPOINT_PREDS = 3;
+    const uint32_t CR_ENDPOINT_PRED_INDEX = NUM_ENDPOINT_PREDS - 1;
+    const uint32_t NO_ENDPOINT_PRED_INDEX = 3;
+    
+    // Endpoint/selector codebooks - decoded previously. See sections 7.0 and 8.0.
+    endpoint endpoints[endpoint_codebook_size];
+    selector selectors[selector_codebook_size]; 
+    
+    // Array of per-block values used for endpoint index prediction (enough for 2 rows).
+    struct block_preds
+    {
+        uint16_t m_endpoint_index;
+        uint8_t m_pred_bits;
+    };
+    block_preds block_endpoint_preds[2][num_blocks_x];
+    
+    // State used during block decoding
+    uint32_t cur_pred_bits = 0;
+    int prev_endpoint_pred_sym = 0;
+    int endpoint_pred_repeat_count = 0;
+    uint32_t prev_endpoint_index = 0;
 
-	// This	array is only used for texture video. It holds the previous frame's endpoint and selector indices (each 16-bits, for 32-bits total).
-	uint32_t prev_frame_indices[block_x][block_y]; 
-	
-	// Selector history buffer - See section 10.1.
-	approx_move_to_front selector_history_buf;
+    // This array is only used for texture video. It holds the previous frame's endpoint and selector indices (each 16-bits, for 32-bits total).
+    uint32_t prev_frame_indices[block_x][block_y]; 
+    
+    // Selector history buffer - See section 10.1.
+    approx_move_to_front selector_history_buf;
 
-	// Loop over all slice blocks in raster order
-	for (uint32_t block_y = 0; block_y < num_blocks_y; block_y++)
-	{
-		// The index into the block_endpoint_preds array
-		const uint32_t cur_block_endpoint_pred_array = block_y & 1;
+    // Loop over all slice blocks in raster order
+    for (uint32_t block_y = 0; block_y < num_blocks_y; block_y++)
+    {
+        // The index into the block_endpoint_preds array
+        const uint32_t cur_block_endpoint_pred_array = block_y & 1;
 
-		for (uint32_t block_x = 0; block_x < num_blocks_x; block_x++)
-		{
-			// Check if we're at the start of a 2x2 block group.
-			if ((block_x & 1) == 0)
-			{
-				// Are we on an even or odd row of blocks?
-				if ((block_y & 1) == 0)
-				{
-					// We're on an even row and column of blocks. Decode the combined endpoint index predictor symbols for 2x2 blocks.
-					// This symbol tells the decoder how the endpoints are decoded for each block in a 2x2 group of blocks.
-										
-					// Are we in an RLE run?
-					if (endpoint_pred_repeat_count)
-					{
-						// Inside a run of endpoint predictor symbols.
-						endpoint_pred_repeat_count--;
-						cur_pred_bits = prev_endpoint_pred_sym;
-					}
-					else
-					{
-						// Decode the endpoint prediction symbol, using the "endpoint pred" Huffman table (see section 9.0).
-						cur_pred_bits = decode_huffman(m_endpoint_pred_model);
-						if (cur_pred_bits == ENDPOINT_PRED_REPEAT_LAST_SYMBOL)
-						{
-							// It's a run of symbols, so decode the count using VLC decoding (see section 10.2)
-							endpoint_pred_repeat_count = decode_vlc(ENDPOINT_PRED_COUNT_VLC_BITS) + ENDPOINT_PRED_MIN_REPEAT_COUNT - 1;
+        for (uint32_t block_x = 0; block_x < num_blocks_x; block_x++)
+        {
+            // Check if we're at the start of a 2x2 block group.
+            if ((block_x & 1) == 0)
+            {
+                // Are we on an even or odd row of blocks?
+                if ((block_y & 1) == 0)
+                {
+                    // We're on an even row and column of blocks. Decode the combined endpoint index predictor symbols for 2x2 blocks.
+                    // This symbol tells the decoder how the endpoints are decoded for each block in a 2x2 group of blocks.
+                                        
+                    // Are we in an RLE run?
+                    if (endpoint_pred_repeat_count)
+                    {
+                        // Inside a run of endpoint predictor symbols.
+                        endpoint_pred_repeat_count--;
+                        cur_pred_bits = prev_endpoint_pred_sym;
+                    }
+                    else
+                    {
+                        // Decode the endpoint prediction symbol, using the "endpoint pred" Huffman table (see section 9.0).
+                        cur_pred_bits = decode_huffman(m_endpoint_pred_model);
+                        if (cur_pred_bits == ENDPOINT_PRED_REPEAT_LAST_SYMBOL)
+                        {
+                            // It's a run of symbols, so decode the count using VLC decoding (see section 10.2)
+                            endpoint_pred_repeat_count = decode_vlc(ENDPOINT_PRED_COUNT_VLC_BITS) + ENDPOINT_PRED_MIN_REPEAT_COUNT - 1;
 
-							cur_pred_bits = prev_endpoint_pred_sym;
-						}
-						else
-						{
-							// It's not a run of symbols
-							prev_endpoint_pred_sym = cur_pred_bits;
-						}
-					}
+                            cur_pred_bits = prev_endpoint_pred_sym;
+                        }
+                        else
+                        {
+                            // It's not a run of symbols
+                            prev_endpoint_pred_sym = cur_pred_bits;
+                        }
+                    }
 
-					// The symbol has enough endpoint prediction information for 4 blocks (2 bits per block), so 8 bits total. 
-					// Remember the prediction information we should use for the next row of 2 blocks beneath the current block.
-					block_endpoint_preds[cur_block_endpoint_pred_array ^ 1][block_x].m_pred_bits = (uint8_t)(cur_pred_bits >> 4);
-				}
-				else
-				{
-					// We're on an odd row of blocks, so use the endpoint prediction information we previously stored on the previous even row.
-					cur_pred_bits = block_endpoint_preds[cur_block_endpoint_pred_array][block_x].m_pred_bits;
-				}
-			}
-			
-			// Decode the current block's endpoint and selector indices.
-			uint32_t endpoint_index, selector_index = 0;
+                    // The symbol has enough endpoint prediction information for 4 blocks (2 bits per block), so 8 bits total. 
+                    // Remember the prediction information we should use for the next row of 2 blocks beneath the current block.
+                    block_endpoint_preds[cur_block_endpoint_pred_array ^ 1][block_x].m_pred_bits = (uint8_t)(cur_pred_bits >> 4);
+                }
+                else
+                {
+                    // We're on an odd row of blocks, so use the endpoint prediction information we previously stored on the previous even row.
+                    cur_pred_bits = block_endpoint_preds[cur_block_endpoint_pred_array][block_x].m_pred_bits;
+                }
+            }
+            
+            // Decode the current block's endpoint and selector indices.
+            uint32_t endpoint_index, selector_index = 0;
 
-			// Get the 2-bit endpoint prediction index for this block.
-			const uint32_t pred = cur_pred_bits & 3;
+            // Get the 2-bit endpoint prediction index for this block.
+            const uint32_t pred = cur_pred_bits & 3;
 
-			// Get the next block's endpoint prediction bits ready.
-			cur_pred_bits >>= 2;			
-			
-			// Now check to see if we should reuse a previously encoded block's endpoints.
-			if (pred == 0)
-			{
-				// Reuse the left block's endpoint index
-				assert(block_x > 0);
-				endpoint_index = prev_endpoint_index;
-			}
-			else if (pred == 1)
-			{
-				// Reuse the upper block's endpoint index
-				assert(block_y > 0)
-				endpoint_index = block_endpoint_preds[cur_block_endpoint_pred_array ^ 1][block_x].m_endpoint_index;
-			}
-			else if (pred == 2)
-			{
-				if (is_video)
-				{
-					// If it's texture video, reuse the previous frame's endpoint index, at this block.
-					assert(pred == CR_ENDPOINT_PRED_INDEX);
-					endpoint_index = prev_frame_indices[block_x][block_y];
-					selector_index = endpoint_index >> 16;
-					endpoint_index &= 0xFFFFU;
-				}
-				else
-				{
-					// Reuse the upper left block's endpoint index.
-					assert((block_x > 0) && (block_y > 0));
-					endpoint_index = block_endpoint_preds[cur_block_endpoint_pred_array ^ 1][block_x - 1].m_endpoint_index;
-				}
-			}
-			else
-			{
-				// We need to decode and apply a DPCM encoded delta to the previously used endpoint index.
-				// This uses the delta endpoint Huffman table (see section 9.0).
-				const uint32_t delta_sym = decode_huffman(delta_endpoint_model);
+            // Get the next block's endpoint prediction bits ready.
+            cur_pred_bits >>= 2;            
+            
+            // Now check to see if we should reuse a previously encoded block's endpoints.
+            if (pred == 0)
+            {
+                // Reuse the left block's endpoint index
+                assert(block_x > 0);
+                endpoint_index = prev_endpoint_index;
+            }
+            else if (pred == 1)
+            {
+                // Reuse the upper block's endpoint index
+                assert(block_y > 0)
+                endpoint_index = block_endpoint_preds[cur_block_endpoint_pred_array ^ 1][block_x].m_endpoint_index;
+            }
+            else if (pred == 2)
+            {
+                if (is_video)
+                {
+                    // If it's texture video, reuse the previous frame's endpoint index, at this block.
+                    assert(pred == CR_ENDPOINT_PRED_INDEX);
+                    endpoint_index = prev_frame_indices[block_x][block_y];
+                    selector_index = endpoint_index >> 16;
+                    endpoint_index &= 0xFFFFU;
+                }
+                else
+                {
+                    // Reuse the upper left block's endpoint index.
+                    assert((block_x > 0) && (block_y > 0));
+                    endpoint_index = block_endpoint_preds[cur_block_endpoint_pred_array ^ 1][block_x - 1].m_endpoint_index;
+                }
+            }
+            else
+            {
+                // We need to decode and apply a DPCM encoded delta to the previously used endpoint index.
+                // This uses the delta endpoint Huffman table (see section 9.0).
+                const uint32_t delta_sym = decode_huffman(delta_endpoint_model);
 
-				endpoint_index = delta_sym + prev_endpoint_index;
-				
-				// Wrap around if the index goes beyond the end of the endpoint codebook
-				if (endpoint_index >= endpoints.size())
-					endpoint_index -= (int)endpoints.size();
-			}
+                endpoint_index = delta_sym + prev_endpoint_index;
+                
+                // Wrap around if the index goes beyond the end of the endpoint codebook
+                if (endpoint_index >= endpoints.size())
+                    endpoint_index -= (int)endpoints.size();
+            }
 
-			// Remember the endpoint index we used on this block, so the next row can potentially reuse the index.
-			block_endpoint_preds[cur_block_endpoint_pred_array][block_x].m_endpoint_index = (uint16_t)endpoint_index;
+            // Remember the endpoint index we used on this block, so the next row can potentially reuse the index.
+            block_endpoint_preds[cur_block_endpoint_pred_array][block_x].m_endpoint_index = (uint16_t)endpoint_index;
 
-			// Remember the endpoint index used
-			prev_endpoint_index = endpoint_index;
-			
-			// Now we have fully decoded the ETC1S endpoint codebook index, in endpoint_index. 
-			
-      		// Now decode the selector index (see the next block of code, below).
-			< selector decoding - see below >
-			
-		} // block_x
-	} // block_y
+            // Remember the endpoint index used
+            prev_endpoint_index = endpoint_index;
+            
+            // Now we have fully decoded the ETC1S endpoint codebook index, in endpoint_index. 
+            
+            // Now decode the selector index (see the next block of code, below).
+            < selector decoding - see below >
+            
+        } // block_x
+    } // block_y
 
 The compressed format allows the encoder to reuse the endpoint index used by
 the previous block, the block immediately above the current block, or the
@@ -741,86 +743,84 @@ in a video sequence.
 
 The code to decode the selector codebook index immediately follows the code above for decoding the endpoint indices:
 
-	const uint32_t MAX_SELECTOR_HISTORY_BUF_SIZE = 64;
-	const uint32_t SELECTOR_HISTORY_BUF_RLE_COUNT_THRESH = 3;
-	const uint32_t SELECTOR_HISTORY_BUF_RLE_COUNT_BITS = 6;
-	const uint32_t SELECTOR_HISTORY_BUF_RLE_COUNT_TOTAL = (1 << SELECTOR_HISTORY_BUF_RLE_COUNT_BITS);
+    const uint32_t MAX_SELECTOR_HISTORY_BUF_SIZE = 64;
+    const uint32_t SELECTOR_HISTORY_BUF_RLE_COUNT_THRESH = 3;
+    const uint32_t SELECTOR_HISTORY_BUF_RLE_COUNT_BITS = 6;
+    const uint32_t SELECTOR_HISTORY_BUF_RLE_COUNT_TOTAL = (1 << SELECTOR_HISTORY_BUF_RLE_COUNT_BITS);
 
-	// Decode selector index, unless it's texture video and the endpoint predictor indicated that the 
-	// block's endpoints were reused from the previous frame.
-	if ((!is_video) || (pred != CR_ENDPOINT_PRED_INDEX))
-	{
-		int selector_sym;
+    // Decode selector index, unless it's texture video and the endpoint predictor indicated that the 
+    // block's endpoints were reused from the previous frame.
+    if ((!is_video) || (pred != CR_ENDPOINT_PRED_INDEX))
+    {
+        int selector_sym;
 
-		// Are we in a selector RLE run?
-		if (cur_selector_rle_count > 0)
-		{
-			// Handle selector RLE run.
-			cur_selector_rle_count--;
+        // Are we in a selector RLE run?
+        if (cur_selector_rle_count > 0)
+        {
+            // Handle selector RLE run.
+            cur_selector_rle_count--;
 
-			selector_sym = (int)selectors.size();
-		}
-		else
-		{
-			// Decode the selector symbol, using the selector Huffman table (see section 9.0).
-			selector_sym = decode_huffman(m_selector_model);
+            selector_sym = (int)selectors.size();
+        }
+        else
+        {
+            // Decode the selector symbol, using the selector Huffman table (see section 9.0).
+            selector_sym = decode_huffman(m_selector_model);
 
-			// Is it a run?
-			if (selector_sym == static_cast<int>(SELECTOR_HISTORY_BUF_RLE_SYMBOL_INDEX))
-			{
-				// Decode the selector run's size, using the selector history buf RLE Huffman table (see section 9.0).
-				int run_sym = decode_huffman(selector_history_buf_rle_model);
+            // Is it a run?
+            if (selector_sym == static_cast<int>(SELECTOR_HISTORY_BUF_RLE_SYMBOL_INDEX))
+            {
+                // Decode the selector run's size, using the selector history buf RLE Huffman table (see section 9.0).
+                int run_sym = decode_huffman(selector_history_buf_rle_model);
 
-				// Is it a very long run?
-				if (run_sym == (SELECTOR_HISTORY_BUF_RLE_COUNT_TOTAL - 1))
-					cur_selector_rle_count = decode_vlc(7) + SELECTOR_HISTORY_BUF_RLE_COUNT_THRESH;
-				else
-					cur_selector_rle_count = run_sym + SELECTOR_HISTORY_BUF_RLE_COUNT_THRESH;
+                // Is it a very long run?
+                if (run_sym == (SELECTOR_HISTORY_BUF_RLE_COUNT_TOTAL - 1))
+                    cur_selector_rle_count = decode_vlc(7) + SELECTOR_HISTORY_BUF_RLE_COUNT_THRESH;
+                else
+                    cur_selector_rle_count = run_sym + SELECTOR_HISTORY_BUF_RLE_COUNT_THRESH;
 
-				selector_sym = (int)selectors.size();
+                selector_sym = (int)selectors.size();
 
-				cur_selector_rle_count--;
-			}
-		}
+                cur_selector_rle_count--;
+            }
+        }
 
-		// Is it a reference into the selector history buffer?
-		if (selector_sym >= (int)selectors.size())
-		{
-			assert(m_selector_history_buf_size > 0);
+        // Is it a reference into the selector history buffer?
+        if (selector_sym >= (int)selectors.size())
+        {
+            assert(m_selector_history_buf_size > 0);
 
-			// Compute the history buffer index
-			int history_buf_index = selector_sym - (int)selectors.size();
+            // Compute the history buffer index
+            int history_buf_index = selector_sym - (int)selectors.size();
 
-			if (history_buf_index < selector_history_buf.size());
+            if (history_buf_index < selector_history_buf.size());
 
-			// Access the history buffer
-			selector_index = selector_history_buf[history_buf_index];
+            // Access the history buffer
+            selector_index = selector_history_buf[history_buf_index];
 
-			// Update the history buffer
-			if (history_buf_index != 0)
-				selector_history_buf.use(history_buf_index);
-		}
-		else
-		{
-			// It's an index into the selector codebook
-			selector_index = selector_sym;
+            // Update the history buffer
+            if (history_buf_index != 0)
+                selector_history_buf.use(history_buf_index);
+        }
+        else
+        {
+            // It's an index into the selector codebook
+            selector_index = selector_sym;
 
-			// Add it to the selector history buffer
-			if (m_selector_history_buf_size)
-				selector_history_buf.add(selector_index);
-		}
-	}
-    	
-	// For texture video, remember the endpoint and selector indices used by the block on this frame, for later reuse on the next frame.
-	if (is_video)
-		prev_frame_indices[block_x + block_y * num_blocks_x] = endpoint_index | (selector_index << 16);
+            // Add it to the selector history buffer
+            if (m_selector_history_buf_size)
+                selector_history_buf.add(selector_index);
+        }
+    }
+        
+    // For texture video, remember the endpoint and selector indices used by the block on this frame, for later reuse on the next frame.
+    if (is_video)
+        prev_frame_indices[block_x + block_y * num_blocks_x] = endpoint_index | (selector_index << 16);
 
-	// The block is fully decoded here. The codebook indices are endpoint_index and selector_index.
-	// Make sure they are valid
-	assert((endpoint_index < endpoints.size()) && (selector_index < selectors.size()));
+    // The block is fully decoded here. The codebook indices are endpoint_index and selector_index.
+    // Make sure they are valid
+    assert((endpoint_index < endpoints.size()) && (selector_index < selectors.size()));
 
 At this point, the decoder has both an endpoint and selector codebook indices.
 It can now fetch the endpoints/selectors from the codebooks and write out ETC1S
 texture data, or it can transcode the ETC1S data to another texture format.
-
-
