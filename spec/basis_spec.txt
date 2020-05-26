@@ -1,7 +1,7 @@
 [WORK IN PROGRESS]
 
 File: basis_spec.txt
-Version 1.00
+Version 1.01
 
 1.0 Introduction
 ----------------
