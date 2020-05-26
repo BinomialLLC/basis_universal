@@ -1,4 +1,4 @@
-[WORK IN PROGRESS]
+[WORK IN PROGRESS: Spec should be complete, but needs to be converted to markdown with more external links added.]
 
 File: basis_spec.txt
 Version 1.01
