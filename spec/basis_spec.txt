@@ -464,8 +464,8 @@ and the selector codebook. Sections 10.1 and 10.2 describe the helper procedures
 using by the decoder, and section 10.3 describes how the array of ETC1S blocks
 is actually decoded.
 
-10.1 Approximate Move to Front Routines
----------------------------------------
+10.1 ETC1S Approximate Move to Front Routines
+---------------------------------------------
 
 An approximate Move to Front (MTF) approach is used to efficiently encode the
 selector codebook references. Here is the C++ example class for approximate MTF
@@ -513,8 +513,8 @@ decoding:
         uint32_t m_rover;
     };
 
-10.2 VLC Decoding Procedure
----------------------------
+10.2 ETC1S VLC Decoding Procedure
+---------------------------------
 
 ETC1S slice decoding utilizes a simple Variable Length Coding (VLC) scheme that
 sends raw bits using variable-size chunks. Here is the VLC decoding procedure:
@@ -838,18 +838,22 @@ texture data, or it can immedately transcode the ETC1S data to another GPU textu
 ETC1S .basis files can have optional alpha channels, stored in odd slices. If any slice needs an alpha channel, 
 all slices must have alpha channels. basis_file_header::m_flags will be logically OR'd with 
 cBASISHeaderFlagHasAlphaSlices. Alpha channel ETC1S files will contain two slices for each mipmap level 
-(or face, or video frame, etc.). The even slices will contain the RGB data, and the odd slices will contain 
-the alpha data, both stored in ETC1S format. A decoder can first decode the RGB data slice, then the next alpha
-channel slice, or it can decode them in parallel using multithreading. The ETC1S green channel (on the odd slices) 
-contains the alpha values.
+(or face, or video frame, etc.). The basis_slice_desc::m_flags field will be logically OR'd with 
+cSliceDescFlagsHasAlpha for all odd alpha slices. 
+
+The even slices will contain the RGB data, and the odd slices will contain the alpha data, both stored in ETC1S 
+format. Alpha channel ETC1S files must always have an even total number of slices. A decoder can first decode 
+the RGB data slice, then the next alpha channel slice, or it can decode them in parallel using multithreading. 
+The ETC1S green channel (on the odd slices) contains the alpha values.
 
 12.0 Texture Video
 ------------------
 
-Both ETC1S and UASTC format files support texture video. Texture video files can be optionally mipmapped, and 
-can contain optional alpha channels (stored as separate slices in ETC1S format files). Currently, the first frame 
-is always an i-frame, and all subsequent frames are p-frames, but the file format and transcoder supports any 
-frame being an i-frame (and the encoder will be enhanced to support this feature). 
+Both ETC1S and UASTC format files support texture video. Texture video files can be optionally mipmapped, and can
+contain optional alpha channels (stored as separate slices in ETC1S format files). Currently, the first frame is 
+always an i-frame, and all subsequent frames are p-frames, but the file format and transcoder supports any 
+frame being an i-frame (and the encoder will be enhanced to support this feature). Decoders must track the previously 
+decoded frame's endpoints/selectors for all mipmap levels (if any), not just the top level's.
 
 Skip blocks always refer to the previous frame. i-frames cannot use skip blocks (encoded as endpoint predictor index 2).
 
