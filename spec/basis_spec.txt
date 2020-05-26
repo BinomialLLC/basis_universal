@@ -38,7 +38,6 @@ Here's the high level organization of a typical .basis file:
 --------------
 
 // basis_file_header::m_tex_type
-
 enum basis_texture_type
 {
   cBASISTexType2D = 0,     
@@ -50,7 +49,6 @@ enum basis_texture_type
 };
 
 // basis_slice_desc::flags
-
 enum basis_slice_desc_flags
 {
   cSliceDescFlagsHasAlpha = 1,
@@ -58,7 +56,6 @@ enum basis_slice_desc_flags
 };
 
 // basis_file_header::m_tex_format 
-
 enum basis_tex_format
 {
   cETC1S = 0,
@@ -66,10 +63,9 @@ enum basis_tex_format
 };
 
 // basis_file_header::m_flags 
-
 enum basis_header_flags
 {
-  cBASISHeaderFlagETC1S = 1.
+  cBASISHeaderFlagETC1S = 1,
   cBASISHeaderFlagYFlipped = 2,
   cBASISHeaderFlagHasAlphaSlices = 4
 };
