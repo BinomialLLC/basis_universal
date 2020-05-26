@@ -386,7 +386,7 @@ The second bit of this section indicates if "hybrid" global/local selector
 codebooks are used. Hybrid codebooks are not supported either, so this bit
 should always be 0.
 
-The third bit indicates of the selector codebook has been sent in raw form
+The third bit indicates if the selector codebook has been sent in raw form
 (uncompressed). If it's set, each selector is sent as four 8-bit bytes. Each
 byte corresponds to four 2-bit ETC1S selectors. The first selector of each group
 of 4 selectors starts at the LSB (least significant bit) of each byte, and is
@@ -396,7 +396,8 @@ If the third bit is 0, the selectors have been DPCM coded with Huffman coding.
 The "delta_selector_pal_model" Huffman table will immediately follow the third
 bit, and is stored using the procedure outlined in section 6.0.
 
-Here is the DPCM decoding procedure for selector codebooks:
+Immediately following the Huffman table is the compressed selector codebook. 
+Here is the DPCM decoding procedure:
 
         uint8_t prev_bytes[4] = { 0, 0, 0, 0 };
 
