@@ -55,13 +55,15 @@ enum basis_slice_desc_flags
   cSliceDescFlagsFrameIsIFrame = 2   
 };
 
-// basis_file_header::m_tex_format enum basis_tex_format
+// basis_file_header::m_tex_format 
+enum basis_tex_format
 {
   cETC1S = 0,
   cUASTC4x4 = 1
 };
 
-// basis_file_header::m_flags enum basis_header_flags
+// basis_file_header::m_flags 
+enum basis_header_flags
 {
   cBASISHeaderFlagETC1S = 1.
   cBASISHeaderFlagYFlipped = 2,
