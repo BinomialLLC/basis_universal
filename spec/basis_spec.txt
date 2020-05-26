@@ -343,7 +343,7 @@ the endpoint codebook:
         // Now decode the endpoint entry's color or intensity value
         for (uint32_t c = 0; c < (endpoints_are_grayscale ? 1U : 3U); c++)
         {
-            // The Huffman table we used to decode the delta depends on the previous color's value
+            // The Huffman table used to decode the delta depends on the previous color's value
             int delta;
             if (prev_color5[c] <= basist::COLOR5_PAL0_PREV_HI)
                 delta = decode_huffman(color5_delta_model0);
