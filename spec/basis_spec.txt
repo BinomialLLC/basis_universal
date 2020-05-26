@@ -437,7 +437,7 @@ Any bytes in this section following the selector codebook bits can be safely ign
 --------------------------------------------------
 
 Each ETC1S slice is compressed with four Huffman tables stored using the
-procedural outlined in section 6.0. These Huffman tables are stored at file
+procedure outlined in section 6.0. These Huffman tables are stored at file
 offset basis_file_header::m_tables_file_ofs. This section will be 
 basis_file_header::m_tables_file_size bytes long.
 
@@ -567,7 +567,7 @@ texels within each block.
 
 The decoding procedure loops over all the blocks in raster order, and decodes
 the endpoint and selector indices used to represent each block. The decoding
-procedural is complex enough that commented code is best used to describe it.
+procedure is complex enough that commented code is best used to describe it.
 
 Here's the slice decoding procedure. This block of code shows the block loop,
 and how endpoint codebook indices are decoded. The next block of code shows how
