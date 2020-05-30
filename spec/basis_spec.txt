@@ -1,4 +1,5 @@
-[WORK IN PROGRESS: Spec should be complete, but needs to be converted to markdown with more external links added.]
+Note: The latest specification is in the Basis Universal wiki, here:
+https://github.com/BinomialLLC/basis_universal/wiki/.basis-File-Format-and-ETC1S-Texture-Video-Specification
 
 File: basis_spec.txt
 Version 1.01
