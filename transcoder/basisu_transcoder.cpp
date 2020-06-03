@@ -8923,12 +8923,13 @@ namespace basist
 		BASISU_NOTE_UNUSED(decode_flags);
 		BASISU_NOTE_UNUSED(channel0);
 		BASISU_NOTE_UNUSED(channel1);
+		BASISU_NOTE_UNUSED(orig_width);
+		BASISU_NOTE_UNUSED(orig_height);
 		BASISU_NOTE_UNUSED(output_rows_in_pixels);
 		BASISU_NOTE_UNUSED(output_row_pitch_in_blocks_or_pixels);
-		BASISU_NOTE_UNUSED(slice_desc);
-		BASISU_NOTE_UNUSED(header);
 		BASISU_NOTE_UNUSED(output_block_or_pixel_stride_in_bytes);
 		BASISU_NOTE_UNUSED(fmt);
+		BASISU_NOTE_UNUSED(has_alpha);
 		BASISU_NOTE_UNUSED(image_data_size);
 		BASISU_NOTE_UNUSED(pImage_data);
 		BASISU_NOTE_UNUSED(num_blocks_x);
@@ -10920,7 +10921,7 @@ namespace basist
 		case block_format::cETC2_EAC_RG11: return "ETC2_EAC_RG11";
 		default:
 			assert(0);
-			BASISU_DEVEL_ERROR("basis_get_block_format_name: Invalid fmt\n");
+			BASISU_DEVEL_ERROR("basis_get_basisu_texture_format: Invalid fmt\n");
 			break;
 		}
 		return "";
