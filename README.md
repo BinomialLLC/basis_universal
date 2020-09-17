@@ -53,6 +53,21 @@ FXT1: See the OpenGL extension [GL_3DFX_texture_compression_FXT1](https://www.kh
 
 Also see [Intel® Open Source HD Graphics Programmers' Reference Manual (PRM)](https://01.org/sites/default/files/documentation/intel-gfx-bspec-osrc-chv-bsw-vol05-memory-views.pdf). This reference manual details how to encode FXT1, ETC1, ETC2, EAC, DXT/BC1-3, BC4/5/7, and ASTC.
 
+### Repository Licensing with REUSE
+
+The repository has been updated to be compliant with the REUSE licenese
+checking tool (https://reuse.software/). This was done by adding the complete
+text of all licenses used under the LICENSES/ directory and adding the
+.reuse/dep5 file which specifies licenses for files which don't contain
+them in a form which can be automatically parse by the reuse tool. REUSE
+does not alter copyrights or licenses, simply captures information about
+licensing to ensure the entire repository has explicit licensing information.
+
+To ensure continued REUSE compliance, run `reuse lint` at the root of
+a clean, checked-out repository periodically, or run it during CI tests
+before any build artifacts have been created.
+
+
 ### Release notes
 
 3/25/20 release notes:
