@@ -442,8 +442,8 @@ unsigned int apg_bmp_write( const char* filename, unsigned char* pixels_ptr, int
   if ( labs( w ) > _BMP_MAX_DIMS || labs( h ) > _BMP_MAX_DIMS ) { return 0; }
   if ( n_chans != 3 && n_chans != 4 ) { return 0; }
 
-  uint32_t height = labs( h );
-  uint32_t width  = labs( w );
+  uint32_t height = (uint32_t)labs( h );
+  uint32_t width  = (uint32_t)labs( w );
   // work out if any padding how much to skip at end of each row
   const size_t unpadded_row_sz      = width * n_chans;
   const size_t row_padding_sz       = 0 == unpadded_row_sz % 4 ? 0 : 4 - unpadded_row_sz % 4;

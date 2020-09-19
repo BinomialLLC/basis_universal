@@ -138,7 +138,7 @@ namespace basisu
 						for (uint32_t packed_c = 0; packed_c < limit; packed_c++)
 						{
 							int v = etc1_decode_value(diff, inten, selector, packed_c);
-							uint32_t err = labs(v - static_cast<int>(color));
+							uint32_t err = (uint32_t)labs(v - static_cast<int>(color));
 							if (err < best_error)
 							{
 								best_error = err;
