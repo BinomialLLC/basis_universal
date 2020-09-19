@@ -105,11 +105,11 @@ struct basis_file_header
   uint32      m_userdata1;        // For client use
 
   uint16      m_total_endpoints;          // ETC1S: The number of endpoints in the endpoint codebook 
-  uint32      m_endpoint_cb_file_ofs;     // ETC1S: The compressed endpoint codebook's file offset relative to the header
+  uint32      m_endpoint_cb_file_ofs;     // ETC1S: The compressed endpoint codebook's file offset relative to the start of the file
   uint24      m_endpoint_cb_file_size;    // ETC1S: The compressed endpoint codebook's size in bytes
 
   uint16      m_total_selectors;          // ETC1S: The number of selectors in the selector codebook 
-  uint32      m_selector_cb_file_ofs;     // ETC1S: The compressed selector codebook's file offset relative to the header
+  uint32      m_selector_cb_file_ofs;     // ETC1S: The compressed selector codebook's file offset relative to the start of the file
   uint24      m_selector_cb_file_size;    // ETC1S: The compressed selector codebook's size in bytes
 
   uint32      m_tables_file_ofs;          // ETC1S: The file offset of the compressed Huffman codelength tables.
@@ -169,7 +169,7 @@ struct basis_slice_desc
 * m_orig_height: The original image height (may not be a multiple of 4 pixels)
 * m_num_blocks_x: The slice's block X dimensions. Each block is 4x4 pixels. The slice's pixel resolution may or may not be a power of 2.
 * m_num_blocks_y: The slice's block Y dimensions. 
-* m_file_ofs: Offset from the header to the start of the slice's data
+* m_file_ofs: Offset from the start of the file to the start of the slice's data
 * m_file_size: The size of the compressed slice data in bytes
 * m_slice_data_crc16: The CRC16 of the compressed slice data, for extra-paranoid use cases
 

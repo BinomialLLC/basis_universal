@@ -38,7 +38,7 @@ namespace basist
 		basisu::packed_uint<2> m_num_blocks_x;	// The slice's block X dimensions. Each block is 4x4 pixels. The slice's pixel resolution may or may not be a power of 2.
 		basisu::packed_uint<2> m_num_blocks_y;	// The slice's block Y dimensions. 
 
-		basisu::packed_uint<4> m_file_ofs;		// Offset from the header to the start of the slice's data
+		basisu::packed_uint<4> m_file_ofs;		// Offset from the start of the file to the start of the slice's data
 		basisu::packed_uint<4> m_file_size;		// The size of the compressed slice data in bytes
 
 		basisu::packed_uint<2> m_slice_data_crc16; // The CRC16 of the compressed slice data, for extra-paranoid use cases
@@ -107,11 +107,11 @@ namespace basist
 		basisu::packed_uint<4>      m_userdata1;		// For client use
 
 		basisu::packed_uint<2>      m_total_endpoints;			// The number of endpoints in the endpoint codebook 
-		basisu::packed_uint<4>      m_endpoint_cb_file_ofs;	// The compressed endpoint codebook's file offset relative to the header
+		basisu::packed_uint<4>      m_endpoint_cb_file_ofs;	// The compressed endpoint codebook's file offset relative to the start of the file
 		basisu::packed_uint<3>      m_endpoint_cb_file_size;	// The compressed endpoint codebook's size in bytes
 
 		basisu::packed_uint<2>      m_total_selectors;			// The number of selectors in the endpoint codebook 
-		basisu::packed_uint<4>      m_selector_cb_file_ofs;	// The compressed selectors codebook's file offset relative to the header
+		basisu::packed_uint<4>      m_selector_cb_file_ofs;	// The compressed selectors codebook's file offset relative to the start of the file
 		basisu::packed_uint<3>      m_selector_cb_file_size;	// The compressed selector codebook's size in bytes
 
 		basisu::packed_uint<4>      m_tables_file_ofs;			// The file offset of the compressed Huffman codelength tables, for decompressing slices
