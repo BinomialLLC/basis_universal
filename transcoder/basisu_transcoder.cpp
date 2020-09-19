@@ -3814,7 +3814,7 @@ namespace basist
 		assert(num_bits < 32);
 		assert(val < (1ULL << num_bits));
 
-		uint32_t mask = (1 << num_bits) - 1;
+		uint32_t mask = (1ULL << num_bits) - 1;
 
 		while (num_bits)
 		{
