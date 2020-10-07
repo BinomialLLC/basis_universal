@@ -1,18 +1,33 @@
-dist: bionic
+dist: focal
+language: c++
 
 stages:
   - build
+  - lint
 
-matrix:
+jobs:
   include:
-    - name: Static checks (format.sh)
-      stage: build
-      os: linux
+    - stage: lint
       addons:
         apt:
           packages:
             - dos2unix
             - recode
+      script:
+        - bash ./format.sh
+    - stage: build
+      addons:
+        apt:
+          packages:
+            - cmake
+      script:
+        - |
+          mkdir -p build
+          pushd ./build
+          cmake ../
+          popd
+        - |
+          pushd ./build
+          cmake --build .
+          popd
 
-script:
-  - bash ./format.sh
