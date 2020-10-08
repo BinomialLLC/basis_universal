@@ -1,8 +1,30 @@
-image: Visual Studio 2019
+image: 
+  - Visual Studio 2019
+  - Ubuntu
+  - macos
+
 configuration: Release
+
+environment:
+  APPVEYOR_YML_DISABLE_PS_LINUX: true
     
-build:
-  project: basisu.sln
-  
+build_script:
+  - ps: |
+      New-Item -Path . -Name "build" -ItemType "directory"
+      cd build
+      cmake --version
+      cmake ../ -DCMAKE_BUILD_TYPE:STRING="$env:CONFIGURATION"
+      cmake --build . --config $env:CONFIGURATION
+      cd ../
+  - sh: |
+      mkdir build
+      cd build
+      cmake --version
+      cmake ../ -DCMAKE_BUILD_TYPE:STRING="${CONFIGURATION}"
+      cmake --build . --config ${CONFIGURATION}
+      cd ../
+
 artifacts:
-  - path: bin\basisu.exe
+  - path: bin\$(configuration)\basisu.exe
+  - path: bin/basisu
+  - path: bin_osx/basisu
