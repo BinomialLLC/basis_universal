@@ -9,7 +9,7 @@ message("Initial CMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}")
 
 if( NOT CMAKE_BUILD_TYPE )
   set( CMAKE_BUILD_TYPE Release )
-endif( NOT CMAKE_BUILD_TYPE )
+endif()
 
 message( ${PROJECT_NAME} " build type: " ${CMAKE_BUILD_TYPE} )
 
@@ -17,7 +17,7 @@ if (BUILD_X64)
 	message("Building 64-bit")
 else()
 	message("Building 32-bit")
-endif(BUILD_X64)
+endif()
 
 if (NOT MSVC)
    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -g")
@@ -42,7 +42,7 @@ if (NOT MSVC)
 	  set(CMAKE_EXE_LINKER_FLAGS  "${CMAKE_EXE_LINKER_FLAGS} ${GCC_LINK_FLAGS} -static-libgcc -static-libstdc++ -static")
    else()
 	  set(CMAKE_EXE_LINKER_FLAGS  "${CMAKE_EXE_LINKER_FLAGS} ${GCC_LINK_FLAGS} -Wl,-rpath .")
-   endif(STATIC)
+   endif()
 
    set(CMAKE_C_FLAGS  "${CMAKE_C_FLAGS} ${GCC_COMPILE_FLAGS}")
    set(CMAKE_C_FLAGS_RELEASE  "${CMAKE_C_FLAGS_RELEASE} ${GCC_COMPILE_FLAGS}")
