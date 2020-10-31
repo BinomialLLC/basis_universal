@@ -286,8 +286,13 @@ namespace basisu
 		std::vector<std::string> m_source_alpha_filenames;
 		
 		std::vector<image> m_source_images;
-		// TODO: Allow caller to supply their own mipmaps
-						
+
+		// Support outer mipmaps
+		bool_param<false> m_mips_outer;
+
+		// Stores mips from level 1, and level 0 stores in m_source_images, compatible with old style
+		std::vector<std::vector<image>> m_source_images_with_outer_mips;
+
 		// Filename of the output basis file
 		std::string m_out_filename;	
 

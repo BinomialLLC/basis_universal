@@ -474,8 +474,17 @@ namespace basisu
 			
 			slices.reserve(32);
 			slices.push_back(file_image);
-									
-			if (m_params.m_mip_gen)
+
+			if(m_params.m_mips_outer)
+			{
+				assert(m_params.m_source_images_with_outer_mips.size() == m_params.m_source_images.size());
+				int img_idx = source_file_index;
+				for (int mips_idx = 0; mips_idx < m_params.m_source_images_with_outer_mips[img_idx].size(); mips_idx++)
+				{
+					slices.push_back(m_params.m_source_images_with_outer_mips[img_idx][mips_idx]);
+				}
+			}
+			else if(m_params.m_mip_gen)
 			{
 				if (!generate_mipmaps(file_image, slices, m_any_source_image_has_alpha))
 					return false;
