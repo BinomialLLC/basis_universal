@@ -23,6 +23,7 @@
     <ClCompile Include="basisu_bc7enc.cpp" />
     <ClCompile Include="apg_bmp.c" />
     <ClCompile Include="jpgd.cpp" />
+    <ClCompile Include="basis_mem.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="basisu_basis_file.h" />
@@ -60,6 +61,7 @@
     </ClInclude>
     <ClInclude Include="apg_bmp.h" />
     <ClInclude Include="jpgd.h" />
+    <ClInclude Include="basis_mem.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="transcoder\basisu_transcoder_tables_dxt1_6.inc">

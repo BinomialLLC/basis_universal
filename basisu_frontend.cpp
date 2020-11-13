@@ -57,14 +57,14 @@ namespace basisu
 
 			uint32_t tv = size / sizeof(vec6F_quantizer::training_vec_with_weight);
 
-			std::vector<vec6F_quantizer::training_vec_with_weight> v(tv);
+			basisu::MVector<vec6F_quantizer::training_vec_with_weight> v(tv);
 			fread(&v[0], 1, sizeof(v[0]) * tv, pFile);
 
 			for (uint32_t i = 0; i < tv; i++)
 				m_endpoint_clusterizer.add_training_vec(v[i].first, v[i].second);
 
 			m_endpoint_clusterizer.generate(16128);
-			std::vector<uint_vec> codebook;
+			basisu::MVector<uint_vec> codebook;
 			m_endpoint_clusterizer.retrieve(codebook);
 
 			printf("Generated %u entries\n", (uint32_t)codebook.size());
@@ -442,9 +442,9 @@ namespace basisu
 			m_block_selector_cluster_index[i] = old_to_new[m_block_selector_cluster_index[i]];
 		}
 
-		std::vector<etc_block> new_optimized_cluster_selectors(m_optimized_cluster_selectors.size() ? total_new_entries : 0);
+		basisu::MVector<etc_block> new_optimized_cluster_selectors(m_optimized_cluster_selectors.size() ? total_new_entries : 0);
 		basist::etc1_global_selector_codebook_entry_id_vec new_optimized_cluster_selector_global_cb_ids(m_optimized_cluster_selector_global_cb_ids.size() ? total_new_entries : 0);
-		std::vector<uint_vec> new_selector_cluster_indices(m_selector_cluster_indices.size() ? total_new_entries : 0);
+		basisu::MVector<uint_vec> new_selector_cluster_indices(m_selector_cluster_indices.size() ? total_new_entries : 0);
 		bool_vec new_selector_cluster_uses_global_cb(m_selector_cluster_uses_global_cb.size() ? total_new_entries : 0);
 
 		for (uint32_t i = 0; i < total_new_entries; i++)
@@ -649,7 +649,7 @@ namespace basisu
 
 		for (int cluster_index = 0; cluster_index < static_cast<int>(m_endpoint_clusters.size()); cluster_index++)
 		{
-			const std::vector<uint32_t>& cluster_indices = m_endpoint_clusters[cluster_index];
+			const basisu::MVector<uint32_t>& cluster_indices = m_endpoint_clusters[cluster_index];
 
 			for (uint32_t cluster_indices_iter = 0; cluster_indices_iter < cluster_indices.size(); cluster_indices_iter++)
 			{
@@ -711,13 +711,13 @@ namespace basisu
 
 				for (uint32_t cluster_index = first_index; cluster_index < last_index; cluster_index++)
 				{
-					const std::vector<uint32_t>& cluster_indices = m_endpoint_clusters[cluster_index];
+					const basisu::MVector<uint32_t>& cluster_indices = m_endpoint_clusters[cluster_index];
 
 					assert(cluster_indices.size());
 
 					for (uint32_t cluster_indices_iter = 0; cluster_indices_iter < cluster_indices.size(); cluster_indices_iter++)
 					{
-						std::vector<color_rgba> cluster_pixels(8);
+						basisu::MVector<color_rgba> cluster_pixels(8);
 
 						const uint32_t block_index = cluster_indices[cluster_indices_iter] >> 1;
 						const uint32_t subblock_index = cluster_indices[cluster_indices_iter] & 1;
@@ -898,13 +898,13 @@ namespace basisu
 
 				for (uint32_t cluster_index = first_index; cluster_index < last_index; cluster_index++)
 				{
-					const std::vector<uint32_t>& cluster_indices = m_endpoint_clusters[cluster_index];
+					const basisu::MVector<uint32_t>& cluster_indices = m_endpoint_clusters[cluster_index];
 
 					BASISU_FRONTEND_VERIFY(cluster_indices.size());
 
 					const uint32_t total_pixels = (uint32_t)cluster_indices.size() * 8;
 
-					std::vector<color_rgba> cluster_pixels(total_pixels);
+					basisu::MVector<color_rgba> cluster_pixels(total_pixels);
 
 					for (uint32_t cluster_indices_iter = 0; cluster_indices_iter < cluster_indices.size(); cluster_indices_iter++)
 					{
@@ -942,7 +942,7 @@ namespace basisu
 
 						etc1_optimizer::results cluster_optimizer_results;
 
-						std::vector<uint8_t> cluster_selectors(total_pixels);
+						basisu::MVector<uint8_t> cluster_selectors(total_pixels);
 						cluster_optimizer_results.m_n = total_pixels;
 						cluster_optimizer_results.m_pSelectors = &cluster_selectors[0];
 
@@ -1021,11 +1021,11 @@ namespace basisu
 
 	bool basisu_frontend::check_etc1s_constraints() const
 	{
-		std::vector<vec2U> block_clusters(m_total_blocks);
+		basisu::MVector<vec2U> block_clusters(m_total_blocks);
 
 		for (int cluster_index = 0; cluster_index < static_cast<int>(m_endpoint_clusters.size()); cluster_index++)
 		{
-			const std::vector<uint32_t>& cluster_indices = m_endpoint_clusters[cluster_index];
+			const basisu::MVector<uint32_t>& cluster_indices = m_endpoint_clusters[cluster_index];
 
 			for (uint32_t cluster_indices_iter = 0; cluster_indices_iter < cluster_indices.size(); cluster_indices_iter++)
 			{
@@ -1053,11 +1053,11 @@ namespace basisu
 		if (m_use_hierarchical_endpoint_codebooks)
 			compute_endpoint_clusters_within_each_parent_cluster();
 
-		std::vector<vec2U> block_clusters(m_total_blocks);
+		basisu::MVector<vec2U> block_clusters(m_total_blocks);
 
 		for (int cluster_index = 0; cluster_index < static_cast<int>(m_endpoint_clusters.size()); cluster_index++)
 		{
-			const std::vector<uint32_t>& cluster_indices = m_endpoint_clusters[cluster_index];
+			const basisu::MVector<uint32_t>& cluster_indices = m_endpoint_clusters[cluster_index];
 
 			for (uint32_t cluster_indices_iter = 0; cluster_indices_iter < cluster_indices.size(); cluster_indices_iter++)
 			{
@@ -1161,7 +1161,7 @@ namespace basisu
 		
 		m_params.m_pJob_pool->wait_for_all();
 
-		std::vector<typename std::vector<uint32_t> > optimized_endpoint_clusters(m_endpoint_clusters.size());
+		basisu::MVector<typename basisu::MVector<uint32_t> > optimized_endpoint_clusters(m_endpoint_clusters.size());
 		uint32_t total_subblocks_reassigned = 0;
 
 		for (uint32_t block_index = 0; block_index < m_total_blocks; block_index++)
@@ -1199,8 +1199,8 @@ namespace basisu
 
 		indirect_sort((uint32_t)m_endpoint_clusters.size(), &sorted_endpoint_cluster_indices[0], &m_endpoint_cluster_etc_params[0]);
 
-		std::vector<std::vector<uint32_t> > new_endpoint_clusters(m_endpoint_clusters.size());
-		std::vector<endpoint_cluster_etc_params> new_subblock_etc_params(m_endpoint_clusters.size());
+		basisu::MVector<basisu::MVector<uint32_t> > new_endpoint_clusters(m_endpoint_clusters.size());
+		basisu::MVector<endpoint_cluster_etc_params> new_subblock_etc_params(m_endpoint_clusters.size());
 		
 		for (uint32_t i = 0; i < m_endpoint_clusters.size(); i++)
 		{
@@ -1304,7 +1304,7 @@ namespace basisu
 
 		for (int cluster_index = 0; cluster_index < static_cast<int>(m_selector_cluster_indices.size()); cluster_index++)
 		{
-			const std::vector<uint32_t>& cluster_indices = m_selector_cluster_indices[cluster_index];
+			const basisu::MVector<uint32_t>& cluster_indices = m_selector_cluster_indices[cluster_index];
 
 			for (uint32_t cluster_indices_iter = 0; cluster_indices_iter < cluster_indices.size(); cluster_indices_iter++)
 			{
@@ -1479,7 +1479,7 @@ namespace basisu
 					
 					for (uint32_t cluster_index = first_index; cluster_index < last_index; cluster_index++)
 					{
-						const std::vector<uint32_t> &cluster_block_indices = m_selector_cluster_indices[cluster_index];
+						const basisu::MVector<uint32_t> &cluster_block_indices = m_selector_cluster_indices[cluster_index];
 
 						if (!cluster_block_indices.size())
 							continue;
@@ -1557,7 +1557,7 @@ namespace basisu
 					
 					for (uint32_t cluster_index = first_index; cluster_index < last_index; cluster_index++)
 					{
-						const std::vector<uint32_t> &cluster_block_indices = m_selector_cluster_indices[cluster_index];
+						const basisu::MVector<uint32_t> &cluster_block_indices = m_selector_cluster_indices[cluster_index];
 
 						if (!cluster_block_indices.size())
 							continue;
@@ -1689,7 +1689,7 @@ namespace basisu
 
 				for (uint32_t selector_cluster_index = 0; selector_cluster_index < m_selector_cluster_indices.size(); selector_cluster_index++)
 				{
-					const std::vector<uint32_t> &cluster_block_indices = m_selector_cluster_indices[selector_cluster_index];
+					const basisu::MVector<uint32_t> &cluster_block_indices = m_selector_cluster_indices[selector_cluster_index];
 
 					for (uint32_t y = 0; y < 4; y++)
 						for (uint32_t x = 0; x < 4; x++)
@@ -1731,7 +1731,7 @@ namespace basisu
 		}
 		else
 		{
-			std::vector< std::vector<uint32_t> > new_cluster_indices;
+			basisu::MVector< basisu::MVector<uint32_t> > new_cluster_indices;
 
 			// For each block: Determine which quantized selectors best encode that block, given its quantized endpoints.
 
@@ -1842,7 +1842,7 @@ namespace basisu
 			const uint_vec &subblocks = subblock_params.m_subblocks;
 			//uint32_t total_pixels = subblock.m_subblocks.size() * 8;
 
-			std::vector<color_rgba> subblock_colors[2]; // [use_individual_mode]
+			basisu::MVector<color_rgba> subblock_colors[2]; // [use_individual_mode]
 			uint8_vec subblock_selectors[2];
 
 			uint64_t cur_subblock_err[2] = { 0, 0 };
@@ -1882,7 +1882,7 @@ namespace basisu
 
 			clear_obj(cluster_optimizer_results);
 
-			std::vector<uint8_t> cluster_selectors[2];
+			basisu::MVector<uint8_t> cluster_selectors[2];
 
 			for (uint32_t use_individual_mode = 0; use_individual_mode < 2; use_individual_mode++)
 			{
@@ -2012,8 +2012,8 @@ namespace basisu
 
 		uint32_t max_endpoint_cluster_size = 0;
 
-		std::vector<uint32_t> cluster_sizes(m_endpoint_clusters.size());
-		std::vector<uint32_t> sorted_cluster_indices(m_endpoint_clusters.size());
+		basisu::MVector<uint32_t> cluster_sizes(m_endpoint_clusters.size());
+		basisu::MVector<uint32_t> sorted_cluster_indices(m_endpoint_clusters.size());
 		for (uint32_t i = 0; i < m_endpoint_clusters.size(); i++)
 		{
 			max_endpoint_cluster_size = maximum<uint32_t>(max_endpoint_cluster_size, (uint32_t)m_endpoint_clusters[i].size());
@@ -2100,12 +2100,12 @@ namespace basisu
 	{
 		debug_printf("reoptimize_remapped_endpoints\n");
 
-		std::vector<uint_vec> new_endpoint_cluster_block_indices(m_endpoint_clusters.size());
+		basisu::MVector<uint_vec> new_endpoint_cluster_block_indices(m_endpoint_clusters.size());
 		for (uint32_t i = 0; i < new_block_endpoints.size(); i++)
 			new_endpoint_cluster_block_indices[new_block_endpoints[i]].push_back(i);
 
-		std::vector<uint8_t> cluster_valid(new_endpoint_cluster_block_indices.size());
-		std::vector<uint8_t> cluster_improved(new_endpoint_cluster_block_indices.size());
+		basisu::MVector<uint8_t> cluster_valid(new_endpoint_cluster_block_indices.size());
+		basisu::MVector<uint8_t> cluster_improved(new_endpoint_cluster_block_indices.size());
 		
 		const uint32_t N = 256;
 		for (uint32_t cluster_index_iter = 0; cluster_index_iter < new_endpoint_cluster_block_indices.size(); cluster_index_iter += N)
@@ -2116,14 +2116,14 @@ namespace basisu
 			m_params.m_pJob_pool->add_job( [this, first_index, last_index, &cluster_improved, &cluster_valid, &new_endpoint_cluster_block_indices, &pBlock_selector_indices ] {
 				for (uint32_t cluster_index = first_index; cluster_index < last_index; cluster_index++)
 				{
-					const std::vector<uint32_t>& cluster_block_indices = new_endpoint_cluster_block_indices[cluster_index];
+					const basisu::MVector<uint32_t>& cluster_block_indices = new_endpoint_cluster_block_indices[cluster_index];
 
 					if (!cluster_block_indices.size())
 						continue;
 
 					const uint32_t total_pixels = (uint32_t)cluster_block_indices.size() * 16;
 
-					std::vector<color_rgba> cluster_pixels(total_pixels);
+					basisu::MVector<color_rgba> cluster_pixels(total_pixels);
 					uint8_vec force_selectors(total_pixels);
 
 					etc_block blk;
@@ -2173,7 +2173,7 @@ namespace basisu
 
 						etc1_optimizer::results cluster_optimizer_results;
 
-						std::vector<uint8_t> cluster_selectors(total_pixels);
+						basisu::MVector<uint8_t> cluster_selectors(total_pixels);
 						cluster_optimizer_results.m_n = total_pixels;
 						cluster_optimizer_results.m_pSelectors = &cluster_selectors[0];
 
@@ -2239,7 +2239,7 @@ namespace basisu
 
 			debug_printf("basisu_frontend::reoptimize_remapped_endpoints: stage 1\n");
 
-			std::vector<uint_vec> new_endpoint_clusters(total_new_endpoint_clusters);
+			basisu::MVector<uint_vec> new_endpoint_clusters(total_new_endpoint_clusters);
 
 			for (uint32_t block_index = 0; block_index < new_block_endpoints.size(); block_index++)
 			{

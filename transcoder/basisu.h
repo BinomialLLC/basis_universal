@@ -66,6 +66,7 @@
 #include <vector>
 #include <assert.h>
 #include <random>
+#include "../basis_mem.h"
 
 #ifdef max
 #undef max
@@ -108,13 +109,13 @@ namespace basisu
 	const char BASISU_PATH_SEPERATOR_CHAR = '/';
 #endif
 
-	typedef std::vector<uint8_t> uint8_vec;
-	typedef std::vector<int16_t> int16_vec;
-	typedef std::vector<uint16_t> uint16_vec;
-	typedef std::vector<uint32_t> uint_vec;
-	typedef std::vector<uint64_t> uint64_vec;
-	typedef std::vector<int> int_vec;
-	typedef std::vector<bool> bool_vec;
+	typedef basisu::MVector<uint8_t> uint8_vec;
+	typedef basisu::MVector<int16_t> int16_vec;
+	typedef basisu::MVector<uint16_t> uint16_vec;
+	typedef basisu::MVector<uint32_t> uint_vec;
+	typedef basisu::MVector<uint64_t> uint64_vec;
+	typedef basisu::MVector<int> int_vec;
+	typedef basisu::MVector<bool> bool_vec;
 
 	void enable_debug_printf(bool enabled);
 	void debug_printf(const char *pFmt, ...);

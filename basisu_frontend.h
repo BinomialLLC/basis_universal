@@ -190,16 +190,16 @@ namespace basisu
 
 		// For each endpoint cluster: An array of which subblock indices (block_index*2+subblock) are located in that cluster.
 		// Array of block indices for each endpoint cluster
-		std::vector<uint_vec> m_endpoint_clusters; 
+		basisu::MVector<uint_vec> m_endpoint_clusters; 
 
 		// Array of block indices for each parent endpoint cluster
-		std::vector<uint_vec> m_endpoint_parent_clusters;  
+		basisu::MVector<uint_vec> m_endpoint_parent_clusters;  
 		
 		// Each block's parent cluster index
 		uint8_vec m_block_parent_endpoint_cluster; 
 
 		// Array of endpoint cluster indices for each parent endpoint cluster
-		std::vector<uint_vec> m_endpoint_clusters_within_each_parent_cluster; 
+		basisu::MVector<uint_vec> m_endpoint_clusters_within_each_parent_cluster; 
 				
 		struct endpoint_cluster_etc_params
 		{
@@ -269,35 +269,35 @@ namespace basisu
 			}
 		};
 
-		typedef std::vector<endpoint_cluster_etc_params> cluster_subblock_etc_params_vec;
+		typedef basisu::MVector<endpoint_cluster_etc_params> cluster_subblock_etc_params_vec;
 		
 		// Each endpoint cluster's ETC1S parameters 
 		cluster_subblock_etc_params_vec m_endpoint_cluster_etc_params;
 
 		// The endpoint cluster index used by each ETC1 subblock.
-		std::vector<vec2U> m_block_endpoint_clusters_indices;
+		basisu::MVector<vec2U> m_block_endpoint_clusters_indices;
 				
 		// The block(s) within each selector cluster
 		// Note: If you add anything here that uses selector cluster indicies, be sure to update optimize_selector_codebook()!
-		std::vector<uint_vec> m_selector_cluster_indices;
+		basisu::MVector<uint_vec> m_selector_cluster_indices;
 
 		// The selector bits for each selector cluster.
-		std::vector<etc_block> m_optimized_cluster_selectors;
+		basisu::MVector<etc_block> m_optimized_cluster_selectors;
 
 		// The block(s) within each parent selector cluster.
-		std::vector<uint_vec> m_selector_parent_cluster_indices;
+		basisu::MVector<uint_vec> m_selector_parent_cluster_indices;
 		
 		// Each block's parent selector cluster
 		uint8_vec m_block_parent_selector_cluster;
 
 		// Array of selector cluster indices for each parent selector cluster
-		std::vector<uint_vec> m_selector_clusters_within_each_parent_cluster; 
+		basisu::MVector<uint_vec> m_selector_clusters_within_each_parent_cluster; 
 
 		basist::etc1_global_selector_codebook_entry_id_vec m_optimized_cluster_selector_global_cb_ids;
 		bool_vec m_selector_cluster_uses_global_cb;
 
 		// Each block's selector cluster index
-		std::vector<uint32_t> m_block_selector_cluster_index;
+		basisu::MVector<uint32_t> m_block_selector_cluster_index;
 
 		struct subblock_endpoint_quant_err
 		{
@@ -323,7 +323,7 @@ namespace basisu
 		};
 
 		// The sorted subblock endpoint quant error for each endpoint cluster
-		std::vector<subblock_endpoint_quant_err> m_subblock_endpoint_quant_err_vec;
+		basisu::MVector<subblock_endpoint_quant_err> m_subblock_endpoint_quant_err_vec;
 
 		std::mutex m_lock;
 

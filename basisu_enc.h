@@ -508,8 +508,8 @@ namespace basisu
 		size_t get_total_threads() const { return 1 + m_threads.size(); }
 		
 	private:
-		std::vector<std::thread> m_threads;
-        std::vector<std::function<void()> > m_queue;
+		basisu::MVector<std::thread> m_threads;
+        basisu::MVector<std::function<void()> > m_queue;
 		
 		std::mutex m_mutex;
 		std::condition_variable m_has_work;
@@ -731,7 +731,7 @@ namespace basisu
 		static color_rgba comp_max(const color_rgba& a, const color_rgba& b) { return color_rgba(std::max(a[0], b[0]), std::max(a[1], b[1]), std::max(a[2], b[2]), std::max(a[3], b[3])); }
 	};
 
-	typedef std::vector<color_rgba> color_rgba_vec;
+	typedef basisu::MVector<color_rgba> color_rgba_vec;
 
 	const color_rgba g_black_color(0, 0, 0, 255);
 	const color_rgba g_white_color(255, 255, 255, 255);
@@ -1102,7 +1102,7 @@ namespace basisu
 			float m_priority;
 		};
 
-		std::vector<entry> m_heap;
+		basisu::MVector<entry> m_heap;
 		uint32_t m_size;
 
 		// Push down entry at index
@@ -1134,7 +1134,7 @@ namespace basisu
 	public:
 		typedef TrainingVectorType training_vec_type;
 		typedef std::pair<TrainingVectorType, uint64_t> training_vec_with_weight;
-		typedef std::vector< training_vec_with_weight > array_of_weighted_training_vecs;
+		typedef basisu::MVector< training_vec_with_weight > array_of_weighted_training_vecs;
 
 		tree_vector_quant() :
 			m_next_codebook_index(0)
@@ -1154,7 +1154,7 @@ namespace basisu
 		const array_of_weighted_training_vecs &get_training_vecs() const	{ return m_training_vecs; }
 				array_of_weighted_training_vecs &get_training_vecs()			{ return m_training_vecs; }
 
-		void retrieve(std::vector< std::vector<uint32_t> > &codebook) const
+		void retrieve(basisu::MVector< basisu::MVector<uint32_t> > &codebook) const
 		{
 			for (uint32_t i = 0; i < m_nodes.size(); i++)
 			{
@@ -1167,7 +1167,7 @@ namespace basisu
 			}
 		}
 
-		void retrieve(std::vector<TrainingVectorType> &codebook) const
+		void retrieve(basisu::MVector<TrainingVectorType> &codebook) const
 		{
 			for (uint32_t i = 0; i < m_nodes.size(); i++)
 			{
@@ -1180,7 +1180,7 @@ namespace basisu
 			}
 		}
 
-		void retrieve(uint32_t max_clusters, std::vector<uint_vec> &codebook) const
+		void retrieve(uint32_t max_clusters, basisu::MVector<uint_vec> &codebook) const
       {
 			uint_vec node_stack;
          node_stack.reserve(512);
@@ -1227,7 +1227,7 @@ namespace basisu
 			priority_queue var_heap;
 			var_heap.init(max_size, 0, m_nodes[0].m_var);
 
-			std::vector<uint32_t> l_children, r_children;
+			basisu::MVector<uint32_t> l_children, r_children;
 
 			// Now split the worst nodes
 			l_children.reserve(m_training_vecs.size() + 1);
@@ -1265,7 +1265,7 @@ namespace basisu
 			inline tsvq_node() : m_weight(0), m_origin(cZero), m_left_index(-1), m_right_index(-1), m_codebook_index(-1) { }
 
 			// vecs is erased
-			inline void set(const TrainingVectorType &org, uint64_t weight, float var, std::vector<uint32_t> &vecs) { m_origin = org; m_weight = weight; m_var = var; m_training_vecs.swap(vecs); }
+			inline void set(const TrainingVectorType &org, uint64_t weight, float var, basisu::MVector<uint32_t> &vecs) { m_origin = org; m_weight = weight; m_var = var; m_training_vecs.swap(vecs); }
 
 			inline bool is_leaf() const { return m_left_index < 0; }
 
@@ -1273,11 +1273,11 @@ namespace basisu
 			uint64_t m_weight;
 			TrainingVectorType m_origin;
 			int32_t m_left_index, m_right_index;
-			std::vector<uint32_t> m_training_vecs;
+			basisu::MVector<uint32_t> m_training_vecs;
 			int m_codebook_index;
 		};
 
-		typedef std::vector<tsvq_node> tsvq_node_vec;
+		typedef basisu::MVector<tsvq_node> tsvq_node_vec;
 		tsvq_node_vec m_nodes;
 
 		array_of_weighted_training_vecs m_training_vecs;
@@ -1312,7 +1312,7 @@ namespace basisu
 			return root;
 		}
 
-		bool split_node(uint32_t node_index, priority_queue &var_heap, std::vector<uint32_t> &l_children, std::vector<uint32_t> &r_children)
+		bool split_node(uint32_t node_index, priority_queue &var_heap, basisu::MVector<uint32_t> &l_children, basisu::MVector<uint32_t> &r_children)
 		{
 			TrainingVectorType l_child_org, r_child_org;
 			uint64_t l_weight = 0, r_weight = 0;
@@ -1477,7 +1477,7 @@ namespace basisu
 				if (largest_axis_index < 0)
 					return false;
 
-				std::vector<float> keys(node.m_training_vecs.size());
+				basisu::MVector<float> keys(node.m_training_vecs.size());
 				for (uint32_t i = 0; i < node.m_training_vecs.size(); i++)
 					keys[i] = m_training_vecs[node.m_training_vecs[i]].first[largest_axis_index];
 
@@ -1525,8 +1525,8 @@ namespace basisu
 		}
 
 		bool refine_split(const tsvq_node &node,
-			TrainingVectorType &l_child, uint64_t &l_weight, float &l_var, std::vector<uint32_t> &l_children,
-			TrainingVectorType &r_child, uint64_t &r_weight, float &r_var, std::vector<uint32_t> &r_children) const
+			TrainingVectorType &l_child, uint64_t &l_weight, float &l_var, basisu::MVector<uint32_t> &l_children,
+			TrainingVectorType &r_child, uint64_t &r_weight, float &r_var, basisu::MVector<uint32_t> &r_children) const
 		{
 			l_children.reserve(node.m_training_vecs.size());
 			r_children.reserve(node.m_training_vecs.size());
@@ -1639,8 +1639,8 @@ namespace basisu
 	template<typename Quantizer>
 	bool generate_hierarchical_codebook_threaded_internal(Quantizer& q,
 		uint32_t max_codebook_size, uint32_t max_parent_codebook_size,
-		std::vector<uint_vec>& codebook,
-		std::vector<uint_vec>& parent_codebook,
+		basisu::MVector<uint_vec>& codebook,
+		basisu::MVector<uint_vec>& parent_codebook,
 		uint32_t max_threads, bool limit_clusterizers, job_pool *pJob_pool)
 	{
 		codebook.resize(0);
@@ -1666,7 +1666,7 @@ namespace basisu
 		if (!q.generate(max_threads))
 			return false;
 
-		std::vector<uint_vec> initial_codebook;
+		basisu::MVector<uint_vec> initial_codebook;
 
 		q.retrieve(initial_codebook);
 
@@ -1685,8 +1685,8 @@ namespace basisu
 		bool success_flags[cMaxThreads];
 		clear_obj(success_flags);
 
-		std::vector<uint_vec> local_clusters[cMaxThreads];
-		std::vector<uint_vec> local_parent_clusters[cMaxThreads];
+		basisu::MVector<uint_vec> local_clusters[cMaxThreads];
+		basisu::MVector<uint_vec> local_parent_clusters[cMaxThreads];
 
 		for (uint32_t thread_iter = 0; thread_iter < max_threads; thread_iter++)
 		{
@@ -1771,8 +1771,8 @@ namespace basisu
 	template<typename Quantizer>
 	bool generate_hierarchical_codebook_threaded(Quantizer& q,
 		uint32_t max_codebook_size, uint32_t max_parent_codebook_size,
-		std::vector<uint_vec>& codebook,
-		std::vector<uint_vec>& parent_codebook,
+		basisu::MVector<uint_vec>& codebook,
+		basisu::MVector<uint_vec>& parent_codebook,
 		uint32_t max_threads, job_pool *pJob_pool)
 	{
 		typedef bit_hasher<typename Quantizer::training_vec_type> training_vec_bit_hasher;
@@ -1802,7 +1802,7 @@ namespace basisu
 
 		Quantizer group_quant;
 		typedef typename group_hash::const_iterator group_hash_const_iter;
-		std::vector<group_hash_const_iter> unique_vec_iters;
+		basisu::MVector<group_hash_const_iter> unique_vec_iters;
 		unique_vec_iters.reserve(unique_vecs.size());
 
 		for (auto iter = unique_vecs.begin(); iter != unique_vecs.end(); ++iter)
@@ -1817,7 +1817,7 @@ namespace basisu
 
 		debug_printf("Limit clusterizers: %u\n", limit_clusterizers);
 
-		std::vector<uint_vec> group_codebook, group_parent_codebook;
+		basisu::MVector<uint_vec> group_codebook, group_parent_codebook;
 		bool status = generate_hierarchical_codebook_threaded_internal(group_quant,
 			max_codebook_size, max_parent_codebook_size,
 			group_codebook,
@@ -1866,7 +1866,7 @@ namespace basisu
 
 	class histogram
 	{
-		std::vector<uint32_t> m_hist;
+		basisu::MVector<uint32_t> m_hist;
 
 	public:
 		histogram(uint32_t size = 0) { init(size); }
@@ -2605,7 +2605,7 @@ namespace basisu
 
 	// Float images
 
-	typedef std::vector<vec4F> vec4F_vec;
+	typedef basisu::MVector<vec4F> vec4F_vec;
 
 	class imagef
 	{
@@ -2934,7 +2934,7 @@ namespace basisu
 	template<typename T>
 	class vector2D
 	{
-		typedef std::vector<T> TVec;
+		typedef basisu::MVector<T> TVec;
 
 		uint32_t m_width, m_height;
 		TVec m_values;

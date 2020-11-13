@@ -2637,8 +2637,8 @@ namespace basist
 		uint32_t m_base;
 		uint32_t m_table;
 		uint32_t m_multiplier;
-		std::vector<uint8_t> m_selectors;
-		std::vector<uint8_t> m_selectors_temp;
+		basisu::MVector<uint8_t> m_selectors;
+		basisu::MVector<uint8_t> m_selectors_temp;
 	};
 
 	static uint64_t pack_eac_a8_exhaustive(pack_eac_a8_results& results, const uint8_t* pPixels, uint32_t num_pixels)
@@ -3034,8 +3034,8 @@ namespace basist
 		uint32_t m_base;
 		uint32_t m_table;
 		uint32_t m_multiplier;
-		std::vector<uint8_t> m_selectors;
-		std::vector<uint8_t> m_selectors_temp;
+		basisu::MVector<uint8_t> m_selectors;
+		basisu::MVector<uint8_t> m_selectors_temp;
 	};
 
 	static uint64_t pack_eac_r11_exhaustive(pack_eac_r11_results& results, const uint8_t* pPixels, uint32_t num_pixels)
@@ -12634,7 +12634,7 @@ namespace basist
 				output_rows_in_pixels = slice_desc.m_orig_height;
 		}
 		
-		std::vector<uint32_t>* pPrev_frame_indices = nullptr;
+		basisu::MVector<uint32_t>* pPrev_frame_indices = nullptr;
 		if (is_video)
 		{
 			// TODO: Add check to make sure the caller hasn't tried skipping past p-frames
@@ -14836,7 +14836,7 @@ namespace basist
 				assert(basis_file_has_alpha_slices);
 
 				// Temp buffer to hold alpha block endpoint/selector indices
-				std::vector<uint32_t> temp_block_indices(total_slice_blocks);
+				basisu::MVector<uint32_t> temp_block_indices(total_slice_blocks);
 
 				// First transcode alpha data to temp buffer
 				status = transcode_slice(pData, data_size, slice_index + 1, &temp_block_indices[0], total_slice_blocks, block_format::cIndices, sizeof(uint32_t), decode_flags, pSlice_descs[slice_index].m_num_blocks_x, pState);
@@ -20848,7 +20848,7 @@ namespace basist
 		if (!basisu::is_pow2(width) || !basisu::is_pow2(height))
 			return false;
 
-		std::vector<uint32_t> temp_endpoints(num_blocks_x * num_blocks_y);
+		basisu::MVector<uint32_t> temp_endpoints(num_blocks_x * num_blocks_y);
 
 		for (uint32_t y = 0; y < num_blocks_y; y++)
 		{
@@ -20907,7 +20907,7 @@ namespace basist
 		if (!basisu::is_pow2(width) || !basisu::is_pow2(height))
 			return false;
 
-		std::vector<uint32_t> temp_endpoints(num_blocks_x * num_blocks_y);
+		basisu::MVector<uint32_t> temp_endpoints(num_blocks_x * num_blocks_y);
 
 		for (uint32_t y = 0; y < num_blocks_y; y++)
 		{

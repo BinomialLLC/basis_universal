@@ -199,7 +199,7 @@ namespace basisu_astc
 
 namespace astc
 {
-using std::vector;
+using basisu::MVector;
 namespace
 {
 // Common utilities

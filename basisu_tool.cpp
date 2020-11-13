@@ -162,7 +162,7 @@ static void print_usage()
 	);
 }
 
-static bool load_listing_file(const std::string &f, std::vector<std::string> &filenames)
+static bool load_listing_file(const std::string &f, basisu::MVector<std::string> &filenames)
 {
 	std::string filename(f);
 	filename.erase(0, 1);
@@ -590,7 +590,7 @@ public:
 
 	bool process_listing_files()
 	{
-		std::vector<std::string> new_input_filenames;
+		basisu::MVector<std::string> new_input_filenames;
 		for (uint32_t i = 0; i < m_input_filenames.size(); i++)
 		{
 			if (m_input_filenames[i][0] == '@')
@@ -603,7 +603,7 @@ public:
 		}
 		new_input_filenames.swap(m_input_filenames);
 
-		std::vector<std::string> new_input_alpha_filenames;
+		basisu::MVector<std::string> new_input_alpha_filenames;
 		for (uint32_t i = 0; i < m_input_alpha_filenames.size(); i++)
 		{
 			if (m_input_alpha_filenames[i][0] == '@')
@@ -623,8 +623,8 @@ public:
 		
 	tool_mode m_mode;
 		
-	std::vector<std::string> m_input_filenames;
-	std::vector<std::string> m_input_alpha_filenames;
+	basisu::MVector<std::string> m_input_filenames;
+	basisu::MVector<std::string> m_input_alpha_filenames;
 
 	std::string m_output_filename;
 	std::string m_output_path;
@@ -1018,7 +1018,7 @@ static bool unpack_and_validate_mode(command_line_params &opts)
 
 		printf("start_transcoding time: %3.3f ms\n", tm.get_elapsed_ms());
 				
-		std::vector< gpu_image_vec > gpu_images[(int)basist::transcoder_texture_format::cTFTotalTextureFormats];
+		basisu::MVector< gpu_image_vec > gpu_images[(int)basist::transcoder_texture_format::cTFTotalTextureFormats];
 		
 		int first_format = 0;
 		int last_format = (int)basist::transcoder_texture_format::cTFTotalTextureFormats;
@@ -1133,7 +1133,7 @@ static bool unpack_and_validate_mode(command_line_params &opts)
 					// No KTX tool that we know of supports cubemap arrays, so write individual cubemap files.
 					for (uint32_t image_index = 0; image_index < fileinfo.m_total_images; image_index += 6)
 					{
-						std::vector<gpu_image_vec> cubemap;
+						basisu::MVector<gpu_image_vec> cubemap;
 						for (uint32_t i = 0; i < 6; i++)
 							cubemap.push_back(gpu_images[format_iter][image_index + i]);
 
@@ -1321,7 +1321,7 @@ static bool unpack_and_validate_mode(command_line_params &opts)
 					return false;
 				}
 
-				std::vector<uint16_t> packed_img(level_info.m_orig_width * level_info.m_orig_height);
+				basisu::MVector<uint16_t> packed_img(level_info.m_orig_width * level_info.m_orig_height);
 
 				fill_buffer_with_random_bytes(&packed_img[0], packed_img.size() * sizeof(uint16_t));
 
@@ -1380,7 +1380,7 @@ static bool unpack_and_validate_mode(command_line_params &opts)
 					return false;
 				}
 
-				std::vector<uint16_t> packed_img(level_info.m_orig_width * level_info.m_orig_height);
+				basisu::MVector<uint16_t> packed_img(level_info.m_orig_width * level_info.m_orig_height);
 
 				fill_buffer_with_random_bytes(&packed_img[0], packed_img.size() * sizeof(uint16_t));
 
@@ -1744,7 +1744,7 @@ static bool bench_mode(command_line_params& opts)
 		double total_bench_time = 0;
 		double total_bench2_time = 0;
 
-		std::vector<basist::uastc_block> ublocks(total_blocks);
+		basisu::MVector<basist::uastc_block> ublocks(total_blocks);
 
 #if 0
 		astc_enc_settings astc_settings;
@@ -2116,7 +2116,7 @@ static bool bench_mode(command_line_params& opts)
 			total_raw_size += ublocks.size() * 16;
 		}
 
-		std::vector<color_rgba> orig_block_pixels(ublocks.size() * 16);
+		basisu::MVector<color_rgba> orig_block_pixels(ublocks.size() * 16);
 		for (uint32_t block_y = 0; block_y < num_blocks_y; block_y++)
 			for (uint32_t block_x = 0; block_x < num_blocks_x; block_x++)
 				img.extract_block_clamped(&orig_block_pixels[(block_x + block_y * num_blocks_x) * 16], block_x * 4, block_y * 4, 4, 4);

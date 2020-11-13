@@ -161,13 +161,13 @@ namespace basisu
 	const char BASISU_PATH_SEPERATOR_CHAR = '/';
 #endif
 
-	typedef std::vector<uint8_t> uint8_vec;
-	typedef std::vector<int16_t> int16_vec;
-	typedef std::vector<uint16_t> uint16_vec;
-	typedef std::vector<uint32_t> uint_vec;
-	typedef std::vector<uint64_t> uint64_vec;
-	typedef std::vector<int> int_vec;
-	typedef std::vector<bool> bool_vec;
+	typedef basisu::MVector<uint8_t> uint8_vec;
+	typedef basisu::MVector<int16_t> int16_vec;
+	typedef basisu::MVector<uint16_t> uint16_vec;
+	typedef basisu::MVector<uint32_t> uint_vec;
+	typedef basisu::MVector<uint64_t> uint64_vec;
+	typedef basisu::MVector<int> int_vec;
+	typedef basisu::MVector<bool> bool_vec;
 
 	void enable_debug_printf(bool enabled);
 	void debug_printf(const char *pFmt, ...);
@@ -2101,7 +2101,7 @@ namespace basist
 		uint8_t m_selectors[16];
 	};
 
-	typedef std::vector<etc1_selector_palette_entry> etc1_selector_palette_entry_vec;
+	typedef basisu::MVector<etc1_selector_palette_entry> etc1_selector_palette_entry_vec;
 
 	extern const uint32_t g_global_selector_cb[];
 	extern const uint32_t g_global_selector_cb_size;
@@ -2120,7 +2120,7 @@ namespace basist
 		void set(uint32_t palette_index, const etc1_global_palette_entry_modifier &modifier) { m_palette_index = palette_index; m_modifier = modifier; }
 	};
 
-	typedef std::vector<etc1_global_selector_codebook_entry_id> etc1_global_selector_codebook_entry_id_vec;
+	typedef basisu::MVector<etc1_global_selector_codebook_entry_id> etc1_global_selector_codebook_entry_id_vec;
 
 	class etc1_global_selector_codebook
 	{
@@ -2411,10 +2411,10 @@ namespace basist
 			uint8_t m_pred_bits;
 		};
 
-		std::vector<block_preds> m_block_endpoint_preds[2];
+		basisu::MVector<block_preds> m_block_endpoint_preds[2];
 		
 		enum { cMaxPrevFrameLevels = 16 };
-		std::vector<uint32_t> m_prev_frame_indices[2][cMaxPrevFrameLevels]; // [alpha_flag][level_index] 
+		basisu::MVector<uint32_t> m_prev_frame_indices[2][cMaxPrevFrameLevels]; // [alpha_flag][level_index] 
 	};
 	
 	// Low-level helper class that does the actual transcoding.
@@ -2447,10 +2447,10 @@ namespace basist
 		}
 
 	private:
-		typedef std::vector<endpoint> endpoint_vec;
+		typedef basisu::MVector<endpoint> endpoint_vec;
 		endpoint_vec m_endpoints;
 
-		typedef std::vector<selector> selector_vec;
+		typedef basisu::MVector<selector> selector_vec;
 		selector_vec m_selectors;
 
 		const etc1_global_selector_codebook *m_pGlobal_sel_codebook;
@@ -2518,7 +2518,7 @@ namespace basist
 		bool m_iframe_flag;		// true if the slice is an I-Frame
 	};
 
-	typedef std::vector<basisu_slice_info> basisu_slice_info_vec;
+	typedef basisu::MVector<basisu_slice_info> basisu_slice_info_vec;
 
 	struct basisu_image_info
 	{
@@ -2583,7 +2583,7 @@ namespace basist
 		basisu_slice_info_vec m_slice_info;
 
 		uint32_t m_total_images;	 // total # of images
-		std::vector<uint32_t> m_image_mipmap_levels; // the # of mipmap levels for each image
+		basisu::MVector<uint32_t> m_image_mipmap_levels; // the # of mipmap levels for each image
 
 		uint32_t m_userdata0;
 		uint32_t m_userdata1;

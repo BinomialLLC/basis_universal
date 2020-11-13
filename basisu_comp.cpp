@@ -257,7 +257,7 @@ namespace basisu
 		return cECSuccess;
 	}
 
-	bool basis_compressor::generate_mipmaps(const image &img, std::vector<image> &mips, bool has_alpha)
+	bool basis_compressor::generate_mipmaps(const image &img, basisu::MVector<image> &mips, bool has_alpha)
 	{
 		debug_printf("basis_compressor::generate_mipmaps\n");
 
@@ -349,8 +349,8 @@ namespace basisu
 
 		m_any_source_image_has_alpha = false;
 
-		std::vector<image> source_images;
-		std::vector<std::string> source_filenames;
+		basisu::MVector<image> source_images;
+		basisu::MVector<std::string> source_filenames;
 		
 		// First load all source images, and determine if any have an alpha channel.
 		for (uint32_t source_file_index = 0; source_file_index < total_source_files; source_file_index++)
@@ -470,7 +470,7 @@ namespace basisu
 			const std::string &source_filename = source_filenames[source_file_index];
 
 			// Now, for each source image, create the slices corresponding to that image.
-			std::vector<image> slices;
+			basisu::MVector<image> slices;
 			
 			slices.reserve(32);
 			slices.push_back(file_image);
@@ -497,7 +497,7 @@ namespace basisu
 			if ((m_any_source_image_has_alpha) && (!m_params.m_uastc))
 			{
 				// For ETC1S, if source has alpha, then even mips will have RGB, and odd mips will have alpha in RGB. 
-				std::vector<image> alpha_slices;
+				basisu::MVector<image> alpha_slices;
 				uint_vec new_mip_indices;
 
 				alpha_slices.reserve(slices.size() * 2);
@@ -635,13 +635,13 @@ namespace basisu
 			}
 		}
 
-		printf("Total basis file slices: %u\n", (uint32_t)m_slice_descs.size());
+		debug_printf("Total basis file slices: %u\n", (uint32_t)m_slice_descs.size());
 
 		for (uint32_t i = 0; i < m_slice_descs.size(); i++)
 		{
 			const basisu_backend_slice_desc &slice_desc = m_slice_descs[i];
 
-			printf("Slice: %u, alpha: %u, orig width/height: %ux%u, width/height: %ux%u, first_block: %u, image_index: %u, mip_level: %u, iframe: %u\n", 
+			debug_printf("Slice: %u, alpha: %u, orig width/height: %ux%u, width/height: %ux%u, first_block: %u, image_index: %u, mip_level: %u, iframe: %u\n",
 				i, slice_desc.m_alpha, slice_desc.m_orig_width, slice_desc.m_orig_height, slice_desc.m_width, slice_desc.m_height, slice_desc.m_first_block_index, slice_desc.m_source_file_index, slice_desc.m_mip_index, slice_desc.m_iframe);
 
 			if (m_any_source_image_has_alpha)

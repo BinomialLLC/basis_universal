@@ -143,10 +143,10 @@ namespace basist
 			uint8_t m_pred_bits;
 		};
 
-		std::vector<block_preds> m_block_endpoint_preds[2];
+		basisu::MVector<block_preds> m_block_endpoint_preds[2];
 		
 		enum { cMaxPrevFrameLevels = 16 };
-		std::vector<uint32_t> m_prev_frame_indices[2][cMaxPrevFrameLevels]; // [alpha_flag][level_index] 
+		basisu::MVector<uint32_t> m_prev_frame_indices[2][cMaxPrevFrameLevels]; // [alpha_flag][level_index] 
 	};
 	
 	// Low-level helper class that does the actual transcoding.
@@ -179,10 +179,10 @@ namespace basist
 		}
 
 	private:
-		typedef std::vector<endpoint> endpoint_vec;
+		typedef basisu::MVector<endpoint> endpoint_vec;
 		endpoint_vec m_endpoints;
 
-		typedef std::vector<selector> selector_vec;
+		typedef basisu::MVector<selector> selector_vec;
 		selector_vec m_selectors;
 
 		const etc1_global_selector_codebook *m_pGlobal_sel_codebook;
@@ -250,7 +250,7 @@ namespace basist
 		bool m_iframe_flag;		// true if the slice is an I-Frame
 	};
 
-	typedef std::vector<basisu_slice_info> basisu_slice_info_vec;
+	typedef basisu::MVector<basisu_slice_info> basisu_slice_info_vec;
 
 	struct basisu_image_info
 	{
@@ -315,7 +315,7 @@ namespace basist
 		basisu_slice_info_vec m_slice_info;
 
 		uint32_t m_total_images;	 // total # of images
-		std::vector<uint32_t> m_image_mipmap_levels; // the # of mipmap levels for each image
+		basisu::MVector<uint32_t> m_image_mipmap_levels; // the # of mipmap levels for each image
 
 		uint32_t m_userdata0;
 		uint32_t m_userdata1;

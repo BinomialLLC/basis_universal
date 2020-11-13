@@ -282,16 +282,16 @@ namespace basisu
 
 		// If m_read_source_images is true, m_source_filenames (and optionally m_source_alpha_filenames) contains the filenames of PNG images to read. 
 		// Otherwise, the compressor processes the images in m_source_images.
-		std::vector<std::string> m_source_filenames;
-		std::vector<std::string> m_source_alpha_filenames;
+		basisu::MVector<std::string> m_source_filenames;
+		basisu::MVector<std::string> m_source_alpha_filenames;
 		
-		std::vector<image> m_source_images;
+		basisu::MVector<image> m_source_images;
 
 		// Support outer mipmaps
 		bool_param<false> m_mips_outer;
 
 		// Stores mips from level 1, and level 0 stores in m_source_images, compatible with old style
-		std::vector<std::vector<image>> m_source_images_with_outer_mips;
+		basisu::MVector<basisu::MVector<image>> m_source_images_with_outer_mips;
 
 		// Filename of the output basis file
 		std::string m_out_filename;	
@@ -415,7 +415,7 @@ namespace basisu
 
 		const uint8_vec &get_output_basis_file() const { return m_output_basis_file; }
 		
-		const std::vector<image_stats> &get_stats() const { return m_stats; }
+		const basisu::MVector<image_stats> &get_stats() const { return m_stats; }
 
 		uint32_t get_basis_file_size() const { return m_basis_file_size; }
 		double get_basis_bits_per_texel() const { return m_basis_bits_per_texel; }
@@ -425,9 +425,9 @@ namespace basisu
 	private:
 		basis_compressor_params m_params;
 		
-		std::vector<image> m_slice_images;
+		basisu::MVector<image> m_slice_images;
 
-		std::vector<image_stats> m_stats;
+		basisu::MVector<image_stats> m_stats;
 
 		uint32_t m_basis_file_size;
 		double m_basis_bits_per_texel;
@@ -440,23 +440,23 @@ namespace basisu
 		basisu_frontend m_frontend;
 		pixel_block_vec m_source_blocks;
 
-		std::vector<gpu_image> m_frontend_output_textures;
+		basisu::MVector<gpu_image> m_frontend_output_textures;
 
-		std::vector<gpu_image> m_best_etc1s_images;
-		std::vector<image> m_best_etc1s_images_unpacked;
+		basisu::MVector<gpu_image> m_best_etc1s_images;
+		basisu::MVector<image> m_best_etc1s_images_unpacked;
 
 		basisu_backend m_backend;
 
 		basisu_file m_basis_file;
 
-		std::vector<gpu_image> m_decoded_output_textures;
-		std::vector<image> m_decoded_output_textures_unpacked;
-		std::vector<gpu_image> m_decoded_output_textures_bc7;
-		std::vector<image> m_decoded_output_textures_unpacked_bc7;
+		basisu::MVector<gpu_image> m_decoded_output_textures;
+		basisu::MVector<image> m_decoded_output_textures_unpacked;
+		basisu::MVector<gpu_image> m_decoded_output_textures_bc7;
+		basisu::MVector<image> m_decoded_output_textures_unpacked_bc7;
 
 		uint8_vec m_output_basis_file;
 		
-		std::vector<gpu_image> m_uastc_slice_textures;
+		basisu::MVector<gpu_image> m_uastc_slice_textures;
 		basisu_backend_output m_uastc_backend_output;
 
 		bool m_any_source_image_has_alpha;
@@ -469,7 +469,7 @@ namespace basisu
 		bool create_basis_file_and_transcode();
 		bool write_output_files_and_compute_stats();
 		error_code encode_slices_to_uastc();
-		bool generate_mipmaps(const image &img, std::vector<image> &mips, bool has_alpha);
+		bool generate_mipmaps(const image &img, basisu::MVector<image> &mips, bool has_alpha);
 		bool validate_texture_type_constraints();
 	};
 

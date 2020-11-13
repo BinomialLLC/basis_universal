@@ -22,12 +22,12 @@ struct basis_file
 {
   int m_magic = 0;
 	basisu_transcoder m_transcoder;
-  std::vector<uint8_t> m_file;
+  basisu::MVector<uint8_t> m_file;
 
   basis_file(const emscripten::val& jsBuffer)
     : m_file([&]() {
         size_t byteLength = jsBuffer["byteLength"].as<size_t>();
-        return std::vector<uint8_t>(byteLength);
+        return basisu::MVector<uint8_t>(byteLength);
       }()),
       m_transcoder(g_pGlobal_codebook)
   {
@@ -178,7 +178,7 @@ struct basis_file
 	  if (!m_transcoder.get_image_level_desc(m_file.data(), m_file.size(), image_index, level_index, orig_width, orig_height, total_blocks))
 		  return 0;
 	  
-	  std::vector<uint8_t> dst_data;
+	  basisu::MVector<uint8_t> dst_data;
 	  
 	  uint32_t flags = get_alpha_for_opaque_formats ? cDecodeFlagsTranscodeAlphaDataToOpaqueFormats : 0;
 

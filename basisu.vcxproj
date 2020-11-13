@@ -21,7 +21,7 @@
   <PropertyGroup Label="Globals">
     <ProjectGuid>{59586A07-8E7E-411D-BC3D-387E039AA423}</ProjectGuid>
     <RootNamespace>basisu</RootNamespace>
-    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+    <WindowsTargetPlatformVersion>10.0.17763.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
@@ -40,13 +40,13 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
-    <PlatformToolset>v142</PlatformToolset>
+    <PlatformToolset>v140</PlatformToolset>
     <CharacterSet>MultiByte</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
-    <PlatformToolset>v142</PlatformToolset>
+    <PlatformToolset>v140</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>MultiByte</CharacterSet>
   </PropertyGroup>
@@ -102,6 +102,7 @@
       <AdditionalIncludeDirectories>ispc_texcomp</AdditionalIncludeDirectories>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <OpenMPSupport>true</OpenMPSupport>
+      <PreprocessorDefinitions>WIN32;_MBCS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -133,7 +134,7 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <AdditionalIncludeDirectories>ispc_texcomp</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>NDEBUG;_HAS_EXCEPTIONS=0;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;NDEBUG;_HAS_EXCEPTIONS=0;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <BufferSecurityCheck>false</BufferSecurityCheck>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <InlineFunctionExpansion>AnySuitable</InlineFunctionExpansion>
@@ -152,6 +153,7 @@
     <ClCompile Include="basisu_bc7enc.cpp" />
     <ClCompile Include="basisu_ssim.cpp" />
     <ClCompile Include="basisu_uastc_enc.cpp" />
+    <ClCompile Include="basis_mem.cpp" />
     <ClCompile Include="jpgd.cpp" />
     <ClCompile Include="transcoder\basisu_transcoder.cpp" />
     <ClInclude Include="apg_bmp.h" />
@@ -172,6 +174,7 @@
     <ClCompile Include="basisu_resample_filters.cpp" />
     <ClInclude Include="basisu_ssim.h" />
     <ClInclude Include="basisu_uastc_enc.h" />
+    <ClInclude Include="basis_mem.h" />
     <ClInclude Include="jpgd.h" />
     <ClInclude Include="lodepng.h" />
     <ClInclude Include="transcoder\basisu.h" />

@@ -285,7 +285,7 @@ namespace basisu
 		
 	bool load_png(const char* pFilename, image& img)
 	{
-		std::vector<uint8_t> buffer;
+		basisu::MVector<uint8_t> buffer;
 		unsigned err = lodepng::load_file(buffer, std::string(pFilename));
 		if (err)
 			return false;
@@ -312,7 +312,7 @@ namespace basisu
 			w = h = 0;
 		}
 				
-		std::vector<uint8_t> out;
+		basisu::MVector<uint8_t> out;
 		err = lodepng::decode(out, w, h, &buffer[0], buffer.size());
 		if ((err != 0) || (!w) || (!h))
 			return false;
@@ -371,7 +371,7 @@ namespace basisu
 		if ((img.get_width() > MAX_PNG_IMAGE_DIM) || (img.get_height() > MAX_PNG_IMAGE_DIM))
 			return false;
 
-		std::vector<uint8_t> out;
+		basisu::MVector<uint8_t> out;
 		unsigned err = 0;
 				
 		if (image_save_flags & cImageSaveGrayscale)
@@ -563,7 +563,7 @@ namespace basisu
 				linear_to_srgb_table[i] = (uint8_t)clamp<int>((int)(255.0f * linear_to_srgb((float)i * (1.0f / (LINEAR_TO_SRGB_TABLE_SIZE - 1))) + .5f), 0, 255);
 		}
 
-		std::vector<float> samples[cMaxComps];
+		basisu::MVector<float> samples[cMaxComps];
 		Resampler *resamplers[cMaxComps];
 		
 		resamplers[0] = new Resampler(src_w, src_h, dst_w, dst_h,
@@ -810,7 +810,7 @@ namespace basisu
 		if (!total_used_syms)
 			return false;
 
-		std::vector<sym_freq> sym_freq0(total_used_syms), sym_freq1(total_used_syms);
+		basisu::MVector<sym_freq> sym_freq0(total_used_syms), sym_freq1(total_used_syms);
 		for (uint32_t i = 0, j = 0; i < num_syms; i++)
 		{
 			if (pFreq[i])
@@ -1750,11 +1750,11 @@ namespace basisu
 		const uint32_t source_pitch = width * tga_bytes_per_pixel;
 		const uint32_t dest_pitch = width * n_chans;
 		
-		uint8_t *pImage = (uint8_t *)malloc(dest_pitch * height);
+		uint8_t *pImage = (uint8_t *)basisu::basis_malloc(dest_pitch * height);
 		if (!pImage)
 			return nullptr;
 
-		std::vector<uint8_t> input_line_buf;
+		basisu::MVector<uint8_t> input_line_buf;
 		if (rle_flag)
 			input_line_buf.resize(source_pitch);
 

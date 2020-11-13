@@ -46,7 +46,7 @@
 // Define MINIZ_NO_ZLIB_COMPATIBLE_NAME to disable zlib names, to prevent conflicts against stock zlib.
 //#define MINIZ_NO_ZLIB_COMPATIBLE_NAMES
 
-// Define MINIZ_NO_MALLOC to disable all calls to malloc, free, and realloc.
+// Define MINIZ_NO_MALLOC to disable all calls to basisu::basis_malloc, free, and realloc.
 // Note if MINIZ_NO_MALLOC is defined then the user must always provide custom user alloc/free/realloc
 // callbacks to the zlib and archive API's, and a few stand-alone helper API's which don't provide custom user
 // functions (such as tdefl_compress_mem_to_heap() and tinfl_decompress_mem_to_heap()) won't work.
@@ -150,7 +150,7 @@ typedef struct mz_stream_s
   char *msg;                        // error msg (unused)
   struct mz_internal_state *state;  // internal state, allocated by zalloc/zfree
 
-  mz_alloc_func zalloc;             // optional heap allocation function (defaults to malloc)
+  mz_alloc_func zalloc;             // optional heap allocation function (defaults to basisu::basis_malloc)
   mz_free_func zfree;               // optional heap free function (defaults to free)
   void *opaque;                     // heap alloc function user pointer
 
@@ -363,7 +363,7 @@ enum
 };
 
 // High level decompression functions:
-// tinfl_decompress_mem_to_heap() decompresses a block in memory to a heap block allocated via malloc().
+// tinfl_decompress_mem_to_heap() decompresses a block in memory to a heap block allocated via basisu::basis_malloc().
 // On entry:
 //  pSrc_buf, src_buf_len: Pointer and size of the Deflate or zlib source data to decompress.
 // On return:
@@ -474,7 +474,7 @@ enum
 };
 
 // High level compression functions:
-// tdefl_compress_mem_to_heap() compresses a block in memory to a heap block allocated via malloc().
+// tdefl_compress_mem_to_heap() compresses a block in memory to a heap block allocated via basisu::basis_malloc().
 // On entry:
 //  pSrc_buf, src_buf_len: Pointer and size of source block to compress.
 //  flags: The max match finder probes (default is 128) logically OR'd against the above flags. Higher probes are slower but improve compression.
@@ -612,7 +612,7 @@ typedef unsigned char mz_validate_uint64[sizeof(mz_uint64)==8 ? 1 : -1];
   #define MZ_FREE(x) (void)x, ((void)0)
   #define MZ_REALLOC(p, x) NULL
 #else
-  #define MZ_MALLOC(x) malloc(x)
+  #define MZ_MALLOC(x) basisu::basis_malloc(x)
   #define MZ_FREE(x) free(x)
   #define MZ_REALLOC(p, x) realloc(p, x)
 #endif

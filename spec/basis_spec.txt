@@ -510,7 +510,7 @@ decoding:
         }
         
     private:
-        std::vector<int> m_values;
+        basisu::MVector<int> m_values;
         uint32_t m_rover;
     };
 
