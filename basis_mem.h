@@ -35,7 +35,7 @@ namespace basisu
 		typedef T value_type;
 
 		Mallocator() = default;
-		template <class U> constexpr Mallocator(const Mallocator <U>&) noexcept {}
+		template <class U> constexpr Mallocator(const Mallocator <U>&) {}
 
 		T* allocate(std::size_t n)
 		{
@@ -52,7 +52,7 @@ namespace basisu
 			throw std::bad_alloc();
 		}
 
-		void deallocate(T* p, std::size_t n) noexcept
+		void deallocate(T* p, std::size_t n)
 		{
 			basis_free(p);
 		}
