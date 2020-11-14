@@ -5,6 +5,7 @@
 #include "vector"
 #include <stddef.h>
 #include <limits>
+#include <iostream>
 
 namespace basisu
 {
@@ -16,10 +17,27 @@ namespace basisu
 	typedef uint32             uint32;
 	typedef unsigned int       uint;
 	typedef signed int         int32;
+#ifdef __GNUC__
+	typedef unsigned long long    uint64;
+	typedef long long             int64;
+#else
+	typedef unsigned __int64      uint64;
+	typedef signed __int64        int64;
+#endif
 
 	// The basis library assumes all allocation blocks have at least CRND_MIN_ALLOC_ALIGNMENT alignment.
 	const uint32 CRND_MIN_ALLOC_ALIGNMENT = sizeof(uint32) * 2U;
 	const uint32 cIntBits = 32U;
+
+#ifdef _WIN64
+	typedef uint64 ptr_bits;
+#else
+#ifdef __x86_64__
+	typedef uint64 ptr_bits;
+#else
+	typedef uint32 ptr_bits;
+#endif
+#endif
 }
 
 namespace basisu
@@ -84,5 +102,7 @@ namespace basisu
 		MVector(int count, const T val) :std::vector<T, Mallocator<T>>(count, val) {}
 		MVector(MIterator first, MIterator end) :std::vector<T, Mallocator<T>>(first, end) {}
 		MVector(const MVector& x) :std::vector<T, Mallocator<T>>(x) {}
+
+		~MVector(){}
 	};
 }

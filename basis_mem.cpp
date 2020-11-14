@@ -148,7 +148,7 @@ namespace basisu
 
 	void* basis_realloc(void* p, size_t size, size_t* pActual_size, bool movable)
 	{
-		if (CRND_MIN_ALLOC_ALIGNMENT - 1)
+		if ((uint32)reinterpret_cast<ptr_bits>(p) & CRND_MIN_ALLOC_ALIGNMENT - 1)
 		{
 			return NULL;
 		}
@@ -172,7 +172,7 @@ namespace basisu
 		if (!p)
 			return;
 
-		if (CRND_MIN_ALLOC_ALIGNMENT - 1)
+		if ((uint32)reinterpret_cast<ptr_bits>(p) & CRND_MIN_ALLOC_ALIGNMENT - 1)
 		{
 			return;
 		}
@@ -185,7 +185,7 @@ namespace basisu
 		if (!p)
 			return 0;
 
-		if (CRND_MIN_ALLOC_ALIGNMENT - 1)
+		if ((uint32)reinterpret_cast<ptr_bits>(p) & CRND_MIN_ALLOC_ALIGNMENT - 1)
 		{
 			return 0;
 		}
