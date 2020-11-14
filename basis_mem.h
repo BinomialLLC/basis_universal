@@ -3,12 +3,23 @@
 
 #pragma once
 #include "vector"
+#include <stddef.h>
+#include <limits>
 
 namespace basisu
 {
+	typedef unsigned char      uint8;
+	typedef signed char        int8;
+	typedef unsigned short     uint16;
+	typedef signed short       int16;
+	typedef unsigned int       uint32;
+	typedef uint32             uint32;
+	typedef unsigned int       uint;
+	typedef signed int         int32;
+
 	// The basis library assumes all allocation blocks have at least CRND_MIN_ALLOC_ALIGNMENT alignment.
-	const uint32_t CRND_MIN_ALLOC_ALIGNMENT = sizeof(uint32_t) * 2U;
-	const uint32_t cIntBits = 32U;
+	const uint32 CRND_MIN_ALLOC_ALIGNMENT = sizeof(uint32) * 2U;
+	const uint32 cIntBits = 32U;
 }
 
 namespace basisu
@@ -41,7 +52,7 @@ namespace basisu
 		{
 			if (n > std::numeric_limits<std::size_t>::max() / sizeof(T))
 			{
-				throw std::bad_alloc();
+				return nullptr;
 			}
 				
 			if (auto p = static_cast<T*>(basis_malloc(n * sizeof(T)))) 
@@ -49,7 +60,7 @@ namespace basisu
 				return p;
 			}
 
-			throw std::bad_alloc();
+			return nullptr;
 		}
 
 		void deallocate(T* p, std::size_t n)

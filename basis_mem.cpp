@@ -25,7 +25,7 @@
 
 namespace basisu
 {
-	const uint32_t MAX_POSSIBLE_BLOCK_SIZE = 0x7FFF0000U;
+	const uint32 MAX_POSSIBLE_BLOCK_SIZE = 0x7FFF0000U;
 
 	static void* basis_default_realloc(void* p, size_t size, size_t* pActual_size, bool movable, void* pUser_data)
 	{
@@ -123,9 +123,9 @@ namespace basisu
 
 	void* basis_malloc(size_t size, size_t* pActual_size)
 	{
-		size = (size + sizeof(uint32_t) - 1U) & ~(sizeof(uint32_t) - 1U);
+		size = (size + sizeof(uint32) - 1U) & ~(sizeof(uint32) - 1U);
 		if (!size)
-			size = sizeof(uint32_t);
+			size = sizeof(uint32);
 
 		if (size > MAX_POSSIBLE_BLOCK_SIZE)
 		{
@@ -133,7 +133,7 @@ namespace basisu
 		}
 
 		size_t actual_size = size;
-		uint8_t* p_new = static_cast<uint8_t*>((*g_pRealloc)(NULL, size, &actual_size, true, g_pUser_data));
+		uint8* p_new = static_cast<uint8*>((*g_pRealloc)(NULL, size, &actual_size, true, g_pUser_data));
 
 		if (pActual_size)
 			*pActual_size = actual_size;
