@@ -340,10 +340,10 @@ namespace basisu
 		bool_param<false> m_force_alpha; 
 		bool_param<true> m_multithreading;
 
-		bool_param<false> m_renormalize;
-
 		// Swizzle incoming channels
 		char m_swizzle[4];
+
+		bool_param<false> m_renormalize;
 
 		bool_param<false> m_disable_hierarchical_endpoint_codebooks;
 

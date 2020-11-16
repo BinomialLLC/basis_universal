@@ -70,9 +70,14 @@ namespace basisu
 			PRINT_BOOL_VALUE(m_read_source_images);
 			PRINT_BOOL_VALUE(m_write_output_basis_files);
 			PRINT_BOOL_VALUE(m_compute_stats);
-			PRINT_BOOL_VALUE(m_check_for_alpha)
-			PRINT_BOOL_VALUE(m_force_alpha)
+			PRINT_BOOL_VALUE(m_check_for_alpha);
+			PRINT_BOOL_VALUE(m_force_alpha);
 			PRINT_BOOL_VALUE(m_renormalize);
+			debug_printf("swizzle: %d,%d,%d,%d\n",
+				m_params.m_swizzle[0],
+				m_params.m_swizzle[1],
+				m_params.m_swizzle[2],
+				m_params.m_swizzle[3]);
 			PRINT_BOOL_VALUE(m_multithreading);
 			PRINT_BOOL_VALUE(m_disable_hierarchical_endpoint_codebooks);
 			
@@ -101,11 +106,6 @@ namespace basisu
 			debug_printf("m_userdata0: 0x%X, m_userdata1: 0x%X\n", m_params.m_userdata0, m_params.m_userdata1);
 			debug_printf("m_us_per_frame: %i (%f fps)\n", m_params.m_us_per_frame, m_params.m_us_per_frame ? 1.0f / (m_params.m_us_per_frame / 1000000.0f) : 0);
 
-			debug_printf("swizzle: %d,%d,%d,%d\n",
-				m_params.m_swizzle[0],
-				m_params.m_swizzle[1],
-				m_params.m_swizzle[2],
-				m_params.m_swizzle[3]);
 			debug_printf("m_pack_uastc_flags: 0x%X\n", m_params.m_pack_uastc_flags);
 			
 			PRINT_BOOL_VALUE(m_rdo_uastc);
