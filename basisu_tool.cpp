@@ -407,7 +407,8 @@ public:
 				m_comp_params.m_check_for_alpha = false;
 			else if (strcasecmp(pArg, "-force_alpha") == 0)
 				m_comp_params.m_force_alpha = true;
-			else if (strcasecmp(pArg, "-separate_rg_to_color_alpha") == 0) // was mispelled for a while - whoops!
+			else if ((strcasecmp(pArg, "-separate_rg_to_color_alpha") == 0) ||
+					(strcasecmp(pArg, "-seperate_rg_to_color_alpha") == 0)) // was mispelled for a while - whoops!
 			{
 				m_comp_params.m_swizzle[0] = 0;
 				m_comp_params.m_swizzle[1] = 0;
