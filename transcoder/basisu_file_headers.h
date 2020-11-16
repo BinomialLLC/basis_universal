@@ -1,5 +1,5 @@
 // basis_file_headers.h
-// Copyright (C) 2019 Binomial LLC. All Rights Reserved.
+// Copyright (C) 2019-2020 Binomial LLC. All Rights Reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -20,7 +20,7 @@ namespace basist
 	// Slice desc header flags
 	enum basis_slice_desc_flags
 	{
-		cSliceDescFlagsIsAlphaData = 1,
+		cSliceDescFlagsHasAlpha = 1,
 		cSliceDescFlagsFrameIsIFrame = 2			// Video only: Frame doesn't refer to previous frame (no usage of conditional replenishment pred symbols)
 	};
 
@@ -38,7 +38,7 @@ namespace basist
 		basisu::packed_uint<2> m_num_blocks_x;	// The slice's block X dimensions. Each block is 4x4 pixels. The slice's pixel resolution may or may not be a power of 2.
 		basisu::packed_uint<2> m_num_blocks_y;	// The slice's block Y dimensions. 
 
-		basisu::packed_uint<4> m_file_ofs;		// Offset from the header to the start of the slice's data
+		basisu::packed_uint<4> m_file_ofs;		// Offset from the start of the file to the start of the slice's data
 		basisu::packed_uint<4> m_file_size;		// The size of the compressed slice data in bytes
 
 		basisu::packed_uint<2> m_slice_data_crc16; // The CRC16 of the compressed slice data, for extra-paranoid use cases
@@ -47,9 +47,9 @@ namespace basist
 	// File header files
 	enum basis_header_flags
 	{
-		cBASISHeaderFlagETC1S = 1,					// Always set for basis universal files
+		cBASISHeaderFlagETC1S = 1,					// Always set for ETC1S files. Not set for UASTC files.
 		cBASISHeaderFlagYFlipped = 2,				// Set if the texture had to be Y flipped before encoding
-		cBASISHeaderFlagHasAlphaSlices = 4		// True if the odd slices contain alpha data
+		cBASISHeaderFlagHasAlphaSlices = 4		// True if any slices contain alpha (for ETC1S, if the odd slices contain alpha data)
 	};
 
 	// The image type field attempts to describe how to interpret the image data in a Basis file.
@@ -69,6 +69,12 @@ namespace basist
 	enum
 	{
 		cBASISMaxUSPerFrame = 0xFFFFFF
+	};
+
+	enum class basis_tex_format
+	{
+		cETC1S = 0,
+		cUASTC4x4 = 1
 	};
 
 	struct basis_file_header
@@ -91,7 +97,7 @@ namespace basist
 
 		basisu::packed_uint<3>      m_total_images;	// The total # of images
 				
-		basisu::packed_uint<1>      m_format;			// enum basist::block_format
+		basisu::packed_uint<1>      m_tex_format;		// enum basis_tex_format
 		basisu::packed_uint<2>      m_flags;			// enum basist::header_flags
 		basisu::packed_uint<1>      m_tex_type;		// enum basist::basis_texture_type
 		basisu::packed_uint<3>      m_us_per_frame;	// Framerate of video, in microseconds per frame
@@ -101,11 +107,11 @@ namespace basist
 		basisu::packed_uint<4>      m_userdata1;		// For client use
 
 		basisu::packed_uint<2>      m_total_endpoints;			// The number of endpoints in the endpoint codebook 
-		basisu::packed_uint<4>      m_endpoint_cb_file_ofs;	// The compressed endpoint codebook's file offset relative to the header
+		basisu::packed_uint<4>      m_endpoint_cb_file_ofs;	// The compressed endpoint codebook's file offset relative to the start of the file
 		basisu::packed_uint<3>      m_endpoint_cb_file_size;	// The compressed endpoint codebook's size in bytes
 
 		basisu::packed_uint<2>      m_total_selectors;			// The number of selectors in the endpoint codebook 
-		basisu::packed_uint<4>      m_selector_cb_file_ofs;	// The compressed selectors codebook's file offset relative to the header
+		basisu::packed_uint<4>      m_selector_cb_file_ofs;	// The compressed selectors codebook's file offset relative to the start of the file
 		basisu::packed_uint<3>      m_selector_cb_file_size;	// The compressed selector codebook's size in bytes
 
 		basisu::packed_uint<4>      m_tables_file_ofs;			// The file offset of the compressed Huffman codelength tables, for decompressing slices

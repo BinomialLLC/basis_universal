@@ -13,7 +13,7 @@ function(build_target name flags enabled)
     basis_wrappers.cpp
   )
 
-  set(allTypes ASTC ATC BC7 DXT1 DXT5A ETC2_EAC_A8 ETC2_EAC_RG11 FXT1 PVRTC1 PVRTC2)
+  set(allTypes UASTC ASTC ATC BC7 DXT1 DXT5A ETC2_EAC_A8 ETC2_EAC_RG11 FXT1 PVRTC1 PVRTC2)
   set(typeList "")
   
   foreach(type ${allTypes})
@@ -44,7 +44,7 @@ endFunction()
 if (EMSCRIPTEN)
   set(CMAKE_CXX_STANDARD 11)
 
-  build(basis         "ASTC|ATC|DXT1|DXT5A|ETC2_EAC_A8|ETC2_EAC_RG11|PVRTC1|PVRTC2")
+  build(basis         "UASTC|ASTC|ATC|DXT1|DXT5A|ETC2_EAC_A8|ETC2_EAC_RG11|PVRTC1|PVRTC2")
   #build(basist_all    "ASTC|ATC|BC7|DXT1|DXT5A|ETC2_EAC_A8|ETC2_EAC_RG11|FXT1|PVRTC1|PVRTC2")
   #build(basist_atc    "ATC|DXT5A")
   #build(basist_astc   "ASTC")

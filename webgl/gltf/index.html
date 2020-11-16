@@ -1,11 +1,11 @@
 <!DOCTYPE html>
 
 <head>
-  <script src="https://cdn.jsdelivr.net/npm/three@v0.108.0"></script>
+  <!-- <script src="https://cdn.jsdelivr.net/npm/three@v0.108.0"></script> -->
+  <script src="three.min.js"></script>
   <script src="GLTFLoader.js"></script>
   <script src="BasisTextureLoader.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@v0.104.0/examples/js/controls/OrbitControls.js"></script>
-  <!-- <script src="../transcoder/build/basis_transcoder.js"></script> -->
   <style>
     html, body { width:100%; height:100%; margin:0; padding:0; }
     canvas { display:block; }
@@ -60,6 +60,9 @@
       case THREE.BasisTextureLoader.BASIS_FORMAT.cTFBC3:
         formatName = 'BC3';
         break;
+      case THREE.BasisTextureLoader.BASIS_FORMAT.cTFBC7_M6_OPAQUE_ONLY:
+        formatName = 'BC7';
+        break;
       case THREE.BasisTextureLoader.BASIS_FORMAT.cTFPVRTC1_4_RGB:
       case THREE.BasisTextureLoader.BASIS_FORMAT.cTFPVRTC1_4_RGBA:
         formatName = 'PVRTC';
@@ -74,11 +77,12 @@
 
     // Register BasisTextureLoader for .basis extension.
 
-    THREE.Loader.Handlers.add( /\.basis$/, basisLoader );
+    let loadingManager = new THREE.LoadingManager();
+    loadingManager.addHandler( /\.basis$/, basisLoader );
 
     // Create GLTFLoader, load model, and render.
 
-    const loader = new THREE.GLTFLoader();
+    const loader = new THREE.GLTFLoader(loadingManager);
 
     loader.load( 'assets/AgiHqSmall.gltf', ( gltf ) => {
 

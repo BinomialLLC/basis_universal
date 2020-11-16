@@ -1,0 +1,865 @@
+Note: The latest specification is in the Basis Universal wiki, here:
+https://github.com/BinomialLLC/basis_universal/wiki/.basis-File-Format-and-ETC1S-Texture-Video-Specification
+
+File: basis_spec.txt
+Version 1.01
+
+1.0 Introduction
+----------------
+
+The Basis Universal GPU texture codec supports reading and writing ".basis" files. 
+The .basis file format supports ETC1S or UASTC 4x4 texture data.
+
+* ETC1S is a simplified subset of ETC1.
+
+The mode is always differential (diff bit=1), the Rd, Gd, and Bd color deltas 
+are always (0,0,0), and the flip bit is always set. ETC1S texture data is fully 
+compliant with all existing software and hardware ETC1 decoders. Existing encoders 
+can be easily modified to limit their output to ETC1S.
+
+* UASTC 4x4 is a 19 mode subset of the ASTC texture format. Its specification is 
+[here](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-Texture-Specification). UASTC texture data can always be losslessly transcoded to ASTC.
+
+2.0 High-Level File Structure
+-----------------------------
+
+A .basis file consists of multiple sections. Apart from the header, which must always
+be at the start of the file, the other sections may appear in any order. 
+
+Here's the high level organization of a typical .basis file:
+
+* The file header
+* Optional ETC1S compressed endpoint/selector codebooks
+* Optional ETC1S Huffman table information
+* A required "slice" description array describing the resolutions and file offset/compressed sizes of each texture slice present in the file
+* 1 or more slices containing ETC1S or UASTC compressed texture data. 
+* For future expansion, the format supports an "extended" header which may be located anywhere in the file. This section contains .PNG-like chunked data. 
+
+3.0 File Enums
+--------------
+
+// basis_file_header::m_tex_type
+enum basis_texture_type
+{
+  cBASISTexType2D = 0,     
+  cBASISTexType2DArray = 1,   
+  cBASISTexTypeCubemapArray = 2, 
+  cBASISTexTypeVideoFrames = 3, 
+  cBASISTexTypeVolume = 4,  
+  cBASISTexTypeTotal
+};
+
+// basis_slice_desc::flags
+enum basis_slice_desc_flags
+{
+  cSliceDescFlagsHasAlpha = 1,
+  cSliceDescFlagsFrameIsIFrame = 2   
+};
+
+// basis_file_header::m_tex_format 
+enum basis_tex_format
+{
+  cETC1S = 0,
+  cUASTC4x4 = 1
+};
+
+// basis_file_header::m_flags 
+enum basis_header_flags
+{
+  cBASISHeaderFlagETC1S = 1,
+  cBASISHeaderFlagYFlipped = 2,
+  cBASISHeaderFlagHasAlphaSlices = 4
+};
+
+4.0 File Structures
+-------------------
+
+All individual members in all file structures are byte aligned and little endian. The structs 
+have no padding (i.e. they are declared with #pragma pack(1)).
+
+4.1 "basis_file_header" structure
+---------------------------------
+
+The file header must always be at the beginning of the file.
+
+struct basis_file_header
+{
+  uint16      m_sig;              // 2 byte file signature
+  uint16      m_ver;              // File version
+  uint16      m_header_size;      // Header size in bytes, sizeof(basis_file_header) or 0x4D
+  uint16      m_header_crc16;     // CRC16/genibus of the remaining header data
+
+  uint32      m_data_size;        // The total size of all data after the header
+  uint16      m_data_crc16;       // The CRC16 of all data after the header
+
+  uint24      m_total_slices;     // The number of compressed slices 
+  uint24      m_total_images;     // The total # of images
+
+  byte        m_tex_format;       // enum basis_tex_format
+  uint16      m_flags;            // enum basis_header_flags
+  byte        m_tex_type;         // enum basis_texture_type
+  uint24      m_us_per_frame;     // Video: microseconds per frame
+
+  uint32      m_reserved;         // For future use
+  uint32      m_userdata0;        // For client use
+  uint32      m_userdata1;        // For client use
+
+  uint16      m_total_endpoints;          // ETC1S: The number of endpoints in the endpoint codebook 
+  uint32      m_endpoint_cb_file_ofs;     // ETC1S: The compressed endpoint codebook's file offset relative to the start of the file
+  uint24      m_endpoint_cb_file_size;    // ETC1S: The compressed endpoint codebook's size in bytes
+
+  uint16      m_total_selectors;          // ETC1S: The number of selectors in the selector codebook 
+  uint32      m_selector_cb_file_ofs;     // ETC1S: The compressed selector codebook's file offset relative to the start of the file
+  uint24      m_selector_cb_file_size;    // ETC1S: The compressed selector codebook's size in bytes
+
+  uint32      m_tables_file_ofs;          // ETC1S: The file offset of the compressed Huffman codelength tables.
+  uint32      m_tables_file_size;         // ETC1S: The file size in bytes of the compressed Huffman codelength tables.
+
+  uint32      m_slice_desc_file_ofs;      // The file offset to the slice description array, usually follows the header
+  uint32      m_extended_file_ofs;        // The file offset of the "extended" header and compressed data, for future use
+  uint32      m_extended_file_size;       // The file size in bytes of the "extended" header and compressed data, for future use
+};
+
+4.1.1 Details:
+
+* m_sig is always 'B' * 256 + 's', or 0x4273.
+* m_ver is currently always 0x10.
+* m_header_size is sizeof(basis_file_header). It's always 0x4D.
+* m_header_crc16 is the CRC-16 of the remaining header data. See the "CRC-16" section 5.0 below for more information.
+* m_data_size, m_data_crc16: The size of all data following the header, and its CRC-16.
+* m_total_slices: The total number of slices, from [1,2^24-1]
+* m_total_images: The total number of images (where one image can contain multiple mipmap levels, and each mipmap level is a different slice).
+* m_tex_format: basis_tex_format. Either cETC1S (0), or cUASTC4x4 (1).
+* m_flags: A combination of flags from the basis_header_flags enum.
+* m_tex_type: The texture type, from enum basis_texture_type
+* m_us_per_frame: Microseconds per frame, only valid for cBASISTexTypeVideoFrames texture types.
+* m_total_endpoints, m_endpoint_cb_file_ofs, m_endpoint_cb_file_size: Information about the compressed ETC1S endpoint codebook: The total # of entries, the offset to the compressed data, and the compressed data's size.
+* m_total_selectors, m_selector_cb_file_ofs, m_selector_cb_file_size: Information about the compressed ETC1S selector codebook: The total # of entries, the offset to the compressed data, and the compressed data's size.
+* m_tables_file_ofs, m_tables_file_size: The file offset and size of the compressed Huffman tables for ETC1S format files. 
+* m_slice_desc_file_ofs: The file offset to the array of slice description structures. There will be m_total_slices structures at this file offset.
+* m_extended_file_ofs, m_extended_file_size: The "extended" header, for future expansion. Currently unused.
+
+4.2 "basis_slice_desc" structure
+--------------------------------
+
+struct basis_slice_desc
+{
+    uint24 m_image_index;  
+    uint8 m_level_index;   
+    uint8 m_flags;         
+
+    uint16 m_orig_width;   
+    uint16 m_orig_height;  
+
+    uint16 m_num_blocks_x; 
+    uint16 m_num_blocks_y; 
+
+    uint32 m_file_ofs;     
+    uint32 m_file_size;    
+
+    uint16 m_slice_data_crc16; 
+};
+
+4.2.1 Details:
+
+* m_image_index: The index of the source image provided to the encoder (will always appear in order from first to last, first image index is 0, no skipping allowed)
+* m_level_index: The mipmap level index (mipmaps will always appear from largest to smallest)
+* m_flags: enum basis_slice_desc_flags
+* m_orig_width: The original image width (may not be a multiple of 4 pixels)
+* m_orig_height: The original image height (may not be a multiple of 4 pixels)
+* m_num_blocks_x: The slice's block X dimensions. Each block is 4x4 pixels. The slice's pixel resolution may or may not be a power of 2.
+* m_num_blocks_y: The slice's block Y dimensions. 
+* m_file_ofs: Offset from the start of the file to the start of the slice's data
+* m_file_size: The size of the compressed slice data in bytes
+* m_slice_data_crc16: The CRC16 of the compressed slice data, for extra-paranoid use cases
+
+5.0 CRC-16 Function
+-------------------
+
+.basis files use CRC-16/genibus(aka CRC-16 EPC, CRC-16 I-CODE, CRC-16 DARC) format CRC-16's. 
+
+Here's an example function in C++:
+
+uint16_t crc16(const void* r, size_t size, uint16_t crc)
+{
+  crc = ~crc;
+  const uint8_t* p = static_cast<const uint8_t*>(r);
+  for ( ; size; --size)
+  {
+    const uint16_t q = *p++ ^ (crc >> 8);
+    uint16_t k = (q >> 4) ^ q;
+    crc = (((crc << 8) ^ k) ^ (k << 5)) ^ (k << 12);
+  }
+
+  return static_cast<uint16_t>(~crc);
+}
+
+This function is called with 0 in the final "crc" parameter when computing CRC-16's of file data.
+
+6.0 Compressed Huffman Tables
+-----------------------------
+
+ETC1S format .basis files rely heavily on static [canonical Huffman
+prefix coding](https://en.wikipedia.org/wiki/Canonical_Huffman_code).  Multiple
+Huffman tables are used by each compressed section. Huffman codes are stored in
+each output byte in LSB to MSB order. (This is opposite of the JPEG format,
+which stores the codes in MSB to LSB order.)
+
+Huffman coding in .basis is compatible with the canonical Huffman methods used
+by Deflate encoders/decoders. Section 3.2.2 of [Deflate - RFC
+1951](https://tools.ietf.org/html/rfc1951), which describes how to compute the
+value of each Huffman code given an array of symbol codelengths. This document
+assumes familiarity with how Huffman coding works in Deflate.
+
+First, some enums:
+
+enum
+{
+    // Max supported Huffman code size is 16-bits
+    cHuffmanMaxSupportedCodeSize = 16, 
+
+    // The maximum number of symbols  is 2^14
+    cHuffmanMaxSymsLog2 = 14, 
+    cHuffmanMaxSyms = 1 << cHuffmanMaxSymsLog2,
+
+    // Small zero runs may range from 3-10 entries
+    cHuffmanSmallZeroRunSizeMin = 3, 
+    cHuffmanSmallZeroRunSizeMax = 10, 
+    cHuffmanSmallZeroRunExtraBits = 3,
+
+    // Big zero runs may range from 11-138 entries
+    cHuffmanBigZeroRunSizeMin = 11, 
+    cHuffmanBigZeroRunSizeMax = 138, 
+    cHuffmanBigZeroRunExtraBits = 7,
+
+    // Small non-zero runs may range from 3-6 entries
+    cHuffmanSmallRepeatSizeMin = 3, 
+    cHuffmanSmallRepeatSizeMax = 6, 
+    cHuffmanSmallRepeatExtraBits = 2,
+
+    // Big non-zero run may range from 7-134 entries
+    cHuffmanBigRepeatSizeMin = 7, 
+    cHuffmanBigRepeatSizeMax = 134, 
+    cHuffmanBigRepeatExtraBits = 7,
+
+    // There are a maximum of 21 symbols in a compressed Huffman code length table.
+    cHuffmanTotalCodelengthCodes = 21, 
+    
+    // Symbols [0,16] indicate code sizes. Other symbols indicate zero runs or repeats:
+    cHuffmanSmallZeroRunCode = 17, 
+    cHuffmanBigZeroRunCode = 18, 
+    cHuffmanSmallRepeatCode = 19, 
+    cHuffmanBigRepeatCode = 20
+};
+
+A .basis Huffman table consists of 1 to cHuffmanMaxSyms symbols. Each compressed
+Huffman table is described by an array of symbol code lengths in bits.
+
+The table's symbol code lengths are themselves RLE+Huffman coded, just like
+Deflate. (Note this can be confusing to developers unfamiliar with Deflate.)
+Each table begins with a small fixed header:
+
+    14 bits: total_used_syms [1, cHuffmanMaxSyms]
+    5 bits: num_codelength_codes [1, cHuffmanTotalCodelengthCodes]
+    
+Next, the code lengths for the small Huffman table which is used to send the compressed codelengths (and RLE/repeat codes) are sent uncompressed but in a reordered manner:
+    
+    3*num_codelength_codes bits: Code size of each Huffman symbol for the compressed Huffman codelength table.
+    
+    These code lengths are sent in this order (to help reduce the number that must be sent):
+    
+    { 
+        cHuffmanSmallZeroRunCode, cHuffmanBigZeroRunCode, cHuffmanSmallRepeatCode, cHuffmanBigRepeatCode, 
+        0, 8, 7, 9, 6, 0xA, 5, 0xB, 4, 0xC, 3, 0xD, 2, 0xE, 1, 0xF, 0x10 
+    };
+            
+A canonical Huffman decoding table (of up to 21 symbols) should be built from
+these code lengths. Immediately following this data are the Huffman symbols
+(sometimes intermixed with raw bits) which describe how to unpack the
+codelengths of each symbol in the Huffman table:
+
+    - Symbols [0,16] indicate a specific symbol code length in bits.
+    
+    - Symbol cHuffmanSmallZeroRunCode (17) indicates a short run of symbols with 0 bit code lengths.
+      cHuffmanSmallZeroRunExtraBits (3) bits are sent after this symbol, which indicates the run's size after adding the minimum size (cHuffmanSmallZeroRunSizeMin).
+      
+    - Symbol cHuffmanBigZeroRunCode (18) indicates a long run of symbols with 0 bit code lengths. 
+      cHuffmanBigZeroRunExtraBits (7) bits are sent after this symbol, which indicates the run's size after adding the minimum size (cHuffmanBigZeroRunSizeMin)
+
+    - Symbol cHuffmanSmallRepeatCode (19) indicates a short run of symbols that repeat the previous symbol's code length.
+      cHuffmanSmallRepeatExtraBits (2) bits are sent after this symbol, which indicates the number of times to repeat the previous symbol's code length, 
+      after adding the minimum size (cHuffmanSmallRepeatSizeMin).
+      Cannot be the first symbol, and the previous symbol cannot have a code length of 0.
+      
+    - Symbol cHuffmanBigRepeatCode (20) indicates a short run of symbols that repeat the previous symbol's code length.
+      cHuffmanBigRepeatExtraBits (7) bits are sent after this symbol, which indicates the number of times to repeat the previous symbol's code length,
+      after adding the minimum size (cHuffmanBigRepeatSizeMin).
+      Cannot be the first symbol, and the previous symbol cannot have a code length of 0.
+      
+There should be exactly total_used_syms code lengths stored in the compressed Huffman table. If not the stream is either corrupted or invalid.
+
+After all the symbol codelengths are uncompressed, the symbol codes can be computed and the canonical Huffman decoding tables can be built.
+
+7.0 ETC1S Endpoint Codebooks
+----------------------------
+
+The endpoint codebook section starts at file offset
+basis_file_header::m_endpoint_cb_file_ofs and is m_endpoint_cb_file_size bytes
+long. The endpoint codebook will have basis_file_header::m_total_endpoints total
+entries.
+
+At the beginning of the compressed endpoint codebook section are four compressed
+Huffman tables, stored using the procedure outlined in section 6.0. The Huffman tables
+appear in this order:
+
+    1. color5_delta_model0
+    2. color5_delta_model1
+    3. color5_delta_model2
+    4. inten_delta_model
+
+Following the data for these Huffman tables is a single 1-bit code which
+indicates if the color endpoint codebook is grayscale or not. 
+
+Immediately following this code is the compressed color endpoint codebook data. 
+A simple form of DPCM (Delta Pulse Code Modulation) coding is used to send the
+ETC1S intensity table indices and color values. Here is the procedure to decode
+the endpoint codebook:
+
+    const int COLOR5_PAL0_PREV_HI = 9, COLOR5_PAL0_DELTA_LO = -9, COLOR5_PAL0_DELTA_HI = 31;
+    const int COLOR5_PAL1_PREV_HI = 21, COLOR5_PAL1_DELTA_LO = -21, COLOR5_PAL1_DELTA_HI = 21;
+    const int COLOR5_PAL2_PREV_HI = 31, COLOR5_PAL2_DELTA_LO = -31, COLOR5_PAL2_DELTA_HI = 9;
+
+    // Assume previous endpoint color is (16, 16, 16), and the previous intensity is 0.
+    color32 prev_color5(16, 16, 16, 0);
+    uint32_t prev_inten = 0;
+
+    // For each endpoint codebook entry
+    for (uint32_t i = 0; i < num_endpoints; i++)
+    {
+        // Decode the intensity delta Huffman code
+        uint32_t inten_delta = decode_huffman(inten_delta_model);
+        endpoints[i].m_inten5 = static_cast<uint8_t>((inten_delta + prev_inten) & 7);
+        prev_inten = endpoints[i].m_inten5;
+
+        // Now decode the endpoint entry's color or intensity value
+        for (uint32_t c = 0; c < (endpoints_are_grayscale ? 1U : 3U); c++)
+        {
+            // The Huffman table used to decode the delta depends on the previous color's value
+            int delta;
+            if (prev_color5[c] <= basist::COLOR5_PAL0_PREV_HI)
+                delta = decode_huffman(color5_delta_model0);
+            else if (prev_color5[c] <= basist::COLOR5_PAL1_PREV_HI)
+                delta = decode_huffman(color5_delta_model1);
+            else
+                delta = decode_huffman(color5_delta_model2);
+
+            // Apply the delta
+            int v = (prev_color5[c] + delta) & 31;
+
+            endpoints[i].m_color5[c] = static_cast<uint8_t>(v);
+
+            prev_color5[c] = static_cast<uint8_t>(v);
+        }
+
+        // If the endpoints are grayscale, set G and B to match R.
+        if (endpoints_are_grayscale)
+        {
+            endpoints[i].m_color5[1] = endpoints[i].m_color5[0];
+            endpoints[i].m_color5[2] = endpoints[i].m_color5[0];
+        }
+    }
+
+The rest of the section's data (if any) can be ignored.
+
+8.0 ETC1S Selector Codebooks
+----------------------------
+
+The selector codebook section starts at file offset
+basis_file_header::m_selector_cb_file_ofs and is m_selector_cb_file_size bytes
+long. The selector codebook will have basis_file_header::m_total_selectors total
+entries.
+
+The first bit of this section indicates if "global" selector codebooks are used.
+Basis Universal doesn't currently utilize global selector codebooks, so this bit
+should always be 0.
+
+The second bit of this section indicates if "hybrid" global/local selector
+codebooks are used. Hybrid codebooks are not supported either, so this bit
+should always be 0.
+
+The third bit indicates if the selector codebook has been sent in raw form
+(uncompressed). If it's set, each selector is sent as four 8-bit bytes. Each
+byte corresponds to four 2-bit ETC1S selectors. The first selector of each group
+of 4 selectors starts at the LSB (least significant bit) of each byte, and is
+2-bits wide.
+
+If the third bit is 0, the selectors have been DPCM coded with Huffman coding. 
+The "delta_selector_pal_model" Huffman table will immediately follow the third
+bit, and is stored using the procedure outlined in section 6.0.
+
+Immediately following the Huffman table is the compressed selector codebook. 
+Here is the DPCM decoding procedure:
+
+        uint8_t prev_bytes[4] = { 0, 0, 0, 0 };
+
+        for (uint32_t i = 0; i < num_selectors; i++)
+        {
+            if (!i)
+            {
+                // First selector is sent raw
+                for (uint32_t j = 0; j < 4; j++)
+                {
+                    uint32_t cur_byte = get_bits(8);
+                    prev_bytes[j] = static_cast<uint8_t>(cur_byte);
+
+                    for (uint32_t k = 0; k < 4; k++)
+                        selectors[i].set_selector(k, j, (cur_byte >> (k * 2)) & 3);
+                }
+                selectors[i].init_flags();
+                continue;
+            }
+
+            // Subsequent selectors are sent with a simple form of byte-wise DPCM coding.
+            for (uint32_t j = 0; j < 4; j++)
+            {
+                int delta_byte = decode_huffman(delta_selector_pal_model);
+
+                uint32_t cur_byte = delta_byte ^ prev_bytes[j];
+                prev_bytes[j] = static_cast<uint8_t>(cur_byte);
+
+                for (uint32_t k = 0; k < 4; k++)
+                    selectors[i].set_selector(k, j, (cur_byte >> (k * 2)) & 3);
+            }
+        }
+
+Any bytes in this section following the selector codebook bits can be safely ignored.
+
+9.0 ETC1S Compressed Slice Decoding Huffman Tables
+--------------------------------------------------
+
+Each ETC1S slice is compressed with four Huffman tables stored using the
+procedure outlined in section 6.0. These Huffman tables are stored at file
+offset basis_file_header::m_tables_file_ofs. This section will be 
+basis_file_header::m_tables_file_size bytes long.
+
+The following four Huffman tables are sent, in this order:
+
+    1. endpoint_pred_model
+    2. delta_endpoint_model
+    3. selector_model
+    4. selector_history_buf_rle_model
+
+Following the last Huffman table are 13-bits indicating the size of the selector
+history buffer. Any remaining bits may be safely ignored.
+
+10. ETC1S Slice Decoding
+------------------------
+
+ETC1S slices consist of a compressed 2D array of ETC1S blocks, always compressed
+in top-down/left-right raster order. For texture video, the previous slice's
+already decoded contents may be referred to when blocks are encoded using
+Conditional Replenishment (also known as "skip blocks"). 
+
+Each ETC1S block is encoded by using references to the color endpoint codebook
+and the selector codebook. Sections 10.1 and 10.2 describe the helper procedures
+using by the decoder, and section 10.3 describes how the array of ETC1S blocks
+is actually decoded.
+
+10.1 ETC1S Approximate Move to Front Routines
+---------------------------------------------
+
+An approximate Move to Front (MTF) approach is used to efficiently encode the
+selector codebook references. Here is the C++ example class for approximate MTF
+decoding:
+
+    class approx_move_to_front
+    {
+    public:
+        approx_move_to_front(uint32_t n)
+        {
+            init(n);
+        }
+
+        void init(uint32_t n)
+        {
+            m_values.resize(n);
+            m_rover = n / 2;
+        }
+
+        size_t size() const { return m_values.size(); }
+
+        const int& operator[] (uint32_t index) const { return m_values[index]; }
+              int operator[] (uint32_t index)        { return m_values[index]; }
+
+        void add(int new_value)
+        {
+            m_values[m_rover++] = new_value;
+            if (m_rover == m_values.size())
+                m_rover = (uint32_t)m_values.size() / 2;
+        }
+
+        void use(uint32_t index)
+        {
+            if (index)
+            {
+                int x = m_values[index / 2];
+                int y = m_values[index];
+                m_values[index / 2] = y;
+                m_values[index] = x;
+            }
+        }
+        
+    private:
+        std::vector<int> m_values;
+        uint32_t m_rover;
+    };
+
+10.2 ETC1S VLC Decoding Procedure
+---------------------------------
+
+ETC1S slice decoding utilizes a simple Variable Length Coding (VLC) scheme that
+sends raw bits using variable-size chunks. Here is the VLC decoding procedure:
+
+    uint32_t decode_vlc(uint32_t chunk_bits)
+    {
+        assert(chunk_bits);
+
+        const uint32_t chunk_size = 1 << chunk_bits;
+        const uint32_t chunk_mask = chunk_size - 1;
+                
+        uint32_t v = 0;
+        uint32_t ofs = 0;
+
+        for ( ; ; )
+        {
+            uint32_t s = get_bits(chunk_bits + 1);
+            v |= ((s & chunk_mask) << ofs);
+            ofs += chunk_bits;
+
+            if ((s & chunk_size) == 0)
+                break;
+            
+            if (ofs >= 32)
+            {
+                assert(0);
+                break;
+            }
+        }
+
+        return v;
+    }
+
+10.3 ETC1S Slice Block Decoding
+-------------------------------
+
+Each slice has a corresponding "basis_slice_desc" structure, described in section
+4.2. The slice's dimensions in ETC1S blocks are stored in
+basis_slice_desc::m_num_blocks_x and basis_slice_desc::m_num_blocks_y. Each
+slice is located at file offset basis_slice_desc::m_file_ofs, and is
+basis_slice_desc::m_file_size bytes long.
+
+The decoder iterates through all the slice blocks in top-down, left-right raster
+order. Each block is represented by an index into the color endpoint codebook
+and another index into the selector endpoint codebook. The endpoint codebook
+contains each ETC1S block's base RGB color and intensity table information, and
+the selector codebook contains the 4x4 texel selector entry (which are 2-bits
+each) information. This is all the information needed to fully represent the
+texels within each block.
+
+The decoding procedure loops over all the blocks in raster order, and decodes
+the endpoint and selector indices used to represent each block. The decoding
+procedure is complex enough that commented code is best used to describe it.
+
+Here's the slice decoding procedure. This block of code shows the block loop,
+and how endpoint codebook indices are decoded. The next block of code shows how
+selector codebook indices are decoded.
+
+    // Constants used by the decoder
+    const uint32_t ENDPOINT_PRED_TOTAL_SYMBOLS = (4 * 4 * 4 * 4) + 1;
+    const uint32_t ENDPOINT_PRED_REPEAT_LAST_SYMBOL = ENDPOINT_PRED_TOTAL_SYMBOLS - 1;
+    const uint32_t ENDPOINT_PRED_MIN_REPEAT_COUNT = 3;
+    const uint32_t ENDPOINT_PRED_COUNT_VLC_BITS = 4;
+
+    const uint32_t NUM_ENDPOINT_PREDS = 3;
+    const uint32_t CR_ENDPOINT_PRED_INDEX = NUM_ENDPOINT_PREDS - 1;
+    const uint32_t NO_ENDPOINT_PRED_INDEX = 3;
+    
+    // Endpoint/selector codebooks - decoded previously. See sections 7.0 and 8.0.
+    endpoint endpoints[endpoint_codebook_size];
+    selector selectors[selector_codebook_size]; 
+    
+    // Array of per-block values used for endpoint index prediction (enough for 2 rows).
+    struct block_preds
+    {
+        uint16_t m_endpoint_index;
+        uint8_t m_pred_bits;
+    };
+    block_preds block_endpoint_preds[2][num_blocks_x];
+    
+    // Some constants and state used during block decoding
+    const uint32_t SELECTOR_HISTORY_BUF_FIRST_SYMBOL_INDEX = selector_codebook_size;
+    const uint32_t SELECTOR_HISTORY_BUF_RLE_SYMBOL_INDEX = selector_history_buf_size + SELECTOR_HISTORY_BUF_FIRST_SYMBOL_INDEX;
+    uint32_t cur_selector_rle_count = 0;
+    
+    uint32_t cur_pred_bits = 0;
+    int prev_endpoint_pred_sym = 0;
+    int endpoint_pred_repeat_count = 0;
+    uint32_t prev_endpoint_index = 0;
+
+    // This array is only used for texture video. It holds the previous frame's endpoint and selector indices (each 16-bits, for 32-bits total).
+    uint32_t prev_frame_indices[num_blocks_x][num_blocks_y]; 
+    
+    // Selector history buffer - See section 10.1.
+    // For the selector history buffer's size, see section 9.0. 
+    approx_move_to_front selector_history_buf(selector_history_buf_size);
+
+    // Loop over all slice blocks in raster order
+    for (uint32_t block_y = 0; block_y < num_blocks_y; block_y++)
+    {
+        // The index into the block_endpoint_preds array
+        const uint32_t cur_block_endpoint_pred_array = block_y & 1;
+
+        for (uint32_t block_x = 0; block_x < num_blocks_x; block_x++)
+        {
+            // Check if we're at the start of a 2x2 block group.
+            if ((block_x & 1) == 0)
+            {
+                // Are we on an even or odd row of blocks?
+                if ((block_y & 1) == 0)
+                {
+                    // We're on an even row and column of blocks. Decode the combined endpoint index predictor symbols for 2x2 blocks.
+                    // This symbol tells the decoder how the endpoints are decoded for each block in a 2x2 group of blocks.
+                                        
+                    // Are we in an RLE run?
+                    if (endpoint_pred_repeat_count)
+                    {
+                        // Inside a run of endpoint predictor symbols.
+                        endpoint_pred_repeat_count--;
+                        cur_pred_bits = prev_endpoint_pred_sym;
+                    }
+                    else
+                    {
+                        // Decode the endpoint prediction symbol, using the "endpoint pred" Huffman table (see section 9.0).
+                        cur_pred_bits = decode_huffman(m_endpoint_pred_model);
+                        if (cur_pred_bits == ENDPOINT_PRED_REPEAT_LAST_SYMBOL)
+                        {
+                            // It's a run of symbols, so decode the count using VLC decoding (see section 10.2)
+                            endpoint_pred_repeat_count = decode_vlc(ENDPOINT_PRED_COUNT_VLC_BITS) + ENDPOINT_PRED_MIN_REPEAT_COUNT - 1;
+
+                            cur_pred_bits = prev_endpoint_pred_sym;
+                        }
+                        else
+                        {
+                            // It's not a run of symbols
+                            prev_endpoint_pred_sym = cur_pred_bits;
+                        }
+                    }
+
+                    // The symbol has enough endpoint prediction information for 4 blocks (2 bits per block), so 8 bits total. 
+                    // Remember the prediction information we should use for the next row of 2 blocks beneath the current block.
+                    block_endpoint_preds[cur_block_endpoint_pred_array ^ 1][block_x].m_pred_bits = (uint8_t)(cur_pred_bits >> 4);
+                }
+                else
+                {
+                    // We're on an odd row of blocks, so use the endpoint prediction information we previously stored on the previous even row.
+                    cur_pred_bits = block_endpoint_preds[cur_block_endpoint_pred_array][block_x].m_pred_bits;
+                }
+            }
+            
+            // Decode the current block's endpoint and selector indices.
+            uint32_t endpoint_index, selector_index = 0;
+
+            // Get the 2-bit endpoint prediction index for this block.
+            const uint32_t pred = cur_pred_bits & 3;
+
+            // Get the next block's endpoint prediction bits ready.
+            cur_pred_bits >>= 2;            
+            
+            // Now check to see if we should reuse a previously encoded block's endpoints.
+            if (pred == 0)
+            {
+                // Reuse the left block's endpoint index
+                assert(block_x > 0);
+                endpoint_index = prev_endpoint_index;
+            }
+            else if (pred == 1)
+            {
+                // Reuse the upper block's endpoint index
+                assert(block_y > 0)
+                endpoint_index = block_endpoint_preds[cur_block_endpoint_pred_array ^ 1][block_x].m_endpoint_index;
+            }
+            else if (pred == 2)
+            {
+                if (is_video)
+                {
+                    // If it's texture video, reuse the previous frame's endpoint index, at this block.
+                    assert(pred == CR_ENDPOINT_PRED_INDEX);
+                    endpoint_index = prev_frame_indices[block_x][block_y];
+                    selector_index = endpoint_index >> 16;
+                    endpoint_index &= 0xFFFFU;
+                }
+                else
+                {
+                    // Reuse the upper left block's endpoint index.
+                    assert((block_x > 0) && (block_y > 0));
+                    endpoint_index = block_endpoint_preds[cur_block_endpoint_pred_array ^ 1][block_x - 1].m_endpoint_index;
+                }
+            }
+            else
+            {
+                // We need to decode and apply a DPCM encoded delta to the previously used endpoint index.
+                // This uses the delta endpoint Huffman table (see section 9.0).
+                const uint32_t delta_sym = decode_huffman(delta_endpoint_model);
+
+                endpoint_index = delta_sym + prev_endpoint_index;
+                
+                // Wrap around if the index goes beyond the end of the endpoint codebook
+                if (endpoint_index >= endpoints.size())
+                    endpoint_index -= (int)endpoints.size();
+            }
+
+            // Remember the endpoint index we used on this block, so the next row can potentially reuse the index.
+            block_endpoint_preds[cur_block_endpoint_pred_array][block_x].m_endpoint_index = (uint16_t)endpoint_index;
+
+            // Remember the endpoint index used
+            prev_endpoint_index = endpoint_index;
+            
+            // Now we have fully decoded the ETC1S endpoint codebook index, in endpoint_index. 
+            
+            // Now decode the selector index (see the next block of code, below).
+            < selector decoding - see below >
+            
+        } // block_x
+    } // block_y
+
+The compressed format allows the encoder to reuse the endpoint index used by
+the previous block, the block immediately above the current block, or the
+block to the upper left (if the file is not texture video). Alternately, the
+encoder can send a Huffman coded DPCM encoded index relative to the
+previously used endpoint index.
+
+Which type of prediction was used by the encoder is controlled by the "endpoint
+pred" (endpoint prediction) indices, which are sent with Huffman coding (using
+the "endpoint_pred_model" table described in Section 9.0) once every 2x2 blocks.
+
+For texture video, the endpoint prediction symbol normally used to refer to the
+upper left block (endpoint pred index 2) instead indicates that both the
+endpoint and selector indices from the previous frame's block should be reused
+on the current frame's block. The endpoint pred indices are RLE coded, so this
+allows the encoder to efficiently skip over a large number of unchanged blocks
+in a video sequence.
+
+The code to decode the selector codebook index immediately follows the code above for decoding the endpoint indices:
+
+    const uint32_t MAX_SELECTOR_HISTORY_BUF_SIZE = 64;
+    const uint32_t SELECTOR_HISTORY_BUF_RLE_COUNT_THRESH = 3;
+    const uint32_t SELECTOR_HISTORY_BUF_RLE_COUNT_BITS = 6;
+    const uint32_t SELECTOR_HISTORY_BUF_RLE_COUNT_TOTAL = (1 << SELECTOR_HISTORY_BUF_RLE_COUNT_BITS);
+
+    // Decode selector index, unless it's texture video and the endpoint predictor indicated that the 
+    // block's endpoints were reused from the previous frame.
+    if ((!is_video) || (pred != CR_ENDPOINT_PRED_INDEX))
+    {
+        int selector_sym;
+
+        // Are we in a selector RLE run?
+        if (cur_selector_rle_count > 0)
+        {
+            // Handle selector RLE run.
+            cur_selector_rle_count--;
+
+            selector_sym = (int)selectors.size();
+        }
+        else
+        {
+            // Decode the selector symbol, using the selector Huffman table (see section 9.0).
+            selector_sym = decode_huffman(m_selector_model);
+
+            // Is it a run?
+            if (selector_sym == static_cast<int>(SELECTOR_HISTORY_BUF_RLE_SYMBOL_INDEX))
+            {
+                // Decode the selector run's size, using the selector history buf RLE Huffman table (see section 9.0).
+                int run_sym = decode_huffman(selector_history_buf_rle_model);
+
+                // Is it a very long run?
+                if (run_sym == (SELECTOR_HISTORY_BUF_RLE_COUNT_TOTAL - 1))
+                    cur_selector_rle_count = decode_vlc(7) + SELECTOR_HISTORY_BUF_RLE_COUNT_THRESH;
+                else
+                    cur_selector_rle_count = run_sym + SELECTOR_HISTORY_BUF_RLE_COUNT_THRESH;
+
+                selector_sym = (int)selectors.size();
+
+                cur_selector_rle_count--;
+            }
+        }
+
+        // Is it a reference into the selector history buffer?
+        if (selector_sym >= (int)selectors.size())
+        {
+            assert(m_selector_history_buf_size > 0);
+
+            // Compute the history buffer index
+            int history_buf_index = selector_sym - (int)selectors.size();
+
+            assert(history_buf_index < selector_history_buf.size());
+
+            // Access the history buffer
+            selector_index = selector_history_buf[history_buf_index];
+
+            // Update the history buffer
+            if (history_buf_index != 0)
+                selector_history_buf.use(history_buf_index);
+        }
+        else
+        {
+            // It's an index into the selector codebook
+            selector_index = selector_sym;
+
+            // Add it to the selector history buffer
+            if (m_selector_history_buf_size)
+                selector_history_buf.add(selector_index);
+        }
+    }
+        
+    // For texture video, remember the endpoint and selector indices used by the block on this frame, for later reuse on the next frame.
+    if (is_video)
+        prev_frame_indices[block_x][block_y] = endpoint_index | (selector_index << 16);
+
+    // The block is fully decoded here. The codebook indices are endpoint_index and selector_index.
+    // Make sure they are valid
+    assert((endpoint_index < endpoints.size()) && (selector_index < selectors.size()));
+
+At this point, the decoder has decoded each block's endpoint and selector codebook indices.
+It can now fetch the actual ETC1S endpoints/selectors from the codebooks and write out ETC1S
+texture data, or it can immedately transcode the ETC1S data to another GPU texture format.
+
+11.0 Alpha Channels in ETC1S Format Files
+-----------------------------------------
+
+ETC1S .basis files can have optional alpha channels, stored in odd slices. If any slice needs an alpha channel, 
+all slices must have alpha channels. basis_file_header::m_flags will be logically OR'd with 
+cBASISHeaderFlagHasAlphaSlices. Alpha channel ETC1S files will contain two slices for each mipmap level 
+(or face, or video frame, etc.). The basis_slice_desc::m_flags field will be logically OR'd with 
+cSliceDescFlagsHasAlpha for all odd alpha slices. 
+
+The even slices will contain the RGB data, and the odd slices will contain the alpha data, both stored in ETC1S 
+format. Alpha channel ETC1S files must always have an even total number of slices. A decoder can first decode 
+the RGB data slice, then the next alpha channel slice, or it can decode them in parallel using multithreading. 
+The ETC1S green channel (on the odd slices) contains the alpha values.
+
+12.0 Texture Video
+------------------
+
+Both ETC1S and UASTC format files support texture video. Texture video files can be optionally mipmapped, and can
+contain optional alpha channels (stored as separate slices in ETC1S format files). Currently, the first frame is 
+always an i-frame, and all subsequent frames are p-frames, but the file format and transcoder supports any 
+frame being an i-frame (and the encoder will be enhanced to support this feature). Decoders must track the previously 
+decoded frame's endpoints/selectors for all mipmap levels (if any), not just the top level's.
+
+Skip blocks always refer to the previous frame. i-frames cannot use skip blocks (encoded as endpoint predictor index 2).
+
+12.0 Example Bitstreams
+-----------------------
+
+This section will include several example .basis file bitstreams, along with their decoded equivalents, which should be helpful for new decoder verification.
+
