@@ -442,9 +442,7 @@ public:
 				arg_count++;
 			}
 			else if (strcasecmp(pArg, "-renorm") == 0)
-			{
 				m_comp_params.m_renormalize = true;
-			}
 			else if (strcasecmp(pArg, "-no_multithreading") == 0)
 			{
 				m_comp_params.m_multithreading = false;

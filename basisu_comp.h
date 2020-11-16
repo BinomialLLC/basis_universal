@@ -236,11 +236,11 @@ namespace basisu
 			m_check_for_alpha.clear();
 			m_force_alpha.clear();
 			m_multithreading.clear();
-			m_renormalize.clear();
 			m_swizzle[0] = 0;
 			m_swizzle[1] = 1;
 			m_swizzle[2] = 2;
 			m_swizzle[3] = 3;
+			m_renormalize.clear();
 			m_hybrid_sel_cb_quality_thresh.clear();
 			m_global_pal_bits.clear();
 			m_global_mod_bits.clear();
