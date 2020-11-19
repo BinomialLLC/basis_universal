@@ -1702,8 +1702,8 @@ namespace basisu
 #endif
 		/*
 		 * No redistribution of threads required; this is either a machine with
-		 * a single group (which covers most machines) or the we're building on
-		 * an older or non- Windows version.
+		 * a single group (which covers most machines) or we're building on an
+		 * older or non- Windows version.
 		 */
 		return false;
 	}
