@@ -1550,6 +1550,8 @@ namespace basisu
 
 			for (int i = 0; i < ((int)num_threads - 1); i++)
 			   m_threads[i] = std::thread([this, i] { job_thread(i); });
+			
+			distribute();
 		}
 	}
 
@@ -1657,6 +1659,53 @@ namespace basisu
 		}
 
 		debug_printf("job_pool::job_thread: exiting\n");
+	}
+
+	bool job_pool::distribute() {
+#if _WIN32_WINNT >= 0x0601
+		size_t const threads = m_threads.size();
+		WORD const numGroups = GetActiveProcessorGroupCount();
+		if (numGroups > 1) {
+			GROUP_AFFINITY affinity;
+			for (unsigned index = 0; index < threads; ) {
+				for (WORD group = 0; group < numGroups; ++group) {
+					if (DWORD  groupCpus = GetMaximumProcessorCount(group)) {
+						for (; groupCpus > 0; --groupCpus) {
+							if (HANDLE thread = m_threads[index].native_handle()) {
+								if (GetThreadGroupAffinity(thread, &affinity)) {
+									if (affinity.Group != group) {
+										affinity.Group  = group;
+										SetThreadGroupAffinity(thread, &affinity, NULL);
+									}
+								}
+							}
+							/*
+							 * We're currently ignoring failures and moving on,
+							 * exiting only when running out of threads. This
+							 * is the only *successful* return.
+							 */
+							if (++index >= threads) {
+								return true;
+							}
+						}
+					} else {
+						/*
+						 * Need to abort if Windows can't give us the number of
+						 * CPUs in the current group (which should never happen,
+						 * but risks looping indefinitely if it does).
+						 */
+						return false;
+					}
+				}
+			}
+		}
+#endif
+		/*
+		 * No redistribution of threads required; this is either a machine with
+		 * a single group (which covers most machines) or the we're building on
+		 * an older or non- Windows version.
+		 */
+		return false;
 	}
 
 	// .TGA image loading

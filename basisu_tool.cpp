@@ -32,6 +32,10 @@
 #define MINIZ_NO_ZLIB_COMPATIBLE_NAMES
 #include "encoder/basisu_miniz.h"
 
+#ifdef _WIN32
+#include <Windows.h>
+#endif
+
 // Set BASISU_CATCH_EXCEPTIONS if you want exceptions to crash the app, otherwise main() catches them.
 #ifndef BASISU_CATCH_EXCEPTIONS
 	#define BASISU_CATCH_EXCEPTIONS 0
@@ -895,7 +899,15 @@ static bool compress_mode(command_line_params &opts)
 
 	if (opts.m_comp_params.m_multithreading)
 	{
+#if _WIN32_WINNT >= 0x0601
+		/*
+		 * Note: hardware_concurrency() returns 64 instead of 128 for 3990X
+		 * (which is split into two groups; tested on Win10 Pro Workstation).
+		 */
+		num_threads = GetMaximumProcessorCount(ALL_PROCESSOR_GROUPS);
+#else
 		num_threads = std::thread::hardware_concurrency();
+#endif
 		if (num_threads < 1)
 			num_threads = 1;
 	}
