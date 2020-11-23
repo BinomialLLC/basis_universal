@@ -3814,7 +3814,7 @@ namespace basist
 		assert(num_bits < 32);
 		assert(val < (1ULL << num_bits));
 
-		uint32_t mask = (1ULL << num_bits) - 1;
+		uint32_t mask = static_cast<uint32_t>((1ULL << num_bits) - 1);
 
 		while (num_bits)
 		{
@@ -7880,7 +7880,7 @@ namespace basist
 	}
 
 	bool basisu_lowlevel_etc1s_transcoder::transcode_slice(void* pDst_blocks, uint32_t num_blocks_x, uint32_t num_blocks_y, const uint8_t* pImage_data, uint32_t image_data_size, block_format fmt,
-		uint32_t output_block_or_pixel_stride_in_bytes, bool bc1_allow_threecolor_blocks, const basis_file_header& header, const basis_slice_desc& slice_desc, uint32_t output_row_pitch_in_blocks_or_pixels,
+		uint32_t output_block_or_pixel_stride_in_bytes, bool bc1_allow_threecolor_blocks, const bool is_video, const bool is_alpha_slice, const uint32_t level_index, const uint32_t orig_width, const uint32_t orig_height, uint32_t output_row_pitch_in_blocks_or_pixels,
 		basisu_transcoder_state* pState, bool transcode_alpha, void *pAlpha_blocks, uint32_t output_rows_in_pixels)
 	{
 		// 'pDst_blocks' unused when disabling *all* hardware transcode options
@@ -7893,17 +7893,16 @@ namespace basist
 		if (!pState)
 			pState = &m_def_state;
 
-		const bool is_video = (header.m_tex_type == cBASISTexTypeVideoFrames);
 		const uint32_t total_blocks = num_blocks_x * num_blocks_y;
 
 		if (!output_row_pitch_in_blocks_or_pixels)
 		{
 			if (basis_block_format_is_uncompressed(fmt))
-				output_row_pitch_in_blocks_or_pixels = slice_desc.m_orig_width;
+				output_row_pitch_in_blocks_or_pixels = orig_width;
 			else
 			{
 				if (fmt == block_format::cFXT1_RGB)
-					output_row_pitch_in_blocks_or_pixels = (slice_desc.m_orig_width + 7) / 8;
+					output_row_pitch_in_blocks_or_pixels = (orig_width + 7) / 8;
 				else
 					output_row_pitch_in_blocks_or_pixels = num_blocks_x;
 			}
@@ -7912,15 +7911,15 @@ namespace basist
 		if (basis_block_format_is_uncompressed(fmt))
 		{
 			if (!output_rows_in_pixels)
-				output_rows_in_pixels = slice_desc.m_orig_height;
+				output_rows_in_pixels = orig_height;
 		}
 		
 		std::vector<uint32_t>* pPrev_frame_indices = nullptr;
 		if (is_video)
 		{
 			// TODO: Add check to make sure the caller hasn't tried skipping past p-frames
-			const bool alpha_flag = (slice_desc.m_flags & cSliceDescFlagsHasAlpha) != 0;
-			const uint32_t level_index = slice_desc.m_level_index;
+			//const bool alpha_flag = (slice_desc.m_flags & cSliceDescFlagsHasAlpha) != 0;
+			//const uint32_t level_index = slice_desc.m_level_index;
 
 			if (level_index >= basisu_transcoder_state::cMaxPrevFrameLevels)
 			{
@@ -7928,7 +7927,7 @@ namespace basist
 				return false;
 			}
 
-			pPrev_frame_indices = &pState->m_prev_frame_indices[alpha_flag][level_index];
+			pPrev_frame_indices = &pState->m_prev_frame_indices[is_alpha_slice][level_index];
 			if (pPrev_frame_indices->size() < total_blocks)
 				pPrev_frame_indices->resize(total_blocks);
 		}
@@ -8687,13 +8686,642 @@ namespace basist
 
 		return true;
 	}
+
+	bool basis_validate_output_buffer_size(transcoder_texture_format target_format,
+		uint32_t output_blocks_buf_size_in_blocks_or_pixels,
+		uint32_t orig_width, uint32_t orig_height,
+		uint32_t output_row_pitch_in_blocks_or_pixels,
+		uint32_t output_rows_in_pixels,
+		uint32_t total_slice_blocks)
+	{
+		if (basis_transcoder_format_is_uncompressed(target_format))
+		{
+			// Assume the output buffer is orig_width by orig_height
+			if (!output_row_pitch_in_blocks_or_pixels)
+				output_row_pitch_in_blocks_or_pixels = orig_width;
+
+			if (!output_rows_in_pixels)
+				output_rows_in_pixels = orig_height;
+
+			// Now make sure the output buffer is large enough, or we'll overwrite memory.
+			if (output_blocks_buf_size_in_blocks_or_pixels < (output_rows_in_pixels * output_row_pitch_in_blocks_or_pixels))
+			{
+				BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: output_blocks_buf_size_in_blocks_or_pixels < (output_rows_in_pixels * output_row_pitch_in_blocks_or_pixels)\n");
+				return false;
+			}
+		}
+		else if (target_format == transcoder_texture_format::cTFFXT1_RGB)
+		{
+			const uint32_t num_blocks_fxt1_x = (orig_width + 7) / 8;
+			const uint32_t num_blocks_fxt1_y = (orig_height + 3) / 4;
+			const uint32_t total_blocks_fxt1 = num_blocks_fxt1_x * num_blocks_fxt1_y;
+
+			if (output_blocks_buf_size_in_blocks_or_pixels < total_blocks_fxt1)
+			{
+				BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: output_blocks_buf_size_in_blocks_or_pixels < total_blocks_fxt1\n");
+				return false;
+			}
+		}
+		else
+		{
+			if (output_blocks_buf_size_in_blocks_or_pixels < total_slice_blocks)
+			{
+				BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: output_blocks_buf_size_in_blocks_or_pixels < transcode_image\n");
+				return false;
+			}
+		}
+		return true;
+	}
+
+	bool basisu_lowlevel_etc1s_transcoder::transcode_image(
+			transcoder_texture_format target_format,
+			void* pOutput_blocks, uint32_t output_blocks_buf_size_in_blocks_or_pixels,
+			const uint8_t* pCompressed_data, uint32_t compressed_data_length,
+			uint32_t num_blocks_x, uint32_t num_blocks_y, uint32_t orig_width, uint32_t orig_height, uint32_t level_index,
+			uint32_t rgb_offset, uint32_t rgb_length, uint32_t alpha_offset, uint32_t alpha_length,
+			uint32_t decode_flags,
+			bool basis_file_has_alpha_slices,
+			bool is_video,
+			uint32_t output_row_pitch_in_blocks_or_pixels,
+			basisu_transcoder_state* pState,
+			uint32_t output_rows_in_pixels)
+	{
+		if (((uint64_t)rgb_offset + rgb_length) > (uint64_t)compressed_data_length)
+		{
+			BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: source data buffer too small (color)\n");
+			return false;
+		}
+
+		if (alpha_length)
+		{
+			if (((uint64_t)alpha_offset + alpha_length) > (uint64_t)compressed_data_length)
+			{
+				BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: source data buffer too small (alpha)\n");
+				return false;
+			}
+		}
+		else
+		{
+			assert(!basis_file_has_alpha_slices);
+		}
+
+		if ((target_format == transcoder_texture_format::cTFPVRTC1_4_RGB) || (target_format == transcoder_texture_format::cTFPVRTC1_4_RGBA))
+		{
+			if ((!basisu::is_pow2(num_blocks_x * 4)) || (!basisu::is_pow2(num_blocks_y * 4)))
+			{
+				// PVRTC1 only supports power of 2 dimensions
+				BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: PVRTC1 only supports power of 2 dimensions\n");
+				return false;
+			}
+		}
+
+		if ((target_format == transcoder_texture_format::cTFPVRTC1_4_RGBA) && (!basis_file_has_alpha_slices))
+		{
+			// Switch to PVRTC1 RGB if the input doesn't have alpha.
+			target_format = transcoder_texture_format::cTFPVRTC1_4_RGB;
+		}
+				
+		const bool transcode_alpha_data_to_opaque_formats = (decode_flags & cDecodeFlagsTranscodeAlphaDataToOpaqueFormats) != 0;
+		const uint32_t bytes_per_block_or_pixel = basis_get_bytes_per_block_or_pixel(target_format);
+		const uint32_t total_slice_blocks = num_blocks_x * num_blocks_y;
+
+		if (!basis_validate_output_buffer_size(target_format, output_blocks_buf_size_in_blocks_or_pixels, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, output_rows_in_pixels, total_slice_blocks))
+		{
+			BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: output buffer size too small\n");
+			return false;
+		}
+
+		bool status = false;
+
+		const uint8_t* pData = pCompressed_data + rgb_offset;
+		uint32_t data_len = rgb_length;
+		bool is_alpha_slice = false;
+
+		// If the caller wants us to transcode the mip level's alpha data, then use the next slice.
+		if ((basis_file_has_alpha_slices) && (transcode_alpha_data_to_opaque_formats))
+		{
+			pData = pCompressed_data + alpha_offset;
+			data_len = alpha_length;
+			is_alpha_slice = true;
+		}
+
+		switch (target_format)
+		{
+		case transcoder_texture_format::cTFETC1_RGB:
+		{
+			//status = transcode_slice(pData, data_size, slice_index_to_decode, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cETC1, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
+			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pData, data_len, block_format::cETC1, bytes_per_block_or_pixel, false, is_video, is_alpha_slice, level_index, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, false, nullptr, output_rows_in_pixels);
+							
+			if (!status)
+			{
+				BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: transcode_slice() to ETC1 failed\n");
+			}
+			break;
+		}
+		case transcoder_texture_format::cTFBC1_RGB:
+		{
+#if !BASISD_SUPPORT_DXT1
+			BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: BC1/DXT1 unsupported\n");
+			return false;
+#endif
+			// status = transcode_slice(pData, data_size, slice_index_to_decode, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cBC1, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
+			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pData, data_len, block_format::cBC1, bytes_per_block_or_pixel, true, is_video, is_alpha_slice, level_index, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, false, nullptr, output_rows_in_pixels);
+			if (!status)
+			{
+				BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: transcode_slice() to BC1 failed\n");
+			}
+			break;
+		}
+		case transcoder_texture_format::cTFBC4_R:
+		{
+#if !BASISD_SUPPORT_DXT5A
+			BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: BC4/DXT5A unsupported\n");
+			return false;
+#endif
+			//status = transcode_slice(pData, data_size, slice_index_to_decode, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cBC4, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
+			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pData, data_len, block_format::cBC4, bytes_per_block_or_pixel, false, is_video, is_alpha_slice, level_index, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, false, nullptr, output_rows_in_pixels);
+			if (!status)
+			{
+				BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: transcode_slice() to BC4 failed\n");
+			}
+			break;
+		}
+		case transcoder_texture_format::cTFPVRTC1_4_RGB:
+		{
+#if !BASISD_SUPPORT_PVRTC1
+			BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: PVRTC1 4 unsupported\n");
+			return false;
+#endif
+			// output_row_pitch_in_blocks_or_pixels is actually ignored because we're transcoding to PVRTC1. (Print a dev warning if it's != 0?)
+			//status = transcode_slice(pData, data_size, slice_index_to_decode, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cPVRTC1_4_RGB, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
+			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pData, data_len, block_format::cPVRTC1_4_RGB, bytes_per_block_or_pixel, false, is_video, is_alpha_slice, level_index, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, false, nullptr, output_rows_in_pixels);
+			if (!status)
+			{
+				BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: transcode_slice() to PVRTC1 4 RGB failed\n");
+			}
+			break;
+		}
+		case transcoder_texture_format::cTFPVRTC1_4_RGBA:
+		{
+#if !BASISD_SUPPORT_PVRTC1
+			BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: PVRTC1 4 unsupported\n");
+			return false;
+#endif
+			assert(basis_file_has_alpha_slices);
+			assert(alpha_length);
+
+			// Temp buffer to hold alpha block endpoint/selector indices
+			std::vector<uint32_t> temp_block_indices(total_slice_blocks);
+
+			// First transcode alpha data to temp buffer
+			//status = transcode_slice(pData, data_size, slice_index + 1, &temp_block_indices[0], total_slice_blocks, block_format::cIndices, sizeof(uint32_t), decode_flags, pSlice_descs[slice_index].m_num_blocks_x, pState);
+			status = transcode_slice(&temp_block_indices[0], num_blocks_x, num_blocks_y, pCompressed_data + alpha_offset, alpha_length, block_format::cIndices, sizeof(uint32_t), false, is_video, true, level_index, orig_width, orig_height, num_blocks_x, pState, false, nullptr, 0);
+			if (!status)
+			{
+				BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: transcode_slice() to PVRTC1 4 RGBA failed (0)\n");
+			}
+			else
+			{
+				// output_row_pitch_in_blocks_or_pixels is actually ignored because we're transcoding to PVRTC1. (Print a dev warning if it's != 0?)
+				//status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cPVRTC1_4_RGBA, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState, &temp_block_indices[0]);
+				status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + rgb_offset, rgb_length, block_format::cPVRTC1_4_RGBA, bytes_per_block_or_pixel, false, is_video, false, level_index, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, false, &temp_block_indices[0], 0);
+				if (!status)
+				{
+					BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: transcode_slice() to PVRTC1 4 RGBA failed (1)\n");
+				}
+			}
+
+			break;
+		}
+		case transcoder_texture_format::cTFBC7_RGBA:
+		case transcoder_texture_format::cTFBC7_ALT:
+		{
+#if !BASISD_SUPPORT_BC7_MODE5
+			BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: BC7 unsupported\n");
+			return false;
+#else
+			assert(bytes_per_block_or_pixel == 16);
+			// We used to support transcoding just alpha to BC7 - but is that useful at all?
+
+			// First transcode the color slice. The cBC7_M5_COLOR transcoder will output opaque mode 5 blocks.
+			//status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cBC7_M5_COLOR, 16, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
+			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + rgb_offset, rgb_length, block_format::cBC7_M5_COLOR, bytes_per_block_or_pixel, false, is_video, false, level_index, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, false, nullptr, output_rows_in_pixels);
+
+			if ((status) && (basis_file_has_alpha_slices))
+			{
+				// Now transcode the alpha slice. The cBC7_M5_ALPHA transcoder will now change the opaque mode 5 blocks to blocks with alpha.
+				//status = transcode_slice(pData, data_size, slice_index + 1, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cBC7_M5_ALPHA, 16, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
+				status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + alpha_offset, alpha_length, block_format::cBC7_M5_ALPHA, bytes_per_block_or_pixel, false, is_video, true, level_index, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, false, nullptr, output_rows_in_pixels);
+			}
+
+			if (!status)
+			{
+				BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: transcode_slice() to BC7 failed (0)\n");
+			}
+
+			break;
+#endif
+		}
+		case transcoder_texture_format::cTFETC2_RGBA:
+		{
+#if !BASISD_SUPPORT_ETC2_EAC_A8
+			BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: ETC2 EAC A8 unsupported\n");
+			return false;
+#endif
+			assert(bytes_per_block_or_pixel == 16);
+
+			if (basis_file_has_alpha_slices)
+			{
+				// First decode the alpha data 
+				//status = transcode_slice(pData, data_size, slice_index + 1, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cETC2_EAC_A8, 16, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
+				status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + alpha_offset, alpha_length, block_format::cETC2_EAC_A8, bytes_per_block_or_pixel, false, is_video, true, level_index, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, false, nullptr, output_rows_in_pixels);
+			}
+			else
+			{
+				//write_opaque_alpha_blocks(pSlice_descs[slice_index].m_num_blocks_x, pSlice_descs[slice_index].m_num_blocks_y, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cETC2_EAC_A8, 16, output_row_pitch_in_blocks_or_pixels);
+				basisu_transcoder::write_opaque_alpha_blocks(num_blocks_x, num_blocks_y, pOutput_blocks, block_format::cETC2_EAC_A8, 16, output_row_pitch_in_blocks_or_pixels);
+				status = true;
+			}
+
+			if (status)
+			{
+				// Now decode the color data
+				//status = transcode_slice(pData, data_size, slice_index, (uint8_t*)pOutput_blocks + 8, output_blocks_buf_size_in_blocks_or_pixels, block_format::cETC1, 16, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
+				status = transcode_slice((uint8_t *)pOutput_blocks + 8, num_blocks_x, num_blocks_y, pCompressed_data + rgb_offset, rgb_length, block_format::cETC1, bytes_per_block_or_pixel, false, is_video, false, level_index, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, false, nullptr, output_rows_in_pixels);
+				if (!status)
+				{
+					BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: transcode_slice() to ETC2 RGB failed\n");
+				}
+			}
+			else
+			{
+				BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: transcode_slice() to ETC2 A failed\n");
+			}
+			break;
+		}
+		case transcoder_texture_format::cTFBC3_RGBA:
+		{
+#if !BASISD_SUPPORT_DXT1
+			BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: DXT1 unsupported\n");
+			return false;
+#endif
+#if !BASISD_SUPPORT_DXT5A
+			BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: DXT5A unsupported\n");
+			return false;
+#endif
+			assert(bytes_per_block_or_pixel == 16);
+						
+			// First decode the alpha data 
+			if (basis_file_has_alpha_slices)
+			{
+				//status = transcode_slice(pData, data_size, slice_index + 1, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cBC4, 16, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
+				status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + alpha_offset, alpha_length, block_format::cBC4, bytes_per_block_or_pixel, false, is_video, true, level_index, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, false, nullptr, output_rows_in_pixels);
+			}
+			else
+			{
+				basisu_transcoder::write_opaque_alpha_blocks(num_blocks_x, num_blocks_y, pOutput_blocks, block_format::cBC4, 16, output_row_pitch_in_blocks_or_pixels);
+				status = true;
+			}
+
+			if (status)
+			{
+				// Now decode the color data. Forbid 3 color blocks, which aren't allowed in BC3.
+				//status = transcode_slice(pData, data_size, slice_index, (uint8_t*)pOutput_blocks + 8, output_blocks_buf_size_in_blocks_or_pixels, block_format::cBC1, 16, decode_flags | cDecodeFlagsBC1ForbidThreeColorBlocks, output_row_pitch_in_blocks_or_pixels, pState);
+				status = transcode_slice((uint8_t *)pOutput_blocks + 8, num_blocks_x, num_blocks_y, pCompressed_data + rgb_offset, rgb_length, block_format::cBC1, bytes_per_block_or_pixel, false, is_video, false, level_index, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, false, nullptr, output_rows_in_pixels);
+				if (!status)
+				{
+					BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: transcode_slice() to BC3 RGB failed\n");
+				}
+			}
+			else
+			{
+				BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: transcode_slice() to BC3 A failed\n");
+			}
+
+			break;
+		}
+		case transcoder_texture_format::cTFBC5_RG:
+		{
+#if !BASISD_SUPPORT_DXT5A
+			BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: DXT5A unsupported\n");
+			return false;
+#endif
+			assert(bytes_per_block_or_pixel == 16);
+
+			//bool transcode_slice(void* pDst_blocks, uint32_t num_blocks_x, uint32_t num_blocks_y, const uint8_t* pImage_data, uint32_t image_data_size, block_format fmt,
+				//	uint32_t output_block_or_pixel_stride_in_bytes, bool bc1_allow_threecolor_blocks, const bool is_video, const bool is_alpha_slice, const uint32_t level_index, const uint32_t orig_width, const uint32_t orig_height, uint32_t output_row_pitch_in_blocks_or_pixels = 0,
+				//	basisu_transcoder_state* pState = nullptr, bool astc_transcode_alpha = false, void* pAlpha_blocks = nullptr, uint32_t output_rows_in_pixels = 0);
+
+			// Decode the R data (actually the green channel of the color data slice in the basis file)
+			//status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cBC4, 16, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
+			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + rgb_offset, rgb_length, block_format::cBC4, bytes_per_block_or_pixel, false, is_video, false, level_index, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, false, nullptr, output_rows_in_pixels);
+			if (status)
+			{
+				if (basis_file_has_alpha_slices)
+				{
+					// Decode the G data (actually the green channel of the alpha data slice in the basis file)
+					//status = transcode_slice(pData, data_size, slice_index + 1, (uint8_t*)pOutput_blocks + 8, output_blocks_buf_size_in_blocks_or_pixels, block_format::cBC4, 16, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
+					status = transcode_slice((uint8_t *)pOutput_blocks + 8, num_blocks_x, num_blocks_y, pCompressed_data + alpha_offset, alpha_length, block_format::cBC4, bytes_per_block_or_pixel, false, is_video, true, level_index, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, false, nullptr, output_rows_in_pixels);
+					if (!status)
+					{
+						BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: transcode_slice() to BC5 1 failed\n");
+					}
+				}
+				else
+				{
+					basisu_transcoder::write_opaque_alpha_blocks(num_blocks_x, num_blocks_y, (uint8_t*)pOutput_blocks + 8, block_format::cBC4, 16, output_row_pitch_in_blocks_or_pixels);
+					status = true;
+				}
+			}
+			else
+			{
+				BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: transcode_slice() to BC5 channel 0 failed\n");
+			}
+			break;
+		}
+		case transcoder_texture_format::cTFASTC_4x4_RGBA:
+		{
+#if !BASISD_SUPPORT_ASTC
+			BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: ASTC unsupported\n");
+			return false;
+#endif
+			assert(bytes_per_block_or_pixel == 16);
+
+			if (basis_file_has_alpha_slices)
+			{
+				// First decode the alpha data to the output (we're using the output texture as a temp buffer here).
+				//status = transcode_slice(pData, data_size, slice_index + 1, (uint8_t*)pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cIndices, 16, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
+				status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + alpha_offset, alpha_length, block_format::cIndices, bytes_per_block_or_pixel, false, is_video, true, level_index, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, false, nullptr, output_rows_in_pixels);
+				if (status)
+				{
+					// Now decode the color data and transcode to ASTC. The transcoder function will read the alpha selector data from the output texture as it converts and
+					// transcode both the alpha and color data at the same time to ASTC.
+					//status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cASTC_4x4, 16, decode_flags | cDecodeFlagsOutputHasAlphaIndices, output_row_pitch_in_blocks_or_pixels, pState);
+					status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + rgb_offset, rgb_length, block_format::cASTC_4x4, bytes_per_block_or_pixel, false, is_video, false, level_index, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, true, nullptr, output_rows_in_pixels);
+				}
+			}
+			else
+				//status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cASTC_4x4, 16, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
+				status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + rgb_offset, rgb_length, block_format::cASTC_4x4, bytes_per_block_or_pixel, false, is_video, false, level_index, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, false, nullptr, output_rows_in_pixels);
+
+			if (!status)
+			{
+				BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: transcode_slice() to ASTC failed (0)\n");
+			}
+
+			break;
+		}
+		case transcoder_texture_format::cTFATC_RGB:
+		{
+#if !BASISD_SUPPORT_ATC
+			BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: ATC unsupported\n");
+			return false;
+#endif
+			//status = transcode_slice(pData, data_size, slice_index_to_decode, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cATC_RGB, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
+			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pData, data_len, block_format::cATC_RGB, bytes_per_block_or_pixel, false, is_video, is_alpha_slice, level_index, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, false, nullptr, output_rows_in_pixels);
+			if (!status)
+			{
+				BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: transcode_slice() to ATC_RGB failed\n");
+			}
+			break;
+		}
+		case transcoder_texture_format::cTFATC_RGBA:
+		{
+#if !BASISD_SUPPORT_ATC
+			BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: ATC unsupported\n");
+			return false;
+#endif
+#if !BASISD_SUPPORT_DXT5A
+			BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: DXT5A unsupported\n");
+			return false;
+#endif
+			assert(bytes_per_block_or_pixel == 16);
+
+			// First decode the alpha data 
+			if (basis_file_has_alpha_slices)
+			{
+				//status = transcode_slice(pData, data_size, slice_index + 1, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cBC4, 16, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
+				status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + alpha_offset, alpha_length, block_format::cBC4, bytes_per_block_or_pixel, false, is_video, true, level_index, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, false, nullptr, output_rows_in_pixels);
+			}
+			else
+			{
+				basisu_transcoder::write_opaque_alpha_blocks(num_blocks_x, num_blocks_y, pOutput_blocks, block_format::cBC4, 16, output_row_pitch_in_blocks_or_pixels);
+				status = true;
+			}
+
+			if (status)
+			{
+				//status = transcode_slice(pData, data_size, slice_index, (uint8_t*)pOutput_blocks + 8, output_blocks_buf_size_in_blocks_or_pixels, block_format::cATC_RGB, 16, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
+				status = transcode_slice((uint8_t *)pOutput_blocks + 8, num_blocks_x, num_blocks_y, pCompressed_data + rgb_offset, rgb_length, block_format::cATC_RGB, bytes_per_block_or_pixel, false, is_video, false, level_index, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, false, nullptr, output_rows_in_pixels);
+				if (!status)
+				{
+					BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: transcode_slice() to ATC RGB failed\n");
+				}
+			}
+			else
+			{
+				BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: transcode_slice() to ATC A failed\n");
+			}
+			break;
+		}
+		case transcoder_texture_format::cTFPVRTC2_4_RGB:
+		{
+#if !BASISD_SUPPORT_PVRTC2
+			BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: PVRTC2 unsupported\n");
+			return false;
+#endif
+			//status = transcode_slice(pData, data_size, slice_index_to_decode, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cPVRTC2_4_RGB, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
+			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pData, data_len, block_format::cPVRTC2_4_RGB, bytes_per_block_or_pixel, false, is_video, is_alpha_slice, level_index, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, false, nullptr, output_rows_in_pixels);
+			if (!status)
+			{
+				BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: transcode_slice() to cPVRTC2_4_RGB failed\n");
+			}
+			break;
+		}
+		case transcoder_texture_format::cTFPVRTC2_4_RGBA:
+		{
+#if !BASISD_SUPPORT_PVRTC2
+			BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: PVRTC2 unsupported\n");
+			return false;
+#endif
+			if (basis_file_has_alpha_slices)
+			{
+				// First decode the alpha data to the output (we're using the output texture as a temp buffer here).
+				//status = transcode_slice(pData, data_size, slice_index + 1, (uint8_t*)pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cIndices, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
+				status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + alpha_offset, alpha_length, block_format::cIndices, bytes_per_block_or_pixel, false, is_video, true, level_index, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, false, nullptr, output_rows_in_pixels);
+				if (!status)
+				{
+					BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: transcode_slice() to failed\n");
+				}
+				else
+				{
+					// Now decode the color data and transcode to PVRTC2 RGBA. 
+					//status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cPVRTC2_4_RGBA, bytes_per_block_or_pixel, decode_flags | cDecodeFlagsOutputHasAlphaIndices, output_row_pitch_in_blocks_or_pixels, pState);
+					status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + rgb_offset, rgb_length, block_format::cPVRTC2_4_RGBA, bytes_per_block_or_pixel, false, is_video, false, level_index, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, true, nullptr, output_rows_in_pixels);
+				}
+			}
+			else
+				//status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cPVRTC2_4_RGB, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
+				status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + rgb_offset, rgb_length, block_format::cPVRTC2_4_RGB, bytes_per_block_or_pixel, false, is_video, false, level_index, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, false, nullptr, output_rows_in_pixels);
+
+			if (!status)
+			{
+				BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: transcode_slice() to cPVRTC2_4_RGBA failed\n");
+			}
+
+			break;
+		}
+		case transcoder_texture_format::cTFRGBA32:
+		{
+			// Raw 32bpp pixels, decoded in the usual raster order (NOT block order) into an image in memory.
+
+			// First decode the alpha data 
+			if (basis_file_has_alpha_slices)
+				//status = transcode_slice(pData, data_size, slice_index + 1, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cA32, sizeof(uint32_t), decode_flags, output_row_pitch_in_blocks_or_pixels, pState, nullptr, output_rows_in_pixels);
+				status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + alpha_offset, alpha_length, block_format::cA32, sizeof(uint32_t), false, is_video, true, level_index, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, false, nullptr, output_rows_in_pixels);
+			else
+				status = true;
+
+			if (status)
+			{
+				//status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, basis_file_has_alpha_slices ? block_format::cRGB32 : block_format::cRGBA32, sizeof(uint32_t), decode_flags, output_row_pitch_in_blocks_or_pixels, pState, nullptr, output_rows_in_pixels);
+				status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + rgb_offset, rgb_length, basis_file_has_alpha_slices ? block_format::cRGB32 : block_format::cRGBA32, sizeof(uint32_t), false, is_video, false, level_index, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, false, nullptr, output_rows_in_pixels);
+				if (!status)
+				{
+					BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: transcode_slice() to RGBA32 RGB failed\n");
+				}
+			}
+			else
+			{
+				BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: transcode_slice() to RGBA32 A failed\n");
+			}
+
+			break;
+		}
+		case transcoder_texture_format::cTFRGB565:
+		case transcoder_texture_format::cTFBGR565:
+		{
+			// Raw 16bpp pixels, decoded in the usual raster order (NOT block order) into an image in memory.
+
+			//status = transcode_slice(pData, data_size, slice_index_to_decode, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, (fmt == transcoder_texture_format::cTFRGB565) ? block_format::cRGB565 : block_format::cBGR565, sizeof(uint16_t), decode_flags, output_row_pitch_in_blocks_or_pixels, pState, nullptr, output_rows_in_pixels);
+			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pData, data_len, (target_format == transcoder_texture_format::cTFRGB565) ? block_format::cRGB565 : block_format::cBGR565, sizeof(uint16_t), false, is_video, is_alpha_slice, level_index, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, false, nullptr, output_rows_in_pixels);
+			if (!status)
+			{
+				BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: transcode_slice() to RGB565 RGB failed\n");
+			}
+
+			break;
+		}
+		case transcoder_texture_format::cTFRGBA4444:
+		{
+			// Raw 16bpp pixels, decoded in the usual raster order (NOT block order) into an image in memory.
+
+			// First decode the alpha data 
+			if (basis_file_has_alpha_slices)
+				//status = transcode_slice(pData, data_size, slice_index + 1, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cRGBA4444_ALPHA, sizeof(uint16_t), decode_flags, output_row_pitch_in_blocks_or_pixels, pState, nullptr, output_rows_in_pixels);
+				status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + alpha_offset, alpha_length, block_format::cRGBA4444_ALPHA, sizeof(uint16_t), false, is_video, true, level_index, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, false, nullptr, output_rows_in_pixels);
+			else
+				status = true;
+
+			if (status)
+			{
+				//status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, basis_file_has_alpha_slices ? block_format::cRGBA4444_COLOR : block_format::cRGBA4444_COLOR_OPAQUE, sizeof(uint16_t), decode_flags, output_row_pitch_in_blocks_or_pixels, pState, nullptr, output_rows_in_pixels);
+				status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + rgb_offset, rgb_length, basis_file_has_alpha_slices ? block_format::cRGBA4444_COLOR : block_format::cRGBA4444_COLOR_OPAQUE, sizeof(uint16_t), false, is_video, false, level_index, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, false, nullptr, output_rows_in_pixels);
+				if (!status)
+				{
+					BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: transcode_slice() to RGBA4444 RGB failed\n");
+				}
+			}
+			else
+			{
+				BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: transcode_slice() to RGBA4444 A failed\n");
+			}
+
+			break;
+		}
+		case transcoder_texture_format::cTFFXT1_RGB:
+		{
+#if !BASISD_SUPPORT_FXT1
+			BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: FXT1 unsupported\n");
+			return false;
+#endif
+			//status = transcode_slice(pData, data_size, slice_index_to_decode, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cFXT1_RGB, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
+			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pData, data_len, block_format::cFXT1_RGB, bytes_per_block_or_pixel, false, is_video, is_alpha_slice, level_index, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, false, nullptr, output_rows_in_pixels);
+			if (!status)
+			{
+				BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: transcode_slice() to FXT1_RGB failed\n");
+			}
+			break;
+		}
+		case transcoder_texture_format::cTFETC2_EAC_R11:
+		{
+#if !BASISD_SUPPORT_ETC2_EAC_RG11
+			BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: EAC_RG11 unsupported\n");
+			return false;
+#endif
+			//status = transcode_slice(pData, data_size, slice_index_to_decode, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cETC2_EAC_R11, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
+			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pData, data_len, block_format::cETC2_EAC_R11, bytes_per_block_or_pixel, false, is_video, is_alpha_slice, level_index, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, false, nullptr, output_rows_in_pixels);
+			if (!status)
+			{
+				BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: transcode_slice() to ETC2_EAC_R11 failed\n");
+			}
+
+			break;
+		}
+		case transcoder_texture_format::cTFETC2_EAC_RG11:
+		{
+#if !BASISD_SUPPORT_ETC2_EAC_RG11
+			BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: EAC_RG11 unsupported\n");
+			return false;
+#endif
+			assert(bytes_per_block_or_pixel == 16);
+
+			if (basis_file_has_alpha_slices)
+			{
+				// First decode the alpha data to G
+				//status = transcode_slice(pData, data_size, slice_index + 1, (uint8_t*)pOutput_blocks + 8, output_blocks_buf_size_in_blocks_or_pixels, block_format::cETC2_EAC_R11, 16, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
+				status = transcode_slice((uint8_t *)pOutput_blocks + 8, num_blocks_x, num_blocks_y, pCompressed_data + alpha_offset, alpha_length, block_format::cETC2_EAC_R11, bytes_per_block_or_pixel, false, is_video, true, level_index, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, false, nullptr, output_rows_in_pixels);
+			}
+			else
+			{
+				basisu_transcoder::write_opaque_alpha_blocks(num_blocks_x, num_blocks_y, (uint8_t*)pOutput_blocks + 8, block_format::cETC2_EAC_R11, 16, output_row_pitch_in_blocks_or_pixels);
+				status = true;
+			}
+
+			if (status)
+			{
+				// Now decode the color data to R
+				//status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cETC2_EAC_R11, 16, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
+				status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + rgb_offset, rgb_length, block_format::cETC2_EAC_R11, bytes_per_block_or_pixel, false, is_video, false, level_index, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, false, nullptr, output_rows_in_pixels);
+				if (!status)
+				{
+					BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: transcode_slice() to ETC2_EAC_R11 R failed\n");
+				}
+			}
+			else
+			{
+				BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: transcode_slice() to ETC2_EAC_R11 G failed\n");
+			}
+
+			break;
+		}
+		default:
+		{
+			assert(0);
+			BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: Invalid fmt\n");
+			break;
+		}
+		}
+
+		return status;
+	}
 	
 	basisu_lowlevel_uastc_transcoder::basisu_lowlevel_uastc_transcoder()
 	{
 	}
 
 	bool basisu_lowlevel_uastc_transcoder::transcode_slice(void* pDst_blocks, uint32_t num_blocks_x, uint32_t num_blocks_y, const uint8_t* pImage_data, uint32_t image_data_size, block_format fmt,
-		uint32_t output_block_or_pixel_stride_in_bytes, bool bc1_allow_threecolor_blocks, const basis_file_header& header, const basis_slice_desc& slice_desc, uint32_t output_row_pitch_in_blocks_or_pixels,
+        uint32_t output_block_or_pixel_stride_in_bytes, bool bc1_allow_threecolor_blocks, bool has_alpha, const uint32_t orig_width, const uint32_t orig_height, uint32_t output_row_pitch_in_blocks_or_pixels,
 		basisu_transcoder_state* pState, uint32_t output_rows_in_pixels, int channel0, int channel1, uint32_t decode_flags)
 	{
 		BASISU_NOTE_UNUSED(pState);
@@ -8705,11 +9333,11 @@ namespace basist
 		if (!output_row_pitch_in_blocks_or_pixels)
 		{
 			if (basis_block_format_is_uncompressed(fmt))
-				output_row_pitch_in_blocks_or_pixels = slice_desc.m_orig_width;
+				output_row_pitch_in_blocks_or_pixels = orig_width;
 			else
 			{
 				if (fmt == block_format::cFXT1_RGB)
-					output_row_pitch_in_blocks_or_pixels = (slice_desc.m_orig_width + 7) / 8;
+					output_row_pitch_in_blocks_or_pixels = (orig_width + 7) / 8;
 				else
 					output_row_pitch_in_blocks_or_pixels = num_blocks_x;
 			}
@@ -8718,7 +9346,7 @@ namespace basist
 		if (basis_block_format_is_uncompressed(fmt))
 		{
 			if (!output_rows_in_pixels)
-				output_rows_in_pixels = slice_desc.m_orig_height;
+				output_rows_in_pixels = orig_height;
 		}
 
 		uint32_t total_expected_block_bytes = sizeof(uastc_block) * total_blocks;
@@ -8731,7 +9359,7 @@ namespace basist
 		const uastc_block* pSource_block = reinterpret_cast<const uastc_block *>(pImage_data);
 
 		const bool high_quality = (decode_flags & cDecodeFlagsHighQuality) != 0;
-		const bool from_alpha = ((header.m_flags & cBASISHeaderFlagHasAlphaSlices) != 0) &&	(decode_flags & cDecodeFlagsTranscodeAlphaDataToOpaqueFormats) != 0;
+		const bool from_alpha = has_alpha && (decode_flags & cDecodeFlagsTranscodeAlphaDataToOpaqueFormats) != 0;
 
 		bool status = false;
 		if ((fmt == block_format::cPVRTC1_4_RGB) || (fmt == block_format::cPVRTC1_4_RGBA))
@@ -8940,6 +9568,283 @@ namespace basist
 
 		return false;
 #endif
+	}
+		
+	bool basisu_lowlevel_uastc_transcoder::transcode_image(
+		transcoder_texture_format target_format,
+		void* pOutput_blocks, uint32_t output_blocks_buf_size_in_blocks_or_pixels,
+		const uint8_t* pCompressed_data, uint32_t compressed_data_length,
+		uint32_t num_blocks_x, uint32_t num_blocks_y, uint32_t orig_width, uint32_t orig_height, uint32_t level_index,
+		uint32_t slice_offset, uint32_t slice_length,
+		uint32_t decode_flags,
+		bool basis_file_has_alpha_slices,
+		bool is_video,
+		uint32_t output_row_pitch_in_blocks_or_pixels,
+		basisu_transcoder_state* pState,
+		uint32_t output_rows_in_pixels,
+		int channel0, int channel1)
+	{
+		BASISU_NOTE_UNUSED(is_video);
+		BASISU_NOTE_UNUSED(level_index);
+
+		if (((uint64_t)slice_offset + slice_length) > (uint64_t)compressed_data_length)
+		{
+			BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_transcoder::transcode_image: source data buffer too small\n");
+			return false;
+		}	
+
+		if ((target_format == transcoder_texture_format::cTFPVRTC1_4_RGB) || (target_format == transcoder_texture_format::cTFPVRTC1_4_RGBA))
+		{
+			if ((!basisu::is_pow2(num_blocks_x * 4)) || (!basisu::is_pow2(num_blocks_y * 4)))
+			{
+				// PVRTC1 only supports power of 2 dimensions
+				BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_transcoder::transcode_image: PVRTC1 only supports power of 2 dimensions\n");
+				return false;
+			}
+		}
+
+		if ((target_format == transcoder_texture_format::cTFPVRTC1_4_RGBA) && (!basis_file_has_alpha_slices))
+		{
+			// Switch to PVRTC1 RGB if the input doesn't have alpha.
+			target_format = transcoder_texture_format::cTFPVRTC1_4_RGB;
+		}
+
+		const bool transcode_alpha_data_to_opaque_formats = (decode_flags & cDecodeFlagsTranscodeAlphaDataToOpaqueFormats) != 0;
+		const uint32_t bytes_per_block_or_pixel = basis_get_bytes_per_block_or_pixel(target_format);
+		const uint32_t total_slice_blocks = num_blocks_x * num_blocks_y;
+
+		if (!basis_validate_output_buffer_size(target_format, output_blocks_buf_size_in_blocks_or_pixels, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, output_rows_in_pixels, total_slice_blocks))
+		{
+			BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_transcoder::transcode_image: output buffer size too small\n");
+			return false;
+		}
+				
+		bool status = false;
+
+		// UASTC4x4
+		switch (target_format)
+		{
+		case transcoder_texture_format::cTFETC1_RGB:
+		{
+			//status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cETC1, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
+			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + slice_offset, slice_length, block_format::cETC1,
+				bytes_per_block_or_pixel, false, basis_file_has_alpha_slices, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels, channel0, channel1);
+				
+			if (!status)
+			{
+				BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_transcoder::transcode_image: transcode_slice() to ETC1 failed\n");
+			}
+			break;
+		}
+		case transcoder_texture_format::cTFETC2_RGBA:
+		{
+			//status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cETC2_RGBA, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
+			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + slice_offset, slice_length, block_format::cETC2_RGBA,
+				bytes_per_block_or_pixel, false, basis_file_has_alpha_slices, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels, channel0, channel1);
+			if (!status)
+			{
+				BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_transcoder::transcode_image: transcode_slice() to ETC2 failed\n");
+			}
+			break;
+		}
+		case transcoder_texture_format::cTFBC1_RGB:
+		{
+			// TODO: ETC1S allows BC1 from alpha channel. That doesn't seem actually useful, though.
+			//status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cBC1, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
+			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + slice_offset, slice_length, block_format::cBC1,
+				bytes_per_block_or_pixel, true, basis_file_has_alpha_slices, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels, channel0, channel1);
+			if (!status)
+			{
+				BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_transcoder::transcode_image: transcode_slice() to BC1 failed\n");
+			}
+			break;
+		}
+		case transcoder_texture_format::cTFBC3_RGBA:
+		{
+			//status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cBC3, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
+			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + slice_offset, slice_length, block_format::cBC3,
+				bytes_per_block_or_pixel, false, basis_file_has_alpha_slices, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels, channel0, channel1);
+			if (!status)
+			{
+				BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_transcoder::transcode_image: transcode_slice() to BC3 failed\n");
+			}
+			break;
+		}
+		case transcoder_texture_format::cTFBC4_R:
+		{
+			//status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cBC4, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState,
+			//	nullptr, 0,
+			//	((basis_file_has_alpha_slices) && (transcode_alpha_data_to_opaque_formats)) ? 3 : 0);
+			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + slice_offset, slice_length, block_format::cBC4,
+				bytes_per_block_or_pixel, false, basis_file_has_alpha_slices, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels,
+				((basis_file_has_alpha_slices) && (transcode_alpha_data_to_opaque_formats)) ? 3 : 0);
+			if (!status)
+			{
+				BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_transcoder::transcode_image: transcode_slice() to BC4 failed\n");
+			}
+			break;
+		}
+		case transcoder_texture_format::cTFBC5_RG:
+		{
+			//status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cBC5, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState,
+			//	nullptr, 0,
+			//	0, 3);
+			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + slice_offset, slice_length, block_format::cBC5,
+				bytes_per_block_or_pixel, false, basis_file_has_alpha_slices, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels,
+				0, 3);
+			if (!status)
+			{
+				BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_transcoder::transcode_image: transcode_slice() to BC5 failed\n");
+			}
+			break;
+		}
+		case transcoder_texture_format::cTFBC7_RGBA:
+		case transcoder_texture_format::cTFBC7_ALT:
+		{
+			//status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cBC7, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
+			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + slice_offset, slice_length, block_format::cBC7,
+				bytes_per_block_or_pixel, false, basis_file_has_alpha_slices, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels);
+			if (!status)
+			{
+				BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_transcoder::transcode_image: transcode_slice() to BC7 failed\n");
+			}
+			break;
+		}
+		case transcoder_texture_format::cTFPVRTC1_4_RGB:
+		{
+			//status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cPVRTC1_4_RGB, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
+			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + slice_offset, slice_length, block_format::cPVRTC1_4_RGB,
+				bytes_per_block_or_pixel, false, basis_file_has_alpha_slices, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels);
+			if (!status)
+			{
+				BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_transcoder::transcode_image: transcode_slice() to PVRTC1 RGB 4bpp failed\n");
+			}
+			break;
+		}
+		case transcoder_texture_format::cTFPVRTC1_4_RGBA:
+		{
+			//status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cPVRTC1_4_RGBA, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
+			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + slice_offset, slice_length, block_format::cPVRTC1_4_RGBA,
+				bytes_per_block_or_pixel, false, basis_file_has_alpha_slices, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels);
+			if (!status)
+			{
+				BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_transcoder::transcode_image: transcode_slice() to PVRTC1 RGBA 4bpp failed\n");
+			}
+			break;
+		}
+		case transcoder_texture_format::cTFASTC_4x4_RGBA:
+		{
+			//status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cASTC_4x4, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
+			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + slice_offset, slice_length, block_format::cASTC_4x4,
+				bytes_per_block_or_pixel, false, basis_file_has_alpha_slices, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels);
+			if (!status)
+			{
+				BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_transcoder::transcode_image: transcode_slice() to ASTC 4x4 failed\n");
+			}
+			break;
+		}
+		case transcoder_texture_format::cTFATC_RGB:
+		case transcoder_texture_format::cTFATC_RGBA:
+		{
+			BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_transcoder::transcode_image: UASTC->ATC currently unsupported\n");
+			return false;
+		}
+		case transcoder_texture_format::cTFFXT1_RGB:
+		{
+			BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_transcoder::transcode_image: UASTC->FXT1 currently unsupported\n");
+			return false;
+		}
+		case transcoder_texture_format::cTFPVRTC2_4_RGB:
+		{
+			BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_transcoder::transcode_image: UASTC->PVRTC2 currently unsupported\n");
+			return false;
+		}
+		case transcoder_texture_format::cTFPVRTC2_4_RGBA:
+		{
+			BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_transcoder::transcode_image: UASTC->PVRTC2 currently unsupported\n");
+			return false;
+		}
+		case transcoder_texture_format::cTFETC2_EAC_R11:
+		{
+			//status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cETC2_EAC_R11, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState,
+			//	nullptr, 0,
+			//	((basis_file_has_alpha_slices) && (transcode_alpha_data_to_opaque_formats)) ? 3 : 0);
+			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + slice_offset, slice_length, block_format::cETC2_EAC_R11,
+				bytes_per_block_or_pixel, false, basis_file_has_alpha_slices, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels,
+				((basis_file_has_alpha_slices) && (transcode_alpha_data_to_opaque_formats)) ? 3 : 0);
+			if (!status)
+			{
+				BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_transcoder::transcode_image: transcode_slice() to EAC R11 failed\n");
+			}
+			break;
+		}
+		case transcoder_texture_format::cTFETC2_EAC_RG11:
+		{
+			//status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cETC2_EAC_RG11, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState,
+			//	nullptr, 0,
+			//	0, 3);
+			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + slice_offset, slice_length, block_format::cETC2_EAC_RG11,
+				bytes_per_block_or_pixel, false, basis_file_has_alpha_slices, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels,
+				0, 3);
+			if (!status)
+			{
+				BASISU_DEVEL_ERROR("basisu_basisu_lowlevel_uastc_transcodertranscoder::transcode_image: transcode_slice() to EAC RG11 failed\n");
+			}
+			break;
+		}
+		case transcoder_texture_format::cTFRGBA32:
+		{
+			//status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cRGBA32, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
+			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + slice_offset, slice_length, block_format::cRGBA32,
+				bytes_per_block_or_pixel, false, basis_file_has_alpha_slices, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels);
+			if (!status)
+			{
+				BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_transcoder::transcode_image: transcode_slice() to RGBA32 failed\n");
+			}
+			break;
+		}
+		case transcoder_texture_format::cTFRGB565:
+		{
+			//status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cRGB565, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
+			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + slice_offset, slice_length, block_format::cRGB565,
+				bytes_per_block_or_pixel, false, basis_file_has_alpha_slices, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels);
+			if (!status)
+			{
+				BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_transcoder::transcode_image: transcode_slice() to RGB565 failed\n");
+			}
+			break;
+		}
+		case transcoder_texture_format::cTFBGR565:
+		{
+			//status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cBGR565, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
+			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + slice_offset, slice_length, block_format::cBGR565,
+				bytes_per_block_or_pixel, false, basis_file_has_alpha_slices, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels);
+			if (!status)
+			{
+				BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_transcoder::transcode_image: transcode_slice() to RGB565 failed\n");
+			}
+			break;
+		}
+		case transcoder_texture_format::cTFRGBA4444:
+		{
+			//status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cRGBA4444, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
+			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + slice_offset, slice_length, block_format::cRGBA4444,
+				bytes_per_block_or_pixel, false, basis_file_has_alpha_slices, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels);
+			if (!status)
+			{
+				BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_transcoder::transcode_image: transcode_slice() to RGBA4444 failed\n");
+			}
+			break;
+		}
+		default:
+		{
+			assert(0);
+			BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_transcoder::transcode_image: Invalid format\n");
+			break;
+		}
+		}
+
+		return status;
 	}
 	
 	basisu_transcoder::basisu_transcoder(const etc1_global_selector_codebook* pGlobal_sel_codebook) :
@@ -9686,9 +10591,9 @@ namespace basist
 		return -1;
 	}
 
-	static void write_opaque_alpha_blocks(
+	void basisu_transcoder::write_opaque_alpha_blocks(
 		uint32_t num_blocks_x, uint32_t num_blocks_y,
-		void* pOutput_blocks, uint32_t output_blocks_buf_size_in_blocks_or_pixels, block_format fmt,
+		void* pOutput_blocks, block_format fmt,
 		uint32_t block_stride_in_bytes, uint32_t output_row_pitch_in_blocks_or_pixels)
 	{
 		// 'num_blocks_y', 'pOutput_blocks' & 'block_stride_in_bytes' unused
@@ -9696,7 +10601,6 @@ namespace basist
 		BASISU_NOTE_UNUSED(num_blocks_y);
 		BASISU_NOTE_UNUSED(pOutput_blocks);
 		BASISU_NOTE_UNUSED(block_stride_in_bytes);
-		BASISU_NOTE_UNUSED(output_blocks_buf_size_in_blocks_or_pixels);
 
 		if (!output_row_pitch_in_blocks_or_pixels)
 			output_row_pitch_in_blocks_or_pixels = num_blocks_x;
@@ -9847,708 +10751,40 @@ namespace basist
 		
 		if (pHeader->m_tex_format == (int)basis_tex_format::cUASTC4x4)
 		{
-			// UASTC4x4
-			switch (fmt)
-			{
-			case transcoder_texture_format::cTFETC1_RGB:
-			{
-				status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cETC1, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
-				if (!status)
-				{
-					BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: transcode_slice() to ETC1 failed\n");
-				}
-				break;
-			}
-			case transcoder_texture_format::cTFETC2_RGBA:
-			{
-				status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cETC2_RGBA, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
-				if (!status)
-				{
-					BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: transcode_slice() to ETC2 failed\n");
-				}
-				break;
-			}
-			case transcoder_texture_format::cTFBC1_RGB:
-			{
-				// TODO: ETC1S allows BC1 from alpha channel. That doesn't seem actually useful, though.
-				status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cBC1, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
-				if (!status)
-				{
-					BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: transcode_slice() to BC1 failed\n");
-				}
-				break;
-			}
-			case transcoder_texture_format::cTFBC3_RGBA:
-			{
-				status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cBC3, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
-				if (!status)
-				{
-					BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: transcode_slice() to BC3 failed\n");
-				}
-				break;
-			}
-			case transcoder_texture_format::cTFBC4_R:
-			{
-				status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cBC4, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState,
-					nullptr, 0,
-					((basis_file_has_alpha_slices) && (transcode_alpha_data_to_opaque_formats)) ? 3 : 0);
-				if (!status)
-				{
-					BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: transcode_slice() to BC4 failed\n");
-				}
-				break;
-			}
-			case transcoder_texture_format::cTFBC5_RG:
-			{
-				status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cBC5, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState, 
-					nullptr, 0, 
-					0, 3);
-				if (!status)
-				{
-					BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: transcode_slice() to BC5 failed\n");
-				}
-				break;
-			}
-			case transcoder_texture_format::cTFBC7_RGBA:
-			case transcoder_texture_format::cTFBC7_ALT:
-			{
-				status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cBC7, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
-				if (!status)
-				{
-					BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: transcode_slice() to BC7 failed\n");
-				}
-				break;
-			}
-			case transcoder_texture_format::cTFPVRTC1_4_RGB:
-			{
-				status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cPVRTC1_4_RGB, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
-				if (!status)
-				{
-					BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: transcode_slice() to PVRTC1 RGB 4bpp failed\n");
-				}
-				break;
-			}
-			case transcoder_texture_format::cTFPVRTC1_4_RGBA:
-			{
-				status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cPVRTC1_4_RGBA, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
-				if (!status)
-				{
-					BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: transcode_slice() to PVRTC1 RGBA 4bpp failed\n");
-				}
-				break;
-			}
-			case transcoder_texture_format::cTFASTC_4x4_RGBA:
-			{
-				status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cASTC_4x4, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
-				if (!status)
-				{
-					BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: transcode_slice() to ASTC 4x4 failed\n");
-				}
-				break;
-			}
-			case transcoder_texture_format::cTFATC_RGB:
-			case transcoder_texture_format::cTFATC_RGBA:
-			{
-				BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: UASTC->ATC currently unsupported\n");
-				return false;
-			}
-			case transcoder_texture_format::cTFFXT1_RGB:
-			{
-				BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: UASTC->FXT1 currently unsupported\n");
-				return false;
-			}
-			case transcoder_texture_format::cTFPVRTC2_4_RGB:
-			{
-				BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: UASTC->PVRTC2 currently unsupported\n");
-				return false;
-			}
-			case transcoder_texture_format::cTFPVRTC2_4_RGBA:
-			{
-				BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: UASTC->PVRTC2 currently unsupported\n");
-				return false;
-			}
-			case transcoder_texture_format::cTFETC2_EAC_R11:
-			{
-				status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cETC2_EAC_R11, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState, 
-					nullptr, 0,
-					((basis_file_has_alpha_slices) && (transcode_alpha_data_to_opaque_formats)) ? 3 : 0);
-				if (!status)
-				{
-					BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: transcode_slice() to EAC R11 failed\n");
-				}
-				break;
-			}
-			case transcoder_texture_format::cTFETC2_EAC_RG11:
-			{
-				status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cETC2_EAC_RG11, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState, 
-					nullptr, 0, 
-					0, 3);
-				if (!status)
-				{
-					BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: transcode_slice() to EAC RG11 failed\n");
-				}
-				break;
-			}
-			case transcoder_texture_format::cTFRGBA32:
-			{
-				status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cRGBA32, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
-				if (!status)
-				{
-					BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: transcode_slice() to RGBA32 failed\n");
-				}
-				break;
-			}
-			case transcoder_texture_format::cTFRGB565:
-			{
-				status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cRGB565, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
-				if (!status)
-				{
-					BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: transcode_slice() to RGB565 failed\n");
-				}
-				break;
-			}
-			case transcoder_texture_format::cTFBGR565:
-			{
-				status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cBGR565, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
-				if (!status)
-				{
-					BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: transcode_slice() to RGB565 failed\n");
-				}
-				break;
-			}
-			case transcoder_texture_format::cTFRGBA4444:
-			{
-				status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cRGBA4444, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
-				if (!status)
-				{
-					BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: transcode_slice() to RGBA4444 failed\n");
-				}
-				break;
-			}
-			default:
-			{
-				assert(0);
-				BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: Invalid fmt\n");
-				break;
-			}
-			}
+			const basis_slice_desc* pSlice_desc = &pSlice_descs[slice_index];
+
+			// Use the container independent image transcode method.
+			status = m_lowlevel_uastc_decoder.transcode_image(fmt,
+				pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels,
+				(const uint8_t*)pData, data_size, pSlice_desc->m_num_blocks_x, pSlice_desc->m_num_blocks_y, pSlice_desc->m_orig_width, pSlice_desc->m_orig_height, pSlice_desc->m_level_index,
+				pSlice_desc->m_file_ofs, pSlice_desc->m_file_size,
+				decode_flags, basis_file_has_alpha_slices, pHeader->m_tex_type == cBASISTexTypeVideoFrames, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels);
 		}
 		else 
 		{
 			// ETC1S
+			const basis_slice_desc* pSlice_desc = &pSlice_descs[slice_index];
+			const basis_slice_desc* pAlpha_slice_desc = basis_file_has_alpha_slices ? &pSlice_descs[slice_index + 1] : nullptr;
 
-			switch (fmt)
+			assert((pSlice_desc->m_flags & cSliceDescFlagsHasAlpha) == 0);
+
+			if (pAlpha_slice_desc)
 			{
-			case transcoder_texture_format::cTFETC1_RGB:
-			{
-				uint32_t slice_index_to_decode = slice_index;
-				// If the caller wants us to transcode the mip level's alpha data, then use the next slice.
-				if ((basis_file_has_alpha_slices) && (transcode_alpha_data_to_opaque_formats))
-					slice_index_to_decode++;
-
-				status = transcode_slice(pData, data_size, slice_index_to_decode, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cETC1, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
-				if (!status)
-				{
-					BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: transcode_slice() to ETC1 failed\n");
-				}
-				break;
+				// Basic sanity checks
+				assert((pAlpha_slice_desc->m_flags & cSliceDescFlagsHasAlpha) != 0);
+				assert(pSlice_desc->m_num_blocks_x == pAlpha_slice_desc->m_num_blocks_x);
+				assert(pSlice_desc->m_num_blocks_y == pAlpha_slice_desc->m_num_blocks_y);
+				assert(pSlice_desc->m_level_index == pAlpha_slice_desc->m_level_index);
 			}
-			case transcoder_texture_format::cTFBC1_RGB:
-			{
-#if !BASISD_SUPPORT_DXT1
-            BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: DXT1 unsupported\n");
-				return false;
-#endif
-				uint32_t slice_index_to_decode = slice_index;
-				// If the caller wants us to transcode the mip level's alpha data, then use the next slice.
-				if ((basis_file_has_alpha_slices) && (transcode_alpha_data_to_opaque_formats))
-					slice_index_to_decode++;
 
-				status = transcode_slice(pData, data_size, slice_index_to_decode, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cBC1, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
-				if (!status)
-				{
-					BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: transcode_slice() to BC1 failed\n");
-				}
-				break;
-			}
-			case transcoder_texture_format::cTFBC4_R:
-			{
-#if !BASISD_SUPPORT_DXT5A
-            BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: DXT5A unsupported\n");
-				return false;
-#endif
-				uint32_t slice_index_to_decode = slice_index;
-				// If the caller wants us to transcode the mip level's alpha data, then use the next slice.
-				if ((basis_file_has_alpha_slices) && (transcode_alpha_data_to_opaque_formats))
-					slice_index_to_decode++;
+			// Use the container independent image transcode method.
+			status = m_lowlevel_etc1s_decoder.transcode_image(fmt,
+				pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels,
+				(const uint8_t *)pData, data_size, pSlice_desc->m_num_blocks_x, pSlice_desc->m_num_blocks_y, pSlice_desc->m_orig_width, pSlice_desc->m_orig_height, pSlice_desc->m_level_index,
+				pSlice_desc->m_file_ofs, pSlice_desc->m_file_size,
+				(pAlpha_slice_desc != nullptr) ? (uint32_t)pAlpha_slice_desc->m_file_ofs : 0U, (pAlpha_slice_desc != nullptr) ? (uint32_t)pAlpha_slice_desc->m_file_size : 0U,
+				decode_flags, basis_file_has_alpha_slices, pHeader->m_tex_type == cBASISTexTypeVideoFrames, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels);
 
-				status = transcode_slice(pData, data_size, slice_index_to_decode, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cBC4, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
-				if (!status)
-				{
-					BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: transcode_slice() to BC4 failed\n");
-				}
-				break;
-			}
-			case transcoder_texture_format::cTFPVRTC1_4_RGB:
-			{
-#if !BASISD_SUPPORT_PVRTC1
-            BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: PVRTC1 unsupported\n");
-				return false;
-#endif
-				uint32_t slice_index_to_decode = slice_index;
-				// If the caller wants us to transcode the mip level's alpha data, then use the next slice.
-				if ((basis_file_has_alpha_slices) && (transcode_alpha_data_to_opaque_formats))
-					slice_index_to_decode++;
-
-				// output_row_pitch_in_blocks_or_pixels is actually ignored because we're transcoding to PVRTC1. (Print a dev warning if it's != 0?)
-				status = transcode_slice(pData, data_size, slice_index_to_decode, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cPVRTC1_4_RGB, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
-				if (!status)
-				{
-					BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: transcode_slice() to PVRTC1 4 RGB failed\n");
-				}
-				break;
-			}
-			case transcoder_texture_format::cTFPVRTC1_4_RGBA:
-			{
-#if !BASISD_SUPPORT_PVRTC1
-            BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: PVRTC1 unsupported\n");
-				return false;
-#endif
-				assert(basis_file_has_alpha_slices);
-
-				// Temp buffer to hold alpha block endpoint/selector indices
-				std::vector<uint32_t> temp_block_indices(total_slice_blocks);
-
-				// First transcode alpha data to temp buffer
-				status = transcode_slice(pData, data_size, slice_index + 1, &temp_block_indices[0], total_slice_blocks, block_format::cIndices, sizeof(uint32_t), decode_flags, pSlice_descs[slice_index].m_num_blocks_x, pState);
-				if (!status)
-				{
-					BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: transcode_slice() to PVRTC1 4 RGBA failed (0)\n");
-				}
-				else
-				{
-					// output_row_pitch_in_blocks_or_pixels is actually ignored because we're transcoding to PVRTC1. (Print a dev warning if it's != 0?)
-					status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cPVRTC1_4_RGBA, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState, &temp_block_indices[0]);
-					if (!status)
-					{
-						BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: transcode_slice() to PVRTC1 4 RGBA failed (1)\n");
-					}
-				}
-
-				break;
-			}
-			case transcoder_texture_format::cTFBC7_RGBA:
-			case transcoder_texture_format::cTFBC7_ALT:
-			{
-#if !BASISD_SUPPORT_BC7_MODE5
-            BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: BC7 unsupported\n");
-				return false;
-#else
-				assert(bytes_per_block_or_pixel == 16);
-				// We used to support transcoding just alpha to BC7 - but is that useful at all?
-
-				// First transcode the color slice. The cBC7_M5_COLOR transcoder will output opaque mode 5 blocks.
-				status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cBC7_M5_COLOR, 16, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
-
-				if ((status) && (basis_file_has_alpha_slices))
-				{
-					// Now transcode the alpha slice. The cBC7_M5_ALPHA transcoder will now change the opaque mode 5 blocks to blocks with alpha.
-					status = transcode_slice(pData, data_size, slice_index + 1, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cBC7_M5_ALPHA, 16, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
-				}
-            
-            if (!status)
-            {
-               BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: transcode_slice() to BC7 failed (0)\n");
-            }
-
-				break;
-#endif
-			}
-			case transcoder_texture_format::cTFETC2_RGBA:
-			{
-#if !BASISD_SUPPORT_ETC2_EAC_A8
-            BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: ETC2 EAC A8 unsupported\n");
-				return false;
-#endif
-				assert(bytes_per_block_or_pixel == 16);
-
-				if (basis_file_has_alpha_slices)
-				{
-					// First decode the alpha data 
-					status = transcode_slice(pData, data_size, slice_index + 1, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cETC2_EAC_A8, 16, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
-				}
-				else
-				{
-					write_opaque_alpha_blocks(pSlice_descs[slice_index].m_num_blocks_x, pSlice_descs[slice_index].m_num_blocks_y, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cETC2_EAC_A8, 16, output_row_pitch_in_blocks_or_pixels);
-					status = true;
-				}
-
-				if (status)
-				{
-					// Now decode the color data
-					status = transcode_slice(pData, data_size, slice_index, (uint8_t*)pOutput_blocks + 8, output_blocks_buf_size_in_blocks_or_pixels, block_format::cETC1, 16, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
-					if (!status)
-					{
-						BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: transcode_slice() to ETC2 RGB failed\n");
-					}
-				}
-				else
-				{
-					BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: transcode_slice() to ETC2 A failed\n");
-				}
-				break;
-			}
-			case transcoder_texture_format::cTFBC3_RGBA:
-			{
-#if !BASISD_SUPPORT_DXT1
-            BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: DXT1 unsupported\n");
-				return false;
-#endif
-#if !BASISD_SUPPORT_DXT5A
-            BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: DXT5A unsupported\n");
-				return false;
-#endif
-				assert(bytes_per_block_or_pixel == 16);
-
-				// First decode the alpha data 
-				if (basis_file_has_alpha_slices)
-				{
-					status = transcode_slice(pData, data_size, slice_index + 1, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cBC4, 16, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
-				}
-				else
-				{
-					write_opaque_alpha_blocks(pSlice_descs[slice_index].m_num_blocks_x, pSlice_descs[slice_index].m_num_blocks_y, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cBC4, 16, output_row_pitch_in_blocks_or_pixels);
-					status = true;
-				}
-
-				if (status)
-				{
-					// Now decode the color data. Forbid 3 color blocks, which aren't allowed in BC3.
-					status = transcode_slice(pData, data_size, slice_index, (uint8_t*)pOutput_blocks + 8, output_blocks_buf_size_in_blocks_or_pixels, block_format::cBC1, 16, decode_flags | cDecodeFlagsBC1ForbidThreeColorBlocks, output_row_pitch_in_blocks_or_pixels, pState);
-					if (!status)
-					{
-						BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: transcode_slice() to BC3 RGB failed\n");
-					}
-				}
-				else
-				{
-					BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: transcode_slice() to BC3 A failed\n");
-				}
-
-				break;
-			}
-			case transcoder_texture_format::cTFBC5_RG:
-			{
-#if !BASISD_SUPPORT_DXT5A
-            BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: DXT5A unsupported\n");
-				return false;
-#endif
-				assert(bytes_per_block_or_pixel == 16);
-
-				// Decode the R data (actually the green channel of the color data slice in the basis file)
-				status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cBC4, 16, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
-				if (status)
-				{
-					if (basis_file_has_alpha_slices)
-					{
-						// Decode the G data (actually the green channel of the alpha data slice in the basis file)
-						status = transcode_slice(pData, data_size, slice_index + 1, (uint8_t*)pOutput_blocks + 8, output_blocks_buf_size_in_blocks_or_pixels, block_format::cBC4, 16, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
-						if (!status)
-						{
-							BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: transcode_slice() to BC5 1 failed\n");
-						}
-					}
-					else
-					{
-						write_opaque_alpha_blocks(pSlice_descs[slice_index].m_num_blocks_x, pSlice_descs[slice_index].m_num_blocks_y, (uint8_t*)pOutput_blocks + 8, output_blocks_buf_size_in_blocks_or_pixels, block_format::cBC4, 16, output_row_pitch_in_blocks_or_pixels);
-						status = true;
-					}
-				}
-				else
-				{
-					BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: transcode_slice() to BC5 channel 0 failed\n");
-				}
-				break;
-			}
-			case transcoder_texture_format::cTFASTC_4x4_RGBA:
-			{
-#if !BASISD_SUPPORT_ASTC
-            BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: ASTC unsupported\n");
-				return false;
-#endif
-				assert(bytes_per_block_or_pixel == 16);
-
-				if (basis_file_has_alpha_slices)
-				{
-					// First decode the alpha data to the output (we're using the output texture as a temp buffer here).
-					status = transcode_slice(pData, data_size, slice_index + 1, (uint8_t*)pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cIndices, 16, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
-					if (status)
-					{
-						// Now decode the color data and transcode to ASTC. The transcoder function will read the alpha selector data from the output texture as it converts and
-						// transcode both the alpha and color data at the same time to ASTC.
-						status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cASTC_4x4, 16, decode_flags | cDecodeFlagsOutputHasAlphaIndices, output_row_pitch_in_blocks_or_pixels, pState);
-					}
-				}
-				else
-					status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cASTC_4x4, 16, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
-
-            if (!status)
-            {               
-               BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: transcode_slice() to ASTC failed (0)\n");
-            }
-
-				break;
-			}
-			case transcoder_texture_format::cTFATC_RGB:
-			{
-#if !BASISD_SUPPORT_ATC
-            BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: ATC unsupported\n");
-				return false;
-#endif
-				uint32_t slice_index_to_decode = slice_index;
-				// If the caller wants us to transcode the mip level's alpha data, then use the next slice.
-				if ((basis_file_has_alpha_slices) && (transcode_alpha_data_to_opaque_formats))
-					slice_index_to_decode++;
-
-				status = transcode_slice(pData, data_size, slice_index_to_decode, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cATC_RGB, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
-				if (!status)
-				{
-					BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: transcode_slice() to ATC_RGB failed\n");
-				}
-				break;
-			}
-			case transcoder_texture_format::cTFATC_RGBA:
-			{
-#if !BASISD_SUPPORT_ATC
-            BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: ATC unsupported\n");
-				return false;
-#endif
-#if !BASISD_SUPPORT_DXT5A
-            BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: DXT5A unsupported\n");
-   			return false;
-#endif
-				assert(bytes_per_block_or_pixel == 16);
-
-				// First decode the alpha data 
-				if (basis_file_has_alpha_slices)
-				{
-					status = transcode_slice(pData, data_size, slice_index + 1, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cBC4, 16, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
-				}
-				else
-				{
-					write_opaque_alpha_blocks(pSlice_descs[slice_index].m_num_blocks_x, pSlice_descs[slice_index].m_num_blocks_y, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cBC4, 16, output_row_pitch_in_blocks_or_pixels);
-					status = true;
-				}
-
-				if (status)
-				{
-					status = transcode_slice(pData, data_size, slice_index, (uint8_t*)pOutput_blocks + 8, output_blocks_buf_size_in_blocks_or_pixels, block_format::cATC_RGB, 16, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
-					if (!status)
-					{
-						BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: transcode_slice() to ATC RGB failed\n");
-					}
-				}
-				else
-				{
-					BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: transcode_slice() to ATC A failed\n");
-				}
-				break;
-			}
-			case transcoder_texture_format::cTFPVRTC2_4_RGB:
-			{
-#if !BASISD_SUPPORT_PVRTC2
-            BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: PVRTC2 unsupported\n");
-				return false;
-#endif
-				uint32_t slice_index_to_decode = slice_index;
-				// If the caller wants us to transcode the mip level's alpha data, then use the next slice.
-				if ((basis_file_has_alpha_slices) && (transcode_alpha_data_to_opaque_formats))
-					slice_index_to_decode++;
-
-				status = transcode_slice(pData, data_size, slice_index_to_decode, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cPVRTC2_4_RGB, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
-				if (!status)
-				{
-					BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: transcode_slice() to cPVRTC2_4_RGB failed\n");
-				}
-				break;
-			}
-			case transcoder_texture_format::cTFPVRTC2_4_RGBA:
-			{
-#if !BASISD_SUPPORT_PVRTC2
-            BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: PVRTC2 unsupported\n");
-				return false;
-#endif
-				if (basis_file_has_alpha_slices)
-				{
-					// First decode the alpha data to the output (we're using the output texture as a temp buffer here).
-					status = transcode_slice(pData, data_size, slice_index + 1, (uint8_t*)pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cIndices, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
-					if (!status)
-					{
-						BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: transcode_slice() to failed\n");
-					}
-					else
-					{
-						// Now decode the color data and transcode to PVRTC2 RGBA. 
-						status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cPVRTC2_4_RGBA, bytes_per_block_or_pixel, decode_flags | cDecodeFlagsOutputHasAlphaIndices, output_row_pitch_in_blocks_or_pixels, pState);
-					}
-				}
-				else
-					status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cPVRTC2_4_RGB, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
-
-				if (!status)
-				{
-					BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: transcode_slice() to cPVRTC2_4_RGBA failed\n");
-				}
-
-				break;
-			}
-			case transcoder_texture_format::cTFRGBA32:
-			{
-				// Raw 32bpp pixels, decoded in the usual raster order (NOT block order) into an image in memory.
-
-				// First decode the alpha data 
-				if (basis_file_has_alpha_slices)
-					status = transcode_slice(pData, data_size, slice_index + 1, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cA32, sizeof(uint32_t), decode_flags, output_row_pitch_in_blocks_or_pixels, pState, nullptr, output_rows_in_pixels);
-				else
-					status = true;
-
-				if (status)
-				{
-					status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, basis_file_has_alpha_slices ? block_format::cRGB32 : block_format::cRGBA32, sizeof(uint32_t), decode_flags, output_row_pitch_in_blocks_or_pixels, pState, nullptr, output_rows_in_pixels);
-					if (!status)
-					{
-						BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: transcode_slice() to RGBA32 RGB failed\n");
-					}
-				}
-				else
-				{
-					BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: transcode_slice() to RGBA32 A failed\n");
-				}
-
-				break;
-			}
-			case transcoder_texture_format::cTFRGB565:
-			case transcoder_texture_format::cTFBGR565:
-			{
-				// Raw 16bpp pixels, decoded in the usual raster order (NOT block order) into an image in memory.
-
-				uint32_t slice_index_to_decode = slice_index;
-				// If the caller wants us to transcode the mip level's alpha data, then use the next slice.
-				if ((basis_file_has_alpha_slices) && (transcode_alpha_data_to_opaque_formats))
-					slice_index_to_decode++;
-
-				status = transcode_slice(pData, data_size, slice_index_to_decode, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, (fmt == transcoder_texture_format::cTFRGB565) ? block_format::cRGB565 : block_format::cBGR565, sizeof(uint16_t), decode_flags, output_row_pitch_in_blocks_or_pixels, pState, nullptr, output_rows_in_pixels);
-				if (!status)
-				{
-					BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: transcode_slice() to RGB565 RGB failed\n");
-				}
-
-				break;
-			}
-			case transcoder_texture_format::cTFRGBA4444:
-			{
-				// Raw 16bpp pixels, decoded in the usual raster order (NOT block order) into an image in memory.
-
-				// First decode the alpha data 
-				if (basis_file_has_alpha_slices)
-					status = transcode_slice(pData, data_size, slice_index + 1, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cRGBA4444_ALPHA, sizeof(uint16_t), decode_flags, output_row_pitch_in_blocks_or_pixels, pState, nullptr, output_rows_in_pixels);
-				else
-					status = true;
-
-				if (status)
-				{
-					status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, basis_file_has_alpha_slices ? block_format::cRGBA4444_COLOR : block_format::cRGBA4444_COLOR_OPAQUE, sizeof(uint16_t), decode_flags, output_row_pitch_in_blocks_or_pixels, pState, nullptr, output_rows_in_pixels);
-					if (!status)
-					{
-						BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: transcode_slice() to RGBA4444 RGB failed\n");
-					}
-				}
-				else
-				{
-					BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: transcode_slice() to RGBA4444 A failed\n");
-				}
-
-				break;
-			}
-			case transcoder_texture_format::cTFFXT1_RGB:
-			{
-#if !BASISD_SUPPORT_FXT1
-            BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: FXT1 unsupported\n");
-				return false;
-#endif
-				uint32_t slice_index_to_decode = slice_index;
-				// If the caller wants us to transcode the mip level's alpha data, then use the next slice.
-				if ((basis_file_has_alpha_slices) && (transcode_alpha_data_to_opaque_formats))
-					slice_index_to_decode++;
-
-				status = transcode_slice(pData, data_size, slice_index_to_decode, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cFXT1_RGB, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
-				if (!status)
-				{
-					BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: transcode_slice() to FXT1_RGB failed\n");
-				}
-				break;
-			}
-			case transcoder_texture_format::cTFETC2_EAC_R11:
-			{
-#if !BASISD_SUPPORT_ETC2_EAC_RG11
-            BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: EAC_RG11 unsupported\n");
-				return false;
-#endif
-				uint32_t slice_index_to_decode = slice_index;
-				// If the caller wants us to transcode the mip level's alpha data, then use the next slice.
-				if ((basis_file_has_alpha_slices) && (transcode_alpha_data_to_opaque_formats))
-					slice_index_to_decode++;
-
-				status = transcode_slice(pData, data_size, slice_index_to_decode, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cETC2_EAC_R11, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
-				if (!status)
-				{
-					BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: transcode_slice() to ETC2_EAC_R11 failed\n");
-				}
-
-				break;
-			}
-			case transcoder_texture_format::cTFETC2_EAC_RG11:
-			{
-#if !BASISD_SUPPORT_ETC2_EAC_RG11
-            BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: EAC_RG11 unsupported\n");
-				return false;
-#endif
-				assert(bytes_per_block_or_pixel == 16);
-
-				if (basis_file_has_alpha_slices)
-				{
-					// First decode the alpha data to G
-					status = transcode_slice(pData, data_size, slice_index + 1, (uint8_t*)pOutput_blocks + 8, output_blocks_buf_size_in_blocks_or_pixels, block_format::cETC2_EAC_R11, 16, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
-				}
-				else
-				{
-					write_opaque_alpha_blocks(pSlice_descs[slice_index].m_num_blocks_x, pSlice_descs[slice_index].m_num_blocks_y, (uint8_t*)pOutput_blocks + 8, output_blocks_buf_size_in_blocks_or_pixels, block_format::cETC2_EAC_R11, 16, output_row_pitch_in_blocks_or_pixels);
-					status = true;
-				}
-
-				if (status)
-				{
-					// Now decode the color data to R
-					status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cETC2_EAC_R11, 16, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
-					if (!status)
-					{
-						BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: transcode_slice() to ETC2_EAC_R11 R failed\n");
-					}
-				}
-				else
-				{
-					BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: transcode_slice() to ETC2_EAC_R11 G failed\n");
-				}
-
-				break;
-			}
-			default:
-			{
-				assert(0);
-				BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: Invalid fmt\n");
-				break;
-			}
-			}
 		} // if (pHeader->m_tex_format == (int)basis_tex_format::cUASTC4x4)
       
       if (!status)
@@ -10631,6 +10867,36 @@ namespace basist
 			assert(0);
 			BASISU_DEVEL_ERROR("basis_get_basisu_texture_format: Invalid fmt\n");
 			break;
+		}
+		return "";
+	}
+
+	const char* basis_get_block_format_name(block_format fmt)
+	{
+		switch (fmt)
+		{
+		case block_format::cETC1: return "ETC1";
+		case block_format::cBC1: return "BC1";
+		case block_format::cPVRTC1_4_RGB: return "PVRTC1_4_RGB";
+		case block_format::cPVRTC1_4_RGBA: return "PVRTC1_4_RGBA";
+		case block_format::cBC7: return "BC7";
+		case block_format::cETC2_RGBA: return "ETC2_RGBA";
+		case block_format::cBC3: return "BC3";
+		case block_format::cASTC_4x4: return "ASTC_4x4";
+		case block_format::cATC_RGB: return "ATC_RGB";
+		case block_format::cRGBA32: return "RGBA32";
+		case block_format::cRGB565: return "RGB565";
+		case block_format::cBGR565: return "BGR565";
+		case block_format::cRGBA4444: return "RGBA4444";
+		case block_format::cFXT1_RGB: return "FXT1_RGB";
+		case block_format::cPVRTC2_4_RGB: return "PVRTC2_4_RGB";
+		case block_format::cPVRTC2_4_RGBA: return "PVRTC2_4_RGBA";
+		case block_format::cETC2_EAC_R11: return "ETC2_EAC_R11";
+		case block_format::cETC2_EAC_RG11: return "ETC2_EAC_RG11";
+		default:
+			assert(0);
+			BASISU_DEVEL_ERROR("basis_get_basisu_texture_format: Invalid fmt\n");
+		break;
 		}
 		return "";
 	}

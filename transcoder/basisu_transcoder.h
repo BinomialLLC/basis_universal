@@ -107,6 +107,9 @@ namespace basist
 	// Returns format's name in ASCII
 	const char* basis_get_format_name(transcoder_texture_format fmt);
 
+    // Returns block format name in ASCII
+	const char* basis_get_block_format_name(block_format fmt);
+
 	// Returns true if the format supports an alpha channel.
 	bool basis_transcoder_format_has_alpha(transcoder_texture_format fmt);
 
@@ -130,6 +133,15 @@ namespace basist
 
 	// Returns true if the specified format was enabled at compile time.
 	bool basis_is_format_supported(transcoder_texture_format tex_type, basis_tex_format fmt = basis_tex_format::cETC1S);
+
+	// Validates that the output buffer is large enough to hold the entire transcoded texture.
+	// For uncompressed texture formats, most input parameters are in pixels, not blocks. Blocks are 4x4 pixels.
+	bool basis_validate_output_buffer_size(transcoder_texture_format target_format,
+		uint32_t output_blocks_buf_size_in_blocks_or_pixels,
+		uint32_t orig_width, uint32_t orig_height,
+		uint32_t output_row_pitch_in_blocks_or_pixels,
+		uint32_t output_rows_in_pixels,
+		uint32_t total_slice_blocks);
 		
 	class basisu_transcoder;
 
@@ -164,8 +176,34 @@ namespace basist
 		bool decode_tables(const uint8_t *pTable_data, uint32_t table_data_size);
 
 		bool transcode_slice(void *pDst_blocks, uint32_t num_blocks_x, uint32_t num_blocks_y, const uint8_t *pImage_data, uint32_t image_data_size, block_format fmt, 
-			uint32_t output_block_or_pixel_stride_in_bytes, bool bc1_allow_threecolor_blocks, const basis_file_header &header, const basis_slice_desc& slice_desc, uint32_t output_row_pitch_in_blocks_or_pixels = 0,
+			uint32_t output_block_or_pixel_stride_in_bytes, bool bc1_allow_threecolor_blocks, const bool is_video, const bool is_alpha_slice, const uint32_t level_index, const uint32_t orig_width, const uint32_t orig_height, uint32_t output_row_pitch_in_blocks_or_pixels = 0,
 			basisu_transcoder_state *pState = nullptr, bool astc_transcode_alpha = false, void* pAlpha_blocks = nullptr, uint32_t output_rows_in_pixels = 0);
+
+		bool transcode_slice(void *pDst_blocks, uint32_t num_blocks_x, uint32_t num_blocks_y, const uint8_t *pImage_data, uint32_t image_data_size, block_format fmt, 
+			uint32_t output_block_or_pixel_stride_in_bytes, bool bc1_allow_threecolor_blocks, const basis_file_header &header, const basis_slice_desc& slice_desc, uint32_t output_row_pitch_in_blocks_or_pixels = 0,
+			basisu_transcoder_state *pState = nullptr, bool astc_transcode_alpha = false, void* pAlpha_blocks = nullptr, uint32_t output_rows_in_pixels = 0)
+		{
+			return transcode_slice(pDst_blocks, num_blocks_x, num_blocks_y, pImage_data, image_data_size, fmt, output_block_or_pixel_stride_in_bytes, bc1_allow_threecolor_blocks,
+				header.m_tex_type == cBASISTexTypeVideoFrames, (slice_desc.m_flags & cSliceDescFlagsHasAlpha) != 0, slice_desc.m_level_index,
+				slice_desc.m_orig_width, slice_desc.m_orig_height, output_row_pitch_in_blocks_or_pixels, pState,
+				astc_transcode_alpha,
+				pAlpha_blocks,
+				output_rows_in_pixels);
+		}
+
+		// Container independent transcoding
+		bool transcode_image(
+			transcoder_texture_format target_format,
+			void* pOutput_blocks, uint32_t output_blocks_buf_size_in_blocks_or_pixels,
+			const uint8_t* pCompressed_data, uint32_t compressed_data_length,
+			uint32_t num_blocks_x, uint32_t num_blocks_y, uint32_t orig_width, uint32_t orig_height, uint32_t level_index, 
+			uint32_t rgb_offset, uint32_t rgb_length, uint32_t alpha_offset, uint32_t alpha_length,
+			uint32_t decode_flags = 0,
+			bool basis_file_has_alpha_slices = false,
+			bool is_video = false,
+			uint32_t output_row_pitch_in_blocks_or_pixels = 0,
+			basisu_transcoder_state* pState = nullptr,
+			uint32_t output_rows_in_pixels = 0);
 
 		void clear()
 		{
@@ -194,7 +232,7 @@ namespace basist
 		basisu_transcoder_state m_def_state;
 	};
 
-	enum
+	enum basisu_decode_flags
 	{
 		// PVRTC1: decode non-pow2 ETC1S texture level to the next larger power of 2 (not implemented yet, but we're going to support it). Ignored if the slice's dimensions are already a power of 2.
 		cDecodeFlagsPVRTCDecodeToNextPow2 = 2,
@@ -221,11 +259,35 @@ namespace basist
 	public:
 		basisu_lowlevel_uastc_transcoder();
 
+        bool transcode_slice(void* pDst_blocks, uint32_t num_blocks_x, uint32_t num_blocks_y, const uint8_t* pImage_data, uint32_t image_data_size, block_format fmt,
+            uint32_t output_block_or_pixel_stride_in_bytes, bool bc1_allow_threecolor_blocks, bool has_alpha, const uint32_t orig_width, const uint32_t orig_height, uint32_t output_row_pitch_in_blocks_or_pixels = 0,
+            basisu_transcoder_state* pState = nullptr, uint32_t output_rows_in_pixels = 0, int channel0 = -1, int channel1 = -1, uint32_t decode_flags = 0);
+
 		bool transcode_slice(void* pDst_blocks, uint32_t num_blocks_x, uint32_t num_blocks_y, const uint8_t* pImage_data, uint32_t image_data_size, block_format fmt,
 			uint32_t output_block_or_pixel_stride_in_bytes, bool bc1_allow_threecolor_blocks, const basis_file_header& header, const basis_slice_desc& slice_desc, uint32_t output_row_pitch_in_blocks_or_pixels = 0,
-			basisu_transcoder_state* pState = nullptr, uint32_t output_rows_in_pixels = 0, int channel0 = -1, int channel1 = -1, uint32_t decode_flags = 0);
-	};
+			basisu_transcoder_state* pState = nullptr, uint32_t output_rows_in_pixels = 0, int channel0 = -1, int channel1 = -1, uint32_t decode_flags = 0)
+        {
+            return transcode_slice(pDst_blocks, num_blocks_x, num_blocks_y, pImage_data, image_data_size, fmt,
+                                   output_block_or_pixel_stride_in_bytes, bc1_allow_threecolor_blocks, (header.m_flags & cBASISHeaderFlagHasAlphaSlices) != 0, slice_desc.m_orig_width, slice_desc.m_orig_height, output_row_pitch_in_blocks_or_pixels,
+                                   pState, output_rows_in_pixels, channel0, channel1, decode_flags);
+        }
 
+		// Container independent transcoding
+		bool transcode_image(
+			transcoder_texture_format target_format,
+			void* pOutput_blocks, uint32_t output_blocks_buf_size_in_blocks_or_pixels,
+			const uint8_t* pCompressed_data, uint32_t compressed_data_length,
+			uint32_t num_blocks_x, uint32_t num_blocks_y, uint32_t orig_width, uint32_t orig_height, uint32_t level_index,
+			uint32_t slice_offset, uint32_t slice_length, 
+			uint32_t decode_flags = 0,
+			bool basis_file_has_alpha_slices = false,
+			bool is_video = false,
+			uint32_t output_row_pitch_in_blocks_or_pixels = 0,
+			basisu_transcoder_state* pState = nullptr,
+			uint32_t output_rows_in_pixels = 0,
+			int channel0 = -1, int channel1 = -1);
+	};
+	
 	struct basisu_slice_info
 	{
 		uint32_t m_orig_width;
@@ -410,6 +472,11 @@ namespace basist
 			void *pOutput_blocks, uint32_t output_blocks_buf_size_in_blocks_or_pixels,
 			block_format fmt, uint32_t output_block_stride_in_bytes, uint32_t decode_flags = 0, uint32_t output_row_pitch_in_blocks_or_pixels = 0, basisu_transcoder_state * pState = nullptr, void* pAlpha_blocks = nullptr, 
 			uint32_t output_rows_in_pixels = 0, int channel0 = -1, int channel1 = -1) const;
+
+		static void write_opaque_alpha_blocks(
+			uint32_t num_blocks_x, uint32_t num_blocks_y,
+			void* pOutput_blocks, block_format fmt,
+			uint32_t block_stride_in_bytes, uint32_t output_row_pitch_in_blocks_or_pixels);
 
 	private:
 		mutable basisu_lowlevel_etc1s_transcoder m_lowlevel_etc1s_decoder;
