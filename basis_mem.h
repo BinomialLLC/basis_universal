@@ -1,4 +1,3 @@
-// Reference crunch 
 // Add by tongkuisu
 
 #pragma once
@@ -6,33 +5,17 @@
 #include <stddef.h>
 #include <limits>
 
-namespace basisu
-{
-	typedef unsigned char      uint8;
-	typedef signed char        int8;
-	typedef unsigned short     uint16;
-	typedef signed short       int16;
-	typedef unsigned int       uint32;
-	typedef unsigned int       uint;
-	typedef signed int         int32;
-
-	const uint32 cIntBits = 32U;
-}
 
 namespace basisu
 {
 	void* basis_malloc(size_t size);
-	void* basis_malloc(size_t size, size_t* pActual_size);
-	void* basis_realloc(void* p, size_t size, size_t* pActual_size, bool movable);
 	void  basis_free(void* p);
-	size_t basis_msize(void* p);
 
-
-	typedef void*(*basis_realloc_func)(void* p, size_t size, size_t* pActual_size, bool movable, void* pUser_data);
-	typedef size_t(*basis_msize_func)(void* p, void* pUser_data);
+	typedef void*(*basis_malloc_func)(size_t size);
+	typedef void (*basis_free_func)(void* p);
 
 	// Call this to use your own memory allocator
-	void basis_set_memory_callbacks(basis_realloc_func pRealloc, basis_msize_func pMSize, void* pUser_data);
+	void basis_set_memory_callbacks(basis_malloc_func pMalloc, basis_free_func pFree);
 }
 
 namespace basisu
