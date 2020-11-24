@@ -55,16 +55,5 @@ namespace basisu
 	bool operator!=(const Mallocator <T>&, const Mallocator <U>&) { return false; }
 
 	template <class T>
-	class MVector :public std::vector<T, Mallocator<T>>
-	{
-		typedef typename std::vector<T, Mallocator<T>>::iterator MIterator;
-	public:
-		MVector() :std::vector<T, Mallocator<T>>() {}
-		MVector(int count) :std::vector<T, Mallocator<T>>(count) {}
-		MVector(int count, const T val) :std::vector<T, Mallocator<T>>(count, val) {}
-		MVector(MIterator first, MIterator end) :std::vector<T, Mallocator<T>>(first, end) {}
-		MVector(const MVector& x) :std::vector<T, Mallocator<T>>(x) {}
-
-		~MVector(){}
-	};
+	using MVector = std::vector<T, Mallocator<T>>;
 }
