@@ -42,7 +42,9 @@ extension that is [currently in development](https://github.com/KhronosGroup/glT
 
 ## Compressor (encode_test)
 
-This demo shows how to use the compressor from JavaScript. To use it, select a .PNG file then hit the "Encode!" button. The compressor will be invoked to dynamically generate a .basis file in memory which will then be immediately transcoded. To download the generated .basis file, select the "Download!" button. To view the compressor's textual debug output, open your browser's developer debug console (under Developer Tools in Chrome) and enable the Debug checkbox before hitting the "Encode!" button. Multithreading is not currently supported when the compressor is compiled to WebAssembly, so compressing larger textures will be slower than using the stand-alone command line tool.
+This demo shows how to use the compressor from JavaScript. To use it, select a .PNG file then hit the "Encode!" button. The compressor will dynamically generate a .basis file in memory which will then be immediately transcoded and displayed. Hit the "Download!" button to locally download the generated .basis file. 
+
+To view the compressor's textual debug output, open your browser's developer debug console (under Developer Tools in Chrome) and enable the Debug checkbox before hitting the "Encode!" button. Multithreading is not currently supported when the compressor is compiled to WebAssembly, so compression will be slower than using the stand-alone command line tool.
 
 ![Screenshot showing the encode_test demo](encode_test/preview.png)
 
