@@ -44,6 +44,8 @@ extension that is [currently in development](https://github.com/KhronosGroup/glT
 
 This demo shows how to use the compressor from JavaScript. To use it, select a .PNG file, hit the "Encode!" button. The compressor will be invoked to dynamically generate a .basis file, which will be immediately transcoded. To download the generated .basis file, select the "Download!" button. To view the compressor's textual debug output, open your browser's developer debug console and enable the Debug checkbox before hitting the "Encode!" button.
 
+![Screenshot showing the encode_test demo](encode_test/preview.png)
+
 ## Testing locally
 
 See [how to run things locally](https://threejs.org/docs/#manual/en/introduction/How-to-run-things-locally), or (with [Node.js](https://nodejs.org/en/) installed), run:
