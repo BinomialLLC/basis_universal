@@ -13,7 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
-#include "transcoder/basisu_file_headers.h"
+#include "../transcoder/basisu_file_headers.h"
 #include "basisu_backend.h"
 
 namespace basisu

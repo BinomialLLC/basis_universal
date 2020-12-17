@@ -10,8 +10,8 @@ if (EMSCRIPTEN)
     basis_wrappers.cpp
   )
 
-  target_compile_definitions(basis_transcoder.js PRIVATE NDEBUG BASISD_SUPPORT_UASTC=1 BASISD_SUPPORT_BC7=1 BASISD_SUPPORT_ATC=0 BASISD_SUPPORT_ASTC_HIGHER_OPAQUE_QUALITY=0 BASISD_SUPPORT_PVRTC2=0 BASISD_SUPPORT_FXT1=0 BASISD_SUPPORT_ETC2_EAC_RG11=0)
-  target_compile_options(basis_transcoder.js PRIVATE -O3)
+  target_compile_definitions(basis_transcoder.js PRIVATE NDEBUG BASISD_SUPPORT_UASTC=1 BASISD_SUPPORT_BC7=1 BASISD_SUPPORT_ATC=0 BASISD_SUPPORT_ASTC_HIGHER_OPAQUE_QUALITY=0 BASISD_SUPPORT_PVRTC2=0 BASISD_SUPPORT_FXT1=0 BASISD_SUPPORT_ETC2_EAC_RG11=0 BASISU_SUPPORT_ENCODING=0)
+  target_compile_options(basis_transcoder.js PRIVATE -O3 -fno-strict-aliasing)
   target_include_directories(basis_transcoder.js PRIVATE ../../transcoder)
 
   set_target_properties(basis_transcoder.js PROPERTIES

@@ -23,7 +23,7 @@
  * \brief ASTC Utilities.
  *//*--------------------------------------------------------------------*/
 
-#include "transcoder/basisu.h" // to pick up the iterator debug level madness
+#include "../transcoder/basisu.h" // to pick up the iterator debug level madness
 #include <vector>
 #include <stdint.h>
 

@@ -14,7 +14,7 @@
 // limitations under the License.
 #pragma once
 
-#include "transcoder/basisu.h"
+#include "../transcoder/basisu.h"
 
 namespace basisu
 {

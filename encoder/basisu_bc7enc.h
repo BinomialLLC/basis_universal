@@ -13,7 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #include "basisu_enc.h"
-#include "transcoder/basisu_transcoder_uastc.h"
+#include "../transcoder/basisu_transcoder_uastc.h"
 
 namespace basisu
 {

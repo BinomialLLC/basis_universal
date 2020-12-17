@@ -13,8 +13,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
-#include "transcoder/basisu.h"
-#include "transcoder/basisu_transcoder_internal.h"
+#include "../transcoder/basisu.h"
+#include "../transcoder/basisu_transcoder_internal.h"
 
 #include <mutex>
 #include <atomic>
@@ -1690,7 +1690,9 @@ namespace basisu
 
 		for (uint32_t thread_iter = 0; thread_iter < max_threads; thread_iter++)
 		{
+#ifndef __EMSCRIPTEN__
 			pJob_pool->add_job( [thread_iter, &local_clusters, &local_parent_clusters, &success_flags, &quantizers, &initial_codebook, &q, &limit_clusterizers, &max_codebook_size, &max_threads, &max_parent_codebook_size] {
+#endif
 
 				Quantizer& lq = quantizers[thread_iter];
 				uint_vec& cluster_indices = initial_codebook[thread_iter];
@@ -1731,11 +1733,15 @@ namespace basisu
 					}
 				}
 
+#ifndef __EMSCRIPTEN__
 			} );
+#endif
 
 		} // thread_iter
 
+#ifndef __EMSCRIPTEN__
 		pJob_pool->wait_for_all();
+#endif
 
 		uint32_t total_clusters = 0, total_parent_clusters = 0;
 
@@ -2856,7 +2862,8 @@ namespace basisu
 	};
 
 	// Image saving/loading/resampling
-		
+	
+	bool load_png(const uint8_t* pBuf, size_t buf_size, image& img, const char* pFilename = nullptr);
 	bool load_png(const char* pFilename, image& img);
 	inline bool load_png(const std::string &filename, image &img) { return load_png(filename.c_str(), img); }
 

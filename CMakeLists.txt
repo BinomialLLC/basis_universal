@@ -54,25 +54,25 @@ if (NOT MSVC)
 endif()
 
 set(BASISU_SRC_LIST ${COMMON_SRC_LIST} 
-	basisu_backend.cpp
-	basisu_basis_file.cpp
-	basisu_comp.cpp
-	basisu_enc.cpp
-	basisu_etc.cpp
-	basisu_frontend.cpp
-	basisu_global_selector_palette_helpers.cpp
-	basisu_gpu_texture.cpp
-	basisu_pvrtc1_4.cpp
-	basisu_resampler.cpp
-	basisu_resample_filters.cpp
-	basisu_ssim.cpp
 	basisu_tool.cpp
-	basisu_astc_decomp.cpp
-	basisu_uastc_enc.cpp
-	basisu_bc7enc.cpp
-	lodepng.cpp
-	apg_bmp.c
-	jpgd.cpp
+	encoder/basisu_backend.cpp
+	encoder/basisu_basis_file.cpp
+	encoder/basisu_comp.cpp
+	encoder/basisu_enc.cpp
+	encoder/basisu_etc.cpp
+	encoder/basisu_frontend.cpp
+	encoder/basisu_global_selector_palette_helpers.cpp
+	encoder/basisu_gpu_texture.cpp
+	encoder/basisu_pvrtc1_4.cpp
+	encoder/basisu_resampler.cpp
+	encoder/basisu_resample_filters.cpp
+	encoder/basisu_ssim.cpp
+	encoder/basisu_astc_decomp.cpp
+	encoder/basisu_uastc_enc.cpp
+	encoder/basisu_bc7enc.cpp
+	encoder/lodepng.cpp
+	encoder/apg_bmp.c
+	encoder/jpgd.cpp
 	transcoder/basisu_transcoder.cpp
 	)
 

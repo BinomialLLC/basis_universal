@@ -17,7 +17,7 @@
 #include "basisu_etc.h"
 #include "basisu_gpu_texture.h"
 #include "basisu_global_selector_palette_helpers.h"
-#include "transcoder/basisu_file_headers.h"
+#include "../transcoder/basisu_file_headers.h"
 
 namespace basisu
 {

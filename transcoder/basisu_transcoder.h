@@ -280,7 +280,7 @@ namespace basist
 			uint32_t num_blocks_x, uint32_t num_blocks_y, uint32_t orig_width, uint32_t orig_height, uint32_t level_index,
 			uint32_t slice_offset, uint32_t slice_length, 
 			uint32_t decode_flags = 0,
-			bool basis_file_has_alpha_slices = false,
+			bool has_alpha = false,
 			bool is_video = false,
 			uint32_t output_row_pitch_in_blocks_or_pixels = 0,
 			basisu_transcoder_state* pState = nullptr,
@@ -351,6 +351,11 @@ namespace basist
 		uint32_t m_total_blocks;
 
 		uint32_t m_first_slice_index;	
+
+		uint32_t m_rgb_file_ofs;
+		uint32_t m_rgb_file_len;
+		uint32_t m_alpha_file_ofs;
+		uint32_t m_alpha_file_len;
 								
 		bool m_alpha_flag;		// true if the image has alpha data
 		bool m_iframe_flag;		// true if the image is an I-Frame
@@ -362,12 +367,16 @@ namespace basist
 		uint32_t m_total_header_size;
 
 		uint32_t m_total_selectors;
+		uint32_t m_selector_codebook_ofs;
 		uint32_t m_selector_codebook_size;
 
 		uint32_t m_total_endpoints;
+		uint32_t m_endpoint_codebook_ofs;
 		uint32_t m_endpoint_codebook_size;
 
+		uint32_t m_tables_ofs;
 		uint32_t m_tables_size;
+
 		uint32_t m_slices_size;	
 
 		basis_texture_type m_tex_type;

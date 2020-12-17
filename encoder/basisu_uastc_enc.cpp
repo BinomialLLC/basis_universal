@@ -3098,6 +3098,11 @@ namespace basisu
 
 	void encode_uastc(const uint8_t* pRGBAPixels, uastc_block& output_block, uint32_t flags)
 	{
+//		printf("encode_uastc: \n");
+//		for (int i = 0; i < 16; i++)
+//			printf("[%u %u %u %u] ", pRGBAPixels[i * 4 + 0], pRGBAPixels[i * 4 + 1], pRGBAPixels[i * 4 + 2], pRGBAPixels[i * 4 + 3]);
+//		printf("\n");
+
 		const color_rgba(*block)[4] = reinterpret_cast<const color_rgba(*)[4]>(pRGBAPixels);
 
 		bool solid_color = true, has_alpha = false, is_la = true;
@@ -3138,6 +3143,8 @@ namespace basisu
 			eac_a8_blk.m_multiplier = 1;
 
 			pack_uastc(output_block, solid_results, etc1_blk, etc1_bias, eac_a8_blk, false, false);
+
+//			printf(" Solid\n");
 
 			return;
 		}
@@ -3594,7 +3601,13 @@ namespace basisu
 
 		// Finally, pack the UASTC block with its hints and we're done.
 		pack_uastc(output_block, best_results, etc1_blk, etc1_bias, eac_a8_blk, bc1_hint0, bc1_hint1);
+
+//		printf(" Packed: ");
+//		for (int i = 0; i < 16; i++)
+//			printf("%X ", output_block.m_bytes[i]);
+//		printf("\n");
 	}
+
 	static bool uastc_recompute_hints(basist::uastc_block* pBlock, const color_rgba* pBlock_pixels, uint32_t flags, const unpacked_uastc_block *pUnpacked_blk)
 	{
 		unpacked_uastc_block unpacked_blk;
@@ -3761,7 +3774,7 @@ namespace basisu
 	{
 		std::size_t operator()(selector_bitsequence const& s) const noexcept
 		{
-			return hash_hsieh((uint8_t *)&s, sizeof(s)) ^ s.m_sel;
+			return static_cast<std::size_t>(hash_hsieh((uint8_t *)&s, sizeof(s)) ^ s.m_sel);
 		}
 	};
 		
@@ -4053,7 +4066,9 @@ namespace basisu
 				const uint32_t first_index = block_index_iter;
 				const uint32_t last_index = minimum<uint32_t>(num_blocks, block_index_iter + blocks_per_job);
 
+#ifndef __EMSCRIPTEN__
 				pJob_pool->add_job([first_index, last_index, pBlocks, pBlock_pixels, &params, flags, &total_skipped, &total_modified, &total_refined, &all_succeeded, &stat_mutex] {
+#endif
 
 					uint32_t job_skipped = 0, job_modified = 0, job_refined = 0;
 
@@ -4068,11 +4083,16 @@ namespace basisu
 						total_refined += job_refined;
 					}
 
+#ifndef __EMSCRIPTEN__
 					}
 				);
+#endif
+
 			} // block_index_iter
 
+#ifndef __EMSCRIPTEN__
 			pJob_pool->wait_for_all();
+#endif
 
 			status = all_succeeded;
 		}

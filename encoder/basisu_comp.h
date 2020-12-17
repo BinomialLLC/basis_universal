@@ -16,8 +16,8 @@
 #include "basisu_frontend.h"
 #include "basisu_backend.h"
 #include "basisu_basis_file.h"
-#include "transcoder/basisu_global_selector_palette.h"
-#include "transcoder/basisu_transcoder.h"
+#include "../transcoder/basisu_global_selector_palette.h"
+#include "../transcoder/basisu_transcoder.h"
 #include "basisu_uastc_enc.h"
 
 namespace basisu
@@ -40,6 +40,10 @@ namespace basisu
 	const uint32_t BASISU_MAX_SELECTOR_CLUSTERS = basisu_frontend::cMaxSelectorClusters;
 
 	const uint32_t BASISU_MAX_SLICES = 0xFFFFFF;
+
+	const int BASISU_RDO_UASTC_DICT_SIZE_DEFAULT = 32768;
+	const int BASISU_RDO_UASTC_DICT_SIZE_MIN = 256;
+	const int BASISU_RDO_UASTC_DICT_SIZE_MAX = 65536;
 
 	struct image_stats
 	{
@@ -181,7 +185,7 @@ namespace basisu
 		T m_max;
 		bool m_changed;
 	};
-
+		
 	struct basis_compressor_params
 	{
 		basis_compressor_params() :
@@ -199,7 +203,7 @@ namespace basisu
 			m_quality_level(-1),
 			m_pack_uastc_flags(cPackUASTCLevelDefault),
 			m_rdo_uastc_quality_scalar(1.0f, 0.001f, 10.0f),
-			m_rdo_uastc_dict_size(32768, 256, 65536),
+			m_rdo_uastc_dict_size(BASISU_RDO_UASTC_DICT_SIZE_DEFAULT, BASISU_RDO_UASTC_DICT_SIZE_MIN, BASISU_RDO_UASTC_DICT_SIZE_MAX),
 			m_rdo_uastc_max_allowed_rms_increase_ratio(UASTC_RDO_DEFAULT_MAX_ALLOWED_RMS_INCREASE_RATIO, .01f, 100.0f),
 			m_rdo_uastc_skip_block_rms_thresh(UASTC_RDO_DEFAULT_SKIP_BLOCK_RMS_THRESH, .01f, 100.0f),
 			m_pJob_pool(nullptr)
@@ -212,6 +216,7 @@ namespace basisu
 			m_pSel_codebook = NULL;
 
 			m_uastc.clear();
+			m_status_output.clear();
 
 			m_source_filenames.clear();
 			m_source_alpha_filenames.clear();
@@ -298,6 +303,9 @@ namespace basisu
 
 		// Flip images across Y axis
 		bool_param<false> m_y_flip;
+
+		// If true, the compressor will print basis status to stdout during compression.
+		bool_param<true> m_status_output;
 		
 		// Output debug information during compression
 		bool_param<false> m_debug;
@@ -339,8 +347,8 @@ namespace basisu
 		// Always put alpha slices in the output basis file, even when the input doesn't have alpha
 		bool_param<false> m_force_alpha; 
 		bool_param<true> m_multithreading;
-
-		// Swizzle incoming channels
+		
+		// Split the R channel to RGB and the G channel to alpha, then write a basis file with alpha channels
 		char m_swizzle[4];
 
 		bool_param<false> m_renormalize;
@@ -363,7 +371,7 @@ namespace basisu
 		param<int> m_mip_smallest_dimension;
 				
 		// Codebook size (quality) control. 
-		// If m_quality_level != -1, it controls the quality level. It ranges from [0,255].
+		// If m_quality_level != -1, it controls the quality level. It ranges from [0,255] or [BASISU_QUALITY_MIN, BASISU_QUALITY_MAX].
 		// Otherwise m_max_endpoint_clusters/m_max_selector_clusters controls the codebook sizes directly.
 		uint32_t m_max_endpoint_clusters;
 		uint32_t m_max_selector_clusters;

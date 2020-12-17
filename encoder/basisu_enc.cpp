@@ -17,7 +17,7 @@
 #include "basisu_resampler.h"
 #include "basisu_resampler_filters.h"
 #include "basisu_etc.h"
-#include "transcoder/basisu_transcoder.h"
+#include "../transcoder/basisu_transcoder.h"
 #include "basisu_bc7enc.h"
 #include "apg_bmp.h"
 #include "jpgd.h"
@@ -282,38 +282,36 @@ namespace basisu
 
 		return true;
 	}
-		
-	bool load_png(const char* pFilename, image& img)
+
+	bool load_png(const uint8_t *pBuf, size_t buf_size, image &img, const char *pFilename)
 	{
-		std::vector<uint8_t> buffer;
-		unsigned err = lodepng::load_file(buffer, std::string(pFilename));
-		if (err)
+		if (!buf_size)
 			return false;
 
-		unsigned w = 0, h = 0;
-				
-		if (sizeof(void *) == sizeof(uint32_t))
+		unsigned err = 0, w = 0, h = 0;
+
+		if (sizeof(void*) == sizeof(uint32_t))
 		{
 			// Inspect the image first on 32-bit builds, to see if the image would require too much memory.
 			lodepng::State state;
-			err = lodepng_inspect(&w, &h, &state, &buffer[0], buffer.size());
+			err = lodepng_inspect(&w, &h, &state, pBuf, buf_size);
 			if ((err != 0) || (!w) || (!h))
 				return false;
 
 			const uint32_t exepected_alloc_size = w * h * sizeof(uint32_t);
-	
+
 			// If the file is too large on 32-bit builds then just bail now, to prevent causing a memory exception.
 			if (exepected_alloc_size >= MAX_32BIT_ALLOC_SIZE)
 			{
-				error_printf("Image \"%s\" is too large (%ux%u) to process in a 32-bit build!\n", pFilename, w, h);
+				error_printf("Image \"%s\" is too large (%ux%u) to process in a 32-bit build!\n", (pFilename != nullptr) ? pFilename : "<memory>", w, h);
 				return false;
 			}
-			
+
 			w = h = 0;
 		}
-				
+
 		std::vector<uint8_t> out;
-		err = lodepng::decode(out, w, h, &buffer[0], buffer.size());
+		err = lodepng::decode(out, w, h, pBuf, buf_size);
 		if ((err != 0) || (!w) || (!h))
 			return false;
 
@@ -325,6 +323,17 @@ namespace basisu
 		memcpy(img.get_ptr(), &out[0], out.size());
 
 		return true;
+	}
+		
+	bool load_png(const char* pFilename, image& img)
+	{
+		std::vector<uint8_t> buffer;
+		unsigned err = lodepng::load_file(buffer, std::string(pFilename));
+		if (err)
+			return false;
+
+
+		return load_png(buffer.data(), buffer.size(), img, pFilename);
 	}
 
 	bool load_jpg(const char *pFilename, image& img)
@@ -391,7 +400,7 @@ namespace basisu
 			if ((!has_alpha) || ((image_save_flags & cImageSaveIgnoreAlpha) != 0))
 			{
 				const uint64_t total_bytes = (uint64_t)img.get_width() * 3U * (uint64_t)img.get_height();
-				uint8_vec rgb_pixels(total_bytes);
+				uint8_vec rgb_pixels(static_cast<size_t>(total_bytes));
 				uint8_t *pDst = &rgb_pixels[0];
 								
 				for (uint32_t y = 0; y < img.get_height(); y++)
@@ -1464,13 +1473,15 @@ namespace basisu
 		std::unique_lock<std::mutex> lock(m_mutex);
 
 		m_queue.emplace_back(std::move(job));
-
+						
 		const size_t queue_size = m_queue.size();
 
 		lock.unlock();
 
 		if (queue_size > 1)
+		{
 			m_has_work.notify_one();
+		}
 	}
 
 	void job_pool::wait_for_all()

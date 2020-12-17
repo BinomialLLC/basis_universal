@@ -9577,7 +9577,7 @@ namespace basist
 		uint32_t num_blocks_x, uint32_t num_blocks_y, uint32_t orig_width, uint32_t orig_height, uint32_t level_index,
 		uint32_t slice_offset, uint32_t slice_length,
 		uint32_t decode_flags,
-		bool basis_file_has_alpha_slices,
+		bool has_alpha,
 		bool is_video,
 		uint32_t output_row_pitch_in_blocks_or_pixels,
 		basisu_transcoder_state* pState,
@@ -9603,7 +9603,7 @@ namespace basist
 			}
 		}
 
-		if ((target_format == transcoder_texture_format::cTFPVRTC1_4_RGBA) && (!basis_file_has_alpha_slices))
+		if ((target_format == transcoder_texture_format::cTFPVRTC1_4_RGBA) && (!has_alpha))
 		{
 			// Switch to PVRTC1 RGB if the input doesn't have alpha.
 			target_format = transcoder_texture_format::cTFPVRTC1_4_RGB;
@@ -9628,7 +9628,7 @@ namespace basist
 		{
 			//status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cETC1, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
 			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + slice_offset, slice_length, block_format::cETC1,
-				bytes_per_block_or_pixel, false, basis_file_has_alpha_slices, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels, channel0, channel1);
+				bytes_per_block_or_pixel, false, has_alpha, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels, channel0, channel1);
 				
 			if (!status)
 			{
@@ -9640,7 +9640,7 @@ namespace basist
 		{
 			//status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cETC2_RGBA, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
 			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + slice_offset, slice_length, block_format::cETC2_RGBA,
-				bytes_per_block_or_pixel, false, basis_file_has_alpha_slices, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels, channel0, channel1);
+				bytes_per_block_or_pixel, false, has_alpha, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels, channel0, channel1);
 			if (!status)
 			{
 				BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_transcoder::transcode_image: transcode_slice() to ETC2 failed\n");
@@ -9652,7 +9652,7 @@ namespace basist
 			// TODO: ETC1S allows BC1 from alpha channel. That doesn't seem actually useful, though.
 			//status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cBC1, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
 			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + slice_offset, slice_length, block_format::cBC1,
-				bytes_per_block_or_pixel, true, basis_file_has_alpha_slices, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels, channel0, channel1);
+				bytes_per_block_or_pixel, true, has_alpha, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels, channel0, channel1);
 			if (!status)
 			{
 				BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_transcoder::transcode_image: transcode_slice() to BC1 failed\n");
@@ -9663,7 +9663,7 @@ namespace basist
 		{
 			//status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cBC3, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
 			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + slice_offset, slice_length, block_format::cBC3,
-				bytes_per_block_or_pixel, false, basis_file_has_alpha_slices, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels, channel0, channel1);
+				bytes_per_block_or_pixel, false, has_alpha, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels, channel0, channel1);
 			if (!status)
 			{
 				BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_transcoder::transcode_image: transcode_slice() to BC3 failed\n");
@@ -9674,10 +9674,10 @@ namespace basist
 		{
 			//status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cBC4, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState,
 			//	nullptr, 0,
-			//	((basis_file_has_alpha_slices) && (transcode_alpha_data_to_opaque_formats)) ? 3 : 0);
+			//	((has_alpha) && (transcode_alpha_data_to_opaque_formats)) ? 3 : 0);
 			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + slice_offset, slice_length, block_format::cBC4,
-				bytes_per_block_or_pixel, false, basis_file_has_alpha_slices, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels,
-				((basis_file_has_alpha_slices) && (transcode_alpha_data_to_opaque_formats)) ? 3 : 0);
+				bytes_per_block_or_pixel, false, has_alpha, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels,
+				((has_alpha) && (transcode_alpha_data_to_opaque_formats)) ? 3 : 0);
 			if (!status)
 			{
 				BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_transcoder::transcode_image: transcode_slice() to BC4 failed\n");
@@ -9690,7 +9690,7 @@ namespace basist
 			//	nullptr, 0,
 			//	0, 3);
 			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + slice_offset, slice_length, block_format::cBC5,
-				bytes_per_block_or_pixel, false, basis_file_has_alpha_slices, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels,
+				bytes_per_block_or_pixel, false, has_alpha, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels,
 				0, 3);
 			if (!status)
 			{
@@ -9703,7 +9703,7 @@ namespace basist
 		{
 			//status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cBC7, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
 			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + slice_offset, slice_length, block_format::cBC7,
-				bytes_per_block_or_pixel, false, basis_file_has_alpha_slices, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels);
+				bytes_per_block_or_pixel, false, has_alpha, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels);
 			if (!status)
 			{
 				BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_transcoder::transcode_image: transcode_slice() to BC7 failed\n");
@@ -9714,7 +9714,7 @@ namespace basist
 		{
 			//status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cPVRTC1_4_RGB, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
 			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + slice_offset, slice_length, block_format::cPVRTC1_4_RGB,
-				bytes_per_block_or_pixel, false, basis_file_has_alpha_slices, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels);
+				bytes_per_block_or_pixel, false, has_alpha, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels);
 			if (!status)
 			{
 				BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_transcoder::transcode_image: transcode_slice() to PVRTC1 RGB 4bpp failed\n");
@@ -9725,7 +9725,7 @@ namespace basist
 		{
 			//status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cPVRTC1_4_RGBA, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
 			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + slice_offset, slice_length, block_format::cPVRTC1_4_RGBA,
-				bytes_per_block_or_pixel, false, basis_file_has_alpha_slices, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels);
+				bytes_per_block_or_pixel, false, has_alpha, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels);
 			if (!status)
 			{
 				BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_transcoder::transcode_image: transcode_slice() to PVRTC1 RGBA 4bpp failed\n");
@@ -9736,7 +9736,7 @@ namespace basist
 		{
 			//status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cASTC_4x4, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
 			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + slice_offset, slice_length, block_format::cASTC_4x4,
-				bytes_per_block_or_pixel, false, basis_file_has_alpha_slices, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels);
+				bytes_per_block_or_pixel, false, has_alpha, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels);
 			if (!status)
 			{
 				BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_transcoder::transcode_image: transcode_slice() to ASTC 4x4 failed\n");
@@ -9768,10 +9768,10 @@ namespace basist
 		{
 			//status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cETC2_EAC_R11, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState,
 			//	nullptr, 0,
-			//	((basis_file_has_alpha_slices) && (transcode_alpha_data_to_opaque_formats)) ? 3 : 0);
+			//	((has_alpha) && (transcode_alpha_data_to_opaque_formats)) ? 3 : 0);
 			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + slice_offset, slice_length, block_format::cETC2_EAC_R11,
-				bytes_per_block_or_pixel, false, basis_file_has_alpha_slices, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels,
-				((basis_file_has_alpha_slices) && (transcode_alpha_data_to_opaque_formats)) ? 3 : 0);
+				bytes_per_block_or_pixel, false, has_alpha, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels,
+				((has_alpha) && (transcode_alpha_data_to_opaque_formats)) ? 3 : 0);
 			if (!status)
 			{
 				BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_transcoder::transcode_image: transcode_slice() to EAC R11 failed\n");
@@ -9784,7 +9784,7 @@ namespace basist
 			//	nullptr, 0,
 			//	0, 3);
 			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + slice_offset, slice_length, block_format::cETC2_EAC_RG11,
-				bytes_per_block_or_pixel, false, basis_file_has_alpha_slices, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels,
+				bytes_per_block_or_pixel, false, has_alpha, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels,
 				0, 3);
 			if (!status)
 			{
@@ -9796,7 +9796,7 @@ namespace basist
 		{
 			//status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cRGBA32, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
 			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + slice_offset, slice_length, block_format::cRGBA32,
-				bytes_per_block_or_pixel, false, basis_file_has_alpha_slices, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels);
+				bytes_per_block_or_pixel, false, has_alpha, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels);
 			if (!status)
 			{
 				BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_transcoder::transcode_image: transcode_slice() to RGBA32 failed\n");
@@ -9807,7 +9807,7 @@ namespace basist
 		{
 			//status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cRGB565, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
 			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + slice_offset, slice_length, block_format::cRGB565,
-				bytes_per_block_or_pixel, false, basis_file_has_alpha_slices, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels);
+				bytes_per_block_or_pixel, false, has_alpha, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels);
 			if (!status)
 			{
 				BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_transcoder::transcode_image: transcode_slice() to RGB565 failed\n");
@@ -9818,7 +9818,7 @@ namespace basist
 		{
 			//status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cBGR565, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
 			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + slice_offset, slice_length, block_format::cBGR565,
-				bytes_per_block_or_pixel, false, basis_file_has_alpha_slices, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels);
+				bytes_per_block_or_pixel, false, has_alpha, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels);
 			if (!status)
 			{
 				BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_transcoder::transcode_image: transcode_slice() to RGB565 failed\n");
@@ -9829,7 +9829,7 @@ namespace basist
 		{
 			//status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cRGBA4444, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
 			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + slice_offset, slice_length, block_format::cRGBA4444,
-				bytes_per_block_or_pixel, false, basis_file_has_alpha_slices, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels);
+				bytes_per_block_or_pixel, false, has_alpha, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels);
 			if (!status)
 			{
 				BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_transcoder::transcode_image: transcode_slice() to RGBA4444 failed\n");
@@ -10239,6 +10239,21 @@ namespace basist
 		image_info.m_total_blocks = image_info.m_num_blocks_x * image_info.m_num_blocks_y;
 		image_info.m_first_slice_index = slice_index;
 
+		image_info.m_rgb_file_ofs = slice_desc.m_file_ofs;
+		image_info.m_rgb_file_len = slice_desc.m_file_size;
+		image_info.m_alpha_file_ofs = 0;
+		image_info.m_alpha_file_len = 0;
+
+		if (pHeader->m_tex_format == (int)basis_tex_format::cETC1S)
+		{
+			if (pHeader->m_flags & cBASISHeaderFlagHasAlphaSlices)
+			{
+				assert((slice_index + 1) < (int)pHeader->m_total_slices);
+				image_info.m_alpha_file_ofs = pSlice_descs[slice_index + 1].m_file_ofs;
+				image_info.m_alpha_file_len = pSlice_descs[slice_index + 1].m_file_size;
+			}
+		}
+
 		return true;
 	}
 
@@ -10258,11 +10273,14 @@ namespace basist
 		file_info.m_total_header_size = sizeof(basis_file_header) + pHeader->m_total_slices * sizeof(basis_slice_desc);
 
 		file_info.m_total_selectors = pHeader->m_total_selectors;
+		file_info.m_selector_codebook_ofs = pHeader->m_selector_cb_file_ofs;
 		file_info.m_selector_codebook_size = pHeader->m_selector_cb_file_size;
 
 		file_info.m_total_endpoints = pHeader->m_total_endpoints;
+		file_info.m_endpoint_codebook_ofs = pHeader->m_endpoint_cb_file_ofs;
 		file_info.m_endpoint_codebook_size = pHeader->m_endpoint_cb_file_size;
 
+		file_info.m_tables_ofs = pHeader->m_tables_file_ofs;
 		file_info.m_tables_size = pHeader->m_tables_file_size;
 
 		file_info.m_tex_format = static_cast<basis_tex_format>(static_cast<int>(pHeader->m_tex_format));
@@ -12454,7 +12472,12 @@ namespace basist
 				bits = read_bits64(blk.m_bytes, bit_ofs, std::min<int>(64, 128 - (int)bit_ofs));
 			else
 			{
+#ifdef __EMSCRIPTEN__
+				bits = blk.m_dwords[2];
+				bits |= (((uint64_t)blk.m_dwords[3]) << 32U);
+#else
 				bits = blk.m_qwords[1];
+#endif
 				
 				if (bit_ofs >= 64U)
 					bits >>= (bit_ofs - 64U);

@@ -13,7 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
-#include "transcoder/basisu.h"
+#include "../transcoder/basisu.h"
 
 #define BASISU_RESAMPLER_DEBUG_OPS (0)
 #define BASISU_RESAMPLER_DEFAULT_FILTER "lanczos4"

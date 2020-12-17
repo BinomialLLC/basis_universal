@@ -18,15 +18,15 @@
 
 #include "transcoder/basisu.h"
 #include "transcoder/basisu_transcoder_internal.h"
-#include "basisu_enc.h"
-#include "basisu_etc.h"
-#include "basisu_gpu_texture.h"
-#include "basisu_frontend.h"
-#include "basisu_backend.h"
+#include "encoder/basisu_enc.h"
+#include "encoder/basisu_etc.h"
+#include "encoder/basisu_gpu_texture.h"
+#include "encoder/basisu_frontend.h"
+#include "encoder/basisu_backend.h"
 #include "transcoder/basisu_global_selector_palette.h"
-#include "basisu_comp.h"
+#include "encoder/basisu_comp.h"
 #include "transcoder/basisu_transcoder.h"
-#include "basisu_ssim.h"
+#include "encoder/basisu_ssim.h"
 
 // Set BASISU_CATCH_EXCEPTIONS if you want exceptions to crash the app, otherwise main() catches them.
 #define BASISU_CATCH_EXCEPTIONS 0
@@ -408,7 +408,7 @@ public:
 			else if (strcasecmp(pArg, "-force_alpha") == 0)
 				m_comp_params.m_force_alpha = true;
 			else if ((strcasecmp(pArg, "-separate_rg_to_color_alpha") == 0) ||
-					(strcasecmp(pArg, "-seperate_rg_to_color_alpha") == 0)) // was mispelled for a while - whoops!
+			        (strcasecmp(pArg, "-seperate_rg_to_color_alpha") == 0)) // was mispelled for a while - whoops!
 			{
 				m_comp_params.m_swizzle[0] = 0;
 				m_comp_params.m_swizzle[1] = 0;
@@ -1591,11 +1591,11 @@ static bool compare_mode(command_line_params &opts)
 	return true;
 }
 
-#include "basisu_astc_decomp.h"
-#include "basisu_pvrtc1_4.h"
+#include "encoder/basisu_astc_decomp.h"
+#include "encoder/basisu_pvrtc1_4.h"
 
 #define MINIZ_HEADER_FILE_ONLY
-#include "basisu_miniz.h"
+#include "encoder/basisu_miniz.h"
 static bool bench_mode(command_line_params& opts)
 {
 #if 0

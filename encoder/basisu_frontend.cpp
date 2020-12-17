@@ -17,7 +17,7 @@
 // This code originally supported full ETC1 and ETC1S, so there's some legacy stuff to be cleaned up in here.
 // Add endpoint tiling support (where we force adjacent blocks to use the same endpoints during quantization), for a ~10% or more increase in bitrate at same SSIM. The backend already supports this.
 //
-#include "transcoder/basisu.h"
+#include "../transcoder/basisu.h"
 #include "basisu_frontend.h"
 #include <unordered_set>
 #include <unordered_map>
@@ -78,6 +78,7 @@ namespace basisu
 		{
 			if (!p.m_pGlobal_sel_codebook)
 			{
+				debug_printf("basisu_frontend::init: No global sel codebook!\n");
 				assert(0);
 				return false;
 			}
@@ -481,8 +482,10 @@ namespace basisu
 		{
 			const uint32_t first_index = block_index_iter;                                        
 			const uint32_t last_index = minimum<uint32_t>(m_total_blocks, first_index + N);       
-                                                                                      
+
+#ifndef __EMSCRIPTEN__
 			m_params.m_pJob_pool->add_job( [this, first_index, last_index] {
+#endif
 
 				for (uint32_t block_index = first_index; block_index < last_index; block_index++) 
 				{
@@ -507,7 +510,7 @@ namespace basisu
 
 					optimizer.init(optimizer_params, optimizer_results);
 					optimizer.compute();
-			
+
 					etc_block &blk = m_etc1_blocks_etc1s[block_index];
 
 					memset(&blk, 0, sizeof(blk));
@@ -520,10 +523,15 @@ namespace basisu
 							blk.set_selector(x, y, selectors[x + y * 4]);
 				}
 
+#ifndef __EMSCRIPTEN__
 			} );
+#endif
+
 		}
-		                                     
+
+#ifndef __EMSCRIPTEN__
 		m_params.m_pJob_pool->wait_for_all();
+#endif
 	}
 
 	void basisu_frontend::init_endpoint_training_vectors()
@@ -540,7 +548,9 @@ namespace basisu
 			const uint32_t first_index = block_index_iter;
 			const uint32_t last_index = minimum<uint32_t>(m_total_blocks, first_index + N);
 
+#ifndef __EMSCRIPTEN__
 			m_params.m_pJob_pool->add_job( [this, first_index, last_index, &training_vecs] {
+#endif
 
 				for (uint32_t block_index = first_index; block_index < last_index; block_index++)
 				{			
@@ -562,11 +572,15 @@ namespace basisu
 
 				} // block_index;
 
+#ifndef __EMSCRIPTEN__
 			} );
+#endif
 
 		} // block_index_iter
 
+#ifndef __EMSCRIPTEN__
 		m_params.m_pJob_pool->wait_for_all();
+#endif
 	}
 
 	void basisu_frontend::generate_endpoint_clusters()
@@ -707,7 +721,9 @@ namespace basisu
 			const uint32_t first_index = cluster_index_iter;                                    
 			const uint32_t last_index = minimum<uint32_t>((uint32_t)m_endpoint_clusters.size(), cluster_index_iter + N);   
 
+#ifndef __EMSCRIPTEN__
 			m_params.m_pJob_pool->add_job( [this, first_index, last_index] {
+#endif
 
 				for (uint32_t cluster_index = first_index; cluster_index < last_index; cluster_index++)
 				{
@@ -775,10 +791,15 @@ namespace basisu
 					}
 				} // cluster_index
 
+#ifndef __EMSCRIPTEN__
 			} );
+#endif
+
 		} // cluster_index_iter
 
+#ifndef __EMSCRIPTEN__
 		m_params.m_pJob_pool->wait_for_all();
+#endif
 
 		vector_sort(m_subblock_endpoint_quant_err_vec);
 	}
@@ -893,8 +914,10 @@ namespace basisu
 		{
 			const uint32_t first_index = cluster_index_iter;                                    
 			const uint32_t last_index = minimum<uint32_t>((uint32_t)m_endpoint_clusters.size(), cluster_index_iter + N);   
-			
+
+#ifndef __EMSCRIPTEN__
 			m_params.m_pJob_pool->add_job( [this, first_index, last_index, step ] {
+#endif
 
 				for (uint32_t cluster_index = first_index; cluster_index < last_index; cluster_index++)
 				{
@@ -1012,11 +1035,15 @@ namespace basisu
 				
 				} // cluster_index
 
+#ifndef __EMSCRIPTEN__
 			} );
+#endif
 
 		} // cluster_index_iter
 
+#ifndef __EMSCRIPTEN__
 		m_params.m_pJob_pool->wait_for_all();
+#endif
 	}
 
 	bool basisu_frontend::check_etc1s_constraints() const
@@ -1081,7 +1108,9 @@ namespace basisu
 			const uint32_t first_index = block_index_iter;
 			const uint32_t last_index = minimum<uint32_t>(m_total_blocks, first_index + N);
 
+#ifndef __EMSCRIPTEN__
 			m_params.m_pJob_pool->add_job( [this, first_index, last_index, &best_cluster_indices, &block_clusters] {
+#endif
 
 				for (uint32_t block_index = first_index; block_index < last_index; block_index++)
 				{
@@ -1154,12 +1183,16 @@ namespace basisu
 					best_cluster_indices[block_index] = best_cluster_index;
 
 				} // block_index
-			
+
+#ifndef __EMSCRIPTEN__
 			} );
+#endif
 						
 		} // block_index_iter
-		
+
+#ifndef __EMSCRIPTEN__
 		m_params.m_pJob_pool->wait_for_all();
+#endif
 
 		std::vector<typename std::vector<uint32_t> > optimized_endpoint_clusters(m_endpoint_clusters.size());
 		uint32_t total_subblocks_reassigned = 0;
@@ -1264,7 +1297,9 @@ namespace basisu
 			const uint32_t first_index = block_index_iter;
 			const uint32_t last_index = minimum<uint32_t>(m_total_blocks, first_index + N);
 
+#ifndef __EMSCRIPTEN__
 			m_params.m_pJob_pool->add_job( [this, first_index, last_index] {
+#endif
 				
 				for (uint32_t block_index = first_index; block_index < last_index; block_index++)
 				{
@@ -1288,12 +1323,16 @@ namespace basisu
 					blk.determine_selectors(pSource_pixels, m_params.m_perceptual);
 						
 				} // block_index
-			
+
+#ifndef __EMSCRIPTEN__
 			} );
+#endif
 
 		} // block_index_iter
 
+#ifndef __EMSCRIPTEN__
 		m_params.m_pJob_pool->wait_for_all();
+#endif
 
 		m_orig_encoded_blocks = m_encoded_blocks;
 	}
@@ -1355,7 +1394,9 @@ namespace basisu
 			const uint32_t first_index = block_index_iter;
 			const uint32_t last_index = minimum<uint32_t>(m_total_blocks, first_index + N);
 
+#ifndef __EMSCRIPTEN__
 			m_params.m_pJob_pool->add_job( [this, first_index, last_index, &training_vecs] {
+#endif
 
 				for (uint32_t block_index = first_index; block_index < last_index; block_index++)
 				{
@@ -1382,11 +1423,15 @@ namespace basisu
 				
 				} // block_index
 
+#ifndef __EMSCRIPTEN__
 			} );
+#endif
 
 		} // block_index_iter
 
+#ifndef __EMSCRIPTEN__
 		m_params.m_pJob_pool->wait_for_all();
+#endif
 
 		vec16F_clusterizer selector_clusterizer;
 		for (uint32_t i = 0; i < m_total_blocks; i++)
@@ -1474,8 +1519,10 @@ namespace basisu
 			{
 				const uint32_t first_index = cluster_index_iter;                                    
 				const uint32_t last_index = minimum<uint32_t>((uint32_t)total_selector_clusters, cluster_index_iter + N);   
-			
+
+#ifndef __EMSCRIPTEN__
 				m_params.m_pJob_pool->add_job( [this, first_index, last_index, &total_clusters_processed, &total_selector_clusters] {
+#endif
 					
 					for (uint32_t cluster_index = first_index; cluster_index < last_index; cluster_index++)
 					{
@@ -1528,11 +1575,15 @@ namespace basisu
 
 					} // cluster_index
 
+#ifndef __EMSCRIPTEN__
 				} );
+#endif
 
 			} // cluster_index_iter
 
+#ifndef __EMSCRIPTEN__
 			m_params.m_pJob_pool->wait_for_all();
+#endif
 		}
 		else
 		{
@@ -1552,8 +1603,10 @@ namespace basisu
 			{
 				const uint32_t first_index = cluster_index_iter;                                    
 				const uint32_t last_index = minimum<uint32_t>((uint32_t)total_selector_clusters, cluster_index_iter + N);   
-			
+
+#ifndef __EMSCRIPTEN__			
 				m_params.m_pJob_pool->add_job( [this, first_index, last_index, &uses_hybrid_sel_codebook, &total_clusters_processed, &total_selector_clusters] {
+#endif
 					
 					for (uint32_t cluster_index = first_index; cluster_index < last_index; cluster_index++)
 					{
@@ -1667,11 +1720,15 @@ namespace basisu
 
 					} // cluster_index
 
+#ifndef __EMSCRIPTEN__
 				} );
+#endif
 
 			} // cluster_index_iter
 
+#ifndef __EMSCRIPTEN__
 			m_params.m_pJob_pool->wait_for_all();
+#endif
 
 		} // if (m_params.m_pGlobal_sel_codebook)
 
@@ -1741,7 +1798,9 @@ namespace basisu
 				const uint32_t first_index = block_index_iter;
 				const uint32_t last_index = minimum<uint32_t>(m_total_blocks, first_index + N);
 
+#ifndef __EMSCRIPTEN__
 				m_params.m_pJob_pool->add_job( [this, first_index, last_index, &new_cluster_indices] {
+#endif
 
 				for (uint32_t block_index = first_index; block_index < last_index; block_index++)
 				{
@@ -1804,11 +1863,15 @@ namespace basisu
 					
 				} // block_index
 
+#ifndef __EMSCRIPTEN__
 				} );
+#endif
 
 			} // block_index_iter
-						
+
+#ifndef __EMSCRIPTEN__
 			m_params.m_pJob_pool->wait_for_all();
+#endif
 			
 			m_selector_cluster_indices.swap(new_cluster_indices);
 		}
@@ -2112,8 +2175,11 @@ namespace basisu
 		{
 			const uint32_t first_index = cluster_index_iter;                                    
 			const uint32_t last_index = minimum<uint32_t>((uint32_t)new_endpoint_cluster_block_indices.size(), cluster_index_iter + N);   
-			
+
+#ifndef __EMSCRIPTEN__
 			m_params.m_pJob_pool->add_job( [this, first_index, last_index, &cluster_improved, &cluster_valid, &new_endpoint_cluster_block_indices, &pBlock_selector_indices ] {
+#endif
+
 				for (uint32_t cluster_index = first_index; cluster_index < last_index; cluster_index++)
 				{
 					const std::vector<uint32_t>& cluster_block_indices = new_endpoint_cluster_block_indices[cluster_index];
@@ -2198,11 +2264,16 @@ namespace basisu
 					cluster_valid[cluster_index] = true;
 
 				} // cluster_index
+
+#ifndef __EMSCRIPTEN__
 			} );
+#endif
 
 		} // cluster_index_iter
 
+#ifndef __EMSCRIPTEN__
 		m_params.m_pJob_pool->wait_for_all();
+#endif
 				
 		uint32_t total_unused_clusters = 0;
 		uint32_t total_improved_clusters = 0;
