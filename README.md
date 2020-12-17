@@ -76,6 +76,13 @@ before any build artifacts have been created.
 
 ### Release notes
 
+12/17/20 release notes:
+- All encoder/compressor files moved to the "encoder" directory. The encoder can be easily placed into a library now.
+- Encoder now supports being compiled to WebAssembly using emscripten. (Currently multithreading is disabled, but we hope to enable it soon once we figure out why std::function and lambdas are failing with a stack overflow.)
+- Added the webgl/encode directory, which compiles the encoder and transcoder to WebAssembly.
+- Added the webgl/encode_test sample, which shows how to use the compressor from JavaScript.
+- Added new API's to the JavaScript wrappers in webgl/transcoder/basis_wrappers.cpp. There are now JavaScript wrappers for  compression, container independent transcoding, and .basis file information retrieival. Added lots of comments to basis_wrappers.cpp.
+
 3/25/20 release notes:
 - Added fuzz-safe JPEG reading. We support full-safe JPEG/BMP/TGA/PNG now.
 
