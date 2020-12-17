@@ -1,0 +1,4 @@
+build/*
+!build/basis_loader.js
+!build/basis_encoder.js
+!build/basis_encoder.wasm
