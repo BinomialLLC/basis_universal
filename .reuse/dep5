@@ -7,14 +7,14 @@ Files: *
 Copyright: 2019-2020 Binomial LLC
 License: Apache-2.0
 
-Files: apg_bmp.* CMakeLists.txt webgl/transcoder/CMakeLists.txt
+Files: encoder/apg_bmp.* CMakeLists.txt webgl/transcoder/CMakeLists.txt
 Copyright: 2019 Anton Gerdelan
 License: Apache-2.0
 
-Files: basisu_astc_decomp.*
+Files: encoder/basisu_astc_decomp.*
 Copyright: 2016 The Android Open Source Project
 License: Apache-2.0
 
-Files: lodepng.*
+Files: encoder/lodepng.*
 Copyright: 2005-2019 Lode Vandevenne
 License: Zlib
