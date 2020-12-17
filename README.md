@@ -35,7 +35,7 @@ The encoder uses [tcuAstcUtil.cpp](https://chromium.googlesource.com/external/de
 
 ### WebAssembly Support Using Emscripten
 
-Both the transcoder and now the compressor (as of 12/17/2020) may be compiled using emscripten to WebAssembly and used on the web. Currently, multithreading is not supported by the encoder when compiled with emscripten. An simple Web encoding demo is in webgl/encode_test.
+Both the transcoder and now the compressor (as of 12/17/2020) may be compiled using emscripten to WebAssembly and used on the web. Currently, multithreading is not supported by the compressor when compiled with emscripten. A simple Web compression demo is in webgl/encode_test. All compressor features, including texture video, are supported and fully exposed.
 
 To enable compression support compile the JavaScript wrappers in webgl/transcoding/basis_wrappers.cpp with BASISU_SUPPORT_ENCODING set to 1. See the webgl/encoding directory. 
 
