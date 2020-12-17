@@ -256,10 +256,11 @@ Compress a mipmapped x.basis file from an sRGB image named x.png, Y flip each so
 
 ### WebGL test 
 
-The "WebGL" directory contains two very simple WebGL demos that use the transcoder compiled to wasm with [emscripten](https://emscripten.org/). See more details [here](webgl/README.md).
+The "WebGL" directory contains three simple WebGL demos that use the transcoder and compressor compiled to wasm with [emscripten](https://emscripten.org/). See more details [here](webgl/README.md).
 
 ![Screenshot of 'texture' example running in a browser.](webgl/texture/preview.png)
 ![Screenshot of 'gltf' example running in a browser.](webgl/gltf/preview.png)
+![Screenshot of 'encode_test' example running in a browser.](webgl/encode_test/preview.png)
 
 ### .basis baseline file format forwards and backwards compatibility
 
