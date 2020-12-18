@@ -154,19 +154,7 @@ If you are doing rate distortion comparisons vs. other similar systems, be sure 
 
 For video, level 1 should result in decent results on most clips. For less banding, level 2 can make a big difference. This is still an active area of development, and quality/encoding perf. will improve over time.
 
-### ETC1S Compression levels (advanced option)
-
-The encoder supports multiple compression "effort" levels using the "-comp_level X" command line option, where X ranges from [0,5]. Note that most users shouldn't be messing around with -comp_level. The -q option is the main option to control the quality level of .basis files. -comp_level is mostly intended for harder to handle content such as texture video. It modifies a number of internal encoder configuration parameters, which slows it down a bunch but allows it to achieve slightly higher quality per output bit.
-
-This option (along with -q or manually setting the codebook sizes) controls the tradeoff between encoding time and overall quality. The default is level 1, which is the sweet spot between encoding speed vs. overall quality. Here's a graph showing the encoding time and average quality across 59 images for each level:
-
-![Encoder Level vs. Time/Quality Graph](https://github.com/BinomialLLC/basis_universal/blob/master/encoder_lvl_vs_perf.png "Encoder Level vs. Encoding Time/Quality")
-
-This benchmark was done on a 20 core Xeon workstation. The results will be different on less powerful machines.
-
-Level 0 is fast, but this level disables several backend optimizations so it will generate larger files. It will also be quite brittle on complex textures or artificial textures.
-
-Note that -comp_level 2 is equivalent to the initial release's default, and -comp_level 4 is equivalent to the initial release's "-slower" option. Also, -slower is now equivalent to level 2 (not 4).
+[ETC1S Compression Effort Levels](https://github.com/BinomialLLC/basis_universal/wiki/ETC1S-Compression-Effort-Levels)
 
 ### More detailed examples
 
