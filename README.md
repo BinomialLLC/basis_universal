@@ -15,6 +15,8 @@ So far, we've compiled the code using MSVS 2019, under Ubuntu x64 using cmake wi
 
 Basis Universal supports "skip blocks" in ETC1S compressed texture arrays, which makes it useful for basic [compressed texture video](http://gamma.cs.unc.edu/MPTC/) applications. Note that Basis Universal is still at heart a GPU texture compression system, not a video codec, so bitrates will be larger than even MPEG1.
 
+[Release Notes](https://github.com/BinomialLLC/basis_universal/wiki/Release-Notes)
+
 ### Important Usage Notes
 
 Probably the most important concept to understand about Basis Universal before using it: The system supports **two** very different universal texture modes: The original "ETC1S" mode is low/medium quality, but the resulting file sizes are very small because the system has built-in compression for ETC1S texture format files. This is the command line encoding tool's default mode. ETC1S textures work best on images, photos, map data, or albedo/specular/etc. textures, but don't work as well on normal maps. There's the second "UASTC" mode, which is significantly higher quality (near-BC7 grade), and is usable on all texture types including complex normal maps. UASTC mode purposely does not have built-in file compression like ETC1S mode does, so the resulting files are quite large (8-bits/texel - same as BC7) compared to ETC1S mode. The UASTC encoder has an optional Rate Distortion Optimization (RDO) encoding mode (implemented as a post-process over the encoded UASTC texture data), which lowers the output data's entropy in a way that results in better compression when UASTC .basis files are compressed with Deflate/Zstd, etc. In UASTC mode, you must losslessly compress the file yourself.
@@ -72,56 +74,6 @@ licensing to ensure the entire repository has explicit licensing information.
 To ensure continued REUSE compliance, run `reuse lint` at the root of
 a clean, checked-out repository periodically, or run it during CI tests
 before any build artifacts have been created.
-
-
-### Release notes
-
-12/17/20 release notes:
-- All encoder/compressor files moved to the "encoder" directory. The encoder can be easily placed into a library now.
-- Encoder now supports being compiled to WebAssembly using emscripten. (Currently multithreading is disabled, but we hope to enable it soon once we figure out why std::function and lambdas are failing with a stack overflow.)
-- Added the webgl/encode directory, which compiles the encoder and transcoder to WebAssembly.
-- Added the webgl/encode_test sample, which shows how to use the compressor from JavaScript.
-- Added new API's to the JavaScript wrappers in webgl/transcoder/basis_wrappers.cpp. There are now JavaScript wrappers for  compression, container independent transcoding, and .basis file information retrieival. Added lots of comments to basis_wrappers.cpp. Every codec feature is now available from JavaScript.
-
-3/25/20 release notes:
-- Added fuzz-safe JPEG reading. We support full-safe JPEG/BMP/TGA/PNG now.
-
-3/14/20 release notes:
-- UASTC support is in. We have removed BC7 mode 6 support from the ETC1S transcoder to reduce its size, although the format enum still works (it aliases to BC7 mode 5). We are still updating the docs for UASTC.
-- Adding fuzz-safe BMP support using apg_bmp. We will be adding fuzz-safe JPEG and TGA next.
-
-9/26/19 release notes:
-- Automatic global selector palettes are disabled by default, because searching the virtual selector codebook is very slow.
-You can enable them by specifying -auto_global_sel_pal on the command line, for slightly smaller files on small textures/images.
-- PVRTC2 RGB support added. This format looks great and transcoding is fast - approximately as good as BC1. It supports non-power of 2, non-square textures, and should be used instead of PVRTC1 whenever possible.
-- PVRTC2 RGBA support added. This format looks OK if the texture has a very simple alpha channel (like simple opacity mask). The texture should use premulitplied alpha, otherwise on alpha=0 pixels the color channel may slightly leak into the alpha channel due to issues with the PVRTC2 format itself. Transcoding is fast unless the texture's alpha channel is very complex.
-It's a tossup whether PVRTC1 or PVRTC2 would look better for alpha textures. 
-- ETC2 EAC R11/RG11 (unsigned) support checked in. Thanks to Juan Linietsky for suggesting it.
-- The format enum names have changed, but I tried to keep compatibility with old code. The actual values haven't changed so Javascript code should work without modifications. 
-- We're now using "enum class transcoder_texture_format" instead of "enum transcoder_texture_format" in basisu_transcoder.h
-- Fixed a couple encoder bugs (one assert in basisu_enc.h), and a uninitialized variable issue in the frontend. Neither issue would cause corrupted files or artifacts.
-- FXT1 RGB support is checked in, for Intel/3DFX GPU's. Mostly for completeness and to test block sizes other than 4x4.
-- The PVRTC1 wrap vs. clamp flag has been removed from the entire codebase, because PVRTC1 always uses wrap addressing when fetching the adjacent blocks (even when the user selects clamp UV addressing).
-
-Milestone 2 (9/19/19) release notes:
-
-- **Beware that the "transcoder_texture_format" enum names and their values are in flux** as we add new texture formats.
-This issue particularly affects Javascript code. Passing the old enum values to the transcoder will cause bugs. 
-We are adding a few more texture formats, renaming the enums and then stabilizing them on the next minor release (within a couple days or so).
-- This is a major transcoder update. The encoder hasn't been modified at all. 
-A minor update will be coming in a couple days which adds additional lower priority formats (notable PVRTC2 4bpp RGB) to the transcoder.
-- When the "BASISD_SUPPORT_BC7" transcoder macro is set to 0, both mode 5 and mode 6 BC7 transcoders are disabled.
-When cross compiling the transcoder for Web use to WebAssembly/asm.js, be sure to set BASISD_SUPPORT_BC7=0. You can also just disable the mode 6 transcoder by just setting BASISD_SUPPORT_BC7_MODE6_OPAQUE_ONLY=0.
-The older BC7 mode-6 RGB function seriously bloats the transcoder's compiled size. (The mode-6 transcoder is of marginal value and might be disabled by default or just removed.) The new BC7 mode 5 RGB/RGBA transcoder uses substantially smaller lookup tables and provides basically the same quality as mode-6 for RGB (becaue we're starting with ETC1S texture data.)
-Set BASISD_SUPPORT_BC7_MODE6_OPAQUE_ONLY to 0 when compiling on platforms which don't support BC7 well/at all, or if transcoder size is an issue.
-- Added ATC RGB/RGBA, ASTC 4x4 L/LA/RGB/RGBA, BC7 mode 5 RGB/RGBA, and PVRTC1 4bpp RGBA support to the transcoder and KTX writer.
-- Major perf. optimizations to all the transcoders. Transcoding to BC1 is approx. 2x faster when compiled native and executed on a Core i7. Similar perf. improvements should be seen when executed in WebAssembly. This was done by more closely coupling the .basis file decompression and format transcoding steps (before we unpacked to plain ETC1/ETC1S, then transcoded those bits, which was costly.)
-- PVRTC1 4bpp RGB opaque is slightly higher quality 
-- Added various uncompressed raster pixel formats to the transcoder. When outputting raw pixels, the transcoder writes to regular raster images, not blocks. 
-No dithering or downsampling yet, but it's coming.
-A couple of the parameters to basisu_transcoder::transcode_image_level() and  basisu_transcoder::transcode_slice() have new meanings when these methods are used with uncompressed raster pixel formats:
-"output_blocks_buf_size_in_blocks_or_pixels" and "output_row_pitch_in_blocks_or_pixels". There's also a new parameter, "output_rows_in_pixels". When transcoding to uncompressed raster pixel formats, these parameters are in pixels, not blocks. The output buffer is also treated as a plain raster image, not a 2D array of compressed blocks. These parameters are sanity checked, and if they look fishy the transcoder will return an error.
-- basisu command line tool's "-level" command line option changed to "-comp_level", to avoid confusion vs. the "-q" option. This option is NOT the same as the -q option, which directly controls the output quality. Most users shouldn't use this option. (See below.)
 
 ### Command Line Compression Tool
 
