@@ -74,7 +74,7 @@ namespace basist
 		
 		// Uncompressed (raw pixel) formats
 		cTFRGBA32 = 13,							// 32bpp RGBA image stored in raster (not block) order in memory, R is first byte, A is last byte.
-		cTFRGB565 = 14,							// 166pp RGB image stored in raster (not block) order in memory, R at bit position 11
+		cTFRGB565 = 14,							// 16bpp RGB image stored in raster (not block) order in memory, R at bit position 11
 		cTFBGR565 = 15,							// 16bpp RGB image stored in raster (not block) order in memory, R at bit position 0
 		cTFRGBA4444 = 16,							// 16bpp RGBA image stored in raster (not block) order in memory, R at bit position 12, A at bit position 0
 
