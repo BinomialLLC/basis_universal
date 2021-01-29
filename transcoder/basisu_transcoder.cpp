@@ -8823,7 +8823,7 @@ namespace basist
 #if !BASISD_SUPPORT_DXT1
 			BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: BC1/DXT1 unsupported\n");
 			return false;
-#endif
+#else
 			// status = transcode_slice(pData, data_size, slice_index_to_decode, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cBC1, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
 			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pData, data_len, block_format::cBC1, bytes_per_block_or_pixel, true, is_video, is_alpha_slice, level_index, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, false, nullptr, output_rows_in_pixels);
 			if (!status)
@@ -8831,13 +8831,14 @@ namespace basist
 				BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: transcode_slice() to BC1 failed\n");
 			}
 			break;
+#endif
 		}
 		case transcoder_texture_format::cTFBC4_R:
 		{
 #if !BASISD_SUPPORT_DXT5A
 			BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: BC4/DXT5A unsupported\n");
 			return false;
-#endif
+#else
 			//status = transcode_slice(pData, data_size, slice_index_to_decode, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cBC4, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
 			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pData, data_len, block_format::cBC4, bytes_per_block_or_pixel, false, is_video, is_alpha_slice, level_index, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, false, nullptr, output_rows_in_pixels);
 			if (!status)
@@ -8845,13 +8846,14 @@ namespace basist
 				BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: transcode_slice() to BC4 failed\n");
 			}
 			break;
+#endif
 		}
 		case transcoder_texture_format::cTFPVRTC1_4_RGB:
 		{
 #if !BASISD_SUPPORT_PVRTC1
 			BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: PVRTC1 4 unsupported\n");
 			return false;
-#endif
+#else
 			// output_row_pitch_in_blocks_or_pixels is actually ignored because we're transcoding to PVRTC1. (Print a dev warning if it's != 0?)
 			//status = transcode_slice(pData, data_size, slice_index_to_decode, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cPVRTC1_4_RGB, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
 			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pData, data_len, block_format::cPVRTC1_4_RGB, bytes_per_block_or_pixel, false, is_video, is_alpha_slice, level_index, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, false, nullptr, output_rows_in_pixels);
@@ -8860,13 +8862,14 @@ namespace basist
 				BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: transcode_slice() to PVRTC1 4 RGB failed\n");
 			}
 			break;
+#endif
 		}
 		case transcoder_texture_format::cTFPVRTC1_4_RGBA:
 		{
 #if !BASISD_SUPPORT_PVRTC1
 			BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: PVRTC1 4 unsupported\n");
 			return false;
-#endif
+#else
 			assert(basis_file_has_alpha_slices);
 			assert(alpha_length);
 
@@ -8892,6 +8895,7 @@ namespace basist
 			}
 
 			break;
+#endif
 		}
 		case transcoder_texture_format::cTFBC7_RGBA:
 		case transcoder_texture_format::cTFBC7_ALT:
@@ -8927,7 +8931,7 @@ namespace basist
 #if !BASISD_SUPPORT_ETC2_EAC_A8
 			BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: ETC2 EAC A8 unsupported\n");
 			return false;
-#endif
+#else
 			assert(bytes_per_block_or_pixel == 16);
 
 			if (basis_file_has_alpha_slices)
@@ -8958,17 +8962,17 @@ namespace basist
 				BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: transcode_slice() to ETC2 A failed\n");
 			}
 			break;
+#endif
 		}
 		case transcoder_texture_format::cTFBC3_RGBA:
 		{
 #if !BASISD_SUPPORT_DXT1
 			BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: DXT1 unsupported\n");
 			return false;
-#endif
-#if !BASISD_SUPPORT_DXT5A
+#elif !BASISD_SUPPORT_DXT5A
 			BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: DXT5A unsupported\n");
 			return false;
-#endif
+#else
 			assert(bytes_per_block_or_pixel == 16);
 						
 			// First decode the alpha data 
@@ -8999,13 +9003,14 @@ namespace basist
 			}
 
 			break;
+#endif
 		}
 		case transcoder_texture_format::cTFBC5_RG:
 		{
 #if !BASISD_SUPPORT_DXT5A
 			BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: DXT5A unsupported\n");
 			return false;
-#endif
+#else
 			assert(bytes_per_block_or_pixel == 16);
 
 			//bool transcode_slice(void* pDst_blocks, uint32_t num_blocks_x, uint32_t num_blocks_y, const uint8_t* pImage_data, uint32_t image_data_size, block_format fmt,
@@ -9038,13 +9043,14 @@ namespace basist
 				BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: transcode_slice() to BC5 channel 0 failed\n");
 			}
 			break;
+#endif
 		}
 		case transcoder_texture_format::cTFASTC_4x4_RGBA:
 		{
 #if !BASISD_SUPPORT_ASTC
 			BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: ASTC unsupported\n");
 			return false;
-#endif
+#else
 			assert(bytes_per_block_or_pixel == 16);
 
 			if (basis_file_has_alpha_slices)
@@ -9070,13 +9076,14 @@ namespace basist
 			}
 
 			break;
+#endif
 		}
 		case transcoder_texture_format::cTFATC_RGB:
 		{
 #if !BASISD_SUPPORT_ATC
 			BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: ATC unsupported\n");
 			return false;
-#endif
+#else
 			//status = transcode_slice(pData, data_size, slice_index_to_decode, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cATC_RGB, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
 			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pData, data_len, block_format::cATC_RGB, bytes_per_block_or_pixel, false, is_video, is_alpha_slice, level_index, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, false, nullptr, output_rows_in_pixels);
 			if (!status)
@@ -9084,17 +9091,17 @@ namespace basist
 				BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: transcode_slice() to ATC_RGB failed\n");
 			}
 			break;
+#endif
 		}
 		case transcoder_texture_format::cTFATC_RGBA:
 		{
 #if !BASISD_SUPPORT_ATC
 			BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: ATC unsupported\n");
 			return false;
-#endif
-#if !BASISD_SUPPORT_DXT5A
+#elif !BASISD_SUPPORT_DXT5A
 			BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: DXT5A unsupported\n");
 			return false;
-#endif
+#else
 			assert(bytes_per_block_or_pixel == 16);
 
 			// First decode the alpha data 
@@ -9123,13 +9130,14 @@ namespace basist
 				BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: transcode_slice() to ATC A failed\n");
 			}
 			break;
+#endif
 		}
 		case transcoder_texture_format::cTFPVRTC2_4_RGB:
 		{
 #if !BASISD_SUPPORT_PVRTC2
 			BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: PVRTC2 unsupported\n");
 			return false;
-#endif
+#else
 			//status = transcode_slice(pData, data_size, slice_index_to_decode, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cPVRTC2_4_RGB, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
 			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pData, data_len, block_format::cPVRTC2_4_RGB, bytes_per_block_or_pixel, false, is_video, is_alpha_slice, level_index, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, false, nullptr, output_rows_in_pixels);
 			if (!status)
@@ -9137,13 +9145,14 @@ namespace basist
 				BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: transcode_slice() to cPVRTC2_4_RGB failed\n");
 			}
 			break;
+#endif
 		}
 		case transcoder_texture_format::cTFPVRTC2_4_RGBA:
 		{
 #if !BASISD_SUPPORT_PVRTC2
 			BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: PVRTC2 unsupported\n");
 			return false;
-#endif
+#else
 			if (basis_file_has_alpha_slices)
 			{
 				// First decode the alpha data to the output (we're using the output texture as a temp buffer here).
@@ -9170,6 +9179,7 @@ namespace basist
 			}
 
 			break;
+#endif
 		}
 		case transcoder_texture_format::cTFRGBA32:
 		{
@@ -9244,7 +9254,7 @@ namespace basist
 #if !BASISD_SUPPORT_FXT1
 			BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: FXT1 unsupported\n");
 			return false;
-#endif
+#else
 			//status = transcode_slice(pData, data_size, slice_index_to_decode, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cFXT1_RGB, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
 			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pData, data_len, block_format::cFXT1_RGB, bytes_per_block_or_pixel, false, is_video, is_alpha_slice, level_index, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, false, nullptr, output_rows_in_pixels);
 			if (!status)
@@ -9252,13 +9262,14 @@ namespace basist
 				BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: transcode_slice() to FXT1_RGB failed\n");
 			}
 			break;
+#endif
 		}
 		case transcoder_texture_format::cTFETC2_EAC_R11:
 		{
 #if !BASISD_SUPPORT_ETC2_EAC_RG11
 			BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: EAC_RG11 unsupported\n");
 			return false;
-#endif
+#else
 			//status = transcode_slice(pData, data_size, slice_index_to_decode, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cETC2_EAC_R11, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
 			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pData, data_len, block_format::cETC2_EAC_R11, bytes_per_block_or_pixel, false, is_video, is_alpha_slice, level_index, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, false, nullptr, output_rows_in_pixels);
 			if (!status)
@@ -9267,13 +9278,14 @@ namespace basist
 			}
 
 			break;
+#endif
 		}
 		case transcoder_texture_format::cTFETC2_EAC_RG11:
 		{
 #if !BASISD_SUPPORT_ETC2_EAC_RG11
 			BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: EAC_RG11 unsupported\n");
 			return false;
-#endif
+#else
 			assert(bytes_per_block_or_pixel == 16);
 
 			if (basis_file_has_alpha_slices)
@@ -9304,6 +9316,7 @@ namespace basist
 			}
 
 			break;
+#endif
 		}
 		default:
 		{
@@ -9556,8 +9569,6 @@ namespace basist
 		BASISU_NOTE_UNUSED(channel1);
 		BASISU_NOTE_UNUSED(output_rows_in_pixels);
 		BASISU_NOTE_UNUSED(output_row_pitch_in_blocks_or_pixels);
-		BASISU_NOTE_UNUSED(slice_desc);
-		BASISU_NOTE_UNUSED(header);
 		BASISU_NOTE_UNUSED(output_block_or_pixel_stride_in_bytes);
 		BASISU_NOTE_UNUSED(fmt);
 		BASISU_NOTE_UNUSED(image_data_size);
