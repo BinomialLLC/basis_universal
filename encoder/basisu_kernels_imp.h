@@ -22,7 +22,7 @@ namespace CPPSPMD_NAME(basisu_kernels_namespace)
       void _call(int64_t* pDistance,
          const uint8_t* pSelectors,
          const color_rgba* pBlock_colors,
-         const color_rgba* pSrc_pixels, uint32_t n, 
+         const color_rgba* pSrc_pixels, uint32_t n,
          int64_t early_out_err)
       {
          assert(early_out_err >= 0);
@@ -110,7 +110,7 @@ namespace CPPSPMD_NAME(basisu_kernels_namespace)
       void _call(int64_t* pDistance,
          const uint8_t* pSelectors,
          const color_rgba* pBlock_colors,
-         const color_rgba* pSrc_pixels, uint32_t n, 
+         const color_rgba* pSrc_pixels, uint32_t n,
          int64_t early_out_err)
       {
          assert(early_out_err >= 0);
@@ -205,7 +205,7 @@ namespace CPPSPMD_NAME(basisu_kernels_namespace)
       void _call(int64_t* pDistance,
          uint8_t* pSelectors,
          const color_rgba* pBlock_colors,
-         const color_rgba* pSrc_pixels, uint32_t n, 
+         const color_rgba* pSrc_pixels, uint32_t n,
          int64_t early_out_err)
       {
          assert(early_out_err >= 0);
@@ -301,7 +301,7 @@ namespace CPPSPMD_NAME(basisu_kernels_namespace)
       void _call(int64_t* pDistance,
          uint8_t* pSelectors,
          const color_rgba* pBlock_colors,
-         const color_rgba* pSrc_pixels, uint32_t n, 
+         const color_rgba* pSrc_pixels, uint32_t n,
          int64_t early_out_err)
       {
          assert(early_out_err >= 0);
@@ -397,7 +397,7 @@ namespace CPPSPMD_NAME(basisu_kernels_namespace)
 
       void _call(int64_t* pDistance,
          const color_rgba* pBlock_colors,
-         const color_rgba* pSrc_pixels, uint32_t n, 
+         const color_rgba* pSrc_pixels, uint32_t n,
          int64_t early_out_error)
       {
          assert(early_out_error >= 0);
@@ -453,7 +453,7 @@ namespace CPPSPMD_NAME(basisu_kernels_namespace)
                int id = ((delta_l * delta_l) >> 7) +
                   ((((delta_cr * delta_cr) >> 7) * 26) >> 7) +
                   ((((delta_cb * delta_cb) >> 7) * 3) >> 7);
-               
+
                if (id < best_err)
                {
                   best_err = id;

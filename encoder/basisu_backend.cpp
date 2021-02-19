@@ -247,7 +247,7 @@ namespace basisu
 			m_endpoint_remap_table_old_to_new = reorderer.get_remap_table();
 		}
 
-		// For endpoints, old_to_new[] may not be bijective! 
+		// For endpoints, old_to_new[] may not be bijective!
 		// Some "old" entries may be unused and don't get remapped into the "new" array.
 
 		m_old_endpoint_was_used.clear();
@@ -271,13 +271,13 @@ namespace basisu
 		} // slice_index
 
 		debug_printf("basisu_backend::reoptimize_and_sort_endpoints_codebook: First old entry index: %u\n", first_old_entry_index);
-						
+
 		m_new_endpoint_was_used.clear();
 		m_new_endpoint_was_used.resize(r.get_total_endpoint_clusters());
 
 		m_endpoint_remap_table_new_to_old.clear();
 		m_endpoint_remap_table_new_to_old.resize(r.get_total_endpoint_clusters());
-		
+
 		// Set unused entries in the new array to point to the first used entry in the old array.
 		m_endpoint_remap_table_new_to_old.set_all(first_old_entry_index);
 
@@ -286,7 +286,7 @@ namespace basisu
 			if (m_old_endpoint_was_used[old_index])
 			{
 				const uint32_t new_index = m_endpoint_remap_table_old_to_new[old_index];
-				
+
 				m_new_endpoint_was_used[new_index] = true;
 
 				m_endpoint_remap_table_new_to_old[new_index] = old_index;
@@ -696,11 +696,11 @@ namespace basisu
 				gi.unpack(gi_unpacked);
 
 				char buf[256];
-#ifdef _WIN32				
+#ifdef _WIN32
 				sprintf_s(buf, sizeof(buf), "basisu_backend_slice_%u.png", slice_index);
 #else
 				snprintf(buf, sizeof(buf), "basisu_backend_slice_%u.png", slice_index);
-#endif				
+#endif
 				save_png(buf, gi_unpacked);
 			}
 
@@ -964,7 +964,7 @@ namespace basisu
 								for (uint32_t p = 0; p < 16; p++)
 									cur_err += color_distance(false, src_pixels.get_ptr()[p], etc_blk_unpacked[p], false);
 							}
-														
+
 							uint64_t best_trial_err = UINT64_MAX;
 							int best_trial_idx = 0;
 							uint32_t best_trial_history_buf_idx = 0;
@@ -973,7 +973,7 @@ namespace basisu
 							const bool use_strict_search = (m_params.m_compression_level == 0) && (selector_remap_thresh == 1.0f);
 
 							const uint64_t limit_err = (uint64_t)ceilf(cur_err * selector_remap_thresh);
-							
+
 							for (uint32_t j = 0; j < selector_history_buf.size(); j++)
 							{
 								const int trial_idx = selector_history_buf[j];
@@ -997,7 +997,7 @@ namespace basisu
 									etc_blk.get_block_colors(block_colors, 0);
 
 									const uint8_t* pSelectors = &m_selector_palette[m_selector_remap_table_new_to_old[trial_idx]](0, 0);
-									
+
 									if (r.get_params().m_perceptual)
 									{
 										for (uint32_t p = 0; p < 16; p++)
@@ -1022,7 +1022,7 @@ namespace basisu
 									if ((trial_err < best_trial_err) && (trial_err <= thresh_err))
 									{
 										assert(trial_err <= limit_err);
-										
+
 										best_trial_err = trial_err;
 										best_trial_idx = trial_idx;
 										best_trial_history_buf_idx = j;
@@ -1415,7 +1415,7 @@ namespace basisu
 			if (old_endpoint_was_used[old_endpoint_index])
 			{
 				const uint32_t new_endpoint_index = m_endpoint_remap_table_old_to_new[old_endpoint_index];
-				
+
 				new_endpoint_was_used[new_endpoint_index] = true;
 
 				endpoint_remap_table_new_to_old[new_endpoint_index] = old_endpoint_index;
@@ -1762,7 +1762,7 @@ namespace basisu
 				m_output.m_selector_palette = coder.get_bytes();
 			}
 
-		}  // if (m_params.m_use_global_sel_codebook)        
+		}  // if (m_params.m_use_global_sel_codebook)
 
 		debug_printf("Selector codebook bits: %u bytes: %u, Bits per entry: %3.1f, Avg bits/texel: %3.3f\n",
 			(int)m_output.m_selector_palette.size() * 8, (int)m_output.m_selector_palette.size(),

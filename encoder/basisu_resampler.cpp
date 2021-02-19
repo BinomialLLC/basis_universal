@@ -139,7 +139,7 @@ namespace basisu
 				n += (right - left + 1);
 			}
 
-			// Allocate memory for contributors. 
+			// Allocate memory for contributors.
 
 			if ((n == 0) || ((Pcpool = (Contrib*)calloc(n, sizeof(Contrib))) == NULL))
 			{
@@ -840,5 +840,5 @@ namespace basisu
 		else
 			return g_resample_filters[filter_num].name;
 	}
-	
+
 } // namespace basisu

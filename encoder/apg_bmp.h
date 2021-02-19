@@ -32,7 +32,7 @@ Current Limitations:
 To Do:
 - FUZZING
   - create a unique fuzz test set for (8,4,1 BPP).
-- (maybe) FEATURE Flipping the image based on negative width and height in header, and/or function arguments. 
+- (maybe) FEATURE Flipping the image based on negative width and height in header, and/or function arguments.
 - (maybe) PERF ifdef intrinsics/asm for bitscan. Platform-specific code so won't include unless necessary.
 - (maybe) FEATURE Add parameter for padding output memory to eg 4-byte alignment or n channels.
 - (maybe) FEATURE Improved apps support in alpha channel writing (using v5 header).

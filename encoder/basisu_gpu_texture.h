@@ -48,11 +48,11 @@ namespace basisu
 		}
 
 		inline texture_format get_format() const { return m_fmt; }
-		
+
 		// Width/height in pixels
 		inline uint32_t get_pixel_width() const { return m_width; }
 		inline uint32_t get_pixel_height() const { return m_height; }
-		
+
 		// Width/height in blocks, row pitch is assumed to be m_blocks_x.
 		inline uint32_t get_blocks_x() const { return m_blocks_x; }
 		inline uint32_t get_blocks_y() const { return m_blocks_y; }
@@ -67,7 +67,7 @@ namespace basisu
 		inline uint32_t get_row_pitch_in_bytes() const { return get_bytes_per_block() * get_blocks_x(); }
 
 		inline const uint64_vec &get_blocks() const { return m_blocks; }
-		
+
 		inline const uint64_t *get_ptr() const { return &m_blocks[0]; }
 		inline uint64_t *get_ptr() { return &m_blocks[0]; }
 
@@ -101,7 +101,7 @@ namespace basisu
 		}
 
 		bool unpack(image& img) const;
-		
+
 		void override_dimensions(uint32_t w, uint32_t h)
 		{
 			m_width = w;
@@ -119,9 +119,9 @@ namespace basisu
 	// KTX file writing
 
 	bool create_ktx_texture_file(uint8_vec &ktx_data, const basisu::vector<gpu_image_vec>& gpu_images, bool cubemap_flag);
-		
+
 	bool write_compressed_texture_file(const char *pFilename, const basisu::vector<gpu_image_vec>& g, bool cubemap_flag);
-	
+
 	inline bool write_compressed_texture_file(const char *pFilename, const gpu_image_vec &g)
 	{
 		basisu::vector<gpu_image_vec> a;
@@ -130,7 +130,7 @@ namespace basisu
 	}
 
 	bool write_compressed_texture_file(const char *pFilename, const gpu_image &g);
-	
+
 	bool write_3dfx_out_file(const char* pFilename, const gpu_image& gi);
 
 	// GPU texture block unpacking
@@ -150,5 +150,5 @@ namespace basisu
 	// unpack_block() is primarily intended to unpack texture data created by the transcoder.
 	// For some texture formats (like ETC2 RGB, PVRTC2, FXT1) it's not a complete implementation.
 	bool unpack_block(texture_format fmt, const void *pBlock, color_rgba *pPixels);
-			
+
 } // namespace basisu

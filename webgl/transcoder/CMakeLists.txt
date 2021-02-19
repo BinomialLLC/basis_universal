@@ -6,7 +6,7 @@ project(basisu_transcoder_js)
 # If this is FALSE you'll only be able to transcode .basis files.
 option(KTX2 "KTX2" TRUE)
 
-# If KTX2 is enabled, Zstandard is needed to support decompressing supercompressed UASTC files. 
+# If KTX2 is enabled, Zstandard is needed to support decompressing supercompressed UASTC files.
 # If you know you'll never be transcoding KTX2 files using this feature you can set KTX2_ZSTANDARD to 0.
 option(KTX2_ZSTANDARD "KTX2_ZSTANDARD" TRUE)
 
@@ -15,18 +15,18 @@ message("KTX2_ZSTANDARD=${KTX2_ZSTANDARD}")
 
 if (EMSCRIPTEN)
   set(CMAKE_CXX_STANDARD 11)
-  
+
   set(SRC_LIST
   	../../transcoder/basisu_transcoder.cpp
 	basis_wrappers.cpp
   )
-  
+
   if (KTX2)
 	set(KTX2_DEFINITION BASISD_SUPPORT_KTX2=1)
   else()
   	set(KTX2_DEFINITION BASISD_SUPPORT_KTX2=0)
   endif()
-  
+
   if (KTX2_ZSTANDARD)
  	set(SRC_LIST ${SRC_LIST}
 		../../zstd/zstddeclib.c
@@ -35,7 +35,7 @@ if (EMSCRIPTEN)
   else()
   	set(ZSTD_DEFINITION BASISD_SUPPORT_KTX2_ZSTD=0)
   endif()
-  
+
 #  message("KTX2_DEFINITION=${KTX2_DEFINITION})
 #  message("ZSTD_DEFINITION=${ZSTD_DEFINITION})
 

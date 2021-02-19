@@ -75,7 +75,7 @@ THREE.BasisTextureLoader.prototype = Object.assign( Object.create( THREE.Loader.
 
 		} else if ( config.bc7Supported ) {
 
-			config.format = THREE.BasisTextureLoader.BASIS_FORMAT.cTFBC7_M6_OPAQUE_ONLY;    
+			config.format = THREE.BasisTextureLoader.BASIS_FORMAT.cTFBC7_M6_OPAQUE_ONLY;
 
 		} else if ( config.dxtSupported ) {
 
@@ -88,7 +88,7 @@ THREE.BasisTextureLoader.prototype = Object.assign( Object.create( THREE.Loader.
 		} else if ( config.pvrtcSupported ) {
 
 			config.format = this.useAlpha ? THREE.BasisTextureLoader.BASIS_FORMAT.cTFPVRTC1_4_RGBA : THREE.BasisTextureLoader.BASIS_FORMAT.cTFPVRTC1_4_RGB;
-    
+
 		} else {
 
 			throw new Error( 'THREE.BasisTextureLoader: No suitable compressed texture format found.' );

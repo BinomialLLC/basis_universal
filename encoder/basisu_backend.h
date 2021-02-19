@@ -28,8 +28,8 @@ namespace basisu
 		{
 			clear();
 		}
-				
-		uint32_t m_endpoint_predictor; 
+
+		uint32_t m_endpoint_predictor;
 
 		int m_endpoint_index;
 		int m_selector_index;
@@ -40,10 +40,10 @@ namespace basisu
 		void clear()
 		{
 			m_endpoint_predictor = 0;
-			
+
 			m_endpoint_index = 0;
 			m_selector_index = 0;
-						
+
 			m_selector_history_buf_index = 0;
 			m_is_cr_target = false;
 		}
@@ -62,7 +62,7 @@ namespace basisu
 		color_rgba m_color5;
 		uint32_t m_inten5;
 		bool m_color5_valid;
-				
+
 		void clear()
 		{
 			clear_obj(*this);
@@ -264,12 +264,12 @@ namespace basisu
 
 			return slice.m_first_block_index + block_y * slice.m_num_blocks_x + block_x;
 		}
-				
+
 		uint32_t get_total_blocks(uint32_t slice_index) const
 		{
 			return m_slices[slice_index].m_num_blocks_x * m_slices[slice_index].m_num_blocks_y;
 		}
-								
+
 		uint32_t get_total_blocks() const
 		{
 			uint32_t total_blocks = 0;

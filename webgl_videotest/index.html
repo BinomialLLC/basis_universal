@@ -88,22 +88,22 @@ COMPRESSED_RGBA_S3TC_DXT5_EXT = 0x83F3;
 COMPRESSED_RGBA_BPTC_UNORM = 0x8E8C;
 
 BASIS_FORMAT = {
-   
+
    cTFETC1: 0,
 	cTFETC2: 1,
 	cTFBC1: 2,
 	cTFBC3: 3,
 	cTFBC4: 4,
-	cTFBC5: 5,		
+	cTFBC5: 5,
 	cTFBC7: 6,
 	cTFPVRTC1_4_RGB: 8,
 	cTFPVRTC1_4_RGBA: 9,
-	
+
 	cTFASTC_4x4: 10,
-	
+
 	cTFATC_RGB: 11,
 	cTFATC_RGBA_INTERPOLATED_ALPHA: 12,
-		
+
 	cTFRGBA32: 13,
 	cTFRGB565: 14,
 	cTFBGR565: 15,
@@ -124,13 +124,13 @@ for (var name in BASIS_FORMAT) {
 DXT_FORMAT_MAP = {};
 DXT_FORMAT_MAP[BASIS_FORMAT.cTFBC1] = COMPRESSED_RGB_S3TC_DXT1_EXT;
 DXT_FORMAT_MAP[BASIS_FORMAT.cTFBC3] = COMPRESSED_RGBA_S3TC_DXT5_EXT;
-DXT_FORMAT_MAP[BASIS_FORMAT.cTFBC7] = COMPRESSED_RGBA_BPTC_UNORM; 
+DXT_FORMAT_MAP[BASIS_FORMAT.cTFBC7] = COMPRESSED_RGBA_BPTC_UNORM;
 
 var dxtSupported = true;
 var bc7Supported = false;
 var drawMode = 0;
 
-var basisHandle = 0, src = 0, srcSize = 0; 
+var basisHandle = 0, src = 0, srcSize = 0;
 var tex = 0, width = 0, height = 0, images = 0, levels = 0, have_alpha = false, alignedWidth = 0, alignedHeight = 0, format;
 var curImageIndex = 0;
 
@@ -138,12 +138,12 @@ function redraw()
 {
   if ((!width) || (!tex))
 	return;
-  
-  if (dxtSupported) 
+
+  if (dxtSupported)
   {
 	  renderer.drawTexture(tex, alignedWidth, alignedHeight, drawMode);
   }
-  else if (format == BASIS_FORMAT.cTFBC1) 
+  else if (format == BASIS_FORMAT.cTFBC1)
   {
 	  renderer.drawTexture(tex, alignedWidth, alignedHeight, drawMode);
   }
@@ -169,7 +169,7 @@ function transcodeFrame()
 	  width = 0;
 
  	  log('basis_transcode_image() failed!');
- 	  return;	
+ 	  return;
   }
 
   var dxtData = new Uint8Array(Module.HEAPU8.buffer, dst, dstSize);
@@ -181,16 +181,16 @@ function transcodeFrame()
   }
 
   if (dxtSupported)
-  {  
-	  tex = renderer.createDxtTexture(dxtData, alignedWidth, alignedHeight, DXT_FORMAT_MAP[format]);  
+  {
+	  tex = renderer.createDxtTexture(dxtData, alignedWidth, alignedHeight, DXT_FORMAT_MAP[format]);
   }
   else if (format == BASIS_FORMAT.cTFBC1)
   {
   	  var rgb565Data = dxtToRgb565(Module.HEAPU16, dst / 2, alignedWidth, alignedHeight);
-	  
+
 	  tex = renderer.createRgb565Texture(rgb565Data, alignedWidth, alignedHeight);
   }
-  
+
   Module._free(dst);
 }
 
@@ -228,13 +228,13 @@ function frame(now)
 	if (basisHandle != 0)
 	{
 		transcodeFrame();
- 
+
   		redraw()
-		
+
 		if (g_targetFrame >= 0)
 		{
 			timeSinceLastFrame = 0;
-			
+
 			if (curImageIndex >= g_targetFrame)
 				g_targetFrame = -1;
 		    else
@@ -255,17 +255,17 @@ function frame(now)
 			if (timeSinceLastFrame > 1.0/g_Framerate)
 			{
 				timeSinceLastFrame -= 1.0/g_Framerate;
-				
+
 				curImageIndex++;
 			}
 		}
-		
+
 		if (curImageIndex == images)
 			curImageIndex = 0;
 	}
-	
+
 	requestAnimationFrame(frame);
-	
+
 //	log('Here!');
 }
 
@@ -278,25 +278,25 @@ function transcode(data)
   	Module._basis_close(basisHandle);
   	basisHandle = 0;
   }
-  
+
   if (src != 0)
   {
     src = 0;
   	Module._free(src);
   }
-  
+
   srcSize = data.byteLength;
   var bytes = new Uint8Array(data);
   src = Module._malloc(srcSize);
   arrayBufferCopy(bytes, Module.HEAPU8, src, srcSize);
-  
+
   basisHandle = Module._basis_open(src, srcSize);
   if (!basisHandle)
   {
 	log('Failed opening basis file!');
 	Module._free(src); src = 0;
 	width = 0;
-    return;  
+    return;
   }
 
   width = Module._basis_get_image_width(basisHandle, 0, 0);
@@ -304,15 +304,15 @@ function transcode(data)
   images = Module._basis_get_num_images(basisHandle, 0);
   levels = Module._basis_get_num_levels(basisHandle, 0);
   has_alpha = Module._basis_get_has_alpha(basisHandle);
-  
+
   if (!width || !height || !images || !levels)
   {
   	Module._basis_close(basisHandle); basisHandle = 0;
 	Module._free(src); src = 0;
 	width = 0;
-	
+
 	log('Failed getting info from basis file!');
-    return;    
+    return;
   }
 
   if ((bc7Supported) && (forceBC1 == 0))
@@ -326,7 +326,7 @@ function transcode(data)
      if (has_alpha)
      {
   	   format = BASIS_FORMAT.cTFBC3;
-     
+
       log('Decoding .basis data to BC3');
      }
      else
@@ -350,30 +350,30 @@ function transcode(data)
   var canvas = elem('canvas');
   canvas.width = alignedWidth;
   canvas.height = alignedHeight;
-  
+
   var status = Module._basis_start_transcoding(basisHandle);
   if (!status)
   {
 	Module._basis_close(basisHandle); basisHandle = 0;
 	Module._free(src); src = 0;
 	width = 0;
-	
+
     log('basis_start_transcoding() failed!');
     return;
   }
-  
+
   curImageIndex = 0;
 }
 
-function dataLoaded(data) 
+function dataLoaded(data)
 {
   log('Done loading .basis file');
-  
+
   if (bc7Supported)
     log('EXT_texture_compression_bptc is supported!')
   else
     log('EXT_texture_compression_bptc is NOT supported!')
-  
+
   g_dataLoadedCountDown=50;
   g_receivedData=data;
 }
@@ -399,7 +399,7 @@ function arrayBufferCopy(src, dst, dstByteOffset, numBytes) {
 function run() {
   elem('logger').innerHTML = '';
   loadArrayBuffer(elem('file').value, dataLoaded);
-  
+
   requestAnimationFrame(frame);
 }
 
@@ -413,12 +413,12 @@ function initialize() {
     dxtSupported = false;
     elem('nodxt').style.display = 'block';
   }
-  
+
   if (gl.getExtension('EXT_texture_compression_bptc'))
-    bc7Supported = true;  
+    bc7Supported = true;
   else
-    bc7Supported = false;  
-  
+    bc7Supported = false;
+
   window.renderer = new Renderer(gl);
 
   elem('file').addEventListener('keydown', function(e) {
@@ -426,7 +426,7 @@ function initialize() {
       run();
     }
   }, false);
-    
+
   run();
 }
 
@@ -435,22 +435,22 @@ function viewRGB() { drawMode = 1; redraw(); }
 function viewAlpha() { drawMode = 2; redraw(); }
 function forceBC1Func() { forceBC1 = 1 - forceBC1; run(); }
 
-function visCR() 
-{ 
+function visCR()
+{
     var i = Module._basis_get_debug_flags();
 	i = i ^ BASIS_DEBUG_FLAGS.DEBUG_FLAG_VIS_CR;
 	Module._basis_set_debug_flags(i);
 }
 
-function visSels() 
-{ 
+function visSels()
+{
     var i = Module._basis_get_debug_flags();
 	i = i ^ BASIS_DEBUG_FLAGS.DEBUG_FLAG_VIS_SELS;
 	Module._basis_set_debug_flags(i);
 }
 
-function visEndpoints() 
-{ 
+function visEndpoints()
+{
     var i = Module._basis_get_debug_flags();
 	i ^= BASIS_DEBUG_FLAGS.DEBUG_FLAG_VIS_ENDPOINTS;
 	Module._basis_set_debug_flags(i);
@@ -461,7 +461,7 @@ function togglePause()
 	g_paused = !g_paused;
 }
 
-function toggleFramerateLimit() 
+function toggleFramerateLimit()
 {
 	g_framerateLimit = !g_framerateLimit;
 }
@@ -482,7 +482,7 @@ function slow()
 function rewind()
 {
 	if (g_targetFrame < 0)
-	{	
+	{
 		g_targetFrame = curImageIndex;
 		if (g_targetFrame > 10)
 			g_targetFrame -= 10;
@@ -502,7 +502,7 @@ function rewind()
 
   <div style="font-size: 8pt;">
   <br>This demo uses the <a href="https://github.com/BinomialLLC/basis_universal">Basis C++ transcoder</a> (compiled to Javascript using Emscripten) to transcode a .basis Universal Texture Video file directly to GPU texture data, with no intermediate recompression step.
-  <br>.basis universal GPU texture files can be quickly transcoded directly to any other GPU texture format with little to no quality loss. 
+  <br>.basis universal GPU texture files can be quickly transcoded directly to any other GPU texture format with little to no quality loss.
   <br>Thanks to Evan Parker for providing <a href="https://github.com/toji/webgl-texture-utils">webgl-texture-utils</a> and this test bed.
   </div>
   <br>
@@ -518,7 +518,7 @@ function rewind()
   <br>
   <br>
      <input type="button" value="Force BC1" onclick="forceBC1Func()"></input>
-  <br>	  
+  <br>
   <br>
 	  <input type="button" value="Visualize CR's" onclick="visCR()"></input>
 	  <input type="button" value="Visualize Selectors" onclick="visSels()"></input>
@@ -530,7 +530,7 @@ function rewind()
 	  <input type="button" value="Restart" onclick="restart()"></input>
   	  <input type="button" value="Toggle Slow Speed" onclick="slow()"></input>
       <input type="button" value="Rewind" onclick="rewind()"></input>
-  
+
   <div style="position:absolute; left: 525px; top:130px; font-size: 20pt; font-weight: bold; color: red">
     <div id="nodxt" style="display: none; width: 768px; font-size: 20pt; font-weight: bold; color: red">
       NOTE: Your browser does not support DXT, so using RGB565
