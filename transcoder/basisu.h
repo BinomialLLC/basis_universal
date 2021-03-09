@@ -1,5 +1,5 @@
 // basisu.h
-// Copyright (C) 2019-2020 Binomial LLC. All Rights Reserved.
+// Copyright (C) 2019-2021 Binomial LLC. All Rights Reserved.
 // Important: If compiling with gcc, be sure strict aliasing is disabled: -fno-strict-aliasing
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -63,9 +63,10 @@
 #include <functional>
 #include <iterator>
 #include <type_traits>
-#include <vector>
 #include <assert.h>
 #include <random>
+
+#include "basisu_containers.h"
 
 #ifdef max
 #undef max
@@ -108,13 +109,13 @@ namespace basisu
 	const char BASISU_PATH_SEPERATOR_CHAR = '/';
 #endif
 
-	typedef std::vector<uint8_t> uint8_vec;
-	typedef std::vector<int16_t> int16_vec;
-	typedef std::vector<uint16_t> uint16_vec;
-	typedef std::vector<uint32_t> uint_vec;
-	typedef std::vector<uint64_t> uint64_vec;
-	typedef std::vector<int> int_vec;
-	typedef std::vector<bool> bool_vec;
+	typedef basisu::vector<uint8_t> uint8_vec;
+	typedef basisu::vector<int16_t> int16_vec;
+	typedef basisu::vector<uint16_t> uint16_vec;
+	typedef basisu::vector<uint32_t> uint_vec;
+	typedef basisu::vector<uint64_t> uint64_vec;
+	typedef basisu::vector<int> int_vec;
+	typedef basisu::vector<bool> bool_vec;
 
 	void enable_debug_printf(bool enabled);
 	void debug_printf(const char *pFmt, ...);

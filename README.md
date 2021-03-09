@@ -14,6 +14,8 @@ The transcoder has been fuzz tested using [zzuf](https://www.linux.com/news/fuzz
 So far, we've compiled the code using MSVS 2019, under Ubuntu x64 using cmake with either clang 3.8 or gcc 5.4, and emscripten 1.35 to asm.js. (Be sure to use this version or later of emcc, as earlier versions fail with internal errors/exceptions during compilation.) The compressor is multithreaded by default, but this can be disabled using the -no_multithreading command line option. The transcoder is currently single threaded.
 
 Basis Universal supports "skip blocks" in ETC1S compressed texture arrays, which makes it useful for basic [compressed texture video](http://gamma.cs.unc.edu/MPTC/) applications. Note that Basis Universal is still at heart a GPU texture compression system, not a dedicated video codec, so bitrates will be larger than even MPEG1.
+1/10/21 release notes:
+- We've added numerous ETC1S encoder optimizations designed to greatly speed up single threaded encoding time, as well as greatly reducing overall CPU utilization when multithreading is enabled. For benchmarking, we're using "-q 128 -no_multithreading -mip_fast". The encoder now uses approximately 1/3rd as much total CPU time for the same basic PSNR. The encoder can now optionally utilize SSE 4.1 - see the "-no_sse" command line option.
 
 [Release Notes](https://github.com/BinomialLLC/basis_universal/wiki/Release-Notes)
 
@@ -73,10 +75,15 @@ before any build artifacts have been created.
 
 The command line tool used to create, validate, and transcode/unpack .basis files is named "basisu". Run basisu without any parameters for help. 
 
-To build basisu:
+To build basisu (without SSE 4.1 support - the default):
 
 ```
 cmake CMakeLists.txt
+make
+```
+To build with SSE 4.1 support on x86/x64 systems (encoding is roughly 15-30% faster):
+```
+cmake -D SSE=TRUE CMakeLists.txt
 make
 ```
 
@@ -138,9 +145,10 @@ Note that "-no_selector_rdo -no_endpoint_rdo" are optional. Using them hurts rat
 
 To compress small video sequences, say using tools like ffmpeg and VirtualDub:
 
-`basisu -comp_level 1 -tex_type video -stats -debug -multifile_printf "pic%04u.png" -multifile_num 200 -multifile_first 1 -max_selectors 16128 -max_endpoints 16128 -endpoint_rdo_thresh 1.05 -selector_rdo_thresh 1.05`
+`basisu -comp_level 2 -tex_type video -stats -debug -multifile_printf "pic%04u.png" -multifile_num 200 -multifile_first 1 -max_selectors 16128 -max_endpoints 16128 -endpoint_rdo_thresh 1.05 -selector_rdo_thresh 1.05`
 
 The reference encoder will take a LONG time and a lot of CPU to encode video. The more cores your machine has, the better. Basis is intended for smaller videos of a few dozen seconds or so. If you are very patient and have a Threadripper or Xeon workstation, you should be able to encode up to a few thousand 720P frames. The "webgl_videotest" directory contains a very simple video viewer.
+For texture video, use -comp_level 2 or 3. The default is 1, which isn't quite good enough for texture video.
 
 The .basis file will contain multiple images (all using the same global codebooks), which you can retrieve using the transcoder's image API. The system now supports [conditional replenisment](https://en.wikipedia.org/wiki/MPEG-1) (CR, or "skip blocks"). CR can reduce the bitrate of some videos (highly dependent on how dynamic the content is) by over 50%. For videos using CR, the images must be requested from the transcoder in sequence from first to last, and random access is only allowed to I-Frames. 
 
@@ -182,7 +190,7 @@ Compress a non-sRGB image, use virtual selector codebooks for improved compressi
 `basisu -linear -global_sel_pal -file x.png`\
 Compress a non-sRGB image, use hybrid selector codebooks for slightly improved compression (but slower encoding)
 
-`basisu -tex_type video -framerate 20 -multifile_printf "x%02u.png" -multifile_first 1 -multifile_count 20 -selector_rdo_thresh 1.05 -endpoint_rdo_thresh 1.05`\
+`basisu -tex_type video -comp_level 2 -framerate 20 -multifile_printf "x%02u.png" -multifile_first 1 -multifile_count 20 -selector_rdo_thresh 1.05 -endpoint_rdo_thresh 1.05`\
 Compress a 20 sRGB source image video sequence (x01.png, x02.png, x03.png, etc.) to x01.basis
 
 `basisu -comp_level 2 -q 255 -file x.png -mipmap -y_flip`\

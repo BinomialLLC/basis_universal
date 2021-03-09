@@ -440,8 +440,14 @@ function PNGDataLoaded(data)
 	
 	if (!uastcFlag)
 		log('Encoding at ETC1S quality level ' + qualityLevel);
+		
+	const startTime = performance.now();
 	
 	num_output_bytes = basisEncoder.encode(basisFileData);
+	
+	const elapsed = performance.now() - startTime;
+	
+	logTime('encoding time', elapsed.toFixed(2));
 	
 	var actualBasisFileData = new Uint8Array(basisFileData.buffer, 0, num_output_bytes);
 

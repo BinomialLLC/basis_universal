@@ -60,7 +60,7 @@ void basis_init()
 	g_pGlobal_codebook = new basist::etc1_global_selector_codebook(g_global_selector_cb_size, g_global_selector_cb);
 }
 
-static void copy_from_jsbuffer(const emscripten::val& srcBuffer, std::vector<uint8_t>& dstVec)
+static void copy_from_jsbuffer(const emscripten::val& srcBuffer, basisu::vector<uint8_t>& dstVec)
 {
 	unsigned int length = srcBuffer["length"].as<unsigned int>();
 
@@ -73,7 +73,7 @@ static void copy_from_jsbuffer(const emscripten::val& srcBuffer, std::vector<uin
 	memoryView.call<void>("set", srcBuffer);
 }
 
-static bool copy_to_jsbuffer(const emscripten::val& dstBuffer, const std::vector<uint8_t>& srcVec)
+static bool copy_to_jsbuffer(const emscripten::val& dstBuffer, const basisu::vector<uint8_t>& srcVec)
 {
 	if (srcVec.empty())
 	{
@@ -166,12 +166,12 @@ struct basis_file
 {
 	int m_magic = 0;
 	basisu_transcoder m_transcoder;
-	std::vector<uint8_t> m_file;
+	basisu::vector<uint8_t> m_file;
 
 	basis_file(const emscripten::val& jsBuffer)
 		: m_file([&]() {
 		size_t byteLength = jsBuffer["byteLength"].as<size_t>();
-		return std::vector<uint8_t>(byteLength);
+		return basisu::vector<uint8_t>(byteLength);
 			}()),
 		m_transcoder(g_pGlobal_codebook)
 	{
@@ -422,7 +422,7 @@ struct basis_file
 				if (!m_transcoder.get_image_level_desc(m_file.data(), m_file.size(), image_index, level_index, orig_width, orig_height, total_blocks))
 					return 0;
 
-				std::vector<uint8_t> dst_data;
+				basisu::vector<uint8_t> dst_data;
 
 				uint32_t flags = get_alpha_for_opaque_formats ? cDecodeFlagsTranscodeAlphaDataToOpaqueFormats : 0;
 
@@ -496,7 +496,7 @@ public:
 			m_params.m_source_images.resize(slice_index + 1);
 
 		// First copy the src image buffer to the heap.
-		std::vector<uint8_t> src_image_buf;
+		basisu::vector<uint8_t> src_image_buf;
 		copy_from_jsbuffer(src_image_js_val, src_image_buf);
 
 		// Now extract the source image.
@@ -616,7 +616,7 @@ public:
 	
 	bool decode_palettes(uint32_t num_endpoints, const emscripten::val& endpoint_data, uint32_t num_selectors, const emscripten::val& selector_data)
 	{
-		std::vector<uint8_t> temp_endpoint_data, temp_selector_data;
+		basisu::vector<uint8_t> temp_endpoint_data, temp_selector_data;
 		copy_from_jsbuffer(endpoint_data, temp_endpoint_data);
 		copy_from_jsbuffer(selector_data, temp_selector_data);
 
@@ -642,7 +642,7 @@ public:
 	
 	bool decode_tables(const emscripten::val& table_data)
 	{
-		std::vector<uint8_t> temp_table_data;
+		basisu::vector<uint8_t> temp_table_data;
 		copy_from_jsbuffer(table_data, temp_table_data);
 		
 		if (!temp_table_data.size())
@@ -679,7 +679,7 @@ public:
 		}
 		
 		// FIXME: Access the JavaScript buffer directly vs. copying it.
-		std::vector<uint8_t> temp_comp_data;
+		basisu::vector<uint8_t> temp_comp_data;
 		copy_from_jsbuffer(compressed_data, temp_comp_data);
 		
 		if (!temp_comp_data.size())
@@ -701,7 +701,7 @@ public:
 			return false;
 		}
 		
-		std::vector<uint8_t> temp_output_blocks(output_blocks_len);
+		basisu::vector<uint8_t> temp_output_blocks(output_blocks_len);
 						
 		bool status = basisu_lowlevel_etc1s_transcoder::transcode_image(
 			(transcoder_texture_format)target_format,
@@ -757,7 +757,7 @@ bool transcode_uastc_image(
 	}
 			
 	// FIXME: Access the JavaScript buffer directly vs. copying it.
-	std::vector<uint8_t> temp_comp_data;
+	basisu::vector<uint8_t> temp_comp_data;
 	copy_from_jsbuffer(compressed_data, temp_comp_data);
 	
 	if (!temp_comp_data.size())
@@ -789,7 +789,7 @@ bool transcode_uastc_image(
 	printf("has_alpha: %u is_video: %u\n", has_alpha, is_video);
 #endif	
 	
-	std::vector<uint8_t> temp_output_blocks(output_blocks_len);
+	basisu::vector<uint8_t> temp_output_blocks(output_blocks_len);
 	
 	basisu_lowlevel_uastc_transcoder transcoder;
 	

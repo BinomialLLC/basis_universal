@@ -1,5 +1,5 @@
 // basisu_transcoder_internal.h - Universal texture format transcoder library.
-// Copyright (C) 2019-2020 Binomial LLC. All Rights Reserved.
+// Copyright (C) 2019-2021 Binomial LLC. All Rights Reserved.
 //
 // Important: If compiling with gcc, be sure strict aliasing is disabled: -fno-strict-aliasing
 //
@@ -20,8 +20,8 @@
 #pragma warning (disable: 4127) //  conditional expression is constant
 #endif
 
-#define BASISD_LIB_VERSION 112
-#define BASISD_VERSION_STRING "01.12"
+#define BASISD_LIB_VERSION 113
+#define BASISD_VERSION_STRING "01.13"
 
 #ifdef _DEBUG
 #define BASISD_BUILD_DEBUG
