@@ -213,6 +213,8 @@ To enable compression support compile the JavaScript wrappers in webgl/transcodi
 ### Special thanks
 A huge thanks to Google for partnering with us and enabling this system to be open sourced.
 
+Thank you to [Esri](https://www.esri.com/) for sponsoring the encoder optimization work in the v1.13 release.
+
 Thanks to a number of companies or groups who have supported or helped out Binomial over the years: Intel, SpaceX, Netflix, Forgotten Empires, Microsoft, Polystream, Hothead Games, BioDigital, Magic Leap, Blizzard Entertainment, Insomniac Games, Rockstar Games, Facebook, Activision, the Khronos Group, and the organizers at CppCon.
 
 Thanks to Dave Wilkinson (AMD/Khronos) for supporting us and giving us very valuable feedback while we developed Basis Universal.
