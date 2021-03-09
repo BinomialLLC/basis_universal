@@ -15,7 +15,8 @@ So far, we've compiled the code using MSVS 2019, under Ubuntu x64 using cmake wi
 
 Basis Universal supports "skip blocks" in ETC1S compressed texture arrays, which makes it useful for basic [compressed texture video](http://gamma.cs.unc.edu/MPTC/) applications. Note that Basis Universal is still at heart a GPU texture compression system, not a dedicated video codec, so bitrates will be larger than even MPEG1.
 1/10/21 release notes:
-- We've added numerous ETC1S encoder optimizations designed to greatly speed up single threaded encoding time, as well as greatly reducing overall CPU utilization when multithreading is enabled. For benchmarking, we're using "-q 128 -no_multithreading -mip_fast". The encoder now uses approximately 1/3rd as much total CPU time for the same basic PSNR. The encoder can now optionally utilize SSE 4.1 - see the "-no_sse" command line option.
+
+For v1.13, we've added numerous ETC1S encoder optimizations designed to greatly speed up single threaded encoding time, as well as greatly reducing overall CPU utilization when multithreading is enabled. For benchmarking, we're using "-q 128 -no_multithreading -mip_fast". The encoder now uses approximately 1/3rd as much total CPU time for the same PSNR. The encoder can now optionally utilize SSE 4.1 - see the "-no_sse" command line option.
 
 [Release Notes](https://github.com/BinomialLLC/basis_universal/wiki/Release-Notes)
 
