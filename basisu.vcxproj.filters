@@ -59,6 +59,9 @@
     <ClCompile Include="encoder\basisu_ssim.cpp">
       <Filter>encoder</Filter>
     </ClCompile>
+    <ClCompile Include="encoder\basisu_kernels_sse.cpp">
+      <Filter>encoder</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="transcoder\basisu_global_selector_palette.h">
@@ -133,6 +136,33 @@
     <ClInclude Include="encoder\basisu_resampler_filters.h">
       <Filter>encoder</Filter>
     </ClInclude>
+    <ClInclude Include="encoder\basisu_kernels_declares.h">
+      <Filter>encoder</Filter>
+    </ClInclude>
+    <ClInclude Include="encoder\basisu_kernels_imp.h">
+      <Filter>encoder</Filter>
+    </ClInclude>
+    <ClInclude Include="encoder\cppspmd_flow.h">
+      <Filter>encoder\cppspmd</Filter>
+    </ClInclude>
+    <ClInclude Include="encoder\cppspmd_math.h">
+      <Filter>encoder\cppspmd</Filter>
+    </ClInclude>
+    <ClInclude Include="encoder\cppspmd_math_declares.h">
+      <Filter>encoder\cppspmd</Filter>
+    </ClInclude>
+    <ClInclude Include="encoder\cppspmd_sse.h">
+      <Filter>encoder\cppspmd</Filter>
+    </ClInclude>
+    <ClInclude Include="encoder\cppspmd_type_aliases.h">
+      <Filter>encoder\cppspmd</Filter>
+    </ClInclude>
+    <ClInclude Include="transcoder\basisu_containers.h">
+      <Filter>transcoder</Filter>
+    </ClInclude>
+    <ClInclude Include="transcoder\basisu_containers_impl.h">
+      <Filter>transcoder</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="transcoder\basisu_transcoder_tables_dxt1_6.inc">
@@ -166,6 +196,9 @@
     </Filter>
     <Filter Include="encoder">
       <UniqueIdentifier>{518dd5c5-a7e1-4e79-8bb4-253e2d540c2c}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="encoder\cppspmd">
+      <UniqueIdentifier>{ab12ac82-9c39-494d-a36b-129dd1b2dec5}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
 </Project>

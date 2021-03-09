@@ -89,6 +89,8 @@
       <OpenMPSupport>true</OpenMPSupport>
       <AdditionalIncludeDirectories>
       </AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>_MBCS;%(PreprocessorDefinitions);BASISU_SUPPORT_SSE=1</PreprocessorDefinitions>
+      <EnableEnhancedInstructionSet>StreamingSIMDExtensions</EnableEnhancedInstructionSet>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -102,6 +104,7 @@
       <AdditionalIncludeDirectories>ispc_texcomp</AdditionalIncludeDirectories>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <OpenMPSupport>true</OpenMPSupport>
+      <PreprocessorDefinitions>_MBCS;%(PreprocessorDefinitions);BASISU_SUPPORT_SSE=1</PreprocessorDefinitions>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -116,9 +119,13 @@
       <OpenMPSupport>true</OpenMPSupport>
       <AdditionalIncludeDirectories>
       </AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>NDEBUG;_HAS_EXCEPTIONS=0;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>NDEBUG;_HAS_EXCEPTIONS=0;%(PreprocessorDefinitions);BASISU_SUPPORT_SSE=1</PreprocessorDefinitions>
       <BufferSecurityCheck>false</BufferSecurityCheck>
       <InlineFunctionExpansion>AnySuitable</InlineFunctionExpansion>
+      <EnableEnhancedInstructionSet>StreamingSIMDExtensions</EnableEnhancedInstructionSet>
+      <FloatingPointModel>Fast</FloatingPointModel>
+      <ExceptionHandling>false</ExceptionHandling>
+      <OmitFramePointers>true</OmitFramePointers>
     </ClCompile>
     <Link>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
@@ -129,16 +136,18 @@
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
       <WarningLevel>Level4</WarningLevel>
-      <Optimization>MaxSpeed</Optimization>
+      <Optimization>Full</Optimization>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <AdditionalIncludeDirectories>ispc_texcomp</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>NDEBUG;_HAS_EXCEPTIONS=0;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>NDEBUG;_HAS_EXCEPTIONS=0;%(PreprocessorDefinitions);BASISU_SUPPORT_SSE=1</PreprocessorDefinitions>
       <BufferSecurityCheck>false</BufferSecurityCheck>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <InlineFunctionExpansion>AnySuitable</InlineFunctionExpansion>
-      <OpenMPSupport>true</OpenMPSupport>
       <ExceptionHandling>false</ExceptionHandling>
+      <FloatingPointModel>Fast</FloatingPointModel>
+      <OmitFramePointers>true</OmitFramePointers>
+      <FavorSizeOrSpeed>Speed</FavorSizeOrSpeed>
     </ClCompile>
     <Link>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
@@ -158,6 +167,7 @@
     <ClCompile Include="encoder\basisu_frontend.cpp" />
     <ClCompile Include="encoder\basisu_global_selector_palette_helpers.cpp" />
     <ClCompile Include="encoder\basisu_gpu_texture.cpp" />
+    <ClCompile Include="encoder\basisu_kernels_sse.cpp" />
     <ClCompile Include="encoder\basisu_pvrtc1_4.cpp" />
     <ClCompile Include="encoder\basisu_resampler.cpp" />
     <ClCompile Include="encoder\basisu_resample_filters.cpp" />
@@ -165,6 +175,7 @@
     <ClCompile Include="encoder\basisu_uastc_enc.cpp" />
     <ClCompile Include="encoder\jpgd.cpp" />
     <ClCompile Include="encoder\lodepng.cpp" />
+    <ClInclude Include="transcoder\basisu_containers_impl.h" />
     <ClCompile Include="transcoder\basisu_transcoder.cpp" />
     <ClInclude Include="encoder\apg_bmp.h" />
     <ClInclude Include="encoder\basisu_astc_decomp.h" />
@@ -177,15 +188,23 @@
     <ClInclude Include="encoder\basisu_frontend.h" />
     <ClInclude Include="encoder\basisu_global_selector_palette_helpers.h" />
     <ClInclude Include="encoder\basisu_gpu_texture.h" />
+    <ClInclude Include="encoder\basisu_kernels_declares.h" />
+    <ClInclude Include="encoder\basisu_kernels_imp.h" />
     <ClInclude Include="encoder\basisu_miniz.h" />
     <ClInclude Include="encoder\basisu_pvrtc1_4.h" />
     <ClInclude Include="encoder\basisu_resampler.h" />
     <ClInclude Include="encoder\basisu_resampler_filters.h" />
     <ClInclude Include="encoder\basisu_ssim.h" />
     <ClInclude Include="encoder\basisu_uastc_enc.h" />
+    <ClInclude Include="encoder\cppspmd_flow.h" />
+    <ClInclude Include="encoder\cppspmd_math.h" />
+    <ClInclude Include="encoder\cppspmd_math_declares.h" />
+    <ClInclude Include="encoder\cppspmd_sse.h" />
+    <ClInclude Include="encoder\cppspmd_type_aliases.h" />
     <ClInclude Include="encoder\jpgd.h" />
     <ClInclude Include="encoder\lodepng.h" />
     <ClInclude Include="transcoder\basisu.h" />
+    <ClInclude Include="transcoder\basisu_containers.h" />
     <ClInclude Include="transcoder\basisu_transcoder.h" />
     <ClInclude Include="transcoder\basisu_transcoder_internal.h" />
     <ClInclude Include="transcoder\basisu_global_selector_palette.h" />
