@@ -5,7 +5,12 @@
 #include <stdint.h>
 #include <assert.h>
 #include <algorithm>
+
+#ifdef __linux__
+// Only for malloc_usable_size() in basisu_containers_impl.h
 #include <malloc.h>
+#define HAS_MALLOC_USABLE_SIZE 1
+#endif
 
 #ifdef _MSC_VER
 #define BASISU_FORCE_INLINE __forceinline

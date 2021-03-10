@@ -57,10 +57,10 @@ namespace basisu
 
 #ifdef _MSC_VER
          actual_size = _msize(new_p);
-//#elif defined(__EMSCRIPTEN__)
-//         actual_size = desired_size;
-#else
+#elif HAS_MALLOC_USABLE_SIZE
          actual_size = malloc_usable_size(new_p);
+#else
+         actual_size = desired_size;
 #endif
          m_p = new_p;
       }
@@ -84,10 +84,10 @@ namespace basisu
 
 #ifdef _MSC_VER
          actual_size = _msize(new_p);
-//#elif defined(__EMSCRIPTEN__)
-//         actual_size = desired_size;
-#else
+#elif HAS_MALLOC_USABLE_SIZE
          actual_size = malloc_usable_size(new_p);
+#else
+         actual_size = desired_size;
 #endif
 
          (*pMover)(new_p, m_p, m_size);
