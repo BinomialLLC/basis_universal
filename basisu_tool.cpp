@@ -35,6 +35,7 @@
 #define BASISU_CATCH_EXCEPTIONS 0
 
 using namespace basisu;
+using namespace buminiz;
 
 #define BASISU_TOOL_VERSION "1.13"
 

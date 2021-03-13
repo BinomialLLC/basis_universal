@@ -19,6 +19,8 @@
 #define MINIZ_NO_ZLIB_APIS
 #include "basisu_miniz.h"
 
+using namespace buminiz;
+
 #define BASISU_USE_STB_IMAGE_RESIZE_FOR_MIPMAP_GEN 0
 #define DEBUG_CROP_TEXTURE_TO_64x64 (0)
 #define DEBUG_RESIZE_TEXTURE (0)
