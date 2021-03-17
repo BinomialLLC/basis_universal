@@ -144,7 +144,7 @@ namespace basisu
 		bool get_endpoint_cluster_color_is_used(uint32_t cluster_index, bool individual_mode) const { return m_endpoint_cluster_etc_params[cluster_index].m_color_used[individual_mode]; }
 
 		// Selector clusters
-		uint32_t get_total_selector_clusters() const { return static_cast<uint32_t>(m_selector_cluster_indices.size()); }
+		uint32_t get_total_selector_clusters() const { return static_cast<uint32_t>(m_selector_cluster_block_indices.size()); }
 		uint32_t get_block_selector_cluster_index(uint32_t block_index) const { return m_block_selector_cluster_index[block_index]; }
 		const etc_block &get_selector_cluster_selector_bits(uint32_t cluster_index) const { return m_optimized_cluster_selectors[cluster_index]; }
 
@@ -152,7 +152,7 @@ namespace basisu
 		const bool_vec &get_selector_cluster_uses_global_cb_vec() const { return m_selector_cluster_uses_global_cb; }
 
 		// Returns block indices using each selector cluster
-		const uint_vec &get_selector_cluster_block_indices(uint32_t selector_cluster_index) const { return m_selector_cluster_indices[selector_cluster_index]; }
+		const uint_vec &get_selector_cluster_block_indices(uint32_t selector_cluster_index) const { return m_selector_cluster_block_indices[selector_cluster_index]; }
 
 		void dump_debug_image(const char *pFilename, uint32_t first_block, uint32_t num_blocks_x, uint32_t num_blocks_y, bool output_blocks);
 		
@@ -279,13 +279,13 @@ namespace basisu
 				
 		// The block(s) within each selector cluster
 		// Note: If you add anything here that uses selector cluster indicies, be sure to update optimize_selector_codebook()!
-		basisu::vector<uint_vec> m_selector_cluster_indices;
+		basisu::vector<uint_vec> m_selector_cluster_block_indices;
 
 		// The selector bits for each selector cluster.
 		basisu::vector<etc_block> m_optimized_cluster_selectors;
 
 		// The block(s) within each parent selector cluster.
-		basisu::vector<uint_vec> m_selector_parent_cluster_indices;
+		basisu::vector<uint_vec> m_selector_parent_cluster_block_indices;
 		
 		// Each block's parent selector cluster
 		uint8_vec m_block_parent_selector_cluster;

@@ -295,7 +295,7 @@ namespace basisu
 		optimize_selector_codebook();
 
 		if (m_params.m_debug_stats)
-			debug_printf("Total selector clusters: %u\n", (uint32_t)m_selector_cluster_indices.size());
+			debug_printf("Total selector clusters: %u\n", (uint32_t)m_selector_cluster_block_indices.size());
 
 		finalize();
 
@@ -318,7 +318,7 @@ namespace basisu
 			return;
 
 		uint32_t total_blocks_relocated = 0;
-		const uint32_t initial_selector_clusters = (uint32_t)m_selector_cluster_indices.size();
+		const uint32_t initial_selector_clusters = (uint32_t)m_selector_cluster_block_indices.size();
 
 		bool_vec block_relocated_flags(m_total_blocks);
 
@@ -344,7 +344,7 @@ namespace basisu
 
 			m_optimized_cluster_selectors.push_back(blk);
 			
-			vector_ensure_element_is_valid(m_selector_cluster_indices, new_selector_cluster_index);
+			vector_ensure_element_is_valid(m_selector_cluster_block_indices, new_selector_cluster_index);
 			
 			for (uint32_t block_index = 0; block_index < m_total_blocks; block_index++)
 			{
@@ -373,14 +373,14 @@ namespace basisu
 				// Change the block to use the new cluster
 				m_block_selector_cluster_index[block_index] = new_selector_cluster_index;
 				
-				m_selector_cluster_indices[new_selector_cluster_index].push_back(block_index);
+				m_selector_cluster_block_indices[new_selector_cluster_index].push_back(block_index);
 
 				block_relocated_flags[block_index] = true;
 
 #if 0
-				int j = vector_find(m_selector_cluster_indices[old_selector_cluster_index], block_index);
+				int j = vector_find(m_selector_cluster_block_indices[old_selector_cluster_index], block_index);
 				if (j >= 0)
-					m_selector_cluster_indices[old_selector_cluster_index].erase(m_selector_cluster_indices[old_selector_cluster_index].begin() + j);
+					m_selector_cluster_block_indices[old_selector_cluster_index].erase(m_selector_cluster_block_indices[old_selector_cluster_index].begin() + j);
 #endif
 
 				total_blocks_relocated++;
@@ -397,7 +397,7 @@ namespace basisu
 
 			for (int selector_cluster_index = 0; selector_cluster_index < (int)initial_selector_clusters; selector_cluster_index++)
 			{
-				uint_vec& block_indices = m_selector_cluster_indices[selector_cluster_index];
+				uint_vec& block_indices = m_selector_cluster_block_indices[selector_cluster_index];
 
 				uint32_t dst_ofs = 0;
 
@@ -415,6 +415,7 @@ namespace basisu
 		debug_printf("Total blocks relocated to new flat selector clusters: %u\n", total_blocks_relocated);
 	}
 
+	// This method will change the number and ordering of the selector codebook clusters.
 	void basisu_frontend::optimize_selector_codebook()
 	{
 		debug_printf("optimize_selector_codebook\n");
@@ -452,6 +453,8 @@ namespace basisu
 			new_to_old.push_back(i);
 		}
 
+		debug_printf("Original selector clusters: %u, new cluster selectors: %u\n", orig_total_selector_clusters, total_new_entries);
+
 		for (uint32_t i = 0; i < m_block_selector_cluster_index.size(); i++)
 		{
 			BASISU_FRONTEND_VERIFY((old_to_new[m_block_selector_cluster_index[i]] >= 0) && (old_to_new[m_block_selector_cluster_index[i]] < (int)total_new_entries));
@@ -460,7 +463,7 @@ namespace basisu
 
 		basisu::vector<etc_block> new_optimized_cluster_selectors(m_optimized_cluster_selectors.size() ? total_new_entries : 0);
 		basist::etc1_global_selector_codebook_entry_id_vec new_optimized_cluster_selector_global_cb_ids(m_optimized_cluster_selector_global_cb_ids.size() ? total_new_entries : 0);
-		basisu::vector<uint_vec> new_selector_cluster_indices(m_selector_cluster_indices.size() ? total_new_entries : 0);
+		basisu::vector<uint_vec> new_selector_cluster_indices(m_selector_cluster_block_indices.size() ? total_new_entries : 0);
 		bool_vec new_selector_cluster_uses_global_cb(m_selector_cluster_uses_global_cb.size() ? total_new_entries : 0);
 
 		for (uint32_t i = 0; i < total_new_entries; i++)
@@ -471,18 +474,25 @@ namespace basisu
 			if (m_optimized_cluster_selector_global_cb_ids.size())
 				new_optimized_cluster_selector_global_cb_ids[i] = m_optimized_cluster_selector_global_cb_ids[new_to_old[i]];
 
-			if (m_selector_cluster_indices.size())
-				new_selector_cluster_indices[i] = m_selector_cluster_indices[new_to_old[i]];
+			if (m_selector_cluster_block_indices.size())
+				new_selector_cluster_indices[i] = m_selector_cluster_block_indices[new_to_old[i]];
 
 			if (m_selector_cluster_uses_global_cb.size())
 				new_selector_cluster_uses_global_cb[i] = m_selector_cluster_uses_global_cb[new_to_old[i]];
 		}
-
+				
 		m_optimized_cluster_selectors.swap(new_optimized_cluster_selectors);
 		m_optimized_cluster_selector_global_cb_ids.swap(new_optimized_cluster_selector_global_cb_ids);
-		m_selector_cluster_indices.swap(new_selector_cluster_indices);
+		m_selector_cluster_block_indices.swap(new_selector_cluster_indices);
 		m_selector_cluster_uses_global_cb.swap(new_selector_cluster_uses_global_cb);
-				
+
+		if (m_selector_clusters_within_each_parent_cluster.size())
+		{
+			for (uint32_t i = 0; i < m_selector_clusters_within_each_parent_cluster.size(); i++)
+				for (uint32_t j = 0; j < m_selector_clusters_within_each_parent_cluster[i].size(); j++)
+					m_selector_clusters_within_each_parent_cluster[i][j] = old_to_new[m_selector_clusters_within_each_parent_cluster[i][j]];
+		}
+								
 		debug_printf("optimize_selector_codebook: Before: %u After: %u\n", orig_total_selector_clusters, total_new_entries);
 	}
 
@@ -1422,9 +1432,9 @@ namespace basisu
 	{
 		uint_vec block_selector_cluster_indices(m_total_blocks);
 
-		for (int cluster_index = 0; cluster_index < static_cast<int>(m_selector_cluster_indices.size()); cluster_index++)
+		for (int cluster_index = 0; cluster_index < static_cast<int>(m_selector_cluster_block_indices.size()); cluster_index++)
 		{
-			const basisu::vector<uint32_t>& cluster_indices = m_selector_cluster_indices[cluster_index];
+			const basisu::vector<uint32_t>& cluster_indices = m_selector_cluster_block_indices[cluster_index];
 
 			for (uint32_t cluster_indices_iter = 0; cluster_indices_iter < cluster_indices.size(); cluster_indices_iter++)
 			{
@@ -1437,7 +1447,7 @@ namespace basisu
 		} // cluster_index
 
 		m_selector_clusters_within_each_parent_cluster.resize(0);
-		m_selector_clusters_within_each_parent_cluster.resize(m_selector_parent_cluster_indices.size());
+		m_selector_clusters_within_each_parent_cluster.resize(m_selector_parent_cluster_block_indices.size());
 
 		for (uint32_t block_index = 0; block_index < m_total_blocks; block_index++)
 		{
@@ -1527,19 +1537,19 @@ namespace basisu
 
 		bool status = generate_hierarchical_codebook_threaded(selector_clusterizer,
 			m_params.m_max_selector_clusters, m_use_hierarchical_selector_codebooks ? parent_codebook_size : 0,
-			m_selector_cluster_indices,
-			m_selector_parent_cluster_indices,
+			m_selector_cluster_block_indices,
+			m_selector_parent_cluster_block_indices,
 			max_threads, m_params.m_pJob_pool);
 		BASISU_FRONTEND_VERIFY(status);
 
 		if (m_use_hierarchical_selector_codebooks)
 		{
-			if (!m_selector_parent_cluster_indices.size())
+			if (!m_selector_parent_cluster_block_indices.size())
 			{
-				m_selector_parent_cluster_indices.resize(0);
-				m_selector_parent_cluster_indices.resize(1);
+				m_selector_parent_cluster_block_indices.resize(0);
+				m_selector_parent_cluster_block_indices.resize(1);
 				for (uint32_t i = 0; i < m_total_blocks; i++)
-					m_selector_parent_cluster_indices[0].push_back(i);
+					m_selector_parent_cluster_block_indices[0].push_back(i);
 			}
 
 			BASISU_ASSUME(BASISU_SELECTOR_PARENT_CODEBOOK_SIZE_COMP_LEVEL_01 <= UINT8_MAX);
@@ -1549,9 +1559,9 @@ namespace basisu
 			m_block_parent_selector_cluster.resize(m_total_blocks);
 			vector_set_all(m_block_parent_selector_cluster, 0xFF);
 
-			for (uint32_t parent_cluster_index = 0; parent_cluster_index < m_selector_parent_cluster_indices.size(); parent_cluster_index++)
+			for (uint32_t parent_cluster_index = 0; parent_cluster_index < m_selector_parent_cluster_block_indices.size(); parent_cluster_index++)
 			{
-				const uint_vec &cluster = m_selector_parent_cluster_indices[parent_cluster_index];
+				const uint_vec &cluster = m_selector_parent_cluster_block_indices[parent_cluster_index];
 				for (uint32_t j = 0; j < cluster.size(); j++)
 					m_block_parent_selector_cluster[cluster[j]] = static_cast<uint8_t>(parent_cluster_index);
 			}
@@ -1561,9 +1571,9 @@ namespace basisu
 			}
 
 			// Ensure that all the blocks within each cluster are all in the same parent cluster, or something is very wrong.
-			for (uint32_t cluster_index = 0; cluster_index < m_selector_cluster_indices.size(); cluster_index++)
+			for (uint32_t cluster_index = 0; cluster_index < m_selector_cluster_block_indices.size(); cluster_index++)
 			{
-				const uint_vec &cluster = m_selector_cluster_indices[cluster_index];
+				const uint_vec &cluster = m_selector_cluster_block_indices[cluster_index];
 			
 				uint32_t parent_cluster_index = 0;
 				for (uint32_t j = 0; j < cluster.size(); j++)
@@ -1581,14 +1591,16 @@ namespace basisu
 			}
 		}
 
-		debug_printf("Total selector clusters: %u, total parent selector clusters: %u\n", (uint32_t)m_selector_cluster_indices.size(), (uint32_t)m_selector_parent_cluster_indices.size());
+		debug_printf("Total selector clusters: %u, total parent selector clusters: %u\n", (uint32_t)m_selector_cluster_block_indices.size(), (uint32_t)m_selector_parent_cluster_block_indices.size());
 	}
 
 	void basisu_frontend::create_optimized_selector_codebook(uint32_t iter)
 	{
 		debug_printf("create_optimized_selector_codebook\n");
 
-		const uint32_t total_selector_clusters = (uint32_t)m_selector_cluster_indices.size();
+		const uint32_t total_selector_clusters = (uint32_t)m_selector_cluster_block_indices.size();
+
+		debug_printf("Total selector clusters (from m_selector_cluster_block_indices.size()): %u\n", (uint32_t)m_selector_cluster_block_indices.size());
 
 		m_optimized_cluster_selectors.resize(total_selector_clusters);
 
@@ -1610,7 +1622,7 @@ namespace basisu
 					
 					for (uint32_t cluster_index = first_index; cluster_index < last_index; cluster_index++)
 					{
-						const basisu::vector<uint32_t> &cluster_block_indices = m_selector_cluster_indices[cluster_index];
+						const basisu::vector<uint32_t> &cluster_block_indices = m_selector_cluster_block_indices[cluster_index];
 
 						if (!cluster_block_indices.size())
 							continue;
@@ -1694,7 +1706,7 @@ namespace basisu
 					
 					for (uint32_t cluster_index = first_index; cluster_index < last_index; cluster_index++)
 					{
-						const basisu::vector<uint32_t> &cluster_block_indices = m_selector_cluster_indices[cluster_index];
+						const basisu::vector<uint32_t> &cluster_block_indices = m_selector_cluster_block_indices[cluster_index];
 
 						if (!cluster_block_indices.size())
 							continue;
@@ -1815,22 +1827,22 @@ namespace basisu
 #endif
 
 		} // if (m_params.m_pGlobal_sel_codebook)
-
+				
 		if (m_params.m_debug_images)
 		{
 			uint32_t max_selector_cluster_size = 0;
 
-			for (uint32_t i = 0; i < m_selector_cluster_indices.size(); i++)
-				max_selector_cluster_size = maximum<uint32_t>(max_selector_cluster_size, (uint32_t)m_selector_cluster_indices[i].size());
+			for (uint32_t i = 0; i < m_selector_cluster_block_indices.size(); i++)
+				max_selector_cluster_size = maximum<uint32_t>(max_selector_cluster_size, (uint32_t)m_selector_cluster_block_indices[i].size());
 
 			if ((max_selector_cluster_size * 5) < 32768)
 			{
 				const uint32_t x_spacer_len = 16;
-				image selector_cluster_vis(x_spacer_len + max_selector_cluster_size * 5, (uint32_t)m_selector_cluster_indices.size() * 5);
+				image selector_cluster_vis(x_spacer_len + max_selector_cluster_size * 5, (uint32_t)m_selector_cluster_block_indices.size() * 5);
 
-				for (uint32_t selector_cluster_index = 0; selector_cluster_index < m_selector_cluster_indices.size(); selector_cluster_index++)
+				for (uint32_t selector_cluster_index = 0; selector_cluster_index < m_selector_cluster_block_indices.size(); selector_cluster_index++)
 				{
-					const basisu::vector<uint32_t> &cluster_block_indices = m_selector_cluster_indices[selector_cluster_index];
+					const basisu::vector<uint32_t> &cluster_block_indices = m_selector_cluster_block_indices[selector_cluster_index];
 
 					for (uint32_t y = 0; y < 4; y++)
 						for (uint32_t x = 0; x < 4; x++)
@@ -1858,22 +1870,33 @@ namespace basisu
 	void basisu_frontend::find_optimal_selector_clusters_for_each_block()
 	{
 		debug_printf("find_optimal_selector_clusters_for_each_block\n");
-				
+
+		// Sanity checks
+		BASISU_FRONTEND_VERIFY(m_selector_cluster_block_indices.size() == m_optimized_cluster_selectors.size());
+		for (uint32_t i = 0; i < m_selector_clusters_within_each_parent_cluster.size(); i++)
+		{
+			for (uint32_t j = 0; j < m_selector_clusters_within_each_parent_cluster[i].size(); j++)
+			{
+				BASISU_FRONTEND_VERIFY(m_selector_clusters_within_each_parent_cluster[i][j] < m_optimized_cluster_selectors.size());
+			}
+		}
+
 		m_block_selector_cluster_index.resize(m_total_blocks);
-				
+							
 		if (m_params.m_compression_level == 0)
 		{
 			// Don't do anything, just leave the blocks in their original selector clusters.
-			for (uint32_t i = 0; i < m_selector_cluster_indices.size(); i++)
+			for (uint32_t i = 0; i < m_selector_cluster_block_indices.size(); i++)
 			{
-				for (uint32_t j = 0; j < m_selector_cluster_indices[i].size(); j++)
-					m_block_selector_cluster_index[m_selector_cluster_indices[i][j]] = i;
+				for (uint32_t j = 0; j < m_selector_cluster_block_indices[i].size(); j++)
+					m_block_selector_cluster_index[m_selector_cluster_block_indices[i][j]] = i;
 			}
 		}
 		else
 		{
-			basisu::vector< basisu::vector<uint32_t> > new_cluster_indices;
-
+			// Note that this method may leave some empty clusters (i.e. arrays with no block indices), including at the end.
+			basisu::vector< basisu::vector<uint32_t> > new_cluster_indices(m_optimized_cluster_selectors.size());
+						
 			// For each block: Determine which quantized selectors best encode that block, given its quantized endpoints.
 
 			basisu::vector<uint8_t> unpacked_optimized_cluster_selectors(16 * m_optimized_cluster_selectors.size());
@@ -1887,7 +1910,7 @@ namespace basisu
 					}
 				}
 			}
-
+						
 			const uint32_t N = 1024;
 			for (uint32_t block_index_iter = 0; block_index_iter < m_total_blocks; block_index_iter += N)
 			{
@@ -1913,7 +1936,7 @@ namespace basisu
 					const uint32_t parent_selector_cluster = m_block_parent_selector_cluster.size() ? m_block_parent_selector_cluster[block_index] : 0;
 					const uint_vec *pCluster_indices = m_selector_clusters_within_each_parent_cluster.size() ? &m_selector_clusters_within_each_parent_cluster[parent_selector_cluster] : nullptr;
 
-					const uint32_t total_clusters = m_use_hierarchical_selector_codebooks ? (uint32_t)pCluster_indices->size() : (uint32_t)m_selector_cluster_indices.size();
+					const uint32_t total_clusters = m_use_hierarchical_selector_codebooks ? (uint32_t)pCluster_indices->size() : (uint32_t)m_selector_cluster_block_indices.size();
 
 #if 0
 					for (uint32_t cluster_iter = 0; cluster_iter < total_clusters; cluster_iter++)
@@ -2033,12 +2056,12 @@ namespace basisu
 #ifndef __EMSCRIPTEN__
 			m_params.m_pJob_pool->wait_for_all();
 #endif
-			
-			m_selector_cluster_indices.swap(new_cluster_indices);
+
+			m_selector_cluster_block_indices.swap(new_cluster_indices);
 		}
 
-		for (uint32_t i = 0; i < m_selector_cluster_indices.size(); i++)
-			vector_sort(m_selector_cluster_indices[i]);
+		for (uint32_t i = 0; i < m_selector_cluster_block_indices.size(); i++)
+			vector_sort(m_selector_cluster_block_indices[i]);
 	}
 
 	// TODO: Remove old ETC1 specific stuff, and thread this.
@@ -2226,7 +2249,7 @@ namespace basisu
 
 		if (m_params.m_debug_stats)
 			debug_printf("Total subblock endpoints refined: %u (%3.1f%%)\n", total_subblocks_refined, total_subblocks_refined * 100.0f / total_subblocks_examined);
-
+				
 		return total_subblocks_refined;
 	}
 
