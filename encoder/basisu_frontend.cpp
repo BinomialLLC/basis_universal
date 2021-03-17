@@ -486,6 +486,7 @@ namespace basisu
 		m_selector_cluster_block_indices.swap(new_selector_cluster_indices);
 		m_selector_cluster_uses_global_cb.swap(new_selector_cluster_uses_global_cb);
 
+		// This isn't strictly necessary - doing it for completeness/future sanity.
 		if (m_selector_clusters_within_each_parent_cluster.size())
 		{
 			for (uint32_t i = 0; i < m_selector_clusters_within_each_parent_cluster.size(); i++)
