@@ -1016,6 +1016,11 @@ namespace basisu
    template<typename Key, typename Value = empty_type, typename Hasher = hasher<Key>, typename Equals = equal_to<Key> >
    class hash_map
    {
+   public:
+      class iterator;
+      class const_iterator;
+   
+   private:
       friend class iterator;
       friend class const_iterator;
 
@@ -1202,9 +1207,7 @@ namespace basisu
          if (new_hash_size > m_values.size())
             rehash((uint32_t)new_hash_size);
       }
-
-      class const_iterator;
-
+            
       class iterator
       {
          friend class hash_map<Key, Value, Hasher, Equals>;
