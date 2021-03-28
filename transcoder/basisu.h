@@ -264,7 +264,7 @@ namespace basisu
 	template<uint32_t NumBytes>
 	struct packed_uint
 	{
-		uint8_t m_bytes[NumBytes];
+		uint8_t m_bytes[4];
 
 		inline packed_uint() { static_assert(NumBytes <= 4, "NumBytes <= 4"); }
 		inline packed_uint(uint32_t v) { *this = v; }
