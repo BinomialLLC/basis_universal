@@ -1308,8 +1308,8 @@ namespace basisu
 	{
 		assert((first_chan < 4U) && (first_chan + total_chans <= 4U));
 
-		const uint32_t width = basisu::min(a.get_width(), b.get_width());
-		const uint32_t height = basisu::min(a.get_height(), b.get_height());
+		const uint32_t width = basisu::minimum(a.get_width(), b.get_width());
+		const uint32_t height = basisu::minimum(a.get_height(), b.get_height());
 
 		double hist[256];
 		clear_obj(hist);
@@ -1341,7 +1341,7 @@ namespace basisu
 		{
 			if (hist[i])
 			{
-				m_max = basisu::max<float>(m_max, (float)i);
+				m_max = basisu::maximum<float>(m_max, (float)i);
 				double v = i * hist[i];
 				sum += v;
 				sum2 += i * v;
@@ -1823,7 +1823,7 @@ namespace basisu
 						}
 					}
 
-					const uint32_t n = basisu::min<uint32_t>(pixels_remaining, run_remaining);
+					const uint32_t n = basisu::minimum<uint32_t>(pixels_remaining, run_remaining);
 					pixels_remaining -= n;
 					run_remaining -= n;
 
