@@ -205,6 +205,7 @@
     <ClInclude Include="encoder\lodepng.h" />
     <ClInclude Include="transcoder\basisu.h" />
     <ClInclude Include="transcoder\basisu_containers.h" />
+    <ClInclude Include="transcoder\basisu_file_headers.h" />
     <ClInclude Include="transcoder\basisu_transcoder.h" />
     <ClInclude Include="transcoder\basisu_transcoder_internal.h" />
     <ClInclude Include="transcoder\basisu_global_selector_palette.h" />

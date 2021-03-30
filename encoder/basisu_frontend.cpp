@@ -196,106 +196,113 @@ namespace basisu
 
 		init_etc1_images();
 
-		init_endpoint_training_vectors();
-
-		generate_endpoint_clusters();
-				
-		for (uint32_t refine_endpoint_step = 0; refine_endpoint_step < m_num_endpoint_codebook_iterations; refine_endpoint_step++)
+		if (m_params.m_pGlobal_codebooks)
 		{
-			BASISU_FRONTEND_VERIFY(check_etc1s_constraints());
+			init_global_codebooks();
+		}
+		else
+		{
+			init_endpoint_training_vectors();
 
-			if (refine_endpoint_step)
+			generate_endpoint_clusters();
+				
+			for (uint32_t refine_endpoint_step = 0; refine_endpoint_step < m_num_endpoint_codebook_iterations; refine_endpoint_step++)
 			{
-				introduce_new_endpoint_clusters();
-			}
+				BASISU_FRONTEND_VERIFY(check_etc1s_constraints());
 
-			generate_endpoint_codebook(refine_endpoint_step);
-
-			if ((m_params.m_debug_images) && (m_params.m_dump_endpoint_clusterization))
-			{
-				char buf[256];
-				snprintf(buf, sizeof(buf), "endpoint_cluster_vis_pre_%u.png", refine_endpoint_step);
-				dump_endpoint_clusterization_visualization(buf, false);
-			}
-
-			bool early_out = false;
-
-			if (m_endpoint_refinement)
-			{
-				//dump_endpoint_clusterization_visualization("endpoint_clusters_before_refinement.png");
-
-				if (!refine_endpoint_clusterization())
-					early_out = true;
-
-				if ((m_params.m_tex_type == basist::cBASISTexTypeVideoFrames) && (!refine_endpoint_step) && (m_num_endpoint_codebook_iterations == 1))
+				if (refine_endpoint_step)
 				{
-					eliminate_redundant_or_empty_endpoint_clusters();
-					generate_endpoint_codebook(refine_endpoint_step);
+					introduce_new_endpoint_clusters();
 				}
+
+				generate_endpoint_codebook(refine_endpoint_step);
 
 				if ((m_params.m_debug_images) && (m_params.m_dump_endpoint_clusterization))
 				{
 					char buf[256];
-					snprintf(buf, sizeof(buf), "endpoint_cluster_vis_post_%u.png", refine_endpoint_step);
-
+					snprintf(buf, sizeof(buf), "endpoint_cluster_vis_pre_%u.png", refine_endpoint_step);
 					dump_endpoint_clusterization_visualization(buf, false);
-					snprintf(buf, sizeof(buf), "endpoint_cluster_colors_vis_post_%u.png", refine_endpoint_step);
-
-					dump_endpoint_clusterization_visualization(buf, true);
 				}
-			}
+
+				bool early_out = false;
+
+				if (m_endpoint_refinement)
+				{
+					//dump_endpoint_clusterization_visualization("endpoint_clusters_before_refinement.png");
+
+					if (!refine_endpoint_clusterization())
+						early_out = true;
+
+					if ((m_params.m_tex_type == basist::cBASISTexTypeVideoFrames) && (!refine_endpoint_step) && (m_num_endpoint_codebook_iterations == 1))
+					{
+						eliminate_redundant_or_empty_endpoint_clusters();
+						generate_endpoint_codebook(refine_endpoint_step);
+					}
+
+					if ((m_params.m_debug_images) && (m_params.m_dump_endpoint_clusterization))
+					{
+						char buf[256];
+						snprintf(buf, sizeof(buf), "endpoint_cluster_vis_post_%u.png", refine_endpoint_step);
+
+						dump_endpoint_clusterization_visualization(buf, false);
+						snprintf(buf, sizeof(buf), "endpoint_cluster_colors_vis_post_%u.png", refine_endpoint_step);
+
+						dump_endpoint_clusterization_visualization(buf, true);
+					}
+				}
 						
-			eliminate_redundant_or_empty_endpoint_clusters();
+				eliminate_redundant_or_empty_endpoint_clusters();
 
-			if (m_params.m_debug_stats)
-				debug_printf("Total endpoint clusters: %u\n", (uint32_t)m_endpoint_clusters.size());
+				if (m_params.m_debug_stats)
+					debug_printf("Total endpoint clusters: %u\n", (uint32_t)m_endpoint_clusters.size());
 
-			if (early_out)
-				break;
-		}
+				if (early_out)
+					break;
+			}
 
-		BASISU_FRONTEND_VERIFY(check_etc1s_constraints());
+			BASISU_FRONTEND_VERIFY(check_etc1s_constraints());
 
-		generate_block_endpoint_clusters();
+			generate_block_endpoint_clusters();
 
-		create_initial_packed_texture();
+			create_initial_packed_texture();
 
-		generate_selector_clusters();
+			generate_selector_clusters();
 
-		if (m_use_hierarchical_selector_codebooks)
-			compute_selector_clusters_within_each_parent_cluster();
+			if (m_use_hierarchical_selector_codebooks)
+				compute_selector_clusters_within_each_parent_cluster();
 				
-		if (m_params.m_compression_level == 0)
-		{
-			create_optimized_selector_codebook(0);
-
-			find_optimal_selector_clusters_for_each_block();
-			
-			introduce_special_selector_clusters();
-		}
-		else
-		{
-			const uint32_t num_refine_selector_steps = m_params.m_pGlobal_sel_codebook ? 1 : m_num_selector_codebook_iterations;
-			for (uint32_t refine_selector_steps = 0; refine_selector_steps < num_refine_selector_steps; refine_selector_steps++)
+			if (m_params.m_compression_level == 0)
 			{
-				create_optimized_selector_codebook(refine_selector_steps);
+				create_optimized_selector_codebook(0);
 
 				find_optimal_selector_clusters_for_each_block();
-
+			
 				introduce_special_selector_clusters();
-				
-				if ((m_params.m_compression_level >= 4) || (m_params.m_tex_type == basist::cBASISTexTypeVideoFrames))
+			}
+			else
+			{
+				const uint32_t num_refine_selector_steps = m_params.m_pGlobal_sel_codebook ? 1 : m_num_selector_codebook_iterations;
+				for (uint32_t refine_selector_steps = 0; refine_selector_steps < num_refine_selector_steps; refine_selector_steps++)
 				{
-					if (!refine_block_endpoints_given_selectors())
-						break;
+					create_optimized_selector_codebook(refine_selector_steps);
+
+					find_optimal_selector_clusters_for_each_block();
+
+					introduce_special_selector_clusters();
+				
+					if ((m_params.m_compression_level >= 4) || (m_params.m_tex_type == basist::cBASISTexTypeVideoFrames))
+					{
+						if (!refine_block_endpoints_given_selectors())
+							break;
+					}
 				}
 			}
+
+			optimize_selector_codebook();
+
+			if (m_params.m_debug_stats)
+				debug_printf("Total selector clusters: %u\n", (uint32_t)m_selector_cluster_block_indices.size());
 		}
-
-		optimize_selector_codebook();
-
-		if (m_params.m_debug_stats)
-			debug_printf("Total selector clusters: %u\n", (uint32_t)m_selector_cluster_block_indices.size());
 
 		finalize();
 
@@ -307,6 +314,258 @@ namespace basisu
 
 		debug_printf("basisu_frontend::compress: Done\n");
 
+		return true;
+	}
+
+	bool basisu_frontend::init_global_codebooks()
+	{
+		const basist::basisu_lowlevel_etc1s_transcoder* pTranscoder = m_params.m_pGlobal_codebooks;
+
+		const basist::basisu_lowlevel_etc1s_transcoder::endpoint_vec& endpoints = pTranscoder->get_endpoints();
+		const basist::basisu_lowlevel_etc1s_transcoder::selector_vec& selectors = pTranscoder->get_selectors();
+				
+		m_endpoint_cluster_etc_params.resize(endpoints.size());
+		for (uint32_t i = 0; i < endpoints.size(); i++)
+		{
+			m_endpoint_cluster_etc_params[i].m_inten_table[0] = endpoints[i].m_inten5;
+			m_endpoint_cluster_etc_params[i].m_inten_table[1] = endpoints[i].m_inten5;
+
+			m_endpoint_cluster_etc_params[i].m_color_unscaled[0].set(endpoints[i].m_color5.r, endpoints[i].m_color5.g, endpoints[i].m_color5.b, 255);
+			m_endpoint_cluster_etc_params[i].m_color_used[0] = true;
+			m_endpoint_cluster_etc_params[i].m_valid = true;
+		}
+
+		m_optimized_cluster_selectors.resize(selectors.size());
+		for (uint32_t i = 0; i < m_optimized_cluster_selectors.size(); i++)
+		{
+			for (uint32_t y = 0; y < 4; y++)
+				for (uint32_t x = 0; x < 4; x++)
+					m_optimized_cluster_selectors[i].set_selector(x, y, selectors[i].get_selector(x, y));
+		}
+
+		m_block_endpoint_clusters_indices.resize(m_total_blocks);
+
+		m_orig_encoded_blocks.resize(m_total_blocks);
+
+		m_block_selector_cluster_index.resize(m_total_blocks);
+
+#if 0
+		for (uint32_t block_index_iter = 0; block_index_iter < m_total_blocks; block_index_iter += N)
+		{
+			const uint32_t first_index = block_index_iter;
+			const uint32_t last_index = minimum<uint32_t>(m_total_blocks, first_index + N);
+
+#ifndef __EMSCRIPTEN__
+			m_params.m_pJob_pool->add_job([this, first_index, last_index] {
+#endif
+
+				for (uint32_t block_index = first_index; block_index < last_index; block_index++)
+				{
+					const etc_block& blk = m_etc1_blocks_etc1s[block_index];
+
+					const uint32_t block_endpoint_index = m_block_endpoint_clusters_indices[block_index][0];
+
+					etc_block trial_blk;
+					trial_blk.set_block_color5_etc1s(blk.m_color_unscaled[0]);
+					trial_blk.set_flip_bit(true);
+
+					uint64_t best_err = UINT64_MAX;
+					uint32_t best_index = 0;
+
+					for (uint32_t i = 0; i < m_optimized_cluster_selectors.size(); i++)
+					{
+						trial_blk.set_raw_selector_bits(m_optimized_cluster_selectors[i].get_raw_selector_bits());
+
+						const uint64_t cur_err = trial_blk.evaluate_etc1_error(get_source_pixel_block(block_index).get_ptr(), m_params.m_perceptual);
+						if (cur_err < best_err)
+						{
+							best_err = cur_err;
+							best_index = i;
+							if (!cur_err)
+								break;
+						}
+
+					} // block_index
+
+					m_block_selector_cluster_index[block_index] = best_index;
+				}
+
+#ifndef __EMSCRIPTEN__
+				});
+#endif
+
+		}
+
+#ifndef __EMSCRIPTEN__
+		m_params.m_pJob_pool->wait_for_all();
+#endif
+
+		m_encoded_blocks.resize(m_total_blocks);
+		for (uint32_t block_index = 0; block_index < m_total_blocks; block_index++)
+		{
+			const uint32_t endpoint_index = m_block_endpoint_clusters_indices[block_index][0];
+			const uint32_t selector_index = m_block_selector_cluster_index[block_index];
+
+			etc_block& blk = m_encoded_blocks[block_index];
+
+			blk.set_block_color5_etc1s(m_endpoint_cluster_etc_params[endpoint_index].m_color_unscaled[0]);
+			blk.set_inten_tables_etc1s(m_endpoint_cluster_etc_params[endpoint_index].m_inten_table[0]);
+			blk.set_flip_bit(true);
+			blk.set_raw_selector_bits(m_optimized_cluster_selectors[selector_index].get_raw_selector_bits());
+		}
+#endif
+
+		const uint32_t NUM_PASSES = 3;
+		for (uint32_t pass = 0; pass < NUM_PASSES; pass++)
+		{
+			debug_printf("init_global_codebooks: pass %u\n", pass);
+
+			const uint32_t N = 128;
+			for (uint32_t block_index_iter = 0; block_index_iter < m_total_blocks; block_index_iter += N)
+			{
+				const uint32_t first_index = block_index_iter;
+				const uint32_t last_index = minimum<uint32_t>(m_total_blocks, first_index + N);
+
+#ifndef __EMSCRIPTEN__
+				m_params.m_pJob_pool->add_job([this, first_index, last_index, pass] {
+#endif
+										
+					for (uint32_t block_index = first_index; block_index < last_index; block_index++)
+					{
+						const etc_block& blk = pass ? m_encoded_blocks[block_index] : m_etc1_blocks_etc1s[block_index];
+						const uint32_t blk_raw_selector_bits = blk.get_raw_selector_bits();
+
+						etc_block trial_blk(blk);
+						trial_blk.set_raw_selector_bits(blk_raw_selector_bits);
+						trial_blk.set_flip_bit(true);
+
+						uint64_t best_err = UINT64_MAX;
+						uint32_t best_index = 0;
+						etc_block best_block(trial_blk);
+												
+						for (uint32_t i = 0; i < m_endpoint_cluster_etc_params.size(); i++)
+						{
+							if (m_endpoint_cluster_etc_params[i].m_inten_table[0] > blk.get_inten_table(0))
+								continue;
+
+							trial_blk.set_block_color5_etc1s(m_endpoint_cluster_etc_params[i].m_color_unscaled[0]);
+							trial_blk.set_inten_tables_etc1s(m_endpoint_cluster_etc_params[i].m_inten_table[0]);
+
+							const color_rgba* pSource_pixels = get_source_pixel_block(block_index).get_ptr();
+							uint64_t cur_err;
+							if (!pass)
+								cur_err = trial_blk.determine_selectors(pSource_pixels, m_params.m_perceptual);
+							else
+								cur_err = trial_blk.evaluate_etc1_error(pSource_pixels, m_params.m_perceptual);
+
+							if (cur_err < best_err)
+							{
+								best_err = cur_err;
+								best_index = i;
+								best_block = trial_blk;
+
+								if (!cur_err)
+									break;
+							}
+						}
+
+						m_block_endpoint_clusters_indices[block_index][0] = best_index;
+						m_block_endpoint_clusters_indices[block_index][1] = best_index;
+
+						m_orig_encoded_blocks[block_index] = best_block;
+
+					} // block_index
+
+#ifndef __EMSCRIPTEN__
+					});
+#endif
+
+			}
+
+#ifndef __EMSCRIPTEN__
+			m_params.m_pJob_pool->wait_for_all();
+#endif
+
+			m_endpoint_clusters.resize(0);
+			m_endpoint_clusters.resize(endpoints.size());
+			for (uint32_t block_index = 0; block_index < m_total_blocks; block_index++)
+			{
+				const uint32_t endpoint_cluster_index = m_block_endpoint_clusters_indices[block_index][0];
+				m_endpoint_clusters[endpoint_cluster_index].push_back(block_index * 2);
+				m_endpoint_clusters[endpoint_cluster_index].push_back(block_index * 2 + 1);
+			}
+
+			m_block_selector_cluster_index.resize(m_total_blocks);
+
+			for (uint32_t block_index_iter = 0; block_index_iter < m_total_blocks; block_index_iter += N)
+			{
+				const uint32_t first_index = block_index_iter;
+				const uint32_t last_index = minimum<uint32_t>(m_total_blocks, first_index + N);
+
+#ifndef __EMSCRIPTEN__
+				m_params.m_pJob_pool->add_job([this, first_index, last_index, pass] {
+#endif
+
+					for (uint32_t block_index = first_index; block_index < last_index; block_index++)
+					{
+						const uint32_t block_endpoint_index = m_block_endpoint_clusters_indices[block_index][0];
+
+						etc_block trial_blk;
+						trial_blk.set_block_color5_etc1s(m_endpoint_cluster_etc_params[block_endpoint_index].m_color_unscaled[0]);
+						trial_blk.set_inten_tables_etc1s(m_endpoint_cluster_etc_params[block_endpoint_index].m_inten_table[0]);
+						trial_blk.set_flip_bit(true);
+
+						uint64_t best_err = UINT64_MAX;
+						uint32_t best_index = 0;
+
+						for (uint32_t i = 0; i < m_optimized_cluster_selectors.size(); i++)
+						{
+							trial_blk.set_raw_selector_bits(m_optimized_cluster_selectors[i].get_raw_selector_bits());
+
+							const uint64_t cur_err = trial_blk.evaluate_etc1_error(get_source_pixel_block(block_index).get_ptr(), m_params.m_perceptual);
+							if (cur_err < best_err)
+							{
+								best_err = cur_err;
+								best_index = i;
+								if (!cur_err)
+									break;
+							}
+
+						} // block_index
+
+						m_block_selector_cluster_index[block_index] = best_index;
+					}
+
+#ifndef __EMSCRIPTEN__
+					});
+#endif
+
+			}
+
+#ifndef __EMSCRIPTEN__
+			m_params.m_pJob_pool->wait_for_all();
+#endif
+
+			m_encoded_blocks.resize(m_total_blocks);
+			for (uint32_t block_index = 0; block_index < m_total_blocks; block_index++)
+			{
+				const uint32_t endpoint_index = m_block_endpoint_clusters_indices[block_index][0];
+				const uint32_t selector_index = m_block_selector_cluster_index[block_index];
+
+				etc_block& blk = m_encoded_blocks[block_index];
+
+				blk.set_block_color5_etc1s(m_endpoint_cluster_etc_params[endpoint_index].m_color_unscaled[0]);
+				blk.set_inten_tables_etc1s(m_endpoint_cluster_etc_params[endpoint_index].m_inten_table[0]);
+				blk.set_flip_bit(true);
+				blk.set_raw_selector_bits(m_optimized_cluster_selectors[selector_index].get_raw_selector_bits());
+			}
+
+		} // pass
+
+		m_selector_cluster_block_indices.resize(selectors.size());
+		for (uint32_t block_index = 0; block_index < m_etc1_blocks_etc1s.size(); block_index++)
+			m_selector_cluster_block_indices[m_block_selector_cluster_index[block_index]].push_back(block_index);
+				
 		return true;
 	}
 

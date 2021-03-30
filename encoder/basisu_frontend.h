@@ -18,6 +18,7 @@
 #include "basisu_gpu_texture.h"
 #include "basisu_global_selector_palette_helpers.h"
 #include "../transcoder/basisu_file_headers.h"
+#include "../transcoder/basisu_transcoder.h"
 
 namespace basisu
 {
@@ -83,6 +84,7 @@ namespace basisu
 				m_use_hybrid_selector_codebooks(false),
 				m_hybrid_codebook_quality_thresh(0.0f),
 				m_tex_type(basist::cBASISTexType2D),
+				m_pGlobal_codebooks(nullptr),
 				
 				m_pJob_pool(nullptr)
 			{
@@ -110,6 +112,7 @@ namespace basisu
 			bool m_use_hybrid_selector_codebooks;
 			float m_hybrid_codebook_quality_thresh;
 			basist::basis_texture_type m_tex_type;
+			const basist::basisu_lowlevel_etc1s_transcoder *m_pGlobal_codebooks;
 			
 			job_pool *m_pJob_pool;
 		};
@@ -330,6 +333,7 @@ namespace basisu
 		//-----------------------------------------------------------------------------
 
 		void init_etc1_images();
+		bool init_global_codebooks();
 		void init_endpoint_training_vectors();
 		void dump_endpoint_clusterization_visualization(const char *pFilename, bool vis_endpoint_colors);
 		void generate_endpoint_clusters();

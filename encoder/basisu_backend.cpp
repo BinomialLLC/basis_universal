@@ -183,8 +183,16 @@ namespace basisu
 		basisu_frontend& r = *m_pFront_end;
 		//const bool is_video = r.get_params().m_tex_type == basist::cBASISTexTypeVideoFrames;
 
-		//if ((total_block_endpoints_remapped) && (m_params.m_compression_level > 0))
-		if ((total_block_endpoints_remapped) && (m_params.m_compression_level > 1))
+		if (m_params.m_used_global_codebooks)
+		{
+			m_endpoint_remap_table_old_to_new.resize(r.get_total_endpoint_clusters());
+			for (uint32_t i = 0; i < r.get_total_endpoint_clusters(); i++)
+				m_endpoint_remap_table_old_to_new[i] = i;
+		}
+		else
+		{
+			//if ((total_block_endpoints_remapped) && (m_params.m_compression_level > 0))
+			if ((total_block_endpoints_remapped) && (m_params.m_compression_level > 1))
 		{
 			// We've changed the block endpoint indices, so we need to go and adjust the endpoint codebook (remove unused entries, optimize existing entries that have changed)
 			uint_vec new_block_endpoints(get_total_blocks());
@@ -236,6 +244,7 @@ namespace basisu
 		palette_index_reorderer reorderer;
 		reorderer.init((uint32_t)all_endpoint_indices.size(), &all_endpoint_indices[0], r.get_total_endpoint_clusters(), nullptr, nullptr, 0);
 		m_endpoint_remap_table_old_to_new = reorderer.get_remap_table();
+		}
 
 		m_endpoint_remap_table_new_to_old.resize(r.get_total_endpoint_clusters());
 		for (uint32_t i = 0; i < m_endpoint_remap_table_old_to_new.size(); i++)
@@ -248,7 +257,7 @@ namespace basisu
 
 		m_selector_remap_table_new_to_old.resize(r.get_total_selector_clusters());
 
-		if (m_params.m_compression_level == 0)
+		if ((m_params.m_compression_level == 0) || (m_params.m_used_global_codebooks))
 		{
 			for (uint32_t i = 0; i < r.get_total_selector_clusters(); i++)
 				m_selector_remap_table_new_to_old[i] = i;
@@ -1115,7 +1124,7 @@ namespace basisu
 			total_used_selector_history_buf, total_used_selector_history_buf * 100.0f / get_total_blocks());
 
 		//if ((total_endpoint_indices_remapped) && (m_params.m_compression_level > 0))
-		if ((total_endpoint_indices_remapped) && (m_params.m_compression_level > 1))
+		if ((total_endpoint_indices_remapped) && (m_params.m_compression_level > 1) && (!m_params.m_used_global_codebooks))
 		{
 			int_vec unused;
 			r.reoptimize_remapped_endpoints(block_endpoint_indices, unused, false, &block_selector_indices);
@@ -1676,6 +1685,7 @@ namespace basisu
 		//const bool is_video = m_pFront_end->get_params().m_tex_type == basist::cBASISTexTypeVideoFrames;
 		m_output.m_slice_desc = m_slices;
 		m_output.m_etc1s = m_params.m_etc1s;
+		m_output.m_uses_global_codebooks = m_params.m_used_global_codebooks;
 
 		create_endpoint_palette();
 		create_selector_palette();

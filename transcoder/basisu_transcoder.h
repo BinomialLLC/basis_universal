@@ -169,6 +169,8 @@ namespace basist
 	public:
 		basisu_lowlevel_etc1s_transcoder(const basist::etc1_global_selector_codebook *pGlobal_sel_codebook);
 
+		void set_global_codebooks(const basisu_lowlevel_etc1s_transcoder* pGlobal_codebook) { m_pGlobal_codebook = pGlobal_codebook; }
+		const basisu_lowlevel_etc1s_transcoder *get_global_codebooks() const { return m_pGlobal_codebook; }
 		bool decode_palettes(
 			uint32_t num_endpoints, const uint8_t *pEndpoints_data, uint32_t endpoints_data_size,
 			uint32_t num_selectors, const uint8_t *pSelectors_data, uint32_t selectors_data_size);
@@ -207,8 +209,8 @@ namespace basist
 
 		void clear()
 		{
-			m_endpoints.clear();
-			m_selectors.clear();
+			m_local_endpoints.clear();
+			m_local_selectors.clear();
 			m_endpoint_pred_model.clear();
 			m_delta_endpoint_model.clear();
 			m_selector_model.clear();
@@ -216,12 +218,20 @@ namespace basist
 			m_selector_history_buf_size = 0;
 		}
 
-	private:
+		// Low-level methods
 		typedef basisu::vector<endpoint> endpoint_vec;
-		endpoint_vec m_endpoints;
-
+		const endpoint_vec &get_endpoints() const { return m_local_endpoints; }
+		
 		typedef basisu::vector<selector> selector_vec;
-		selector_vec m_selectors;
+		const selector_vec &get_selectors() const { return m_local_selectors; }
+
+		const etc1_global_selector_codebook* get_global_sel_codebook() const { return m_pGlobal_sel_codebook;	}
+
+	private:
+		const basisu_lowlevel_etc1s_transcoder* m_pGlobal_codebook;
+
+		endpoint_vec m_local_endpoints;
+		selector_vec m_local_selectors;
 
 		const etc1_global_selector_codebook *m_pGlobal_sel_codebook;
 
@@ -487,6 +497,14 @@ namespace basist
 			void* pOutput_blocks, block_format fmt,
 			uint32_t block_stride_in_bytes, uint32_t output_row_pitch_in_blocks_or_pixels);
 
+		void set_global_codebooks(const basisu_lowlevel_etc1s_transcoder* pGlobal_codebook) { m_lowlevel_etc1s_decoder.set_global_codebooks(pGlobal_codebook); }
+		const basisu_lowlevel_etc1s_transcoder* get_global_codebooks() const { return m_lowlevel_etc1s_decoder.get_global_codebooks(); }
+
+		const basisu_lowlevel_etc1s_transcoder& get_lowlevel_etc1s_decoder() const { return m_lowlevel_etc1s_decoder; }
+		basisu_lowlevel_etc1s_transcoder& get_lowlevel_etc1s_decoder() { return m_lowlevel_etc1s_decoder; }
+		
+		const basisu_lowlevel_uastc_transcoder& get_lowlevel_uastc_decoder() const { return m_lowlevel_uastc_decoder; }
+		basisu_lowlevel_uastc_transcoder& get_lowlevel_uastc_decoder() { return m_lowlevel_uastc_decoder; }
 	private:
 		mutable basisu_lowlevel_etc1s_transcoder m_lowlevel_etc1s_decoder;
 		mutable basisu_lowlevel_uastc_transcoder m_lowlevel_uastc_decoder;

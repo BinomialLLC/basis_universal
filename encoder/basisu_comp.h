@@ -230,6 +230,7 @@ namespace basisu
 
 			m_y_flip.clear();
 			m_debug.clear();
+			m_validate.clear();
 			m_debug_images.clear();
 			m_global_sel_pal.clear();
 			m_auto_global_sel_pal.clear();
@@ -289,6 +290,7 @@ namespace basisu
 
 			m_resample_factor.clear();
 
+			m_pGlobal_codebooks = nullptr;
 			m_pJob_pool = nullptr;
 		}
 				
@@ -319,6 +321,7 @@ namespace basisu
 		
 		// Output debug information during compression
 		bool_param<false> m_debug;
+		bool_param<false> m_validate;
 		
 		// m_debug_images is pretty slow
 		bool_param<false> m_debug_images;
@@ -407,6 +410,7 @@ namespace basisu
 		bool_param<true> m_rdo_uastc_multithreading;
 
 		param<float> m_resample_factor;
+		const basist::basisu_lowlevel_etc1s_transcoder *m_pGlobal_codebooks;
 
 		job_pool *m_pJob_pool;
 	};

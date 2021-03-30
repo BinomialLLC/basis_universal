@@ -163,6 +163,9 @@
     <ClInclude Include="transcoder\basisu_containers_impl.h">
       <Filter>transcoder</Filter>
     </ClInclude>
+    <ClInclude Include="transcoder\basisu_file_headers.h">
+      <Filter>transcoder</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="transcoder\basisu_transcoder_tables_dxt1_6.inc">

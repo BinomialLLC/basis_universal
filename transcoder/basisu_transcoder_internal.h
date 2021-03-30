@@ -694,6 +694,11 @@ namespace basist
 	{
 		color32 m_color5;
 		uint8_t m_inten5;
+		bool operator== (const endpoint& rhs) const
+		{
+			return (m_color5.r == rhs.m_color5.r) && (m_color5.g == rhs.m_color5.g) && (m_color5.b == rhs.m_color5.b) && (m_inten5 == rhs.m_inten5);
+		}
+		bool operator!= (const endpoint& rhs) const { return !(*this == rhs); }
 	};
 
 	struct selector
@@ -706,6 +711,17 @@ namespace basist
 
 		uint8_t m_lo_selector, m_hi_selector;
 		uint8_t m_num_unique_selectors;
+		bool operator== (const selector& rhs) const
+		{
+			return (m_selectors[0] == rhs.m_selectors[0]) &&
+				(m_selectors[1] == rhs.m_selectors[1]) &&
+				(m_selectors[2] == rhs.m_selectors[2]) &&
+				(m_selectors[3] == rhs.m_selectors[3]);
+		}
+		bool operator!= (const selector& rhs) const
+		{
+			return !(*this == rhs);
+		}
 
 		void init_flags()
 		{
