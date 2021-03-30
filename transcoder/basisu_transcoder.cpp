@@ -5084,7 +5084,7 @@ namespace basist
 
 		while (total_bits)
 		{
-			const uint32_t bits_to_write = std::min<int>(total_bits, 8 - (bit_pos & 7));
+			const uint32_t bits_to_write = basisu::minimum<int>(total_bits, 8 - (bit_pos & 7));
 
 			pBytes[bit_pos >> 3] |= static_cast<uint8_t>(value << (bit_pos & 7));
 
@@ -11895,7 +11895,7 @@ namespace basist
 			{
 				uint8_t vals[5] = { 0, 0, 0, 0, 0 };
 
-				const int limit = std::min(group_size, num_vals - group_index * group_size);
+				const int limit = basisu::minimum(group_size, num_vals - group_index * group_size);
 				for (int i = 0; i < limit; i++)
 					vals[i] = pSrc_vals[group_index * group_size + i];
 
@@ -12482,7 +12482,7 @@ namespace basist
 			
 			// Read the weight bits
 			if ((BASISD_IS_BIG_ENDIAN) || (!BASISD_USE_UNALIGNED_WORD_READS))
-				bits = read_bits64(blk.m_bytes, bit_ofs, std::min<int>(64, 128 - (int)bit_ofs));
+				bits = read_bits64(blk.m_bytes, bit_ofs, basisu::minimum<int>(64, 128 - (int)bit_ofs));
 			else
 			{
 #ifdef __EMSCRIPTEN__
@@ -12651,7 +12651,7 @@ namespace basist
 		color32 endpoints[3][2];
 
 		const uint32_t total_subsets = g_uastc_mode_subsets[mode];
-		const uint32_t total_comps = std::min<uint32_t>(4U, g_uastc_mode_comps[mode]);
+		const uint32_t total_comps = basisu::minimum<uint32_t>(4U, g_uastc_mode_comps[mode]);
 		const uint32_t endpoint_range = g_uastc_mode_endpoint_ranges[mode];
 		const uint32_t total_planes = g_uastc_mode_planes[mode];
 		const uint32_t weight_bits = g_uastc_mode_weight_bits[mode];
@@ -13847,7 +13847,7 @@ namespace basist
 						uint32_t sels[4] = { 0,0,0,0 };
 
 						const uint32_t N = 4;
-						for (uint32_t i = 0; i < std::min<uint32_t>(N, (256 - c)); i++)
+						for (uint32_t i = 0; i < basisu::minimum<uint32_t>(N, (256 - c)); i++)
 						{
 							uint32_t best_sel_e = UINT32_MAX;
 							uint32_t best_sel = 0;
@@ -13927,7 +13927,7 @@ namespace basist
 						uint32_t sels[4] = { 0,0,0,0 };
 
 						const uint32_t N = 1;
-						for (uint32_t i = 0; i < std::min<uint32_t>(N, (256 - c)); i++)
+						for (uint32_t i = 0; i < basisu::minimum<uint32_t>(N, (256 - c)); i++)
 						{
 							uint32_t best_sel_e = UINT32_MAX;
 							uint32_t best_sel = 0;
@@ -14031,8 +14031,8 @@ namespace basist
 				for (uint32_t x = 0; x < 4; x++)
 				{
 					const uint32_t v = block_y[y][x];
-					low[0] = std::min(low[0], v);
-					high[0] = std::max(high[0], v);
+					low[0] = basisu::minimum(low[0], v);
+					high[0] = basisu::maximum(high[0], v);
 				}
 			}
 			for (uint32_t y = 2; y < 4; y++)
@@ -14040,8 +14040,8 @@ namespace basist
 				for (uint32_t x = 0; x < 4; x++)
 				{
 					const uint32_t v = block_y[y][x];
-					low[1] = std::min(low[1], v);
-					high[1] = std::max(high[1], v);
+					low[1] = basisu::minimum(low[1], v);
+					high[1] = basisu::maximum(high[1], v);
 				}
 			}
 		}
@@ -14052,8 +14052,8 @@ namespace basist
 				for (uint32_t x = 0; x < 2; x++)
 				{
 					const uint32_t v = block_y[y][x];
-					low[0] = std::min(low[0], v);
-					high[0] = std::max(high[0], v);
+					low[0] = basisu::minimum(low[0], v);
+					high[0] = basisu::maximum(high[0], v);
 				}
 			}
 			for (uint32_t y = 0; y < 4; y++)
@@ -14061,8 +14061,8 @@ namespace basist
 				for (uint32_t x = 2; x < 4; x++)
 				{
 					const uint32_t v = block_y[y][x];
-					low[1] = std::min(low[1], v);
-					high[1] = std::max(high[1], v);
+					low[1] = basisu::minimum(low[1], v);
+					high[1] = basisu::maximum(high[1], v);
 				}
 			}
 		}
@@ -14322,10 +14322,10 @@ namespace basist
 				if ((inten_table_mask & (1 << inten)) == 0)
 					continue;
 
-				const int t0 = std::max(low_limit, g_etc1_inten_tables[inten][0]);
-				const int t1 = std::max(low_limit, g_etc1_inten_tables[inten][1]);
-				const int t2 = std::min(high_limit, g_etc1_inten_tables[inten][2]);
-				const int t3 = std::min(high_limit, g_etc1_inten_tables[inten][3]);
+				const int t0 = basisu::maximum(low_limit, g_etc1_inten_tables[inten][0]);
+				const int t1 = basisu::maximum(low_limit, g_etc1_inten_tables[inten][1]);
+				const int t2 = basisu::minimum(high_limit, g_etc1_inten_tables[inten][2]);
+				const int t3 = basisu::minimum(high_limit, g_etc1_inten_tables[inten][3]);
 				assert((t0 <= t1) && (t1 <= t2) && (t2 <= t3));
 
 				const int tv[4] = { t2, t3, t1, t0 };
@@ -14543,8 +14543,8 @@ namespace basist
 		uint32_t min_a = 255, max_a = 0;
 		for (uint32_t i = 0; i < 16; i++)
 		{
-			min_a = std::min<uint32_t>(min_a, pSrc_pixels[i].a);
-			max_a = std::max<uint32_t>(max_a, pSrc_pixels[i].a);
+			min_a = basisu::minimum<uint32_t>(min_a, pSrc_pixels[i].a);
+			max_a = basisu::maximum<uint32_t>(max_a, pSrc_pixels[i].a);
 		}
 
 		if (min_a == max_a)
@@ -14642,24 +14642,24 @@ namespace basist
 		}
 
 		{
-			uint32_t v0 = pPixels[4 * stride]; min0_v = std::min(min0_v, v0); max0_v = std::max(max0_v, v0);
-			uint32_t v1 = pPixels[5 * stride]; min1_v = std::min(min1_v, v1); max1_v = std::max(max1_v, v1);
-			uint32_t v2 = pPixels[6 * stride]; min2_v = std::min(min2_v, v2); max2_v = std::max(max2_v, v2);
-			uint32_t v3 = pPixels[7 * stride]; min3_v = std::min(min3_v, v3); max3_v = std::max(max3_v, v3);
+			uint32_t v0 = pPixels[4 * stride]; min0_v = basisu::minimum(min0_v, v0); max0_v = basisu::maximum(max0_v, v0);
+			uint32_t v1 = pPixels[5 * stride]; min1_v = basisu::minimum(min1_v, v1); max1_v = basisu::maximum(max1_v, v1);
+			uint32_t v2 = pPixels[6 * stride]; min2_v = basisu::minimum(min2_v, v2); max2_v = basisu::maximum(max2_v, v2);
+			uint32_t v3 = pPixels[7 * stride]; min3_v = basisu::minimum(min3_v, v3); max3_v = basisu::maximum(max3_v, v3);
 		}
 
 		{
-			uint32_t v0 = pPixels[8 * stride]; min0_v = std::min(min0_v, v0); max0_v = std::max(max0_v, v0);
-			uint32_t v1 = pPixels[9 * stride]; min1_v = std::min(min1_v, v1); max1_v = std::max(max1_v, v1);
-			uint32_t v2 = pPixels[10 * stride]; min2_v = std::min(min2_v, v2); max2_v = std::max(max2_v, v2);
-			uint32_t v3 = pPixels[11 * stride]; min3_v = std::min(min3_v, v3); max3_v = std::max(max3_v, v3);
+			uint32_t v0 = pPixels[8 * stride]; min0_v = basisu::minimum(min0_v, v0); max0_v = basisu::maximum(max0_v, v0);
+			uint32_t v1 = pPixels[9 * stride]; min1_v = basisu::minimum(min1_v, v1); max1_v = basisu::maximum(max1_v, v1);
+			uint32_t v2 = pPixels[10 * stride]; min2_v = basisu::minimum(min2_v, v2); max2_v = basisu::maximum(max2_v, v2);
+			uint32_t v3 = pPixels[11 * stride]; min3_v = basisu::minimum(min3_v, v3); max3_v = basisu::maximum(max3_v, v3);
 		}
 
 		{
-			uint32_t v0 = pPixels[12 * stride]; min0_v = std::min(min0_v, v0); max0_v = std::max(max0_v, v0);
-			uint32_t v1 = pPixels[13 * stride]; min1_v = std::min(min1_v, v1); max1_v = std::max(max1_v, v1);
-			uint32_t v2 = pPixels[14 * stride]; min2_v = std::min(min2_v, v2); max2_v = std::max(max2_v, v2);
-			uint32_t v3 = pPixels[15 * stride]; min3_v = std::min(min3_v, v3); max3_v = std::max(max3_v, v3);
+			uint32_t v0 = pPixels[12 * stride]; min0_v = basisu::minimum(min0_v, v0); max0_v = basisu::maximum(max0_v, v0);
+			uint32_t v1 = pPixels[13 * stride]; min1_v = basisu::minimum(min1_v, v1); max1_v = basisu::maximum(max1_v, v1);
+			uint32_t v2 = pPixels[14 * stride]; min2_v = basisu::minimum(min2_v, v2); max2_v = basisu::maximum(max2_v, v2);
+			uint32_t v3 = pPixels[15 * stride]; min3_v = basisu::minimum(min3_v, v3); max3_v = basisu::maximum(max3_v, v3);
 		}
 
 		const uint32_t min_v = basisu::minimum(min0_v, min1_v, min2_v, min3_v);
@@ -14984,8 +14984,8 @@ namespace basist
 			for (uint32_t i = 1; i < 16; i++)
 			{
 				const int r = pSrc_pixels[i].r, g = pSrc_pixels[i].g, b = pSrc_pixels[i].b;
-				max_r = std::max(max_r, r); max_g = std::max(max_g, g); max_b = std::max(max_b, b);
-				min_r = std::min(min_r, r); min_g = std::min(min_g, g); min_b = std::min(min_b, b);
+				max_r = basisu::maximum(max_r, r); max_g = basisu::maximum(max_g, g); max_b = basisu::maximum(max_b, b);
+				min_r = basisu::minimum(min_r, r); min_g = basisu::minimum(min_g, g); min_b = basisu::minimum(min_b, b);
 				total_r += r; total_g += g; total_b += b;
 			}
 
@@ -15216,8 +15216,8 @@ namespace basist
 			{
 				const int r = pSrc_pixels[i].r, g = pSrc_pixels[i].g, b = pSrc_pixels[i].b;
 				grayscale_flag &= ((r == g) && (r == b));
-				max_r = std::max(max_r, r); max_g = std::max(max_g, g); max_b = std::max(max_b, b);
-				min_r = std::min(min_r, r); min_g = std::min(min_g, g); min_b = std::min(min_b, b);
+				max_r = basisu::maximum(max_r, r); max_g = basisu::maximum(max_g, g); max_b = basisu::maximum(max_b, b);
+				min_r = basisu::minimum(min_r, r); min_g = basisu::minimum(min_g, g); min_b = basisu::minimum(min_b, b);
 				total_r += r; total_g += g; total_b += b;
 			}
 						
@@ -15254,25 +15254,25 @@ namespace basist
 
 				uint32_t min_d0 = (dist[0][0] + dist[1][0] + dist[2][0]);
 				uint32_t d4 = (dist[0][0] + dist[1][0] + dist[2][1]) | 4;
-				min_d0 = std::min(min_d0, d4);
+				min_d0 = basisu::minimum(min_d0, d4);
 
 				uint32_t min_d1 = (dist[0][1] + dist[1][0] + dist[2][0]) | 1;
 				uint32_t d5 = (dist[0][1] + dist[1][0] + dist[2][1]) | 5;
-				min_d1 = std::min(min_d1, d5);
+				min_d1 = basisu::minimum(min_d1, d5);
 
 				uint32_t d2 = (dist[0][0] + dist[1][1] + dist[2][0]) | 2;
-				min_d0 = std::min(min_d0, d2);
+				min_d0 = basisu::minimum(min_d0, d2);
 
 				uint32_t d3 = (dist[0][1] + dist[1][1] + dist[2][0]) | 3;
-				min_d1 = std::min(min_d1, d3);
+				min_d1 = basisu::minimum(min_d1, d3);
 
 				uint32_t d6 = (dist[0][0] + dist[1][1] + dist[2][1]) | 6;
-				min_d0 = std::min(min_d0, d6);
+				min_d0 = basisu::minimum(min_d0, d6);
 
 				uint32_t d7 = (dist[0][1] + dist[1][1] + dist[2][1]) | 7;
-				min_d1 = std::min(min_d1, d7);
+				min_d1 = basisu::minimum(min_d1, d7);
 
-				uint32_t min_d = std::min(min_d0, min_d1);
+				uint32_t min_d = basisu::minimum(min_d0, min_d1);
 				uint32_t best_i = min_d & 7;
 
 				int delta_r = (best_i & 1) ? (max_r - avg_r) : (avg_r - min_r);
@@ -15857,10 +15857,10 @@ namespace basist
 					const int v2 = clamp255(mul[2] * g_eac_modifier_table[T2][s] + base[2]);
 					const int v3 = clamp255(mul[3] * g_eac_modifier_table[T3][s] + base[3]);
 
-					l0 = std::min(l0, (basisu::iabs(v0 - a) << 3) | s);
-					l1 = std::min(l1, (basisu::iabs(v1 - a) << 3) | s);
-					l2 = std::min(l2, (basisu::iabs(v2 - a) << 3) | s);
-					l3 = std::min(l3, (basisu::iabs(v3 - a) << 3) | s);
+					l0 = basisu::minimum(l0, (basisu::iabs(v0 - a) << 3) | s);
+					l1 = basisu::minimum(l1, (basisu::iabs(v1 - a) << 3) | s);
+					l2 = basisu::minimum(l2, (basisu::iabs(v2 - a) << 3) | s);
+					l3 = basisu::minimum(l3, (basisu::iabs(v3 - a) << 3) | s);
 				}
 			}
 			else if (mul_or == 1)
@@ -15874,10 +15874,10 @@ namespace basist
 					const int v2 = g_eac_modifier_table[T2][s] + a2;
 					const int v3 = g_eac_modifier_table[T3][s] + a3;
 
-					l0 = std::min(l0, (basisu::iabs(v0) << 3) | s);
-					l1 = std::min(l1, (basisu::iabs(v1) << 3) | s);
-					l2 = std::min(l2, (basisu::iabs(v2) << 3) | s);
-					l3 = std::min(l3, (basisu::iabs(v3) << 3) | s);
+					l0 = basisu::minimum(l0, (basisu::iabs(v0) << 3) | s);
+					l1 = basisu::minimum(l1, (basisu::iabs(v1) << 3) | s);
+					l2 = basisu::minimum(l2, (basisu::iabs(v2) << 3) | s);
+					l3 = basisu::minimum(l3, (basisu::iabs(v3) << 3) | s);
 				}
 			}
 			else
@@ -15891,10 +15891,10 @@ namespace basist
 					const int v2 = mul[2] * g_eac_modifier_table[T2][s] + a2;
 					const int v3 = mul[3] * g_eac_modifier_table[T3][s] + a3;
 
-					l0 = std::min(l0, (basisu::iabs(v0) << 3) | s);
-					l1 = std::min(l1, (basisu::iabs(v1) << 3) | s);
-					l2 = std::min(l2, (basisu::iabs(v2) << 3) | s);
-					l3 = std::min(l3, (basisu::iabs(v3) << 3) | s);
+					l0 = basisu::minimum(l0, (basisu::iabs(v0) << 3) | s);
+					l1 = basisu::minimum(l1, (basisu::iabs(v1) << 3) | s);
+					l2 = basisu::minimum(l2, (basisu::iabs(v2) << 3) | s);
+					l3 = basisu::minimum(l3, (basisu::iabs(v3) << 3) | s);
 				}
 			}
 
@@ -16013,13 +16013,13 @@ namespace basist
 				else
 				{
 					uint32_t l = basisu::iabs(clamp255(m * pTable[0] + b) - a) << 3;
-					l = std::min(l, (basisu::iabs(clamp255(m * pTable[1] + b) - a) << 3) | 1);
-					l = std::min(l, (basisu::iabs(clamp255(m * pTable[2] + b) - a) << 3) | 2);
-					l = std::min(l, (basisu::iabs(clamp255(m * pTable[3] + b) - a) << 3) | 3);
-					l = std::min(l, (basisu::iabs(clamp255(m * pTable[4] + b) - a) << 3) | 4);
-					l = std::min(l, (basisu::iabs(clamp255(m * pTable[5] + b) - a) << 3) | 5);
-					l = std::min(l, (basisu::iabs(clamp255(m * pTable[6] + b) - a) << 3) | 6);
-					l = std::min(l, (basisu::iabs(clamp255(m * pTable[7] + b) - a) << 3) | 7);
+					l = basisu::minimum(l, (basisu::iabs(clamp255(m * pTable[1] + b) - a) << 3) | 1);
+					l = basisu::minimum(l, (basisu::iabs(clamp255(m * pTable[2] + b) - a) << 3) | 2);
+					l = basisu::minimum(l, (basisu::iabs(clamp255(m * pTable[3] + b) - a) << 3) | 3);
+					l = basisu::minimum(l, (basisu::iabs(clamp255(m * pTable[4] + b) - a) << 3) | 4);
+					l = basisu::minimum(l, (basisu::iabs(clamp255(m * pTable[5] + b) - a) << 3) | 5);
+					l = basisu::minimum(l, (basisu::iabs(clamp255(m * pTable[6] + b) - a) << 3) | 6);
+					l = basisu::minimum(l, (basisu::iabs(clamp255(m * pTable[7] + b) - a) << 3) | 7);
 
 					sels[table][i] = l & 7;
 					total_err[table] += basisu::square<uint32_t>(l >> 3);
@@ -16466,8 +16466,8 @@ namespace basist
 					uint32_t low_a = 255, high_a = 0;
 					for (uint32_t i = 0; i < 16; i++)
 					{
-						low_a = std::min<uint32_t>(low_a, block_pixels[i].a);
-						high_a = std::max<uint32_t>(high_a, block_pixels[i].a);
+						low_a = basisu::minimum<uint32_t>(low_a, block_pixels[i].a);
+						high_a = basisu::maximum<uint32_t>(high_a, block_pixels[i].a);
 					}
 					low_color.set(low_a, low_a, low_a, 255);
 					high_color.set(high_a, high_a, high_a, 255);

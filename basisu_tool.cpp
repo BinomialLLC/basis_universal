@@ -258,7 +258,7 @@ public:
 		m_compare_ssim(false),
 		m_bench(false)
 	{
-		m_comp_params.m_compression_level = std::max<int>(0, BASISU_DEFAULT_COMPRESSION_LEVEL - 1);
+		m_comp_params.m_compression_level = basisu::maximum<int>(0, BASISU_DEFAULT_COMPRESSION_LEVEL - 1);
 	}
 
 	bool parse(int arg_c, const char **arg_v)
@@ -961,13 +961,13 @@ static bool compress_mode(command_line_params &opts)
 
 				for (size_t slice_index = 0; slice_index < c.get_stats().size(); slice_index++)
 				{
-					rgb_avg_psnr_min = std::min(rgb_avg_psnr_min, c.get_stats()[slice_index].m_basis_rgb_avg_psnr);
+					rgb_avg_psnr_min = basisu::minimum(rgb_avg_psnr_min, c.get_stats()[slice_index].m_basis_rgb_avg_psnr);
 					rgb_avg_psnr_avg += c.get_stats()[slice_index].m_basis_rgb_avg_psnr;
 
-					a_avg_psnr_min = std::min(a_avg_psnr_min, c.get_stats()[slice_index].m_basis_a_avg_psnr);
+					a_avg_psnr_min = basisu::minimum(a_avg_psnr_min, c.get_stats()[slice_index].m_basis_a_avg_psnr);
 					a_avg_psnr_avg += c.get_stats()[slice_index].m_basis_a_avg_psnr;
 
-					luma_709_psnr_min = std::min(luma_709_psnr_min, c.get_stats()[slice_index].m_basis_luma_709_psnr);
+					luma_709_psnr_min = basisu::minimum(luma_709_psnr_min, c.get_stats()[slice_index].m_basis_luma_709_psnr);
 					luma_709_psnr_avg += c.get_stats()[slice_index].m_basis_luma_709_psnr;
 				}
 
@@ -1582,8 +1582,8 @@ static bool unpack_and_validate_mode(command_line_params &opts)
 		{
 			for (uint32_t level_index = 0; level_index < fileinfo.m_image_mipmap_levels[image_index]; level_index++)
 			{
-				max_mipmap_levels = std::max(max_mipmap_levels, fileinfo.m_image_mipmap_levels[image_index]);
-					 
+				max_mipmap_levels = basisu::maximum(max_mipmap_levels, fileinfo.m_image_mipmap_levels[image_index]);
+
 				const basist::transcoder_texture_format transcoder_tex_fmt = basist::transcoder_texture_format::cTFRGBA4444;
 
 				basist::basisu_image_level_info level_info;
@@ -2015,7 +2015,7 @@ static bool bench_mode(command_line_params& opts)
 
 			for (uint32_t bx = 0; bx < num_blocks_x; bx += N)
 			{
-				const uint32_t num_blocks_to_process = std::min<uint32_t>(num_blocks_x - bx, N);
+				const uint32_t num_blocks_to_process = basisu::minimum<uint32_t>(num_blocks_x - bx, N);
 
 				color_rgba pixels[16 * N];
 
@@ -2636,186 +2636,186 @@ static bool bench_mode(command_line_params& opts)
 		// UASTC
 		em.calc(img, uastc_img, 0, 3);
 		em.print("UASTC RGB  ");
-		total_uastc_psnr += std::min(99.0f, em.m_psnr);
+		total_uastc_psnr += basisu::minimum(99.0f, em.m_psnr);
 
 		em.calc(img, uastc_img, 3, 1);
 		em.print("UASTC A    ");
 		if (img_has_alpha)
-			total_uastc_a_psnr += std::min(99.0f, em.m_psnr);
+			total_uastc_a_psnr += basisu::minimum(99.0f, em.m_psnr);
 
 		em.calc(img, uastc_img, 0, 4);
 		em.print("UASTC RGBA ");
-		total_uastc_rgba_psnr += std::min(99.0f, em.m_psnr);
+		total_uastc_rgba_psnr += basisu::minimum(99.0f, em.m_psnr);
 
 		// RDO UASTC
 		em.calc(img, rdo_uastc_img, 0, 3);
 		em.print("RDOUASTC RGB ");
-		total_rdo_uastc_psnr += std::min(99.0f, em.m_psnr);
+		total_rdo_uastc_psnr += basisu::minimum(99.0f, em.m_psnr);
 
 		em.calc(img, rdo_uastc_img, 3, 1);
 		em.print("RDOUASTC A ");
 		if (img_has_alpha)
-			total_rdo_uastc_a_psnr += std::min(99.0f, em.m_psnr);
+			total_rdo_uastc_a_psnr += basisu::minimum(99.0f, em.m_psnr);
 
 		em.calc(img, rdo_uastc_img, 0, 4);
 		em.print("RDOUASTC RGBA ");
-		total_rdo_uastc_rgba_psnr += std::min(99.0f, em.m_psnr);
+		total_rdo_uastc_rgba_psnr += basisu::minimum(99.0f, em.m_psnr);
 
 		// UASTC2 
 		em.calc(img, uastc2_img, 0, 3);
 		em.print("UASTC2 RGB ");
-		total_uastc2_psnr += std::min(99.0f, em.m_psnr);
+		total_uastc2_psnr += basisu::minimum(99.0f, em.m_psnr);
 
 		em.calc(img, uastc2_img, 3, 1);
 		em.print("UASTC2 A   ");
 		if (img_has_alpha)
-			total_uastc2_a_psnr += std::min(99.0f, em.m_psnr);
+			total_uastc2_a_psnr += basisu::minimum(99.0f, em.m_psnr);
 
 		em.calc(img, uastc2_img, 0, 4);
 		em.print("UASTC2 RGBA ");
-		total_uastc2_rgba_psnr += std::min(99.0f, em.m_psnr);
+		total_uastc2_rgba_psnr += basisu::minimum(99.0f, em.m_psnr);
 
 		// BC7
 		em.calc(img, bc7_img, 0, 3);
 		em.print("BC7 RGB    ");
-		total_bc7_psnr += std::min(99.0f, em.m_psnr);
+		total_bc7_psnr += basisu::minimum(99.0f, em.m_psnr);
 
 		em.calc(img, bc7_img, 3, 1);
 		em.print("BC7 A      ");
 		if (img_has_alpha)
-			total_bc7_a_psnr += std::min(99.0f, em.m_psnr);
+			total_bc7_a_psnr += basisu::minimum(99.0f, em.m_psnr);
 
 		em.calc(img, bc7_img, 0, 4);
 		em.print("BC7 RGBA   ");
-		total_bc7_rgba_psnr += std::min(99.0f, em.m_psnr);
+		total_bc7_rgba_psnr += basisu::minimum(99.0f, em.m_psnr);
 
 		// RDO BC7
 		em.calc(img, rdo_bc7_img, 0, 3);
 		em.print("RDOBC7 RGB ");
-		total_rdo_bc7_psnr += std::min(99.0f, em.m_psnr);
+		total_rdo_bc7_psnr += basisu::minimum(99.0f, em.m_psnr);
 
 		em.calc(img, rdo_bc7_img, 3, 1);
 		em.print("RDOBC7 A   ");
 		if (img_has_alpha)
-			total_rdo_bc7_a_psnr += std::min(99.0f, em.m_psnr);
+			total_rdo_bc7_a_psnr += basisu::minimum(99.0f, em.m_psnr);
 
 		em.calc(img, rdo_bc7_img, 0, 4);
 		em.print("RDOBC7 RGBA ");
-		total_rdo_bc7_rgba_psnr += std::min(99.0f, em.m_psnr);
+		total_rdo_bc7_rgba_psnr += basisu::minimum(99.0f, em.m_psnr);
 
 #if 0
 		// OBC7
 		em.calc(img, opt_bc7_img, 0, 3);
 		em.print("OBC7 RGB   ");
-		total_obc7_psnr += std::min(99.0f, em.m_psnr);
+		total_obc7_psnr += basisu::minimum(99.0f, em.m_psnr);
 
 		em.calc(img, opt_bc7_img, 3, 1);
 		em.print("OBC7 A     ");
 		if (img_has_alpha)
-			total_obc7_a_psnr += std::min(99.0f, em.m_psnr);
+			total_obc7_a_psnr += basisu::minimum(99.0f, em.m_psnr);
 
 		em.calc(img, opt_bc7_img, 0, 4);
 		em.print("OBC7 RGBA  ");
-		total_obc7_rgba_psnr += std::min(99.0f, em.m_psnr);
+		total_obc7_rgba_psnr += basisu::minimum(99.0f, em.m_psnr);
 
 		// OASTC
 		em.calc(img, opt_astc_img, 0, 3);
 		em.print("OASTC RGB   ");
-		total_oastc_psnr += std::min(99.0f, em.m_psnr);
+		total_oastc_psnr += basisu::minimum(99.0f, em.m_psnr);
 
 		em.calc(img, opt_astc_img, 3, 1);
 		em.print("OASTC A     ");
 		if (img_has_alpha)
-			total_oastc_a_psnr += std::min(99.0f, em.m_psnr);
+			total_oastc_a_psnr += basisu::minimum(99.0f, em.m_psnr);
 
 		em.calc(img, opt_astc_img, 0, 4);
 		em.print("OASTC RGBA  ");
-		total_oastc_rgba_psnr += std::min(99.0f, em.m_psnr);
+		total_oastc_rgba_psnr += basisu::minimum(99.0f, em.m_psnr);
 #endif
 
 		// bc7enc
 		em.calc(img, bc7enc_img, 0, 3);
 		em.print("BC7ENC RGB  ");
-		total_bc7enc_psnr += std::min(99.0f, em.m_psnr);
+		total_bc7enc_psnr += basisu::minimum(99.0f, em.m_psnr);
 
 		em.calc(img, bc7enc_img, 3, 1);
 		em.print("BC7ENC A    ");
 		if (img_has_alpha)
-			total_bc7enc_a_psnr += std::min(99.0f, em.m_psnr);
+			total_bc7enc_a_psnr += basisu::minimum(99.0f, em.m_psnr);
 
 		em.calc(img, bc7enc_img, 0, 4);
 		em.print("BC7ENC RGBA ");
-		total_bc7enc_rgba_psnr += std::min(99.0f, em.m_psnr);
+		total_bc7enc_rgba_psnr += basisu::minimum(99.0f, em.m_psnr);
 
 #if 1
 		// OBC1
 		em.calc(img, opt_bc1_img, 0, 3);
 		em.print("OBC1 RGB   ");
-		total_obc1_psnr += std::min(99.0f, em.m_psnr);
-		total_obc1_psnr_sq += std::min(99.0f, em.m_psnr) * std::min(99.0f, em.m_psnr);
+		total_obc1_psnr += basisu::minimum(99.0f, em.m_psnr);
+		total_obc1_psnr_sq += basisu::minimum(99.0f, em.m_psnr) * basisu::minimum(99.0f, em.m_psnr);
 #endif
 				
 		em.calc(img, opt_bc1_2_img, 0, 3);
 		em.print("OBC1 2 RGB ");
-		total_obc1_2_psnr += std::min(99.0f, em.m_psnr);
-		total_obc1_2_psnr_sq += std::min(99.0f, em.m_psnr) * std::min(99.0f, em.m_psnr);
+		total_obc1_2_psnr += basisu::minimum(99.0f, em.m_psnr);
+		total_obc1_2_psnr_sq += basisu::minimum(99.0f, em.m_psnr) * basisu::minimum(99.0f, em.m_psnr);
 
 		em.calc(img, bc1_img, 0, 3);
 		em.print("BC1 RGB    ");
-		total_bc1_psnr += std::min(99.0f, em.m_psnr);
-		total_bc1_psnr_sq += std::min(99.0f, em.m_psnr) * std::min(99.0f, em.m_psnr);
+		total_bc1_psnr += basisu::minimum(99.0f, em.m_psnr);
+		total_bc1_psnr_sq += basisu::minimum(99.0f, em.m_psnr) * basisu::minimum(99.0f, em.m_psnr);
 
 		// ETC1
 		em.calc(img, etc1_img, 0, 3);
 		em.print("ETC1 RGB   ");
-		total_etc1_psnr += std::min(99.0f, em.m_psnr);
+		total_etc1_psnr += basisu::minimum(99.0f, em.m_psnr);
 
 		em.calc(img, etc1_img, 0, 0);
 		em.print("ETC1 Y     ");
-		total_etc1_y_psnr += std::min(99.0f, em.m_psnr);
+		total_etc1_y_psnr += basisu::minimum(99.0f, em.m_psnr);
 
 		// ETC1
 		em.calc(img, etc1_g_img, 1, 1);
 		em.print("ETC1 G     ");
-		total_etc1_g_psnr += std::min(99.0f, em.m_psnr);
+		total_etc1_g_psnr += basisu::minimum(99.0f, em.m_psnr);
 
 		// ETC2
 		em.calc(img, etc2_img, 0, 3);
 		em.print("ETC2 RGB   ");
-		total_etc2_psnr += std::min(99.0f, em.m_psnr);
+		total_etc2_psnr += basisu::minimum(99.0f, em.m_psnr);
 
 		em.calc(img, etc2_img, 3, 1);
 		em.print("ETC2 A     ");
 		if (img_has_alpha)
-			total_etc2_a_psnr += std::min(99.0f, em.m_psnr);
+			total_etc2_a_psnr += basisu::minimum(99.0f, em.m_psnr);
 
 		em.calc(img, etc2_img, 0, 4);
 		em.print("ETC2 RGBA  ");
-		total_etc2_rgba_psnr += std::min(99.0f, em.m_psnr);
+		total_etc2_rgba_psnr += basisu::minimum(99.0f, em.m_psnr);
 
 		// BC3
 		em.calc(img, bc3_img, 0, 3);
 		em.print("BC3 RGB    ");
-		total_bc3_psnr += std::min(99.0f, em.m_psnr);
+		total_bc3_psnr += basisu::minimum(99.0f, em.m_psnr);
 
 		em.calc(img, bc3_img, 3, 1);
 		em.print("BC3 A      ");
 		if (img_has_alpha)
-			total_bc3_a_psnr += std::min(99.0f, em.m_psnr);
+			total_bc3_a_psnr += basisu::minimum(99.0f, em.m_psnr);
 
 		em.calc(img, bc3_img, 0, 4);
 		em.print("BC3 RGBA   ");
-		total_bc3_rgba_psnr += std::min(99.0f, em.m_psnr);
+		total_bc3_rgba_psnr += basisu::minimum(99.0f, em.m_psnr);
 
 		// EAC R11
 		em.calc(img, eac_r11_img, 0, 1);
 		em.print("EAC R11    ");
-		total_eac_r11_psnr += std::min(99.0f, em.m_psnr);
+		total_eac_r11_psnr += basisu::minimum(99.0f, em.m_psnr);
 
 		// EAC RG11
 		em.calc(img, eac_rg11_img, 0, 2);
 		em.print("EAC RG11   ");
-		total_eac_rg11_psnr += std::min(99.0f, em.m_psnr);
+		total_eac_rg11_psnr += basisu::minimum(99.0f, em.m_psnr);
 
 		const uint32_t width = num_blocks_x * 4;
 		const uint32_t height = num_blocks_y * 4;
@@ -2863,15 +2863,15 @@ static bool bench_mode(command_line_params& opts)
 
 			em.calc(img, pi_unpacked, 0, 3);
 			em.print("PVRTC1 After RGB  ");
-			total_pvrtc1_rgb_psnr += std::min(99.0f, em.m_psnr);
+			total_pvrtc1_rgb_psnr += basisu::minimum(99.0f, em.m_psnr);
 
 			em.calc(img, pi_unpacked, 3, 1);
 			em.print("PVRTC1 After A    ");
-			total_pvrtc1_a_psnr += std::min(99.0f, em.m_psnr);
+			total_pvrtc1_a_psnr += basisu::minimum(99.0f, em.m_psnr);
 
 			em.calc(img, pi_unpacked, 0, 4);
 			em.print("PVRTC1 After RGBA ");
-			total_pvrtc1_rgba_psnr += std::min(99.0f, em.m_psnr);
+			total_pvrtc1_rgba_psnr += basisu::minimum(99.0f, em.m_psnr);
 
 			total_pvrtc1_images++;
 		}
@@ -2925,11 +2925,11 @@ static bool bench_mode(command_line_params& opts)
 	//printf("Avg Opt ASTC RGB PSNR: %f, A PSNR: %f, RGBA PSNR: %f\n", total_oastc_psnr / total_images, total_oastc_a_psnr / total_a_images, total_oastc_rgba_psnr / total_images);
 	printf("Avg BC7ENC RGB PSNR:   %f, A PSNR: %f, RGBA PSNR: %f\n", total_bc7enc_psnr / total_images, total_bc7enc_a_psnr / total_a_images, total_bc7enc_rgba_psnr / total_images);
 
-	printf("Avg Opt BC1 PSNR: %f, std dev: %f\n", total_obc1_psnr / total_images, sqrtf(std::max(0.0f, (total_obc1_psnr_sq / total_images) - (total_obc1_psnr / total_images) * (total_obc1_psnr / total_images))));
-		
-	printf("Avg Opt BC1 2 PSNR: %f, std dev: %f\n", total_obc1_2_psnr / total_images, sqrtf(std::max(0.0f, (total_obc1_2_psnr_sq / total_images) - (total_obc1_2_psnr / total_images) * (total_obc1_2_psnr / total_images))));
+	printf("Avg Opt BC1 PSNR: %f, std dev: %f\n", total_obc1_psnr / total_images, sqrtf(basisu::maximum(0.0f, (total_obc1_psnr_sq / total_images) - (total_obc1_psnr / total_images) * (total_obc1_psnr / total_images))));
 
-	printf("Avg BC1 PSNR: %f, std dev: %f\n", total_bc1_psnr / total_images, sqrtf(std::max(0.0f, (total_bc1_psnr_sq / total_images) - (total_bc1_psnr / total_images) * (total_bc1_psnr / total_images))));
+	printf("Avg Opt BC1 2 PSNR: %f, std dev: %f\n", total_obc1_2_psnr / total_images, sqrtf(basisu::maximum(0.0f, (total_obc1_2_psnr_sq / total_images) - (total_obc1_2_psnr / total_images) * (total_obc1_2_psnr / total_images))));
+
+	printf("Avg BC1 PSNR: %f, std dev: %f\n", total_bc1_psnr / total_images, sqrtf(basisu::maximum(0.0f, (total_bc1_psnr_sq / total_images) - (total_bc1_psnr / total_images) * (total_bc1_psnr / total_images))));
 
 	printf("Avg ETC1 RGB PSNR: %f\n", total_etc1_psnr / total_images);
 	printf("Avg ETC1 Y PSNR: %f\n", total_etc1_y_psnr / total_images);
