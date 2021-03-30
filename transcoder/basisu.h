@@ -41,10 +41,6 @@
 			#endif
 		#endif // defined(_DEBUG) || defined(DEBUG)
 
-		#ifndef NOMINMAX
-			#define NOMINMAX
-		#endif
-
 	#endif // BASISU_NO_ITERATOR_DEBUG_LEVEL
 
 #endif // _MSC_VER
@@ -121,6 +117,9 @@ namespace basisu
 	void debug_printf(const char *pFmt, ...);
 		
 	template <typename T> inline void clear_obj(T& obj) { memset(&obj, 0, sizeof(obj)); }
+
+	template<class T> const T& min(const T& a, const T& b) { return (b < a) ? b : a; }
+	template<class T> const T& max(const T& a, const T& b) { return (a < b) ? b : a; }
 
 	template <typename T0, typename T1> inline T0 lerp(T0 a, T0 b, T1 c) { return a + (b - a) * c; }
 

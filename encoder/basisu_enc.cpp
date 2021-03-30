@@ -26,7 +26,6 @@
 #if defined(_WIN32)
 // For QueryPerformanceCounter/QueryPerformanceFrequency
 #define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
 #include <windows.h>
 #endif
 
@@ -1308,10 +1307,10 @@ namespace basisu
 	void image_metrics::calc(const image &a, const image &b, uint32_t first_chan, uint32_t total_chans, bool avg_comp_error, bool use_601_luma)
 	{
 		assert((first_chan < 4U) && (first_chan + total_chans <= 4U));
-						
-		const uint32_t width = std::min(a.get_width(), b.get_width());
-		const uint32_t height = std::min(a.get_height(), b.get_height());
-						
+
+		const uint32_t width = basisu::min(a.get_width(), b.get_width());
+		const uint32_t height = basisu::min(a.get_height(), b.get_height());
+
 		double hist[256];
 		clear_obj(hist);
 
@@ -1342,7 +1341,7 @@ namespace basisu
 		{
 			if (hist[i])
 			{
-				m_max = std::max<float>(m_max, (float)i);
+				m_max = basisu::max<float>(m_max, (float)i);
 				double v = i * hist[i];
 				sum += v;
 				sum2 += i * v;
@@ -1824,7 +1823,7 @@ namespace basisu
 						}
 					}
 
-					const uint32_t n = std::min<uint32_t>(pixels_remaining, run_remaining);
+					const uint32_t n = basisu::min<uint32_t>(pixels_remaining, run_remaining);
 					pixels_remaining -= n;
 					run_remaining -= n;
 
