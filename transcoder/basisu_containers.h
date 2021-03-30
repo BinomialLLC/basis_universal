@@ -625,7 +625,7 @@ namespace basisu
             insert(m_size, p, n);
          return *this;
       }
-            
+
       inline void erase(uint32_t start, uint32_t n)
       {
          assert((start + n) <= m_size);
@@ -656,7 +656,7 @@ namespace basisu
          }
          else
          {
-            // Type is not bitwise copyable or movable. 
+            // Type is not bitwise copyable or movable.
             // Move them down one at a time by using the equals operator, and destroying anything that's left over at the end.
             T* pDst_end = pDst + num_to_move;
             while (pDst != pDst_end)
@@ -876,7 +876,7 @@ namespace basisu
                if (!m) break;
                cmp = -cmp;
                i += (((m + 1) >> 1) ^ cmp) - cmp;
-               if (i < 0) 
+               if (i < 0)
                   break;
             }
          }
@@ -1639,7 +1639,7 @@ namespace basisu
       inline void grow()
       {
          uint64_t n = m_values.size() * 3ULL; // was * 2
-         
+
          if (!helpers::is_power_of_2(n))
             n = helpers::next_pow2(n);
 
@@ -1856,11 +1856,11 @@ namespace basisu
 
    template<typename Key, typename Value, typename Hasher, typename Equals>
    struct bitwise_movable< hash_map<Key, Value, Hasher, Equals> > { enum { cFlag = true }; };
-   
+
 #if BASISU_HASHMAP_TEST
    extern void hash_map_test();
 #endif
-      
+
 } // namespace basisu
 
 namespace std
