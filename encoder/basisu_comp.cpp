@@ -61,6 +61,7 @@ namespace basisu
 			PRINT_BOOL_VALUE(m_uastc);
 			PRINT_BOOL_VALUE(m_y_flip);
 			PRINT_BOOL_VALUE(m_debug);
+			PRINT_BOOL_VALUE(m_validate);
 			PRINT_BOOL_VALUE(m_debug_images);
 			PRINT_BOOL_VALUE(m_global_sel_pal);
 			PRINT_BOOL_VALUE(m_auto_global_sel_pal);
@@ -121,6 +122,11 @@ namespace basisu
 			PRINT_BOOL_VALUE(m_rdo_uastc_multithreading);
 
 			PRINT_FLOAT_VALUE(m_resample_factor);
+			printf("Has global codebooks: %u\n", m_params.m_pGlobal_codebooks ? 1 : 0);
+			if (m_params.m_pGlobal_codebooks)
+			{
+				printf("Global codebook endpoints: %u selectors: %u\n", m_params.m_pGlobal_codebooks->get_endpoints().size(), m_params.m_pGlobal_codebooks->get_selectors().size());
+			}
 						
 #undef PRINT_BOOL_VALUE
 #undef PRINT_INT_VALUE
@@ -1006,7 +1012,9 @@ namespace basisu
 		p.m_tex_type = m_params.m_tex_type;
 		p.m_multithreaded = m_params.m_multithreading;
 		p.m_disable_hierarchical_endpoint_codebooks = m_params.m_disable_hierarchical_endpoint_codebooks;
+		p.m_validate = m_params.m_validate;
 		p.m_pJob_pool = m_params.m_pJob_pool;
+		p.m_pGlobal_codebooks = m_params.m_pGlobal_codebooks;
 
 		if ((m_params.m_global_sel_pal) || (m_auto_global_sel_pal))
 		{
@@ -1113,6 +1121,7 @@ namespace basisu
 		backend_params.m_global_sel_codebook_pal_bits = m_frontend.get_params().m_num_global_sel_codebook_pal_bits;
 		backend_params.m_global_sel_codebook_mod_bits = m_frontend.get_params().m_num_global_sel_codebook_mod_bits;
 		backend_params.m_use_hybrid_sel_codebooks = m_frontend.get_params().m_use_hybrid_selector_codebooks;
+		backend_params.m_used_global_codebooks = m_frontend.get_params().m_pGlobal_codebooks != nullptr;
 
 		m_backend.init(&m_frontend, backend_params, m_slice_descs, m_params.m_pSel_codebook);
 		uint32_t total_packed_bytes = m_backend.encode();
@@ -1166,6 +1175,10 @@ namespace basisu
 		m_decoded_output_textures_unpacked_bc7.resize(m_slice_descs.size());
 								
 		tm.start();
+		if (m_params.m_pGlobal_codebooks)
+		{
+			decoder.set_global_codebooks(m_params.m_pGlobal_codebooks);
+		}
 
 		if (!decoder.start_transcoding(&comp_data[0], (uint32_t)comp_data.size()))
 		{

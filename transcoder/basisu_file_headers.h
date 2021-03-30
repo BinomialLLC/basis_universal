@@ -49,7 +49,8 @@ namespace basist
 	{
 		cBASISHeaderFlagETC1S = 1,					// Always set for ETC1S files. Not set for UASTC files.
 		cBASISHeaderFlagYFlipped = 2,				// Set if the texture had to be Y flipped before encoding
-		cBASISHeaderFlagHasAlphaSlices = 4		// True if any slices contain alpha (for ETC1S, if the odd slices contain alpha data)
+		cBASISHeaderFlagHasAlphaSlices = 4,		// True if any slices contain alpha (for ETC1S, if the odd slices contain alpha data)
+		cBASISHeaderFlagUsesGlobalCodebook = 8 // For ETC1S files, this will be true if the file utilizes a codebook from another .basis file. 
 	};
 
 	// The image type field attempts to describe how to interpret the image data in a Basis file.

@@ -7515,6 +7515,7 @@ namespace basist
 #endif // BASISD_SUPPORT_PVRTC2
 
 	basisu_lowlevel_etc1s_transcoder::basisu_lowlevel_etc1s_transcoder(const etc1_global_selector_codebook* pGlobal_sel_codebook) :
+		m_pGlobal_codebook(nullptr),
 		m_pGlobal_sel_codebook(pGlobal_sel_codebook),
 		m_selector_history_buf_size(0)
 	{
@@ -7524,6 +7525,11 @@ namespace basist
 		uint32_t num_endpoints, const uint8_t* pEndpoints_data, uint32_t endpoints_data_size,
 		uint32_t num_selectors, const uint8_t* pSelectors_data, uint32_t selectors_data_size)
 	{
+		if (m_pGlobal_codebook)
+		{
+			BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::decode_palettes: fail 11\n");
+			return false;
+		}
 		bitwise_decoder sym_codec;
 
 		huffman_decoding_table color5_delta_model0, color5_delta_model1, color5_delta_model2, inten_delta_model;
@@ -7566,7 +7572,7 @@ namespace basist
 
 		const bool endpoints_are_grayscale = sym_codec.get_bits(1) != 0;
 
-		m_endpoints.resize(num_endpoints);
+		m_local_endpoints.resize(num_endpoints);
 
 		color32 prev_color5(16, 16, 16, 0);
 		uint32_t prev_inten = 0;
@@ -7574,8 +7580,8 @@ namespace basist
 		for (uint32_t i = 0; i < num_endpoints; i++)
 		{
 			uint32_t inten_delta = sym_codec.decode_huffman(inten_delta_model);
-			m_endpoints[i].m_inten5 = static_cast<uint8_t>((inten_delta + prev_inten) & 7);
-			prev_inten = m_endpoints[i].m_inten5;
+			m_local_endpoints[i].m_inten5 = static_cast<uint8_t>((inten_delta + prev_inten) & 7);
+			prev_inten = m_local_endpoints[i].m_inten5;
 
 			for (uint32_t c = 0; c < (endpoints_are_grayscale ? 1U : 3U); c++)
 			{
@@ -7589,21 +7595,21 @@ namespace basist
 
 				int v = (prev_color5[c] + delta) & 31;
 
-				m_endpoints[i].m_color5[c] = static_cast<uint8_t>(v);
+				m_local_endpoints[i].m_color5[c] = static_cast<uint8_t>(v);
 
 				prev_color5[c] = static_cast<uint8_t>(v);
 			}
 
 			if (endpoints_are_grayscale)
 			{
-				m_endpoints[i].m_color5[1] = m_endpoints[i].m_color5[0];
-				m_endpoints[i].m_color5[2] = m_endpoints[i].m_color5[0];
+				m_local_endpoints[i].m_color5[1] = m_local_endpoints[i].m_color5[0];
+				m_local_endpoints[i].m_color5[2] = m_local_endpoints[i].m_color5[0];
 			}
 		}
 
 		sym_codec.stop();
 
-		m_selectors.resize(num_selectors);
+		m_local_selectors.resize(num_selectors);
 		
 		if (!sym_codec.init(pSelectors_data, selectors_data_size))
 		{
@@ -7657,9 +7663,9 @@ namespace basist
 				// TODO: Optimize this
 				for (uint32_t y = 0; y < 4; y++)
 					for (uint32_t x = 0; x < 4; x++)
-						m_selectors[i].set_selector(x, y, e[x + y * 4]);
+						m_local_selectors[i].set_selector(x, y, e[x + y * 4]);
 
-				m_selectors[i].init_flags();
+				m_local_selectors[i].init_flags();
 			}
 		}
 		else
@@ -7729,7 +7735,7 @@ namespace basist
 
 						for (uint32_t y = 0; y < 4; y++)
 							for (uint32_t x = 0; x < 4; x++)
-								m_selectors[q].set_selector(x, y, e[x + y * 4]);
+								m_local_selectors[q].set_selector(x, y, e[x + y * 4]);
 					}
 					else
 					{
@@ -7738,11 +7744,11 @@ namespace basist
 							uint32_t cur_byte = sym_codec.get_bits(8);
 
 							for (uint32_t k = 0; k < 4; k++)
-								m_selectors[q].set_selector(k, j, (cur_byte >> (k * 2)) & 3);
+								m_local_selectors[q].set_selector(k, j, (cur_byte >> (k * 2)) & 3);
 						}
 					}
 
-					m_selectors[q].init_flags();
+					m_local_selectors[q].init_flags();
 				}
 			}
 			else
@@ -7758,10 +7764,10 @@ namespace basist
 							uint32_t cur_byte = sym_codec.get_bits(8);
 
 							for (uint32_t k = 0; k < 4; k++)
-								m_selectors[i].set_selector(k, j, (cur_byte >> (k * 2)) & 3);
+								m_local_selectors[i].set_selector(k, j, (cur_byte >> (k * 2)) & 3);
 						}
 
-						m_selectors[i].init_flags();
+						m_local_selectors[i].init_flags();
 					}
 				}
 				else
@@ -7790,9 +7796,9 @@ namespace basist
 								prev_bytes[j] = static_cast<uint8_t>(cur_byte);
 
 								for (uint32_t k = 0; k < 4; k++)
-									m_selectors[i].set_selector(k, j, (cur_byte >> (k * 2)) & 3);
+									m_local_selectors[i].set_selector(k, j, (cur_byte >> (k * 2)) & 3);
 							}
-							m_selectors[i].init_flags();
+							m_local_selectors[i].init_flags();
 							continue;
 						}
 
@@ -7804,9 +7810,9 @@ namespace basist
 							prev_bytes[j] = static_cast<uint8_t>(cur_byte);
 
 							for (uint32_t k = 0; k < 4; k++)
-								m_selectors[i].set_selector(k, j, (cur_byte >> (k * 2)) & 3);
+								m_local_selectors[i].set_selector(k, j, (cur_byte >> (k * 2)) & 3);
 						}
-						m_selectors[i].init_flags();
+						m_local_selectors[i].init_flags();
 					}
 				}
 			}
@@ -7944,7 +7950,7 @@ namespace basist
 
 		approx_move_to_front selector_history_buf(m_selector_history_buf_size);
 
-		const uint32_t SELECTOR_HISTORY_BUF_FIRST_SYMBOL_INDEX = (uint32_t)m_selectors.size();
+		const uint32_t SELECTOR_HISTORY_BUF_FIRST_SYMBOL_INDEX = (uint32_t)m_local_selectors.size();
 		const uint32_t SELECTOR_HISTORY_BUF_RLE_SYMBOL_INDEX = m_selector_history_buf_size + SELECTOR_HISTORY_BUF_FIRST_SYMBOL_INDEX;
 		uint32_t cur_selector_rle_count = 0;
 
@@ -7977,6 +7983,13 @@ namespace basist
 		int prev_endpoint_pred_sym = 0;
 		int endpoint_pred_repeat_count = 0;
 		uint32_t prev_endpoint_index = 0;
+		const endpoint_vec& endpoints = m_pGlobal_codebook ? m_pGlobal_codebook->m_local_endpoints : m_local_endpoints;
+		const selector_vec& selectors = m_pGlobal_codebook ? m_pGlobal_codebook->m_local_selectors : m_local_selectors;
+		if (!endpoints.size() || !selectors.size())
+		{
+			BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_slice: global codebooks must be unpacked first\n");
+			return false;
+		}
 
 		for (uint32_t block_y = 0; block_y < num_blocks_y; block_y++)
 		{
@@ -8078,8 +8091,8 @@ namespace basist
 					const uint32_t delta_sym = sym_codec.decode_huffman(m_delta_endpoint_model);
 
 					endpoint_index = delta_sym + prev_endpoint_index;
-					if (endpoint_index >= m_endpoints.size())
-						endpoint_index -= (int)m_endpoints.size();
+					if (endpoint_index >= endpoints.size())
+						endpoint_index -= (int)endpoints.size();
 				}
 
 				pState->m_block_endpoint_preds[cur_block_endpoint_pred_array][block_x].m_endpoint_index = (uint16_t)endpoint_index;
@@ -8094,7 +8107,7 @@ namespace basist
 					{
 						cur_selector_rle_count--;
 
-						selector_sym = (int)m_selectors.size();
+						selector_sym = (int)selectors.size();
 					}
 					else
 					{
@@ -8118,17 +8131,17 @@ namespace basist
 								return false;
 							}
 
-							selector_sym = (int)m_selectors.size();
+							selector_sym = (int)selectors.size();
 
 							cur_selector_rle_count--;
 						}
 					}
 
-					if (selector_sym >= (int)m_selectors.size())
+					if (selector_sym >= (int)selectors.size())
 					{
 						assert(m_selector_history_buf_size > 0);
 
-						int history_buf_index = selector_sym - (int)m_selectors.size();
+						int history_buf_index = selector_sym - (int)selectors.size();
 
 						if (history_buf_index >= (int)selector_history_buf.size())
 						{
@@ -8153,7 +8166,7 @@ namespace basist
 					}
 				}
 
-				if ((endpoint_index >= m_endpoints.size()) || (selector_index >= m_selectors.size()))
+				if ((endpoint_index >= endpoints.size()) || (selector_index >= selectors.size()))
 				{
 					// The file is corrupted or we've got a bug.
 					BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_slice: invalid datastream (5)\n");
@@ -8177,8 +8190,8 @@ namespace basist
 				}
 #endif
 
-				const endpoint* pEndpoints = &m_endpoints[endpoint_index];
-				const selector* pSelector = &m_selectors[selector_index];
+				const endpoint* pEndpoints = &endpoints[endpoint_index];
+				const selector* pSelector = &selectors[selector_index];
 
 				switch (fmt)
 				{
@@ -8282,8 +8295,8 @@ namespace basist
 
 					const uint16_t* pAlpha_block = reinterpret_cast<uint16_t*>(static_cast<uint8_t*>(pAlpha_blocks) + (block_x + block_y * num_blocks_x) * sizeof(uint32_t));
 
-					const endpoint* pAlpha_endpoints = &m_endpoints[pAlpha_block[0]];
-					const selector* pAlpha_selector = &m_selectors[pAlpha_block[1]];
+					const endpoint* pAlpha_endpoints = &endpoints[pAlpha_block[0]];
+					const selector* pAlpha_selector = &selectors[pAlpha_block[1]];
 
 					const color32& alpha_base_color = pAlpha_endpoints->m_color5;
 					const uint32_t alpha_inten_table = pAlpha_endpoints->m_inten5;
@@ -8342,7 +8355,7 @@ namespace basist
 				{
 #if BASISD_SUPPORT_ASTC
 					void* pDst_block = static_cast<uint8_t*>(pDst_blocks) + (block_x + block_y * output_row_pitch_in_blocks_or_pixels) * output_block_or_pixel_stride_in_bytes;
-					convert_etc1s_to_astc_4x4(pDst_block, pEndpoints, pSelector, transcode_alpha, &m_endpoints[0], &m_selectors[0]);
+					convert_etc1s_to_astc_4x4(pDst_block, pEndpoints, pSelector, transcode_alpha, &endpoints[0], &selectors[0]);
 #else
 					assert(0);
 #endif
@@ -8388,7 +8401,7 @@ namespace basist
 
 					void* pDst_block = static_cast<uint8_t*>(pDst_blocks) + (block_x + block_y * output_row_pitch_in_blocks_or_pixels) * output_block_or_pixel_stride_in_bytes;
 										
-					convert_etc1s_to_pvrtc2_rgba(pDst_block, pEndpoints, pSelector, &m_endpoints[0], &m_selectors[0]);
+					convert_etc1s_to_pvrtc2_rgba(pDst_block, pEndpoints, pSelector, &endpoints[0], &selectors[0]);
 #endif
 					break;
 				}
@@ -8680,7 +8693,7 @@ namespace basist
 		if (fmt == block_format::cPVRTC1_4_RGB)
 			fixup_pvrtc1_4_modulation_rgb((decoder_etc_block*)pPVRTC_work_mem, pPVRTC_endpoints, pDst_blocks, num_blocks_x, num_blocks_y);
 		else if (fmt == block_format::cPVRTC1_4_RGBA)
-			fixup_pvrtc1_4_modulation_rgba((decoder_etc_block*)pPVRTC_work_mem, pPVRTC_endpoints, pDst_blocks, num_blocks_x, num_blocks_y, pAlpha_blocks, &m_endpoints[0], &m_selectors[0]);
+			fixup_pvrtc1_4_modulation_rgba((decoder_etc_block*)pPVRTC_work_mem, pPVRTC_endpoints, pDst_blocks, num_blocks_x, num_blocks_y, pAlpha_blocks, &endpoints[0], &selectors[0]);
 #endif // BASISD_SUPPORT_PVRTC1
 
 		if (pPVRTC_work_mem)
@@ -10378,46 +10391,84 @@ namespace basist
 
 		if (pHeader->m_tex_format == (int)basis_tex_format::cETC1S)
 		{
-			if (m_lowlevel_etc1s_decoder.m_endpoints.size())
+			if (m_lowlevel_etc1s_decoder.m_local_endpoints.size())
 			{
 				m_lowlevel_etc1s_decoder.clear();
 			}
 
-			if (!pHeader->m_endpoint_cb_file_size || !pHeader->m_selector_cb_file_size || !pHeader->m_tables_file_size)
+			if (pHeader->m_flags & cBASISHeaderFlagUsesGlobalCodebook)
 			{
-				BASISU_DEVEL_ERROR("basisu_transcoder::start_transcoding: file is corrupted (0)\n");
+				if (!m_lowlevel_etc1s_decoder.get_global_codebooks())
+				{
+					BASISU_DEVEL_ERROR("basisu_transcoder::start_transcoding: File uses global codebooks, but set_global_codebooks() has not been called\n");
+					return false;
+				}
+				if (!m_lowlevel_etc1s_decoder.get_global_codebooks()->get_endpoints().size())
+				{
+					BASISU_DEVEL_ERROR("basisu_transcoder::start_transcoding: Global codebooks must be unpacked first by calling start_transcoding()\n");
+					return false;
+				}
+				if ((m_lowlevel_etc1s_decoder.get_global_codebooks()->get_endpoints().size() != pHeader->m_total_endpoints) ||
+					 (m_lowlevel_etc1s_decoder.get_global_codebooks()->get_selectors().size() != pHeader->m_total_selectors))
+				{
+					BASISU_DEVEL_ERROR("basisu_transcoder::start_transcoding: Global codebook size mismatch (wrong codebooks for file).\n");
+					return false;
+				}
+				if (!pHeader->m_tables_file_size)
+				{
+					BASISU_DEVEL_ERROR("basisu_transcoder::start_transcoding: file is corrupted (2)\n");
+					return false;
+				}
+				if (pHeader->m_tables_file_ofs > data_size)
+				{
+					BASISU_DEVEL_ERROR("basisu_transcoder::start_transcoding: file is corrupted or passed in buffer too small (4)\n");
+					return false;
+				}
+				if (pHeader->m_tables_file_size > (data_size - pHeader->m_tables_file_ofs))
+				{
+					BASISU_DEVEL_ERROR("basisu_transcoder::start_transcoding: file is corrupted or passed in buffer too small (5)\n");
+					return false;
+				}
 			}
-
-			if ((pHeader->m_endpoint_cb_file_ofs > data_size) || (pHeader->m_selector_cb_file_ofs > data_size) || (pHeader->m_tables_file_ofs > data_size))
+			else
 			{
-				BASISU_DEVEL_ERROR("basisu_transcoder::start_transcoding: file is corrupted or passed in buffer too small (1)\n");
-				return false;
-			}
+				if (!pHeader->m_endpoint_cb_file_size || !pHeader->m_selector_cb_file_size || !pHeader->m_tables_file_size)
+				{
+					BASISU_DEVEL_ERROR("basisu_transcoder::start_transcoding: file is corrupted (0)\n");
+						return false;
+				}
 
-			if (pHeader->m_endpoint_cb_file_size > (data_size - pHeader->m_endpoint_cb_file_ofs))
-			{
-				BASISU_DEVEL_ERROR("basisu_transcoder::start_transcoding: file is corrupted or passed in buffer too small (2)\n");
-				return false;
-			}
+				if ((pHeader->m_endpoint_cb_file_ofs > data_size) || (pHeader->m_selector_cb_file_ofs > data_size) || (pHeader->m_tables_file_ofs > data_size))
+				{
+					BASISU_DEVEL_ERROR("basisu_transcoder::start_transcoding: file is corrupted or passed in buffer too small (1)\n");
+					return false;
+				}
 
-			if (pHeader->m_selector_cb_file_size > (data_size - pHeader->m_selector_cb_file_ofs))
-			{
-				BASISU_DEVEL_ERROR("basisu_transcoder::start_transcoding: file is corrupted or passed in buffer too small (3)\n");
-				return false;
-			}
+				if (pHeader->m_endpoint_cb_file_size > (data_size - pHeader->m_endpoint_cb_file_ofs))
+				{
+					BASISU_DEVEL_ERROR("basisu_transcoder::start_transcoding: file is corrupted or passed in buffer too small (2)\n");
+					return false;
+				}
 
-			if (pHeader->m_tables_file_size > (data_size - pHeader->m_tables_file_ofs))
-			{
-				BASISU_DEVEL_ERROR("basisu_transcoder::start_transcoding: file is corrupted or passed in buffer too small (3)\n");
-				return false;
-			}
+				if (pHeader->m_selector_cb_file_size > (data_size - pHeader->m_selector_cb_file_ofs))
+				{
+					BASISU_DEVEL_ERROR("basisu_transcoder::start_transcoding: file is corrupted or passed in buffer too small (3)\n");
+					return false;
+				}
 
-			if (!m_lowlevel_etc1s_decoder.decode_palettes(
-				pHeader->m_total_endpoints, pDataU8 + pHeader->m_endpoint_cb_file_ofs, pHeader->m_endpoint_cb_file_size,
-				pHeader->m_total_selectors, pDataU8 + pHeader->m_selector_cb_file_ofs, pHeader->m_selector_cb_file_size))
-			{
-				BASISU_DEVEL_ERROR("basisu_transcoder::start_transcoding: decode_palettes failed\n");
-				return false;
+				if (pHeader->m_tables_file_size > (data_size - pHeader->m_tables_file_ofs))
+				{
+					BASISU_DEVEL_ERROR("basisu_transcoder::start_transcoding: file is corrupted or passed in buffer too small (3)\n");
+					return false;
+				}
+
+				if (!m_lowlevel_etc1s_decoder.decode_palettes(
+					pHeader->m_total_endpoints, pDataU8 + pHeader->m_endpoint_cb_file_ofs, pHeader->m_endpoint_cb_file_size,
+					pHeader->m_total_selectors, pDataU8 + pHeader->m_selector_cb_file_ofs, pHeader->m_selector_cb_file_size))
+				{
+					BASISU_DEVEL_ERROR("basisu_transcoder::start_transcoding: decode_palettes failed\n");
+					return false;
+				}
 			}
 
 			if (!m_lowlevel_etc1s_decoder.decode_tables(pDataU8 + pHeader->m_tables_file_ofs, pHeader->m_tables_file_size))
@@ -10429,7 +10480,7 @@ namespace basist
 		else
 		{
 			// Nothing special to do for UASTC.
-			if (m_lowlevel_etc1s_decoder.m_endpoints.size())
+			if (m_lowlevel_etc1s_decoder.m_local_endpoints.size())
 			{
 				m_lowlevel_etc1s_decoder.clear();
 			}

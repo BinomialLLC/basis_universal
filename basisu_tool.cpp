@@ -120,6 +120,7 @@ static void print_usage()
 		" -bench: UASTC benchmark mode, for development only\n"
 		" -resample_factor X: Resample all input textures by scale factor X using a box filter\n"
 		" -no_sse: Forbid all SSE instruction set usage\n"
+		" -validate_etc1s: Validate internal ETC1S compressor's data structures.\n"
 		"\n"
 		"Mipmap generation options:\n"
 		" -mipmap: Generate mipmaps for each source image\n"
@@ -406,10 +407,23 @@ public:
 				m_comp_params.m_debug = true;
 				enable_debug_printf(true);
 			}
+			else if (strcasecmp(pArg, "-validate_etc1s") == 0)
+			{
+				m_comp_params.m_validate = true;
+			}
 			else if (strcasecmp(pArg, "-debug_images") == 0)
 				m_comp_params.m_debug_images = true;
 			else if (strcasecmp(pArg, "-stats") == 0)
 				m_comp_params.m_compute_stats = true;
+			else if (strcasecmp(pArg, "-gen_global_codebooks") == 0)
+			{
+			}
+			else if (strcasecmp(pArg, "-use_global_codebooks") == 0)
+			{
+				REMAINING_ARGS_CHECK(1);
+				m_etc1s_use_global_codebooks_file = arg_v[arg_index + 1];
+				arg_count++;
+			}
 			else if (strcasecmp(pArg, "-comp_level") == 0)
 			{
 				REMAINING_ARGS_CHECK(1);
@@ -711,6 +725,7 @@ public:
 
 	std::string m_csv_file;
 
+	std::string m_etc1s_use_global_codebooks_file;
 	bool m_individual;
 	bool m_no_ktx;
 	bool m_etc1_only;
@@ -757,6 +772,55 @@ static bool expand_multifile(command_line_params &opts)
 	return true;
 }
 
+struct basis_data
+{
+	basis_data(basist::etc1_global_selector_codebook& sel_codebook) : 
+		m_transcoder(&sel_codebook) 
+	{
+	}
+	uint8_vec m_file_data;
+	basist::basisu_transcoder m_transcoder;
+};
+static basis_data *load_basis_file(const char *pInput_filename, basist::etc1_global_selector_codebook &sel_codebook, bool force_etc1s)
+{
+	basis_data* p = new basis_data(sel_codebook);
+	uint8_vec &basis_data = p->m_file_data;
+	if (!basisu::read_file_to_vec(pInput_filename, basis_data))
+	{
+		error_printf("Failed reading file \"%s\"\n", pInput_filename);
+		delete p;
+		return nullptr;
+	}
+	printf("Input file \"%s\"\n", pInput_filename);
+	if (!basis_data.size())
+	{
+		error_printf("File is empty!\n");
+		delete p;
+		return nullptr;
+	}
+	if (basis_data.size() > UINT32_MAX)
+	{
+		error_printf("File is too large!\n");
+		delete p;
+		return nullptr;
+	}
+	if (force_etc1s)
+	{
+		if (p->m_transcoder.get_tex_format((const void*)&p->m_file_data[0], (uint32_t)p->m_file_data.size()) != basist::basis_tex_format::cETC1S)
+		{
+			error_printf("Global codebook file must be in ETC1S format!\n");
+			delete p;
+			return nullptr;
+		}
+	}
+	if (!p->m_transcoder.start_transcoding(&basis_data[0], (uint32_t)basis_data.size()))
+	{
+		error_printf("start_transcoding() failed!\n");
+		delete p;
+		return nullptr;
+	}
+	return p;
+}
 static bool compress_mode(command_line_params &opts)
 {
 	basist::etc1_global_selector_codebook sel_codebook(basist::g_global_selector_cb_size, basist::g_global_selector_cb);
@@ -784,13 +848,52 @@ static bool compress_mode(command_line_params &opts)
 		error_printf("No input files to process!\n");
 		return false;
 	}
+	basis_data* pGlobal_codebook_data = nullptr;
+	if (opts.m_etc1s_use_global_codebooks_file.size())
+	{
+		pGlobal_codebook_data = load_basis_file(opts.m_etc1s_use_global_codebooks_file.c_str(), sel_codebook, true);
+		if (!pGlobal_codebook_data)
+			return false;
+#if 0
+		basis_data* pGlobal_codebook_data2 = load_basis_file("xmen_1024.basis", sel_codebook, true);
+		const basist::basisu_lowlevel_etc1s_transcoder &ta = pGlobal_codebook_data->m_transcoder.get_lowlevel_etc1s_decoder();
+		const basist::basisu_lowlevel_etc1s_transcoder &tb = pGlobal_codebook_data2->m_transcoder.get_lowlevel_etc1s_decoder();
+		if (ta.get_endpoints().size() != tb.get_endpoints().size())
+		{
+			printf("Endpoint CB's don't match\n");
+		}
+		else if (ta.get_selectors().size() != tb.get_selectors().size())
+		{
+			printf("Selector CB's don't match\n");
+		}
+		else
+		{
+			for (uint32_t i = 0; i < ta.get_endpoints().size(); i++)
+			{
+				if (ta.get_endpoints()[i] != tb.get_endpoints()[i])
+				{
+					printf("Endoint CB mismatch entry %u\n", i);
+				}
+			}
+			for (uint32_t i = 0; i < ta.get_selectors().size(); i++)
+			{
+				if (ta.get_selectors()[i] != tb.get_selectors()[i])
+				{
+					printf("Selector CB mismatch entry %u\n", i);
+				}
+			}
+		}
+		delete pGlobal_codebook_data2;
+		pGlobal_codebook_data2 = nullptr;
+#endif
+	}
 						
 	basis_compressor_params &params = opts.m_comp_params;
 
 	params.m_read_source_images = true;
 	params.m_write_output_basis_files = true;
 	params.m_pSel_codebook = &sel_codebook;
-
+	params.m_pGlobal_codebooks = pGlobal_codebook_data ? &pGlobal_codebook_data->m_transcoder.get_lowlevel_etc1s_decoder() : nullptr; 
 	FILE *pCSV_file = nullptr;
 	if (opts.m_csv_file.size())
 	{
@@ -799,6 +902,7 @@ static bool compress_mode(command_line_params &opts)
 		if (!pCSV_file)
 		{
 			error_printf("Failed opening CVS file \"%s\"\n", opts.m_csv_file.c_str());
+			delete pGlobal_codebook_data; pGlobal_codebook_data = nullptr;
 			return false;
 		}
 		fprintf(pCSV_file, "Filename, Size, Slices, Width, Height, HasAlpha, BitsPerTexel, Slice0RGBAvgPSNR, Slice0RGBAAvgPSNR, Slice0Luma709PSNR, Slice0BestETC1SLuma709PSNR, Q, CL, Time, RGBAvgPSNRMin, RGBAvgPSNRAvg, AAvgPSNRMin, AAvgPSNRAvg, Luma709PSNRMin, Luma709PSNRAvg\n");
@@ -865,6 +969,7 @@ static bool compress_mode(command_line_params &opts)
 				pCSV_file = nullptr;
 			}
 
+			delete pGlobal_codebook_data; pGlobal_codebook_data = nullptr;
 			return false;
 		}
 
@@ -931,6 +1036,7 @@ static bool compress_mode(command_line_params &opts)
 					pCSV_file = nullptr;
 				}
 
+				delete pGlobal_codebook_data; pGlobal_codebook_data = nullptr;
 				return false;
 			}
 		}
@@ -1009,6 +1115,8 @@ static bool compress_mode(command_line_params &opts)
 		fclose(pCSV_file);
 		pCSV_file = nullptr;
 	}
+	delete pGlobal_codebook_data; 
+	pGlobal_codebook_data = nullptr;
 		
 	return true;
 }
@@ -1018,9 +1126,17 @@ static bool unpack_and_validate_mode(command_line_params &opts)
 	const bool validate_flag = (opts.m_mode == cValidate);
 	basist::etc1_global_selector_codebook sel_codebook(basist::g_global_selector_cb_size, basist::g_global_selector_cb);
 
+	basis_data* pGlobal_codebook_data = nullptr;
+	if (opts.m_etc1s_use_global_codebooks_file.size())
+	{
+		pGlobal_codebook_data = load_basis_file(opts.m_etc1s_use_global_codebooks_file.c_str(), sel_codebook, true);
+		if (!pGlobal_codebook_data)
+			return false;
+	}
 	if (!opts.m_input_filenames.size())
 	{
 		error_printf("No input files to process!\n");
+		delete pGlobal_codebook_data; pGlobal_codebook_data = nullptr;
 		return false;
 	}
 
@@ -1031,6 +1147,7 @@ static bool unpack_and_validate_mode(command_line_params &opts)
 		if (!pCSV_file)
 		{
 			error_printf("Failed opening CVS file \"%s\"\n", opts.m_csv_file.c_str());
+			delete pGlobal_codebook_data; pGlobal_codebook_data = nullptr;
 			return false;
 		}
 		//fprintf(pCSV_file, "Filename, Size, Slices, Width, Height, HasAlpha, BitsPerTexel, Slice0RGBAvgPSNR, Slice0RGBAAvgPSNR, Slice0Luma709PSNR, Slice0BestETC1SLuma709PSNR, Q, CL, Time, RGBAvgPSNRMin, RGBAvgPSNRAvg, AAvgPSNRMin, AAvgPSNRAvg, Luma709PSNRMin, Luma709PSNRAvg\n");
@@ -1051,6 +1168,7 @@ static bool unpack_and_validate_mode(command_line_params &opts)
 		{
 			error_printf("Failed reading file \"%s\"\n", pInput_filename);
 			if (pCSV_file) fclose(pCSV_file);
+			delete pGlobal_codebook_data; pGlobal_codebook_data = nullptr;
 			return false;
 		}
 
@@ -1060,6 +1178,7 @@ static bool unpack_and_validate_mode(command_line_params &opts)
 		{
 			error_printf("File is empty!\n");
 			if (pCSV_file) fclose(pCSV_file);
+			delete pGlobal_codebook_data; pGlobal_codebook_data = nullptr;
 			return false;
 		}
 
@@ -1067,11 +1186,16 @@ static bool unpack_and_validate_mode(command_line_params &opts)
 		{
 			error_printf("File is too large!\n");
 			if (pCSV_file) fclose(pCSV_file);
+			delete pGlobal_codebook_data; pGlobal_codebook_data = nullptr;
 			return false;
 		}
 				
 		basist::basisu_transcoder dec(&sel_codebook);
 
+		if (pGlobal_codebook_data)
+		{
+			dec.set_global_codebooks(&pGlobal_codebook_data->m_transcoder.get_lowlevel_etc1s_decoder());
+		}
 		if (!opts.m_fuzz_testing)
 		{
 			// Skip the full validation, which CRC16's the entire file.
@@ -1081,6 +1205,7 @@ static bool unpack_and_validate_mode(command_line_params &opts)
 			{
 				error_printf("File version is unsupported, or file fail CRC checks!\n");
 				if (pCSV_file) fclose(pCSV_file);
+				delete pGlobal_codebook_data; pGlobal_codebook_data = nullptr;
 				return false;
 			}
 		}
@@ -1092,6 +1217,7 @@ static bool unpack_and_validate_mode(command_line_params &opts)
 		{
 			error_printf("Failed retrieving Basis file information!\n");
 			if (pCSV_file) fclose(pCSV_file);
+			delete pGlobal_codebook_data; pGlobal_codebook_data = nullptr;
 			return false;
 		}
 				
@@ -1129,6 +1255,7 @@ static bool unpack_and_validate_mode(command_line_params &opts)
 			{
 				error_printf("get_image_info() failed!\n");
 				if (pCSV_file) fclose(pCSV_file);
+				delete pGlobal_codebook_data; pGlobal_codebook_data = nullptr;
 				return false;
 			}
 
@@ -1178,6 +1305,7 @@ static bool unpack_and_validate_mode(command_line_params &opts)
 		{
 			error_printf("start_transcoding() failed!\n");
 			if (pCSV_file) fclose(pCSV_file);
+			delete pGlobal_codebook_data; pGlobal_codebook_data = nullptr;
 			return false;
 		}
 
@@ -1260,6 +1388,7 @@ static bool unpack_and_validate_mode(command_line_params &opts)
 					{
 						error_printf("Failed retrieving image level information (%u %u)!\n", image_index, level_index);
 						if (pCSV_file) fclose(pCSV_file);
+						delete pGlobal_codebook_data; pGlobal_codebook_data = nullptr;
 						return false;
 					}
 										
@@ -1292,6 +1421,7 @@ static bool unpack_and_validate_mode(command_line_params &opts)
 					{
 						error_printf("Failed transcoding image level (%u %u %u)!\n", image_index, level_index, format_iter);
 						if (pCSV_file) fclose(pCSV_file);
+						delete pGlobal_codebook_data; pGlobal_codebook_data = nullptr;
 						return false;
 					}
 					
@@ -1336,6 +1466,7 @@ static bool unpack_and_validate_mode(command_line_params &opts)
 						{
 							error_printf("Failed writing KTX file \"%s\"!\n", ktx_filename.c_str());
 							if (pCSV_file) fclose(pCSV_file);
+							delete pGlobal_codebook_data; pGlobal_codebook_data = nullptr;
 							return false;
 						}
 						printf("Wrote KTX file \"%s\"\n", ktx_filename.c_str());
@@ -1364,6 +1495,7 @@ static bool unpack_and_validate_mode(command_line_params &opts)
 						{
 							error_printf("Failed writing KTX file \"%s\"!\n", ktx_filename.c_str());
 							if (pCSV_file) fclose(pCSV_file);
+							delete pGlobal_codebook_data; pGlobal_codebook_data = nullptr;
 							return false;
 						}
 						printf("Wrote KTX file \"%s\"\n", ktx_filename.c_str());
@@ -1377,6 +1509,7 @@ static bool unpack_and_validate_mode(command_line_params &opts)
 						{
 							error_printf("Failed retrieving image level information (%u %u)!\n", image_index, level_index);
 							if (pCSV_file) fclose(pCSV_file);
+							delete pGlobal_codebook_data; pGlobal_codebook_data = nullptr;
 							return false;
 						}
 
@@ -1396,6 +1529,7 @@ static bool unpack_and_validate_mode(command_line_params &opts)
 						if (!save_png(rgb_filename, u, cImageSaveIgnoreAlpha))
 						{
 							error_printf("Failed writing to PNG file \"%s\"\n", rgb_filename.c_str());
+							delete pGlobal_codebook_data; pGlobal_codebook_data = nullptr;
 							return false;
 						}
 						printf("Wrote PNG file \"%s\"\n", rgb_filename.c_str());
@@ -1411,6 +1545,7 @@ static bool unpack_and_validate_mode(command_line_params &opts)
 							{
 								error_printf("Failed writing to OUT file \"%s\"\n", out_filename.c_str());
 								if (pCSV_file) fclose(pCSV_file);
+								delete pGlobal_codebook_data; pGlobal_codebook_data = nullptr;
 								return false;
 							}
 							printf("Wrote .OUT file \"%s\"\n", out_filename.c_str());
@@ -1427,6 +1562,7 @@ static bool unpack_and_validate_mode(command_line_params &opts)
 							{
 								error_printf("Failed writing to PNG file \"%s\"\n", a_filename.c_str());
 								if (pCSV_file) fclose(pCSV_file);
+								delete pGlobal_codebook_data; pGlobal_codebook_data = nullptr;
 								return false;
 							}
 							printf("Wrote PNG file \"%s\"\n", a_filename.c_str());
@@ -1440,6 +1576,7 @@ static bool unpack_and_validate_mode(command_line_params &opts)
 							{
 								error_printf("Failed writing to PNG file \"%s\"\n", rgba_filename.c_str());
 								if (pCSV_file) fclose(pCSV_file);
+								delete pGlobal_codebook_data; pGlobal_codebook_data = nullptr;
 								return false;
 							}
 							printf("Wrote PNG file \"%s\"\n", rgba_filename.c_str());
@@ -1466,6 +1603,7 @@ static bool unpack_and_validate_mode(command_line_params &opts)
 				{
 					error_printf("Failed retrieving image level information (%u %u)!\n", image_index, level_index);
 					if (pCSV_file) fclose(pCSV_file);
+					delete pGlobal_codebook_data; pGlobal_codebook_data = nullptr;
 					return false;
 				}
 
@@ -1479,6 +1617,7 @@ static bool unpack_and_validate_mode(command_line_params &opts)
 				{
 					error_printf("Failed transcoding image level (%u %u %u)!\n", image_index, level_index, transcoder_tex_fmt);
 					if (pCSV_file) fclose(pCSV_file);
+					delete pGlobal_codebook_data; pGlobal_codebook_data = nullptr;
 					return false;
 				}
 
@@ -1495,6 +1634,7 @@ static bool unpack_and_validate_mode(command_line_params &opts)
 					{
 						error_printf("Failed writing to PNG file \"%s\"\n", rgb_filename.c_str());
 						if (pCSV_file) fclose(pCSV_file);
+						delete pGlobal_codebook_data; pGlobal_codebook_data = nullptr;
 						return false;
 					}
 					printf("Wrote PNG file \"%s\"\n", rgb_filename.c_str());
@@ -1504,6 +1644,7 @@ static bool unpack_and_validate_mode(command_line_params &opts)
 					{
 						error_printf("Failed writing to PNG file \"%s\"\n", a_filename.c_str());
 						if (pCSV_file) fclose(pCSV_file);
+						delete pGlobal_codebook_data; pGlobal_codebook_data = nullptr;
 						return false;
 					}
 					printf("Wrote PNG file \"%s\"\n", a_filename.c_str());
@@ -1525,6 +1666,7 @@ static bool unpack_and_validate_mode(command_line_params &opts)
 				{
 					error_printf("Failed retrieving image level information (%u %u)!\n", image_index, level_index);
 					if (pCSV_file) fclose(pCSV_file);
+					delete pGlobal_codebook_data; pGlobal_codebook_data = nullptr;
 					return false;
 				}
 
@@ -1538,6 +1680,7 @@ static bool unpack_and_validate_mode(command_line_params &opts)
 				{
 					error_printf("Failed transcoding image level (%u %u %u)!\n", image_index, level_index, transcoder_tex_fmt);
 					if (pCSV_file) fclose(pCSV_file);
+					delete pGlobal_codebook_data; pGlobal_codebook_data = nullptr;
 					return false;
 				}
 
@@ -1568,6 +1711,7 @@ static bool unpack_and_validate_mode(command_line_params &opts)
 					{
 						error_printf("Failed writing to PNG file \"%s\"\n", rgb_filename.c_str());
 						if (pCSV_file) fclose(pCSV_file);
+						delete pGlobal_codebook_data; pGlobal_codebook_data = nullptr;
 						return false;
 					}
 					printf("Wrote PNG file \"%s\"\n", rgb_filename.c_str());
@@ -1592,6 +1736,7 @@ static bool unpack_and_validate_mode(command_line_params &opts)
 				{
 					error_printf("Failed retrieving image level information (%u %u)!\n", image_index, level_index);
 					if (pCSV_file) fclose(pCSV_file);
+					delete pGlobal_codebook_data; pGlobal_codebook_data = nullptr;
 					return false;
 				}
 
@@ -1605,6 +1750,7 @@ static bool unpack_and_validate_mode(command_line_params &opts)
 				{
 					error_printf("Failed transcoding image level (%u %u %u)!\n", image_index, level_index, transcoder_tex_fmt);
 					if (pCSV_file) fclose(pCSV_file);
+					delete pGlobal_codebook_data; pGlobal_codebook_data = nullptr;
 					return false;
 				}
 
@@ -1636,6 +1782,7 @@ static bool unpack_and_validate_mode(command_line_params &opts)
 					{
 						error_printf("Failed writing to PNG file \"%s\"\n", rgb_filename.c_str());
 						if (pCSV_file) fclose(pCSV_file);
+						delete pGlobal_codebook_data; pGlobal_codebook_data = nullptr;
 						return false;
 					}
 					printf("Wrote PNG file \"%s\"\n", rgb_filename.c_str());
@@ -1645,6 +1792,7 @@ static bool unpack_and_validate_mode(command_line_params &opts)
 					{
 						error_printf("Failed writing to PNG file \"%s\"\n", a_filename.c_str());
 						if (pCSV_file) fclose(pCSV_file);
+						delete pGlobal_codebook_data; pGlobal_codebook_data = nullptr;
 						return false;
 					}
 					printf("Wrote PNG file \"%s\"\n", a_filename.c_str());
@@ -1695,6 +1843,8 @@ static bool unpack_and_validate_mode(command_line_params &opts)
 		fclose(pCSV_file);
 		pCSV_file = nullptr;
 	}
+	delete pGlobal_codebook_data; 
+	pGlobal_codebook_data = nullptr;
 
 	return true;
 }
