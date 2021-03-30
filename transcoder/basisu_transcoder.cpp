@@ -9455,7 +9455,7 @@ namespace basist
 					{
 						if (channel0 < 0)
 							channel0 = 0;
-						if (channel1 < 3)
+						if (channel1 < 0)
 							channel1 = 3;
 						status = transcode_uastc_to_etc2_eac_rg11(*pSource_block, pDst_block, high_quality, channel0, channel1);
 						break;
