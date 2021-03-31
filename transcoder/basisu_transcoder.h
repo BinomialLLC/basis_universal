@@ -377,11 +377,13 @@ namespace basist
 		uint32_t m_total_header_size;
 
 		uint32_t m_total_selectors;
-		uint32_t m_selector_codebook_ofs;
+		// will be 0 for UASTC or if the file uses global codebooks
+		uint32_t m_selector_codebook_ofs; 
 		uint32_t m_selector_codebook_size;
 
 		uint32_t m_total_endpoints;
-		uint32_t m_endpoint_codebook_ofs;
+		// will be 0 for UASTC or if the file uses global codebooks
+		uint32_t m_endpoint_codebook_ofs; 
 		uint32_t m_endpoint_codebook_size;
 
 		uint32_t m_tables_ofs;

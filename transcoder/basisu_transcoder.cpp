@@ -7949,9 +7949,7 @@ namespace basist
 		}
 
 		approx_move_to_front selector_history_buf(m_selector_history_buf_size);
-
-		const uint32_t SELECTOR_HISTORY_BUF_FIRST_SYMBOL_INDEX = (uint32_t)m_local_selectors.size();
-		const uint32_t SELECTOR_HISTORY_BUF_RLE_SYMBOL_INDEX = m_selector_history_buf_size + SELECTOR_HISTORY_BUF_FIRST_SYMBOL_INDEX;
+				
 		uint32_t cur_selector_rle_count = 0;
 
 		decoder_etc_block block;
@@ -7990,6 +7988,9 @@ namespace basist
 			BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_slice: global codebooks must be unpacked first\n");
 			return false;
 		}
+
+		const uint32_t SELECTOR_HISTORY_BUF_FIRST_SYMBOL_INDEX = (uint32_t)selectors.size();
+		const uint32_t SELECTOR_HISTORY_BUF_RLE_SYMBOL_INDEX = m_selector_history_buf_size + SELECTOR_HISTORY_BUF_FIRST_SYMBOL_INDEX;
 
 		for (uint32_t block_y = 0; block_y < num_blocks_y; block_y++)
 		{

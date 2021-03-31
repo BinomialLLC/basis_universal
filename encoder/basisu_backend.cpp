@@ -739,6 +739,7 @@ namespace basisu
 
 				}  // block_x
 			} // block_y
+
 			for (uint32_t block_y = 0; block_y < num_blocks_y; block_y++)
 			{
 				for (uint32_t block_x = 0; block_x < num_blocks_x; block_x++)

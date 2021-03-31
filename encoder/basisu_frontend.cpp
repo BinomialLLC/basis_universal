@@ -297,7 +297,7 @@ namespace basisu
 					}
 				}
 			}
-
+						
 			optimize_selector_codebook();
 
 			if (m_params.m_debug_stats)
@@ -415,6 +415,7 @@ namespace basisu
 		}
 #endif
 
+		// HACK HACK
 		const uint32_t NUM_PASSES = 3;
 		for (uint32_t pass = 0; pass < NUM_PASSES; pass++)
 		{
@@ -503,7 +504,7 @@ namespace basisu
 				const uint32_t last_index = minimum<uint32_t>(m_total_blocks, first_index + N);
 
 #ifndef __EMSCRIPTEN__
-				m_params.m_pJob_pool->add_job([this, first_index, last_index, pass] {
+				m_params.m_pJob_pool->add_job([this, first_index, last_index] {
 #endif
 
 					for (uint32_t block_index = first_index; block_index < last_index; block_index++)
@@ -733,11 +734,16 @@ namespace basisu
 			if (m_optimized_cluster_selector_global_cb_ids.size())
 				new_optimized_cluster_selector_global_cb_ids[i] = m_optimized_cluster_selector_global_cb_ids[new_to_old[i]];
 
-			if (m_selector_cluster_block_indices.size())
-				new_selector_cluster_indices[i] = m_selector_cluster_block_indices[new_to_old[i]];
+			//if (m_selector_cluster_block_indices.size())
+			//	new_selector_cluster_indices[i] = m_selector_cluster_block_indices[new_to_old[i]];
 
 			if (m_selector_cluster_uses_global_cb.size())
 				new_selector_cluster_uses_global_cb[i] = m_selector_cluster_uses_global_cb[new_to_old[i]];
+		}
+
+		for (uint32_t i = 0; i < m_block_selector_cluster_index.size(); i++)
+		{
+			new_selector_cluster_indices[m_block_selector_cluster_index[i]].push_back(i);
 		}
 				
 		m_optimized_cluster_selectors.swap(new_optimized_cluster_selectors);

@@ -68,8 +68,8 @@ namespace basisu
 		m_header.m_total_endpoints = encoder_output.m_num_endpoints;
 		if (!encoder_output.m_uses_global_codebooks)
 		{
-		m_header.m_endpoint_cb_file_ofs = m_endpoint_cb_file_ofs;
-		m_header.m_endpoint_cb_file_size = (uint32_t)encoder_output.m_endpoint_palette.size();
+			m_header.m_endpoint_cb_file_ofs = m_endpoint_cb_file_ofs;
+			m_header.m_endpoint_cb_file_size = (uint32_t)encoder_output.m_endpoint_palette.size();
 		}
 		else
 		{
@@ -79,8 +79,8 @@ namespace basisu
 		m_header.m_total_selectors = encoder_output.m_num_selectors;
 		if (!encoder_output.m_uses_global_codebooks)
 		{
-		m_header.m_selector_cb_file_ofs = m_selector_cb_file_ofs;
-		m_header.m_selector_cb_file_size = (uint32_t)encoder_output.m_selector_palette.size();
+			m_header.m_selector_cb_file_ofs = m_selector_cb_file_ofs;
+			m_header.m_selector_cb_file_size = (uint32_t)encoder_output.m_selector_palette.size();
 		}
 		else
 		{
@@ -152,16 +152,16 @@ namespace basisu
 
 		if (!encoder_output.m_uses_global_codebooks)
 		{
-		if (encoder_output.m_endpoint_palette.size())
-		{
-			assert(m_comp_data.size() == m_endpoint_cb_file_ofs);
-			append_vector(m_comp_data, reinterpret_cast<const uint8_t*>(&encoder_output.m_endpoint_palette[0]), encoder_output.m_endpoint_palette.size());
-		}
+			if (encoder_output.m_endpoint_palette.size())
+			{
+				assert(m_comp_data.size() == m_endpoint_cb_file_ofs);
+				append_vector(m_comp_data, reinterpret_cast<const uint8_t*>(&encoder_output.m_endpoint_palette[0]), encoder_output.m_endpoint_palette.size());
+			}
 
-		if (encoder_output.m_selector_palette.size())
-		{
-			assert(m_comp_data.size() == m_selector_cb_file_ofs);
-			append_vector(m_comp_data, reinterpret_cast<const uint8_t*>(&encoder_output.m_selector_palette[0]), encoder_output.m_selector_palette.size());
+			if (encoder_output.m_selector_palette.size())
+			{
+				assert(m_comp_data.size() == m_selector_cb_file_ofs);
+				append_vector(m_comp_data, reinterpret_cast<const uint8_t*>(&encoder_output.m_selector_palette[0]), encoder_output.m_selector_palette.size());
 			}
 		}
 
@@ -227,9 +227,9 @@ namespace basisu
 			}
 			else
 			{
-			m_endpoint_cb_file_ofs = m_slice_descs_file_ofs + sizeof(basist::basis_slice_desc) * (uint32_t)slice_descs.size();
-			m_selector_cb_file_ofs = m_endpoint_cb_file_ofs + (uint32_t)encoder_output.m_endpoint_palette.size();
-			m_tables_file_ofs = m_selector_cb_file_ofs + (uint32_t)encoder_output.m_selector_palette.size();
+				m_endpoint_cb_file_ofs = m_slice_descs_file_ofs + sizeof(basist::basis_slice_desc) * (uint32_t)slice_descs.size();
+				m_selector_cb_file_ofs = m_endpoint_cb_file_ofs + (uint32_t)encoder_output.m_endpoint_palette.size();
+				m_tables_file_ofs = m_selector_cb_file_ofs + (uint32_t)encoder_output.m_selector_palette.size();
 			}
 			m_first_image_file_ofs = m_tables_file_ofs + (uint32_t)encoder_output.m_slice_image_tables.size();
 		}

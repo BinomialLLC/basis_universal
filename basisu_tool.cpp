@@ -37,7 +37,7 @@
 using namespace basisu;
 using namespace buminiz;
 
-#define BASISU_TOOL_VERSION "1.13"
+#define BASISU_TOOL_VERSION "1.14"
 
 enum tool_mode
 {
@@ -120,7 +120,7 @@ static void print_usage()
 		" -bench: UASTC benchmark mode, for development only\n"
 		" -resample_factor X: Resample all input textures by scale factor X using a box filter\n"
 		" -no_sse: Forbid all SSE instruction set usage\n"
-		" -validate_etc1s: Validate internal ETC1S compressor's data structures.\n"
+		" -validate_etc1s: Validate internal ETC1S compressor's data structures during compression (slower, intended for development).\n"
 		"\n"
 		"Mipmap generation options:\n"
 		" -mipmap: Generate mipmaps for each source image\n"
@@ -417,6 +417,7 @@ public:
 				m_comp_params.m_compute_stats = true;
 			else if (strcasecmp(pArg, "-gen_global_codebooks") == 0)
 			{
+				// TODO
 			}
 			else if (strcasecmp(pArg, "-use_global_codebooks") == 0)
 			{
@@ -781,6 +782,7 @@ struct basis_data
 	uint8_vec m_file_data;
 	basist::basisu_transcoder m_transcoder;
 };
+
 static basis_data *load_basis_file(const char *pInput_filename, basist::etc1_global_selector_codebook &sel_codebook, bool force_etc1s)
 {
 	basis_data* p = new basis_data(sel_codebook);
@@ -821,6 +823,7 @@ static basis_data *load_basis_file(const char *pInput_filename, basist::etc1_glo
 	}
 	return p;
 }
+
 static bool compress_mode(command_line_params &opts)
 {
 	basist::etc1_global_selector_codebook sel_codebook(basist::g_global_selector_cb_size, basist::g_global_selector_cb);
@@ -848,13 +851,18 @@ static bool compress_mode(command_line_params &opts)
 		error_printf("No input files to process!\n");
 		return false;
 	}
+
 	basis_data* pGlobal_codebook_data = nullptr;
 	if (opts.m_etc1s_use_global_codebooks_file.size())
 	{
 		pGlobal_codebook_data = load_basis_file(opts.m_etc1s_use_global_codebooks_file.c_str(), sel_codebook, true);
 		if (!pGlobal_codebook_data)
 			return false;
+
+		printf("Loaded global codebooks from .basis file \"%s\"\n", opts.m_etc1s_use_global_codebooks_file.c_str());
+
 #if 0
+		// Development/test code. TODO: Remove.
 		basis_data* pGlobal_codebook_data2 = load_basis_file("xmen_1024.basis", sel_codebook, true);
 		const basist::basisu_lowlevel_etc1s_transcoder &ta = pGlobal_codebook_data->m_transcoder.get_lowlevel_etc1s_decoder();
 		const basist::basisu_lowlevel_etc1s_transcoder &tb = pGlobal_codebook_data2->m_transcoder.get_lowlevel_etc1s_decoder();
@@ -1131,8 +1139,13 @@ static bool unpack_and_validate_mode(command_line_params &opts)
 	{
 		pGlobal_codebook_data = load_basis_file(opts.m_etc1s_use_global_codebooks_file.c_str(), sel_codebook, true);
 		if (!pGlobal_codebook_data)
+		{
+			error_printf("Failed loading global codebook data from file \"%s\"\n", opts.m_etc1s_use_global_codebooks_file.c_str());
 			return false;
+		}
+		printf("Loaded global codebooks from file \"%s\"\n", opts.m_etc1s_use_global_codebooks_file.c_str());
 	}
+
 	if (!opts.m_input_filenames.size())
 	{
 		error_printf("No input files to process!\n");
@@ -1295,7 +1308,29 @@ static bool unpack_and_validate_mode(command_line_params &opts)
 		if (opts.m_mode == cInfo)
 		{
 			if (pCSV_file) fclose(pCSV_file);
+			delete pGlobal_codebook_data; pGlobal_codebook_data = nullptr;
 			return true;
+		}
+
+		if ((fileinfo.m_etc1s) && (fileinfo.m_selector_codebook_size == 0) && (fileinfo.m_endpoint_codebook_size == 0))
+		{
+			// File is ETC1S and uses global codebooks - make sure we loaded one
+			if (!pGlobal_codebook_data)
+			{
+				error_printf("ETC1S file uses global codebooks, but none were loaded (see the -use_global_codebooks option)\n");
+				if (pCSV_file) fclose(pCSV_file);
+				delete pGlobal_codebook_data; pGlobal_codebook_data = nullptr;
+				return false;
+			}
+
+			if ((pGlobal_codebook_data->m_transcoder.get_lowlevel_etc1s_decoder().get_endpoints().size() != fileinfo.m_total_endpoints) ||
+				(pGlobal_codebook_data->m_transcoder.get_lowlevel_etc1s_decoder().get_selectors().size() != fileinfo.m_total_selectors))
+			{
+				error_printf("Supplied global codebook is not compatible with this file\n");
+				if (pCSV_file) fclose(pCSV_file);
+				delete pGlobal_codebook_data; pGlobal_codebook_data = nullptr;
+				return false;
+			}
 		}
 
 		interval_timer tm;

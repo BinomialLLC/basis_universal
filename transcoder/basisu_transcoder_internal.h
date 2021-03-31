@@ -20,8 +20,8 @@
 #pragma warning (disable: 4127) //  conditional expression is constant
 #endif
 
-#define BASISD_LIB_VERSION 113
-#define BASISD_VERSION_STRING "01.13"
+#define BASISD_LIB_VERSION 114
+#define BASISD_VERSION_STRING "01.14"
 
 #ifdef _DEBUG
 #define BASISD_BUILD_DEBUG
