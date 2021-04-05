@@ -212,9 +212,11 @@ Both the transcoder and now the compressor (as of 12/17/2020) may be compiled us
 To enable compression support compile the JavaScript wrappers in webgl/transcoding/basis_wrappers.cpp with BASISU_SUPPORT_ENCODING set to 1. See the webgl/encoding directory. 
 
 ### Special thanks
-A huge thanks to Google for partnering with us and enabling this system to be open sourced.
+A huge thanks to Google for partnering with us and enabling this system to be open sourced. 
 
 Thank you to [Esri](https://www.esri.com/) for sponsoring the encoder optimization work in the v1.13 release.
+
+Thanks to the Khronos Group for building an open ecosystem that supports ETC1S/UASTC.
 
 Thanks to a number of companies or groups who have supported or helped out Binomial over the years: Intel, SpaceX, Netflix, Forgotten Empires, Microsoft, Polystream, Hothead Games, BioDigital, Magic Leap, Blizzard Entertainment, Insomniac Games, Rockstar Games, Facebook, Activision, the Khronos Group, and the organizers at CppCon.
 
