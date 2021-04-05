@@ -234,6 +234,8 @@ Thanks to Colt McAnlis, for advertising one of my earlier open source texture co
 
 Thanks to Chas Boyd (Microsoft), for inspiring us to work on texture compression full-time. Chas also gave us great feedback about UASTC before it was released.
 
+Thanks to Mark Callow at Edgewise Consulting for his work on glTF and the KTX2 file format.
+
 I first saw using precomputed tables for quickly computing optimal encodings of solid color blocks in ryg_dxt. The method that limits the canonical Huffman codelengths to a maximum codesize was used in Yoshizaki's lharc. The canonical Huffman codelength compression system is similar to Katz's Deflate method.
 
 ### Possible improvements
