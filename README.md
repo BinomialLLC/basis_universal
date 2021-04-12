@@ -90,6 +90,18 @@ make
 
 For Visual Studio 2019, you can now either use the CMakeLists.txt file or the included `basisu.sln` file.
 
+To compress a sRGB PNG/BMP/TGA/JPEG image to an ETC1S .KTX2 file:
+
+`basisu -ktx2 x.png`
+
+To compress a sRGB PNG/BMP/TGA/JPEG image to an UASTC .KTX2 file:
+
+`basisu -ktx2 -uastc x.png`
+
+To compress a sRGB PNG/BMP/TGA/JPEG image to an RDO UASTC .KTX2 file with mipmaps:
+
+`basisu -ktx2 -uastc -uastc_rdo_l 1.0 -mipmap x.png`
+
 To compress a sRGB PNG/BMP/TGA/JPEG image to an ETC1S .basis file:
 
 `basisu x.png`
