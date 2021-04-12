@@ -29,6 +29,12 @@
 #include "../zstd/zstd.h"
 #endif
 
+// Set to 1 to enable the mipPadding alignment workaround (which only seems to be needed when no key-values are written at all)
+#define BASISU_DISABLE_KTX2_ALIGNMENT_WORKAROUND (0)
+
+// Set to 1 to disable writing all KTX2 key values, triggering the validator bug.
+#define BASISU_DISABLE_KTX2_KEY_VALUES (0)
+
 using namespace buminiz;
 
 #define BASISU_USE_STB_IMAGE_RESIZE_FOR_MIPMAP_GEN 0
@@ -1858,6 +1864,11 @@ namespace basisu
 
 		key_values.sort();
 
+#if BASISU_DISABLE_KTX2_KEY_VALUES
+		// HACK HACK - Clear the key values array, which causes no key values to be written (triggering the ktx2check validator bug).
+		key_values.clear();
+#endif
+
 		uint8_vec key_value_data;
 
 		// DFD
@@ -1894,6 +1905,10 @@ namespace basisu
 
 			if (header.m_supercompression_scheme != basist::KTX2_SS_NONE)
 				break;
+
+#if BASISU_DISABLE_KTX2_ALIGNMENT_WORKAROUND
+			break;
+#endif
 			
 			// Hack to ensure the KVD block ends on a 16 byte boundary, because we have no other official way of aligning the data.
 			uint32_t kvd_end_file_offset = kvd_file_offset + key_value_data.size();
@@ -1982,10 +1997,9 @@ namespace basisu
 			uint32_t padding = (16 - ofs) & 15;
 
 			// Make sure we're always aligned here (due to a validator bug).
-			assert(!padding);
 			if (padding)
 			{
-				printf("WARNING: KTX2 mip level data is not 16-byte aligned! This will trigger a ktx2check validation bug.\n");
+				printf("Warning: KTX2 mip level data is not 16-byte aligned. This may trigger a ktx2check validation bug. Writing %u bytes of mipPadding.\n", padding);
 			}
 
 			for (uint32_t i = 0; i < padding; i++)
