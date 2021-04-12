@@ -44,7 +44,7 @@ Basis Universal uses texture compression formats or technologies created by seve
 
 A few texture formats (such as AMD/ATI's ATC texture format, or PVRTC2) were not documented sufficiently by the originator of the format. In these cases, we relied on open source code references from other authors, or information in published articles/papers to implement support for those texture formats in our transcoder. These references are included here.
 
-ASTC usage falls under ARM's [END USER LICENCE AGREEMENT FOR THE MALI ASTC SPECIFICATION AND SOFTWARE CODEC license agreement](https://github.com/ARM-software/astc-encoder/blob/master/LICENSE.md). 
+ASTC usage falls under ARM's [END USER LICENCE AGREEMENT FOR THE MALI ASTC SPECIFICATION AND SOFTWARE CODEC license agreement](https://github.com/ARM-software/astc-encoder/blob/master/LICENSE.md). (NOTE: ARM has changed the ASTC license to be more open, so this no longer applies. I'll update this soon.)
 
 PVRTC1/2: See the [PVRTC Specification and User Guide](https://www.imgtec.com/downloads/download-info/pvrtc-texture-compression-user-guide-2/). Imagination Technologies Limited, 23 Nov 2018. Also see the [Khronos Data Format Specification](https://www.khronos.org/registry/DataFormat/specs/1.3/dataformat.1.3.html). See [PVR Texture Compression Exploration](https://roartindon.blogspot.com/2014/08/pvr-texture-compression-exploration.html) and [PvrTcCompressor](https://bitbucket.org/jthlim/pvrtccompressor/src). Also see [Texture Compression Techniques](http://sv-journal.org/2014-1/06/en/index.php?lang=en#7-3).
 
@@ -57,6 +57,8 @@ ATC: See the OpenGL extension [GL_AMD_compressed_ATC_texture](https://www.khrono
 FXT1: See the OpenGL extension [GL_3DFX_texture_compression_FXT1](https://www.khronos.org/registry/OpenGL/extensions/3DFX/3DFX_texture_compression_FXT1.txt).
 
 Also see [Intel(R) Open Source HD Graphics Programmers' Reference Manual (PRM)](https://01.org/sites/default/files/documentation/intel-gfx-bspec-osrc-chv-bsw-vol05-memory-views.pdf). This reference manual details how to encode FXT1, ETC1, ETC2, EAC, DXT/BC1-3, BC4/5/7, and ASTC.
+
+Basis Universal's KTX2 transcoder and encoder utilize Zstandard, a stable lossless compressed file format defined by [IETF RFC 8478](https://tools.ietf.org/html/rfc8478). The Zstandard library uses the BSD license and is Copyright (c) 2016-present, Facebook, Inc. We have included copies of the [single source file variants of Zstandard](https://github.com/facebook/zstd/tree/dev/contrib/single_file_libs) in the "zstd" directory to simplify building.
 
 ### Repository Licensing with REUSE
 
