@@ -30,10 +30,10 @@
 #endif
 
 // Set to 1 to disable the mipPadding alignment workaround (which only seems to be needed when no key-values are written at all)
-#define BASISU_DISABLE_KTX2_ALIGNMENT_WORKAROUND (1)
+#define BASISU_DISABLE_KTX2_ALIGNMENT_WORKAROUND (0)
 
 // Set to 1 to disable writing all KTX2 key values, triggering the validator bug.
-#define BASISU_DISABLE_KTX2_KEY_VALUES (1)
+#define BASISU_DISABLE_KTX2_KEY_VALUES (0)
 
 using namespace buminiz;
 
