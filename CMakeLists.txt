@@ -4,9 +4,12 @@ cmake_minimum_required(VERSION 3.0)
 option(BUILD_X64 "build 64-bit" TRUE)
 option(STATIC "static linking" FALSE)
 option(SSE "SSE 4.1 support" FALSE)
+option(ZSTD "ZSTD support for KTX2 transcoding/encoding" TRUE)
 
 message("Initial BUILD_X64=${BUILD_X64}")
 message("Initial CMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}")
+message("Initial SSE=${SSE}")
+message("Initial ZSTD=${ZSTD}")
 
 if( NOT CMAKE_BUILD_TYPE )
   set( CMAKE_BUILD_TYPE Release )
@@ -24,6 +27,12 @@ if (SSE)
 	message("SSE enabled")
 else()
 	message("SSE disabled")
+endif()
+
+if (ZSTD)
+	message("Zstandard enabled")
+else()
+	message("Zstandard disabled")
 endif()
 
 if (NOT MSVC)
@@ -108,6 +117,10 @@ set(BASISU_SRC_LIST ${COMMON_SRC_LIST}
 	transcoder/basisu_transcoder.cpp
 	)
 
+if (ZSTD)
+	set(BASISU_SRC_LIST ${BASISU_SRC_LIST} zstd/zstd.c)
+endif()
+
 if (APPLE)
    set(BIN_DIRECTORY "bin_osx")
 else()
@@ -117,6 +130,12 @@ endif()
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/${BIN_DIRECTORY})
 
 add_executable(basisu ${BASISU_SRC_LIST})
+
+if (ZSTD)
+	target_compile_definitions(basisu PRIVATE BASISD_SUPPORT_KTX2_ZSTD=1)
+else()
+	target_compile_definitions(basisu PRIVATE BASISD_SUPPORT_KTX2_ZSTD=0)
+endif()
 
 if (NOT MSVC)
    target_link_libraries(basisu m pthread)

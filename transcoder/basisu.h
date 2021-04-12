@@ -256,28 +256,92 @@ namespace basisu
 		if ((ha <= lb) || (la >= hb)) return false;
 		return true;
 	}
+
+	static inline uint32_t read_le_dword(const uint8_t *pBytes)
+	{
+		return (pBytes[3] << 24U) | (pBytes[2] << 16U) | (pBytes[1] << 8U) | (pBytes[0]);
+	}
+
+	static inline void write_le_dword(uint8_t* pBytes, uint32_t val)
+	{
+		pBytes[0] = (uint8_t)val;
+		pBytes[1] = (uint8_t)(val >> 8U);
+		pBytes[2] = (uint8_t)(val >> 16U);
+		pBytes[3] = (uint8_t)(val >> 24U);
+	}
 		
-	// Always little endian 2-4 byte unsigned int
+	// Always little endian 1-8 byte unsigned int
 	template<uint32_t NumBytes>
 	struct packed_uint
 	{
 		uint8_t m_bytes[NumBytes];
 
-		inline packed_uint() { static_assert(NumBytes <= 4, "NumBytes <= 4"); }
-		inline packed_uint(uint32_t v) { *this = v; }
+		inline packed_uint() { static_assert(NumBytes <= sizeof(uint64_t), "Invalid NumBytes"); }
+		inline packed_uint(uint64_t v) { *this = v; }
 		inline packed_uint(const packed_uint& other) { *this = other; }
+						
+		inline packed_uint& operator= (uint64_t v) 
+		{ 
+			for (uint32_t i = 0; i < NumBytes; i++) 
+				m_bytes[i] = static_cast<uint8_t>(v >> (i * 8)); 
+			return *this; 
+		}
 
-		inline packed_uint& operator= (uint32_t v) { for (uint32_t i = 0; i < NumBytes; i++) m_bytes[i] = static_cast<uint8_t>(v >> (i * 8)); return *this; }
-		inline packed_uint& operator= (const packed_uint& rhs) { memcpy(m_bytes, rhs.m_bytes, sizeof(m_bytes)); return *this; }
+		inline packed_uint& operator= (const packed_uint& rhs) 
+		{ 
+			memcpy(m_bytes, rhs.m_bytes, sizeof(m_bytes)); 
+			return *this;
+		}
 
 		inline operator uint32_t() const
 		{
 			switch (NumBytes)
 			{
-				case 1:  return  m_bytes[0];
-				case 2:  return (m_bytes[1] << 8U) | m_bytes[0];
-				case 3:  return (m_bytes[2] << 16U) | (m_bytes[1] << 8U) | (m_bytes[0]);
-				default: return (m_bytes[3] << 24U) | (m_bytes[2] << 16U) | (m_bytes[1] << 8U) | (m_bytes[0]);
+				case 1:  
+				{
+					return  m_bytes[0];
+				}
+				case 2:  
+				{
+					return (m_bytes[1] << 8U) | m_bytes[0];
+				}
+				case 3:  
+				{
+					return (m_bytes[2] << 16U) | (m_bytes[1] << 8U) | m_bytes[0];
+				}
+				case 4:  
+				{
+					return read_le_dword(m_bytes);
+				}
+				case 5:
+				{
+					uint32_t l = read_le_dword(m_bytes);
+					uint32_t h = m_bytes[4];
+					return static_cast<uint64_t>(l) | (static_cast<uint64_t>(h) << 32U);
+				}
+				case 6:
+				{
+					uint32_t l = read_le_dword(m_bytes);
+					uint32_t h = (m_bytes[5] << 8U) | m_bytes[4];
+					return static_cast<uint64_t>(l) | (static_cast<uint64_t>(h) << 32U);
+				}
+				case 7:
+				{
+					uint32_t l = read_le_dword(m_bytes);
+					uint32_t h = (m_bytes[6] << 16U) | (m_bytes[5] << 8U) | m_bytes[4];
+					return static_cast<uint64_t>(l) | (static_cast<uint64_t>(h) << 32U);
+				}
+				case 8:  
+				{
+					uint32_t l = read_le_dword(m_bytes);
+					uint32_t h = read_le_dword(m_bytes + 4);
+					return static_cast<uint64_t>(l) | (static_cast<uint64_t>(h) << 32U);
+				}
+				default: 
+				{
+					assert(0);
+					return 0;
+				}
 			}
 		}
 	};

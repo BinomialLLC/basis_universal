@@ -416,9 +416,32 @@ namespace basisu
          }
       }
 
-      inline bool try_reserve(size_t new_capacity)
+      inline bool try_reserve(size_t new_capacity_size_t)
       {
-         return increase_capacity(new_capacity, true, true);
+         if (new_capacity_size_t > UINT32_MAX)
+         {
+            assert(0);
+            return false;
+         }
+
+         uint32_t new_capacity = (uint32_t)new_capacity_size_t;
+
+         if (new_capacity > m_capacity)
+         {
+            if (!increase_capacity(new_capacity, false))
+               return false;
+         }
+         else if (new_capacity < m_capacity)
+         {
+            // Must work around the lack of a "decrease_capacity()" method.
+            // This case is rare enough in practice that it's probably not worth implementing an optimized in-place resize.
+            vector tmp;
+            tmp.increase_capacity(helpers::maximum(m_size, new_capacity), false);
+            tmp = *this;
+            swap(tmp);
+         }
+
+         return true;
       }
 
       // resize(0) sets the container to empty, but does not free the allocated block.

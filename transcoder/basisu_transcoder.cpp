@@ -39,56 +39,64 @@
 
 #define BASISD_SUPPORTED_BASIS_VERSION (0x13)
 
+#ifndef BASISD_SUPPORT_KTX2
+	#error Must have defined BASISD_SUPPORT_KTX2
+#endif
+
+#ifndef BASISD_SUPPORT_KTX2_ZSTD
+#error Must have defined BASISD_SUPPORT_KTX2_ZSTD
+#endif
+
 // Set to 1 for fuzz testing. This will disable all CRC16 checks on headers and compressed data.
 #ifndef BASISU_NO_HEADER_OR_DATA_CRC16_CHECKS
-#define BASISU_NO_HEADER_OR_DATA_CRC16_CHECKS 0
+	#define BASISU_NO_HEADER_OR_DATA_CRC16_CHECKS 0
 #endif
 
 #ifndef BASISD_SUPPORT_DXT1
-#define BASISD_SUPPORT_DXT1 1
+	#define BASISD_SUPPORT_DXT1 1
 #endif
 
 #ifndef BASISD_SUPPORT_DXT5A
-#define BASISD_SUPPORT_DXT5A 1
+	#define BASISD_SUPPORT_DXT5A 1
 #endif
 
 // Disable all BC7 transcoders if necessary (useful when cross compiling to Javascript)
 #if defined(BASISD_SUPPORT_BC7) && !BASISD_SUPPORT_BC7
 	#ifndef BASISD_SUPPORT_BC7_MODE5
-	#define BASISD_SUPPORT_BC7_MODE5 0
+		#define BASISD_SUPPORT_BC7_MODE5 0
 	#endif
 #endif // !BASISD_SUPPORT_BC7
 
 // BC7 mode 5 supports both opaque and opaque+alpha textures, and uses less memory BC1.
 #ifndef BASISD_SUPPORT_BC7_MODE5
-#define BASISD_SUPPORT_BC7_MODE5 1
+	#define BASISD_SUPPORT_BC7_MODE5 1
 #endif
 
 #ifndef BASISD_SUPPORT_PVRTC1
-#define BASISD_SUPPORT_PVRTC1 1
+	#define BASISD_SUPPORT_PVRTC1 1
 #endif
 
 #ifndef BASISD_SUPPORT_ETC2_EAC_A8
-#define BASISD_SUPPORT_ETC2_EAC_A8 1
+	#define BASISD_SUPPORT_ETC2_EAC_A8 1
 #endif
 
 // Set BASISD_SUPPORT_UASTC to 0 to completely disable support for transcoding UASTC files.
 #ifndef BASISD_SUPPORT_UASTC
-#define BASISD_SUPPORT_UASTC 1
+	#define BASISD_SUPPORT_UASTC 1
 #endif
 
 #ifndef BASISD_SUPPORT_ASTC
-#define BASISD_SUPPORT_ASTC 1
+	#define BASISD_SUPPORT_ASTC 1
 #endif
 
 // Note that if BASISD_SUPPORT_ATC is enabled, BASISD_SUPPORT_DXT5A should also be enabled for alpha support.
 #ifndef BASISD_SUPPORT_ATC
-#define BASISD_SUPPORT_ATC 1
+	#define BASISD_SUPPORT_ATC 1
 #endif
 
 // Support for ETC2 EAC R11 and ETC2 EAC RG11
 #ifndef BASISD_SUPPORT_ETC2_EAC_RG11
-#define BASISD_SUPPORT_ETC2_EAC_RG11 1
+	#define BASISD_SUPPORT_ETC2_EAC_RG11 1
 #endif
 
 // If BASISD_SUPPORT_ASTC_HIGHER_OPAQUE_QUALITY is 1, opaque blocks will be transcoded to ASTC at slightly higher quality (higher than BC1), but the transcoder tables will be 2x as large.
@@ -104,23 +112,23 @@
 #endif
 
 #ifndef BASISD_SUPPORT_FXT1
-#define BASISD_SUPPORT_FXT1 1
+	#define BASISD_SUPPORT_FXT1 1
 #endif
 
 #ifndef BASISD_SUPPORT_PVRTC2
-#define BASISD_SUPPORT_PVRTC2 1
+	#define BASISD_SUPPORT_PVRTC2 1
 #endif
 
 #if BASISD_SUPPORT_PVRTC2
-#if !BASISD_SUPPORT_ATC
-#error BASISD_SUPPORT_ATC must be 1 if BASISD_SUPPORT_PVRTC2 is 1
-#endif
+	#if !BASISD_SUPPORT_ATC
+		#error BASISD_SUPPORT_ATC must be 1 if BASISD_SUPPORT_PVRTC2 is 1
+	#endif
 #endif
 
 #if BASISD_SUPPORT_ATC
-#if !BASISD_SUPPORT_DXT5A
-#error BASISD_SUPPORT_DXT5A must be 1 if BASISD_SUPPORT_ATC is 1
-#endif
+	#if !BASISD_SUPPORT_DXT5A
+		#error BASISD_SUPPORT_DXT5A must be 1 if BASISD_SUPPORT_ATC is 1
+	#endif
 #endif
 
 #define BASISD_WRITE_NEW_BC7_MODE5_TABLES			0
@@ -131,7 +139,16 @@
 #define BASISD_WRITE_NEW_ETC2_EAC_R11_TABLES		0
 
 #ifndef BASISD_ENABLE_DEBUG_FLAGS
-#define BASISD_ENABLE_DEBUG_FLAGS	0
+	#define BASISD_ENABLE_DEBUG_FLAGS	0
+#endif
+
+// If KTX2 support is enabled, we may need Zstd for decompression of supercompressed UASTC files. Include this header.
+#if BASISD_SUPPORT_KTX2
+   // If BASISD_SUPPORT_KTX2_ZSTD is 0, UASTC files compressed with Zstd cannot be loaded.
+	#if BASISD_SUPPORT_KTX2_ZSTD
+		// We only use two Zstd API's: ZSTD_decompress() and ZSTD_isError()
+		#include "../zstd/zstd.h"
+	#endif
 #endif
 
 namespace basisu
@@ -1900,13 +1917,14 @@ namespace basist
 #if BASISD_SUPPORT_UASTC
 	void uastc_init();
 #endif
+
+	static bool g_transcoder_initialized;
 		
 	// Library global initialization. Requires ~9 milliseconds when compiled and executed natively on a Core i7 2.2 GHz.
 	// If this is too slow, these computed tables can easilky be moved to be compiled in.
 	void basisu_transcoder_init()
 	{
-		static bool s_initialized;
-		if (s_initialized)
+		if (g_transcoder_initialized)
       {
          BASISU_DEVEL_ERROR("basisu_transcoder::basisu_transcoder_init: Called more than once\n");      
 			return;
@@ -2026,7 +2044,7 @@ namespace basist
 		transcoder_init_pvrtc2();
 #endif
 
-		s_initialized = true;
+		g_transcoder_initialized = true;
 	}
 
 #if BASISD_SUPPORT_DXT1
@@ -7898,6 +7916,13 @@ namespace basist
 		BASISU_NOTE_UNUSED(transcode_alpha);
 		BASISU_NOTE_UNUSED(pAlpha_blocks);
 
+		assert(g_transcoder_initialized);
+		if (!g_transcoder_initialized)
+		{
+			BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_slice: Transcoder not globally initialized.\n");
+			return false;
+		}
+
 		if (!pState)
 			pState = &m_def_state;
 
@@ -9355,6 +9380,13 @@ namespace basist
 	{
 		BASISU_NOTE_UNUSED(pState);
 		BASISU_NOTE_UNUSED(bc1_allow_threecolor_blocks);
+
+		assert(g_transcoder_initialized);
+		if (!g_transcoder_initialized)
+		{
+			BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_transcoder::transcode_slice: Transcoder not globally initialized.\n");
+			return false;
+		}
 
 #if BASISD_SUPPORT_UASTC
 		const uint32_t total_blocks = num_blocks_x * num_blocks_y;
@@ -16685,9 +16717,888 @@ namespace basist
 
 #endif // #if BASISD_SUPPORT_UASTC
 
+// ------------------------------------------------------------------------------------------------------ 
+// KTX2
+// ------------------------------------------------------------------------------------------------------ 
+
+#if BASISD_SUPPORT_KTX2
+	const uint8_t g_ktx2_file_identifier[12] = { 0xAB, 0x4B, 0x54, 0x58, 0x20, 0x32, 0x30, 0xBB, 0x0D, 0x0A, 0x1A, 0x0A };
+
+	ktx2_transcoder::ktx2_transcoder(basist::etc1_global_selector_codebook* pGlobal_sel_codebook) :
+		m_etc1s_transcoder(pGlobal_sel_codebook)
+	{
+		clear();
+	}
+
+	void ktx2_transcoder::clear()
+	{
+		m_pData = nullptr;
+		m_data_size = 0;
+
+		memset(&m_header, 0, sizeof(m_header));
+		m_levels.clear();
+		m_dfd.clear();
+		m_key_values.clear();
+		memset(&m_etc1s_header, 0, sizeof(m_etc1s_header));
+		m_etc1s_image_descs.clear();
+				
+		m_format = basist::basis_tex_format::cETC1S;
+
+		m_dfd_color_model = 0;
+		m_dfd_color_prims = KTX2_DF_PRIMARIES_UNSPECIFIED;
+		m_dfd_transfer_func = 0;
+		m_dfd_flags = 0;
+		m_dfd_samples = 0;
+		m_dfd_chan0 = KTX2_DF_CHANNEL_UASTC_RGB;
+		m_dfd_chan1 = KTX2_DF_CHANNEL_UASTC_RGB;
+
+		m_etc1s_transcoder.clear();
+				
+		m_def_transcoder_state.clear();
+		
+		m_has_alpha = false;
+		m_is_video = false;
+	}
+
+	bool ktx2_transcoder::init(const void* pData, uint32_t data_size)
+	{
+		clear();
+
+		if (!pData)
+		{
+			BASISU_DEVEL_ERROR("ktx2_transcoder::init: pData is nullptr\n");
+			assert(0);
+			return false;
+		}
+
+		if (data_size <= sizeof(ktx2_header))
+		{
+			BASISU_DEVEL_ERROR("ktx2_transcoder::init: File is impossibly too small to be a valid KTX2 file\n");
+			return false;
+		}
+
+		if (memcmp(pData, g_ktx2_file_identifier, sizeof(g_ktx2_file_identifier)) != 0)
+		{
+			BASISU_DEVEL_ERROR("ktx2_transcoder::init: KTX2 file identifier is not present\n");
+			return false;
+		}
+
+		m_pData = static_cast<const uint8_t *>(pData);
+		m_data_size = data_size;
+
+		memcpy(&m_header, pData, sizeof(m_header));
+
+		// We only support UASTC and ETC1S
+		if (m_header.m_vk_format != KTX2_VK_FORMAT_UNDEFINED)
+		{
+			BASISU_DEVEL_ERROR("ktx2_transcoder::init: KTX2 file must be in ETC1S or UASTC format\n");
+			return false;
+		}
+
+		// 3.3: "When format is VK_FORMAT_UNDEFINED, typeSize must equal 1."
+		if (m_header.m_type_size != 1)
+		{
+			BASISU_DEVEL_ERROR("ktx2_transcoder::init: Invalid type_size\n");
+			return false;
+		}
+
+		// We only currently support 2D textures (plain, cubemapped, or texture array), which is by far the most common use case.
+		// The BasisU library does not support 1D or 3D textures at all.
+		if ((m_header.m_pixel_width < 1) || (m_header.m_pixel_height < 1) || (m_header.m_pixel_depth > 0))
+		{
+			BASISU_DEVEL_ERROR("ktx2_transcoder::init: Only 2D or cubemap textures are supported\n");
+			return false;
+		}
+
+		// Face count must be 1 or 6
+		if ((m_header.m_face_count != 1) && (m_header.m_face_count != 6))
+		{
+			BASISU_DEVEL_ERROR("ktx2_transcoder::init: Invalid face count, file is corrupted or invalid\n");
+			return false;
+		}
+
+		if (m_header.m_face_count > 1)
+		{
+			// 3.4: Make sure cubemaps are square.
+			if (m_header.m_pixel_width != m_header.m_pixel_height)
+			{
+				BASISU_DEVEL_ERROR("ktx2_transcoder::init: Cubemap is not square\n");
+				return false;
+			}
+		}
+		
+		// 3.7 levelCount: "levelCount=0 is allowed, except for block-compressed formats"
+		if (m_header.m_level_count < 1)
+		{
+			BASISU_DEVEL_ERROR("ktx2_transcoder::init: Invalid level count\n");
+			return false;
+		}
+
+		// Sanity check the level count.
+		if (m_header.m_level_count > KTX2_MAX_SUPPORTED_LEVEL_COUNT)
+		{
+			BASISU_DEVEL_ERROR("ktx2_transcoder::init: Too many levels or file is corrupted or invalid\n");
+			return false;
+		}
+
+		if (m_header.m_supercompression_scheme > KTX2_SS_ZSTANDARD)
+		{
+			BASISU_DEVEL_ERROR("ktx2_transcoder::init: Invalid/unsupported supercompression or file is corrupted or invalid\n");
+			return false;
+		}
+
+		if (m_header.m_supercompression_scheme == KTX2_SS_BASISLZ)
+		{
+			if (m_header.m_sgd_byte_length <= sizeof(ktx2_etc1s_global_data_header))
+			{
+				BASISU_DEVEL_ERROR("ktx2_transcoder::init: Supercompression global data is too small\n");
+				return false;
+			}
+
+			if (m_header.m_sgd_byte_offset < sizeof(ktx2_header))
+			{
+				BASISU_DEVEL_ERROR("ktx2_transcoder::init: Supercompression global data offset is too low\n");
+				return false;
+			}
+
+			if (m_header.m_sgd_byte_offset + m_header.m_sgd_byte_length > m_data_size)
+			{
+				BASISU_DEVEL_ERROR("ktx2_transcoder::init: Supercompression global data offset and/or length is too high\n");
+				return false;
+			}
+		}
+
+		if (!m_levels.try_resize(m_header.m_level_count))
+		{
+			BASISU_DEVEL_ERROR("ktx2_transcoder::init: Out of memory\n");
+			return false;
+		}
+
+		const uint32_t level_index_size_in_bytes = basisu::maximum(1U, (uint32_t)m_header.m_level_count) * sizeof(ktx2_level_index);
+
+		if ((sizeof(ktx2_header) + level_index_size_in_bytes) > m_data_size)
+		{
+			BASISU_DEVEL_ERROR("ktx2_transcoder::init: File is too small (can't read level index array)\n");
+			return false;
+		}
+
+		memcpy(&m_levels[0], m_pData + sizeof(ktx2_header), level_index_size_in_bytes);
+		
+		// Sanity check the level offsets and byte sizes
+		for (uint32_t i = 0; i < m_levels.size(); i++)
+		{
+			if (m_levels[i].m_byte_offset < sizeof(ktx2_header))
+			{
+				BASISU_DEVEL_ERROR("ktx2_transcoder::init: Invalid level offset (too low)\n");
+				return false;
+			}
+
+			if (!m_levels[i].m_byte_length)
+			{
+				BASISU_DEVEL_ERROR("ktx2_transcoder::init: Invalid level byte length\n");
+			}
+
+			if ((m_levels[i].m_byte_offset + m_levels[i].m_byte_length) > m_data_size)
+			{
+				BASISU_DEVEL_ERROR("ktx2_transcoder::init: Invalid level offset and/or length\n");
+				return false;
+			}
+			
+			const uint64_t MAX_SANE_LEVEL_UNCOMP_SIZE = 2048ULL * 1024ULL * 1024ULL;
+			
+			if (m_levels[i].m_uncompressed_byte_length >= MAX_SANE_LEVEL_UNCOMP_SIZE)
+			{
+				BASISU_DEVEL_ERROR("ktx2_transcoder::init: Invalid level offset (too large)\n");
+				return false;
+			}
+
+			if (m_header.m_supercompression_scheme == KTX2_SS_BASISLZ)
+			{
+				if (m_levels[i].m_uncompressed_byte_length)
+				{
+					BASISU_DEVEL_ERROR("ktx2_transcoder::init: Invalid uncompressed length (0)\n");
+					return false;
+				}
+			}
+			else if (m_header.m_supercompression_scheme >= KTX2_SS_ZSTANDARD)
+			{
+				if (!m_levels[i].m_uncompressed_byte_length)
+				{
+					BASISU_DEVEL_ERROR("ktx2_transcoder::init: Invalid uncompressed length (1)\n");
+					return false;
+				}
+			}
+		}
+
+		const uint32_t DFD_MINIMUM_SIZE = 44, DFD_MAXIMUM_SIZE = 60;
+		if ((m_header.m_dfd_byte_length != DFD_MINIMUM_SIZE) && (m_header.m_dfd_byte_length != DFD_MAXIMUM_SIZE))
+		{
+			BASISU_DEVEL_ERROR("ktx2_transcoder::init: Unsupported DFD size\n");
+			return false;
+		}
+
+		if (((m_header.m_dfd_byte_offset + m_header.m_dfd_byte_length) > m_data_size) || (m_header.m_dfd_byte_offset < sizeof(ktx2_header)))
+		{
+			BASISU_DEVEL_ERROR("ktx2_transcoder::init: Invalid DFD offset and/or length\n");
+			return false;
+		}
+				
+		const uint8_t* pDFD = m_pData + m_header.m_dfd_byte_offset;
+
+		if (!m_dfd.try_resize(m_header.m_dfd_byte_length))
+		{
+			BASISU_DEVEL_ERROR("ktx2_transcoder::init: Out of memory\n");
+			return false;
+		}
+
+		memcpy(m_dfd.data(), pDFD, m_header.m_dfd_byte_length);
+		
+		// This is all hard coded for only ETC1S and UASTC.
+		uint32_t dfd_total_size = basisu::read_le_dword(pDFD);
+		
+		// 3.10.3: Sanity check
+		if (dfd_total_size != m_header.m_dfd_byte_length)
+		{
+			BASISU_DEVEL_ERROR("ktx2_transcoder::init: DFD size validation failed (1)\n");
+			return false;
+		}
+				
+		// 3.10.3: More sanity checking
+		if (m_header.m_kvd_byte_length)
+		{
+			if (dfd_total_size != m_header.m_kvd_byte_offset - m_header.m_dfd_byte_offset)
+			{
+				BASISU_DEVEL_ERROR("ktx2_transcoder::init: DFD size validation failed (2)\n");
+				return false;
+			}
+		}
+
+		const uint32_t dfd_bits = basisu::read_le_dword(pDFD + 3 * sizeof(uint32_t));
+		const uint32_t sample_channel0 = basisu::read_le_dword(pDFD + 7 * sizeof(uint32_t));
+		 
+		m_dfd_color_model = dfd_bits & 255;
+		m_dfd_color_prims = (ktx2_df_color_primaries)((dfd_bits >> 8) & 255);
+		m_dfd_transfer_func = (dfd_bits >> 16) & 255;
+		m_dfd_flags = (dfd_bits >> 24) & 255;
+
+		// See 3.10.1.Restrictions
+		if ((m_dfd_transfer_func != KTX2_KHR_DF_TRANSFER_LINEAR) && (m_dfd_transfer_func != KTX2_KHR_DF_TRANSFER_SRGB))
+		{
+			BASISU_DEVEL_ERROR("ktx2_transcoder::init: Invalid DFD transfer function\n");
+			return false;
+		}
+
+		if (m_dfd_color_model == KTX2_KDF_DF_MODEL_ETC1S)
+		{
+			m_format = basist::basis_tex_format::cETC1S;
+			
+			// 3.10.2: "Whether the image has 1 or 2 slices can be determined from the DFD’s sample count."
+			// If m_has_alpha is true it may be 2-channel RRRG or 4-channel RGBA, but we let the caller deal with that.
+			m_has_alpha = (m_header.m_dfd_byte_length == 60);
+			
+			m_dfd_samples = m_has_alpha ? 2 : 1;
+			m_dfd_chan0 = (ktx2_df_channel_id)((sample_channel0 >> 24) & 15);
+
+			if (m_has_alpha)
+			{
+				const uint32_t sample_channel1 = basisu::read_le_dword(pDFD + 11 * sizeof(uint32_t));
+				m_dfd_chan1 = (ktx2_df_channel_id)((sample_channel1 >> 24) & 15);
+			}
+		}
+		else if (m_dfd_color_model == KTX2_KDF_DF_MODEL_UASTC)
+		{
+			m_format = basist::basis_tex_format::cUASTC4x4;
+
+			m_dfd_samples = 1;
+			m_dfd_chan0 = (ktx2_df_channel_id)((sample_channel0 >> 24) & 15);
+			
+			// We're assuming "DATA" means RGBA so it has alpha.
+			m_has_alpha = (m_dfd_chan0 == KTX2_DF_CHANNEL_UASTC_RGBA) || (m_dfd_chan0 == KTX2_DF_CHANNEL_UASTC_RRRG);
+		}
+		else
+		{
+			// Unsupported DFD color model.
+			BASISU_DEVEL_ERROR("ktx2_transcoder::init: Unsupported DFD color model\n");
+			return false;
+		}
+				
+		if (!read_key_values())
+		{
+			BASISU_DEVEL_ERROR("ktx2_transcoder::init: read_key_values() failed\n");
+			return false;
+		}
+
+		// Check for a KTXanimData key
+		for (uint32_t i = 0; i < m_key_values.size(); i++)
+		{
+			if (strcmp(reinterpret_cast<const char*>(m_key_values[i].m_key.data()), "KTXanimData") == 0)
+			{
+				m_is_video = true;
+				break;
+			}
+		}
+
+		return true;
+	}
+
+	uint32_t ktx2_transcoder::get_etc1s_image_descs_image_flags(uint32_t level_index, uint32_t layer_index, uint32_t face_index) const
+	{
+		const uint32_t etc1s_image_index =
+			(level_index * basisu::maximum<uint32_t>(m_header.m_layer_count, 1) * m_header.m_face_count) +
+			layer_index * m_header.m_face_count +
+			face_index;
+
+		if (etc1s_image_index >= get_etc1s_image_descs().size())
+		{
+			assert(0);
+			return 0;
+		}
+
+		return get_etc1s_image_descs()[etc1s_image_index].m_image_flags;
+	}
+
+	const basisu::uint8_vec* ktx2_transcoder::find_key(const std::string& key_name) const
+	{
+		for (uint32_t i = 0; i < m_key_values.size(); i++)
+			if (strcmp((const char *)m_key_values[i].m_key.data(), key_name.c_str()) == 0)
+				return &m_key_values[i].m_value;
+
+		return nullptr;
+	}
+	
+	bool ktx2_transcoder::start_transcoding()
+	{
+		if (!m_pData)
+		{
+			BASISU_DEVEL_ERROR("ktx2_transcoder::start_transcoding: Must call init() first\n");
+			return false;
+		}
+
+		if (m_header.m_supercompression_scheme == KTX2_SS_BASISLZ) 
+		{
+			// Check if we've already decompressed the ETC1S global data. If so don't unpack it again.
+			if (!m_etc1s_transcoder.get_endpoints().empty())
+				return true;
+
+			if (!decompress_etc1s_global_data())
+			{
+				BASISU_DEVEL_ERROR("ktx2_transcoder::start_transcoding: decompress_etc1s_global_data() failed\n");
+				return false;
+			}
+			
+			if (!m_is_video)
+			{
+				// See if there are any P-frames. If so it must be a video, even if there wasn't a KTXanimData key.
+				// Video cannot be a cubemap, and it must be a texture array.
+				if ((m_header.m_face_count == 1) && (m_header.m_layer_count > 1))
+				{
+					for (uint32_t i = 0; i < m_etc1s_image_descs.size(); i++)
+					{
+						if (m_etc1s_image_descs[i].m_image_flags & KTX2_IMAGE_IS_P_FRAME)
+						{
+							m_is_video = true;
+							break;
+						}
+					}
+				}
+			}
+		}
+		else if (m_header.m_supercompression_scheme == KTX2_SS_ZSTANDARD)
+		{
+#if !BASISD_SUPPORT_KTX2_ZSTD
+			BASISU_DEVEL_ERROR("ktx2_transcoder::start_transcoding: File uses zstd supercompression, but zstd support was not enabled at compilation time (BASISD_SUPPORT_KTX2_ZSTD == 0)\n");
+			return false;
+#endif
+		}
+
+		return true;
+	}
+
+	bool ktx2_transcoder::get_image_level_info(ktx2_image_level_info& level_info, uint32_t level_index, uint32_t layer_index, uint32_t face_index) const
+	{
+		if (level_index >= m_levels.size())
+		{
+			BASISU_DEVEL_ERROR("ktx2_transcoder::get_image_level_info: level_index >= m_levels.size()\n");
+			return false;
+		}
+
+		if (m_header.m_face_count > 1)
+		{
+			if (face_index >= 6)
+			{
+				BASISU_DEVEL_ERROR("ktx2_transcoder::get_image_level_info: face_index >= 6\n");
+				return false;
+			}
+		}
+		else if (face_index != 0)
+		{
+			BASISU_DEVEL_ERROR("ktx2_transcoder::get_image_level_info: face_index != 0\n");
+			return false;
+		}
+
+		if (layer_index >= basisu::maximum<uint32_t>(m_header.m_layer_count, 1))
+		{
+			BASISU_DEVEL_ERROR("ktx2_transcoder::get_image_level_info: layer_index >= maximum<uint32_t>(m_header.m_layer_count, 1)\n");
+			return false;
+		}
+				
+		const uint32_t level_width = basisu::maximum<uint32_t>(m_header.m_pixel_width >> level_index, 1);
+		const uint32_t level_height = basisu::maximum<uint32_t>(m_header.m_pixel_height >> level_index, 1);
+		const uint32_t num_blocks_x = (level_width + 3) >> 2;
+		const uint32_t num_blocks_y = (level_height + 3) >> 2;
+
+		level_info.m_face_index = face_index;
+		level_info.m_layer_index = layer_index;
+		level_info.m_level_index = level_index;
+		level_info.m_orig_width = level_width;
+		level_info.m_orig_height = level_height;
+		level_info.m_width = num_blocks_x * 4;
+		level_info.m_height = num_blocks_y * 4;
+		level_info.m_num_blocks_x = num_blocks_x;
+		level_info.m_num_blocks_y = num_blocks_y;
+		level_info.m_total_blocks = num_blocks_x * num_blocks_y;
+		level_info.m_alpha_flag = m_has_alpha;
+		level_info.m_iframe_flag = false;
+		if (m_etc1s_image_descs.size())
+		{
+			const uint32_t etc1s_image_index =
+				(level_index * basisu::maximum<uint32_t>(m_header.m_layer_count, 1) * m_header.m_face_count) +
+				layer_index * m_header.m_face_count +
+				face_index;
+
+			level_info.m_iframe_flag = (m_etc1s_image_descs[etc1s_image_index].m_image_flags & KTX2_IMAGE_IS_P_FRAME) == 0;
+		}
+
+		return true;
+	}
+		
+	bool ktx2_transcoder::transcode_image_level(
+		uint32_t level_index, uint32_t layer_index, uint32_t face_index, 
+		void* pOutput_blocks, uint32_t output_blocks_buf_size_in_blocks_or_pixels,
+		basist::transcoder_texture_format fmt,
+		uint32_t decode_flags, uint32_t output_row_pitch_in_blocks_or_pixels, uint32_t output_rows_in_pixels, int channel0, int channel1,
+		ktx2_transcoder_state* pState)
+	{
+		if (!m_pData)
+		{
+			BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_2D: Must call init() first\n");
+			return false;
+		}
+
+		if (!pState)
+			pState = &m_def_transcoder_state;
+										
+		if (level_index >= m_levels.size())
+		{
+			BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_2D: level_index >= m_levels.size()\n");
+			return false;
+		}
+
+		if (m_header.m_face_count > 1)
+		{
+			if (face_index >= 6)
+			{
+				BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_2D: face_index >= 6\n");
+				return false;
+			}
+		}
+		else if (face_index != 0)
+		{
+			BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_2D: face_index != 0\n");
+			return false;
+		}
+
+		if (layer_index >= basisu::maximum<uint32_t>(m_header.m_layer_count, 1))
+		{
+			BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_2D: layer_index >= maximum<uint32_t>(m_header.m_layer_count, 1)\n");
+			return false;
+		}
+
+		const uint8_t* pComp_level_data = m_pData + m_levels[level_index].m_byte_offset;
+		uint64_t comp_level_data_size = m_levels[level_index].m_byte_length;
+		
+		const uint8_t* pUncomp_level_data = pComp_level_data;
+		uint64_t uncomp_level_data_size = comp_level_data_size;
+
+		if (uncomp_level_data_size > UINT32_MAX)
+		{
+			BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_2D: uncomp_level_data_size > UINT32_MAX\n");
+			return false;
+		}
+				
+		if (m_header.m_supercompression_scheme == KTX2_SS_ZSTANDARD)
+		{
+			// Check if we've already decompressed this level's supercompressed data.
+			if ((int)level_index != pState->m_uncomp_data_level_index)
+			{
+				// Uncompress the entire level's supercompressed data.
+				if (!decompress_level_data(level_index, pState->m_level_uncomp_data))
+				{
+					BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_2D: decompress_level_data() failed\n");
+					return false;
+				}
+				pState->m_uncomp_data_level_index = level_index;
+			}
+
+			pUncomp_level_data = pState->m_level_uncomp_data.data();
+			uncomp_level_data_size = pState->m_level_uncomp_data.size();
+		}
+				
+		const uint32_t level_width = basisu::maximum<uint32_t>(m_header.m_pixel_width >> level_index, 1);
+		const uint32_t level_height = basisu::maximum<uint32_t>(m_header.m_pixel_height >> level_index, 1);
+		const uint32_t num_blocks_x = (level_width + 3) >> 2;
+		const uint32_t num_blocks_y = (level_height + 3) >> 2;
+		
+		if (m_format == basist::basis_tex_format::cETC1S)
+		{
+			// Ensure start_transcoding() was called.
+			if (m_etc1s_transcoder.get_endpoints().empty())
+			{
+				BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_2D: must call start_transcoding() first\n");
+				return false;
+			}
+
+			const uint32_t etc1s_image_index =
+				(level_index * basisu::maximum<uint32_t>(m_header.m_layer_count, 1) * m_header.m_face_count) +
+				layer_index * m_header.m_face_count +
+				face_index;
+		
+			// Sanity check
+			if (etc1s_image_index >= m_etc1s_image_descs.size())
+			{
+				BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_2D: etc1s_image_index >= m_etc1s_image_descs.size()\n");
+				assert(0);
+				return false;
+			}
+
+			if (static_cast<uint32_t>(m_data_size) != m_data_size)
+			{
+				BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_2D: File is too large\n");
+				return false;
+			}
+
+			const ktx2_etc1s_image_desc& image_desc = m_etc1s_image_descs[etc1s_image_index];
+
+			if (!m_etc1s_transcoder.transcode_image(fmt,
+				pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, m_pData, static_cast<uint32_t>(m_data_size),
+				num_blocks_x, num_blocks_y, level_width, level_height,
+				level_index,
+				m_levels[level_index].m_byte_offset + image_desc.m_rgb_slice_byte_offset, image_desc.m_rgb_slice_byte_length,
+				image_desc.m_alpha_slice_byte_length ? (m_levels[level_index].m_byte_offset + image_desc.m_alpha_slice_byte_offset) : 0, image_desc.m_alpha_slice_byte_length,
+				decode_flags, m_has_alpha,
+				m_is_video, output_row_pitch_in_blocks_or_pixels, &pState->m_transcoder_state, output_rows_in_pixels))
+			{
+				BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_2D: ETC1S transcode_image() failed, this is either a bug or the file is corrupted/invalid\n");
+				return false;
+			}
+		}
+		else if (m_format == basist::basis_tex_format::cUASTC4x4)
+		{
+			// Compute length and offset to uncompressed 2D UASTC texture data, given the face/layer indices.
+			assert(uncomp_level_data_size == m_levels[level_index].m_uncompressed_byte_length);
+			const uint32_t total_2D_image_size = num_blocks_x * num_blocks_y * KTX2_UASTC_BLOCK_SIZE;
+						
+			const uint32_t uncomp_ofs = (layer_index * m_header.m_face_count + face_index) * total_2D_image_size;
+
+			// Sanity checks
+			if (uncomp_ofs >= uncomp_level_data_size)
+			{
+				BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_2D: uncomp_ofs >= total_2D_image_size\n");
+				return false;
+			}
+
+			if ((uncomp_level_data_size - uncomp_ofs) < total_2D_image_size)
+			{
+				BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_2D: (uncomp_level_data_size - uncomp_ofs) < total_2D_image_size\n");
+				return false;
+			}
+
+			if (!m_uastc_transcoder.transcode_image(fmt,
+				pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels,
+				(const uint8_t*)pUncomp_level_data + uncomp_ofs, (uint32_t)total_2D_image_size, num_blocks_x, num_blocks_y, level_width, level_height, level_index,
+				0, (uint32_t)total_2D_image_size,
+				decode_flags, m_has_alpha, m_is_video, output_row_pitch_in_blocks_or_pixels, nullptr, output_rows_in_pixels, channel0, channel1))
+			{
+				BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_2D: UASTC transcode_image() failed, this is either a bug or the file is corrupted/invalid\n");
+				return false;
+			}
+		}
+		else
+		{
+			// Shouldn't get here.
+			BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_2D: Internal error\n");
+			assert(0);
+			return false;
+		}
+
+		return true;
+	}
+		
+	bool ktx2_transcoder::decompress_level_data(uint32_t level_index, basisu::uint8_vec& uncomp_data)
+	{
+		const uint8_t* pComp_data = m_levels[level_index].m_byte_offset + m_pData;
+		const uint64_t comp_size = m_levels[level_index].m_byte_length;
+		
+		const uint64_t uncomp_size = m_levels[level_index].m_uncompressed_byte_length;
+
+		if (((size_t)comp_size) != comp_size)
+		{
+			BASISU_DEVEL_ERROR("ktx2_transcoder::decompress_level_data: Compressed data too large\n");
+			return false;
+		}
+		if (((size_t)uncomp_size) != uncomp_size)
+		{
+			BASISU_DEVEL_ERROR("ktx2_transcoder::decompress_level_data: Uncompressed data too large\n");
+			return false;
+		}
+
+		if (!uncomp_data.try_resize(uncomp_size))
+		{
+			BASISU_DEVEL_ERROR("ktx2_transcoder::decompress_level_data: Out of memory\n");
+			return false;
+		}
+		
+		if (m_header.m_supercompression_scheme == KTX2_SS_ZSTANDARD)
+		{
+#if BASISD_SUPPORT_KTX2_ZSTD
+			size_t actualUncompSize = ZSTD_decompress(uncomp_data.data(), (size_t)uncomp_size, pComp_data, (size_t)comp_size);
+			if (ZSTD_isError(actualUncompSize))
+			{
+				BASISU_DEVEL_ERROR("ktx2_transcoder::decompress_level_data: Zstd decompression failed, file is invalid or corrupted\n");
+				return false;
+			}
+			if (actualUncompSize != uncomp_size)
+			{
+				BASISU_DEVEL_ERROR("ktx2_transcoder::decompress_level_data: Zstd decompression returned too few bytes, file is invalid or corrupted\n");
+				return false;
+			}
+#else
+			BASISU_DEVEL_ERROR("ktx2_transcoder::decompress_level_data: File uses Zstd supercompression, but Zstd support was not enabled at compile time (BASISD_SUPPORT_KTX2_ZSTD is 0)\n");
+			return false;
+#endif
+		}
+
+		return true;
+	}
+		
+	bool ktx2_transcoder::decompress_etc1s_global_data()
+	{
+		// Note: we don't actually support 3D textures in here yet
+		//uint32_t layer_pixel_depth = basisu::maximum<uint32_t>(m_header.m_pixel_depth, 1);
+		//for (uint32_t i = 1; i < m_header.m_level_count; i++)
+		//	layer_pixel_depth += basisu::maximum<uint32_t>(m_header.m_pixel_depth >> i, 1);
+
+		const uint32_t image_count = basisu::maximum<uint32_t>(m_header.m_layer_count, 1) * m_header.m_face_count * m_header.m_level_count;
+		assert(image_count);
+
+		const uint8_t* pSrc = m_pData + m_header.m_sgd_byte_offset;
+
+		memcpy(&m_etc1s_header, pSrc, sizeof(ktx2_etc1s_global_data_header));
+		pSrc += sizeof(ktx2_etc1s_global_data_header);
+
+		if ((!m_etc1s_header.m_endpoints_byte_length) || (!m_etc1s_header.m_selectors_byte_length) || (!m_etc1s_header.m_tables_byte_length))
+		{
+			BASISU_DEVEL_ERROR("ktx2_transcoder::decompress_etc1s_global_data: Invalid ETC1S global data\n");
+			return false;
+		}
+
+		if ((!m_etc1s_header.m_endpoint_count) || (!m_etc1s_header.m_selector_count))
+		{
+			BASISU_DEVEL_ERROR("ktx2_transcoder::decompress_etc1s_global_data: endpoint and/or selector count is 0, file is invalid or corrupted\n");
+			return false;
+		}
+
+		// Sanity check the ETC1S header.
+		if ((sizeof(ktx2_etc1s_global_data_header) +
+			sizeof(ktx2_etc1s_image_desc) * image_count +
+			m_etc1s_header.m_endpoints_byte_length +
+			m_etc1s_header.m_selectors_byte_length +
+			m_etc1s_header.m_tables_byte_length +
+			m_etc1s_header.m_extended_byte_length) > m_header.m_sgd_byte_length)
+		{
+			BASISU_DEVEL_ERROR("ktx2_transcoder::decompress_etc1s_global_data: SGD byte length is too small, file is invalid or corrupted\n");
+			return false;
+		}
+				
+		if (!m_etc1s_image_descs.try_resize(image_count))
+		{
+			BASISU_DEVEL_ERROR("ktx2_transcoder::decompress_etc1s_global_data: Out of memory\n");
+			return false;
+		}
+		
+		memcpy(m_etc1s_image_descs.data(), pSrc, sizeof(ktx2_etc1s_image_desc) * image_count);
+		pSrc += sizeof(ktx2_etc1s_image_desc) * image_count;
+
+		// Sanity check the ETC1S image descs
+		for (uint32_t i = 0; i < image_count; i++)
+		{
+			// m_etc1s_transcoder.transcode_image() will validate the slice offsets/lengths before transcoding.
+
+			if (!m_etc1s_image_descs[i].m_rgb_slice_byte_length)
+			{
+				BASISU_DEVEL_ERROR("ktx2_transcoder::decompress_etc1s_global_data: ETC1S image descs sanity check failed (1)\n");
+				return false;
+			}
+
+			if (m_has_alpha)
+			{
+				if (!m_etc1s_image_descs[i].m_alpha_slice_byte_length)
+				{
+					BASISU_DEVEL_ERROR("ktx2_transcoder::decompress_etc1s_global_data: ETC1S image descs sanity check failed (2)\n");
+					return false;
+				}
+			}
+		}
+
+		const uint8_t* pEndpoint_data = pSrc;
+		const uint8_t* pSelector_data = pSrc + m_etc1s_header.m_endpoints_byte_length;
+		const uint8_t* pTables_data = pSrc + m_etc1s_header.m_endpoints_byte_length + m_etc1s_header.m_selectors_byte_length;
+
+		if (!m_etc1s_transcoder.decode_tables(pTables_data, m_etc1s_header.m_tables_byte_length))
+		{
+			BASISU_DEVEL_ERROR("ktx2_transcoder::decompress_etc1s_global_data: decode_tables() failed, file is invalid or corrupted\n");
+			return false;
+		}
+				
+		if (!m_etc1s_transcoder.decode_palettes(
+			m_etc1s_header.m_endpoint_count,	pEndpoint_data, m_etc1s_header.m_endpoints_byte_length,
+			m_etc1s_header.m_selector_count,	pSelector_data, m_etc1s_header.m_selectors_byte_length))
+		{
+			BASISU_DEVEL_ERROR("ktx2_transcoder::decompress_etc1s_global_data: decode_palettes() failed, file is likely corrupted\n");
+			return false;
+		}
+				
+		return true;
+	}
+
+	bool ktx2_transcoder::read_key_values()
+	{
+		if (!m_header.m_kvd_byte_length)
+		{
+			if (m_header.m_kvd_byte_offset)
+			{
+				BASISU_DEVEL_ERROR("ktx2_transcoder::read_key_values: Invalid KVD byte offset (it should be zero when the length is zero)\n");
+				return false;
+			}
+
+			return true;
+		}
+
+		if (m_header.m_kvd_byte_offset < sizeof(ktx2_header))
+		{
+			BASISU_DEVEL_ERROR("ktx2_transcoder::read_key_values: Invalid KVD byte offset\n");
+			return false;
+		}
+
+		if ((m_header.m_kvd_byte_offset + m_header.m_kvd_byte_length) > m_data_size)
+		{
+			BASISU_DEVEL_ERROR("ktx2_transcoder::read_key_values: Invalid KVD byte offset and/or length\n");
+			return false;
+		}
+
+		const uint8_t* pSrc = m_pData + m_header.m_kvd_byte_offset;
+		uint32_t src_left = m_header.m_kvd_byte_length;
+
+		if (!m_key_values.try_reserve(8))
+		{
+			BASISU_DEVEL_ERROR("ktx2_transcoder::read_key_values: Out of memory\n");
+			return false;
+		}
+
+		while (src_left > sizeof(uint32_t))
+		{
+			uint32_t l = basisu::read_le_dword(pSrc);
+			
+			pSrc += sizeof(uint32_t);
+			src_left -= sizeof(uint32_t);
+
+			if (l < 2)
+			{
+				BASISU_DEVEL_ERROR("ktx2_transcoder::read_key_values: Failed reading key value fields (0)\n");
+				return false;
+			}
+
+			if (src_left < l)
+			{
+				BASISU_DEVEL_ERROR("ktx2_transcoder::read_key_values: Failed reading key value fields (1)\n");
+				return false;
+			}
+
+			if (!m_key_values.try_resize(m_key_values.size() + 1))
+			{
+				BASISU_DEVEL_ERROR("ktx2_transcoder::read_key_values: Out of memory\n");
+				return false;
+			}
+			
+			basisu::uint8_vec& key_data = m_key_values.back().m_key;
+			basisu::uint8_vec& value_data = m_key_values.back().m_value;
+
+			do
+			{
+				if (!l)
+				{
+					BASISU_DEVEL_ERROR("ktx2_transcoder::read_key_values: Failed reading key value fields (2)\n");
+					return false;
+				}
+
+				if (!key_data.try_push_back(*pSrc++))
+				{
+					BASISU_DEVEL_ERROR("ktx2_transcoder::read_key_values: Out of memory\n");
+					return false;
+				}
+
+				src_left--;
+				l--;
+
+			} while (key_data.back());
+						
+			if (!value_data.try_resize(l))
+			{
+				BASISU_DEVEL_ERROR("ktx2_transcoder::read_key_values: Out of memory\n");
+				return false;
+			}
+
+			if (l)
+			{
+				memcpy(value_data.data(), pSrc, l);
+				pSrc += l;
+				src_left -= l;
+			}
+
+			uint32_t ofs = (uint32_t)(pSrc - m_pData) & 3;
+			uint32_t alignment_bytes = (4 - ofs) & 3;
+
+			if (src_left < alignment_bytes)
+			{
+				BASISU_DEVEL_ERROR("ktx2_transcoder::read_key_values: Failed reading key value fields (3)\n");
+				return false;
+			}
+
+			pSrc += alignment_bytes;
+			src_left -= alignment_bytes;
+		}
+
+		return true;
+	}
+		
+#endif // BASISD_SUPPORT_KTX2
+
+	bool basisu_transcoder_supports_ktx2()
+	{
+#if BASISD_SUPPORT_KTX2
+		return true;
+#else
+		return false;
+#endif
+	}
+
+	bool basisu_transcoder_supports_ktx2_zstd()
+	{
+#if BASISD_SUPPORT_KTX2_ZSTD
+		return true;
+#else
+		return false;
+#endif
+	}
+
 } // namespace basist
-
-
-
-
-

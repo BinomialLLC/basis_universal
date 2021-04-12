@@ -36,6 +36,7 @@
 namespace basisu
 {
 	extern uint8_t g_hamming_dist[256];
+	extern const uint8_t g_debug_font8x8_basic[127 - 32 + 1][8];
 
 	// Encoder library initialization.
 	// This function MUST be called before encoding anything!
@@ -748,6 +749,7 @@ namespace basisu
 	typedef basisu::vector<color_rgba> color_rgba_vec;
 
 	const color_rgba g_black_color(0, 0, 0, 255);
+	const color_rgba g_black_trans_color(0, 0, 0, 0);
 	const color_rgba g_white_color(255, 255, 255, 255);
 
 	inline int color_distance(int r0, int g0, int b0, int r1, int g1, int b1)
@@ -2448,6 +2450,14 @@ namespace basisu
 			return *this;
 		}
 
+		image& fill_box_alpha(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const color_rgba& c)
+		{
+			for (uint32_t iy = 0; iy < h; iy++)
+				for (uint32_t ix = 0; ix < w; ix++)
+					set_clipped_alpha(x + ix, y + iy, c);
+			return *this;
+		}
+
 		image &crop_dup_borders(uint32_t w, uint32_t h)
 		{
 			const uint32_t orig_w = m_width, orig_h = m_height;
@@ -2534,6 +2544,13 @@ namespace basisu
 		{
 			if ((static_cast<uint32_t>(x) < m_width) && (static_cast<uint32_t>(y) < m_height))
 				(*this)(x, y) = c;
+			return *this;
+		}
+
+		inline image& set_clipped_alpha(int x, int y, const color_rgba& c)
+		{
+			if ((static_cast<uint32_t>(x) < m_width) && (static_cast<uint32_t>(y) < m_height))
+				(*this)(x, y).m_comps[3] = c.m_comps[3];
 			return *this;
 		}
 
@@ -2661,6 +2678,8 @@ namespace basisu
 			}
 			return *this;
 		}
+
+		void debug_text(uint32_t x_ofs, uint32_t y_ofs, uint32_t x_scale, uint32_t y_scale, const color_rgba &fg, const color_rgba *pBG, bool alpha_only, const char* p, ...);
 				
 	private:
 		uint32_t m_width, m_height, m_pitch;  // all in pixels

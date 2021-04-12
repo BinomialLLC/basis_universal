@@ -1,7 +1,8 @@
 // basis_wrappers.cpp - Wrappers to the C++ compressor and transcoder for WebAssembly/WebGL use.
 //
-// Important: 
+// **Important**: 
 // Compile with -fno-strict-aliasing
+// This code HAS NOT been tested with strict aliasing enabled.
 // The "initializeBasis()" function MUST be called at least once before using either the compressor or transcoder.
 //
 // There are four main categories of wrappers in this module:
@@ -104,7 +105,8 @@ static bool copy_to_jsbuffer(const emscripten::val& dstBuffer, const basisu::vec
 	return true;
 }
 
-#define MAGIC 0xDEADBEE1
+#define BASIS_MAGIC 0xDEADBEE1
+#define KTX2_MAGIC 0xDEADBEE2
 
 struct basis_file_desc
 {
@@ -189,295 +191,807 @@ struct basis_file
 		emscripten::val memoryView = jsBuffer["constructor"].new_(memory, reinterpret_cast<uintptr_t>(m_file.data()), length);
 		memoryView.call<void>("set", jsBuffer);
 
-		if (!m_transcoder.validate_header(m_file.data(), m_file.size())) {
+		if (!m_transcoder.validate_header(m_file.data(), m_file.size())) 
+		{
+#if BASISU_DEBUG_PRINTF   
+			printf("basis_file::basis_file: m_transcoder.validate_header() failed!\n");
+#endif 
 			m_file.clear();
 		}
 
 		// Initialized after validation
-		m_magic = MAGIC;
+		m_magic = BASIS_MAGIC;
 	}
 
-			void close() {
-				assert(m_magic == MAGIC);
-				m_file.clear();
-			}
+	void close() 
+	{
+		assert(m_magic == BASIS_MAGIC);
+		if (m_magic != BASIS_MAGIC)
+			return;
 
-			uint32_t getHasAlpha() {
-				assert(m_magic == MAGIC);
-				if (m_magic != MAGIC)
-					return 0;
+		m_file.clear();
+	}
 
-				basisu_image_level_info li;
-				if (!m_transcoder.get_image_level_info(m_file.data(), m_file.size(), li, 0, 0))
-					return 0;
+	uint32_t getHasAlpha() 
+	{
+		assert(m_magic == BASIS_MAGIC);
+		if (m_magic != BASIS_MAGIC)
+			return 0;
 
-				return li.m_alpha_flag;
-			}
+		basisu_image_level_info li;
+		if (!m_transcoder.get_image_level_info(m_file.data(), m_file.size(), li, 0, 0))
+			return 0;
 
-			uint32_t getNumImages() {
-				assert(m_magic == MAGIC);
-				if (m_magic != MAGIC)
-					return 0;
+		return li.m_alpha_flag;
+	}
 
-				return m_transcoder.get_total_images(m_file.data(), m_file.size());
-			}
+	uint32_t getNumImages() 
+	{
+		assert(m_magic == BASIS_MAGIC);
+		if (m_magic != BASIS_MAGIC)
+			return 0;
 
-			uint32_t getNumLevels(uint32_t image_index) {
-				assert(m_magic == MAGIC);
-				if (m_magic != MAGIC)
-					return 0;
+		return m_transcoder.get_total_images(m_file.data(), m_file.size());
+	}
 
-				basisu_image_info ii;
-				if (!m_transcoder.get_image_info(m_file.data(), m_file.size(), ii, image_index))
-					return 0;
+	uint32_t getNumLevels(uint32_t image_index) 
+	{
+		assert(m_magic == BASIS_MAGIC);
+		if (m_magic != BASIS_MAGIC)
+			return 0;
 
-				return ii.m_total_levels;
-			}
+		basisu_image_info ii;
+		if (!m_transcoder.get_image_info(m_file.data(), m_file.size(), ii, image_index))
+			return 0;
 
-			uint32_t getImageWidth(uint32_t image_index, uint32_t level_index) {
-				assert(m_magic == MAGIC);
-				if (m_magic != MAGIC)
-					return 0;
+		return ii.m_total_levels;
+	}
 
-				uint32_t orig_width, orig_height, total_blocks;
-				if (!m_transcoder.get_image_level_desc(m_file.data(), m_file.size(), image_index, level_index, orig_width, orig_height, total_blocks))
-					return 0;
+	uint32_t getImageWidth(uint32_t image_index, uint32_t level_index) 
+	{
+		assert(m_magic == BASIS_MAGIC);
+		if (m_magic != BASIS_MAGIC)
+			return 0;
 
-				return orig_width;
-			}
+		uint32_t orig_width, orig_height, total_blocks;
+		if (!m_transcoder.get_image_level_desc(m_file.data(), m_file.size(), image_index, level_index, orig_width, orig_height, total_blocks))
+			return 0;
 
-			uint32_t getImageHeight(uint32_t image_index, uint32_t level_index) {
-				assert(m_magic == MAGIC);
-				if (m_magic != MAGIC)
-					return 0;
+		return orig_width;
+	}
 
-				uint32_t orig_width, orig_height, total_blocks;
-				if (!m_transcoder.get_image_level_desc(m_file.data(), m_file.size(), image_index, level_index, orig_width, orig_height, total_blocks))
-					return 0;
+	uint32_t getImageHeight(uint32_t image_index, uint32_t level_index) 
+	{
+		assert(m_magic == BASIS_MAGIC);
+		if (m_magic != BASIS_MAGIC)
+			return 0;
 
-				return orig_height;
-			}
+		uint32_t orig_width, orig_height, total_blocks;
+		if (!m_transcoder.get_image_level_desc(m_file.data(), m_file.size(), image_index, level_index, orig_width, orig_height, total_blocks))
+			return 0;
+
+		return orig_height;
+	}
 									
-			basis_file_desc getFileDesc() {
-				basis_file_desc result;
-				memset(&result, 0, sizeof(result));
+	basis_file_desc getFileDesc() 
+	{
+		basis_file_desc result;
+		memset(&result, 0, sizeof(result));
 				
-				assert(m_magic == MAGIC);
-				if (m_magic != MAGIC)
-					return result;
+		assert(m_magic == BASIS_MAGIC);
+		if (m_magic != BASIS_MAGIC)
+			return result;
 								
-				basisu_file_info file_info;
+		basisu_file_info file_info;
 								
-				if (!m_transcoder.get_file_info(m_file.data(), m_file.size(), file_info))
-				{
-					assert(0);
-					return result;
-				}
+		if (!m_transcoder.get_file_info(m_file.data(), m_file.size(), file_info))
+		{
+			assert(0);
+			return result;
+		}
 				
-				result.m_version = file_info.m_version;
-				result.m_us_per_frame = file_info.m_us_per_frame;
-				result.m_total_images = file_info.m_total_images;
-				result.m_userdata0 = file_info.m_userdata0;
-				result.m_userdata1 = file_info.m_userdata1;
-				result.m_tex_format = static_cast<uint32_t>(file_info.m_tex_format);
-				result.m_y_flipped = file_info.m_y_flipped;
-				result.m_has_alpha_slices = file_info.m_has_alpha_slices;
+		result.m_version = file_info.m_version;
+		result.m_us_per_frame = file_info.m_us_per_frame;
+		result.m_total_images = file_info.m_total_images;
+		result.m_userdata0 = file_info.m_userdata0;
+		result.m_userdata1 = file_info.m_userdata1;
+		result.m_tex_format = static_cast<uint32_t>(file_info.m_tex_format);
+		result.m_y_flipped = file_info.m_y_flipped;
+		result.m_has_alpha_slices = file_info.m_has_alpha_slices;
 				
-				result.m_num_endpoints = file_info.m_total_endpoints;
-				result.m_endpoint_palette_ofs = file_info.m_endpoint_codebook_ofs;
-				result.m_endpoint_palette_len = file_info.m_endpoint_codebook_size;
+		result.m_num_endpoints = file_info.m_total_endpoints;
+		result.m_endpoint_palette_ofs = file_info.m_endpoint_codebook_ofs;
+		result.m_endpoint_palette_len = file_info.m_endpoint_codebook_size;
 				
-				result.m_num_selectors = file_info.m_total_selectors;
-				result.m_selector_palette_ofs = file_info.m_selector_codebook_ofs;
-				result.m_selector_palette_len = file_info.m_selector_codebook_size;
+		result.m_num_selectors = file_info.m_total_selectors;
+		result.m_selector_palette_ofs = file_info.m_selector_codebook_ofs;
+		result.m_selector_palette_len = file_info.m_selector_codebook_size;
 				
-				result.m_tables_ofs = file_info.m_tables_ofs;
-				result.m_tables_len = file_info.m_tables_size;
+		result.m_tables_ofs = file_info.m_tables_ofs;
+		result.m_tables_len = file_info.m_tables_size;
 
-				return result;
-			}
+		return result;
+	}
 			
-			basis_image_desc getImageDesc(uint32_t image_index) {
-				basis_image_desc result;
-				memset(&result, 0, sizeof(result));
+	basis_image_desc getImageDesc(uint32_t image_index) 
+	{
+		basis_image_desc result;
+		memset(&result, 0, sizeof(result));
 				
-				assert(m_magic == MAGIC);
-				if (m_magic != MAGIC)
-					return result;
+		assert(m_magic == BASIS_MAGIC);
+		if (m_magic != BASIS_MAGIC)
+			return result;
 								
-				basisu_image_info image_info;
+		basisu_image_info image_info;
 				
-				// bool get_image_info(const void *pData, uint32_t data_size, basisu_image_info &image_info, uint32_t image_index) const;
-				if (!m_transcoder.get_image_info(m_file.data(), m_file.size(), image_info, image_index))
-				{
-					assert(0);
-					return result;
-				}
+		// bool get_image_info(const void *pData, uint32_t data_size, basisu_image_info &image_info, uint32_t image_index) const;
+		if (!m_transcoder.get_image_info(m_file.data(), m_file.size(), image_info, image_index))
+		{
+			assert(0);
+			return result;
+		}
 				
-				result.m_orig_width = image_info.m_orig_width;
-				result.m_orig_height = image_info.m_orig_height;
-				result.m_num_blocks_x = image_info.m_num_blocks_x;
-				result.m_num_blocks_y = image_info.m_num_blocks_y;
-				result.m_num_levels = image_info.m_total_levels;
-				result.m_alpha_flag = image_info.m_alpha_flag;
-				result.m_iframe_flag = image_info.m_iframe_flag;
+		result.m_orig_width = image_info.m_orig_width;
+		result.m_orig_height = image_info.m_orig_height;
+		result.m_num_blocks_x = image_info.m_num_blocks_x;
+		result.m_num_blocks_y = image_info.m_num_blocks_y;
+		result.m_num_levels = image_info.m_total_levels;
+		result.m_alpha_flag = image_info.m_alpha_flag;
+		result.m_iframe_flag = image_info.m_iframe_flag;
 				
-				return result;
-			}
+		return result;
+	}
 			
-			basis_image_level_desc getImageLevelDesc(uint32_t image_index, uint32_t level_index) {
-				basis_image_level_desc result;
-				memset(&result, 0, sizeof(result));
+	basis_image_level_desc getImageLevelDesc(uint32_t image_index, uint32_t level_index) 
+	{
+		basis_image_level_desc result;
+		memset(&result, 0, sizeof(result));
 				
-				assert(m_magic == MAGIC);
-				if (m_magic != MAGIC)
-					return result;
+		assert(m_magic == BASIS_MAGIC);
+		if (m_magic != BASIS_MAGIC)
+			return result;
 								
-				basisu_image_level_info image_info;
+		basisu_image_level_info image_info;
 				
-				if (!m_transcoder.get_image_level_info(m_file.data(), m_file.size(), image_info, image_index, level_index))
-				{
-					assert(0);
-					return result;
-				}
+		if (!m_transcoder.get_image_level_info(m_file.data(), m_file.size(), image_info, image_index, level_index))
+		{
+			assert(0);
+			return result;
+		}
 				
-				result.m_rgb_file_ofs = image_info.m_rgb_file_ofs;
-				result.m_rgb_file_len = image_info.m_rgb_file_len;
-				result.m_alpha_file_ofs = image_info.m_alpha_file_ofs;
-				result.m_alpha_file_len = image_info.m_alpha_file_len;
+		result.m_rgb_file_ofs = image_info.m_rgb_file_ofs;
+		result.m_rgb_file_len = image_info.m_rgb_file_len;
+		result.m_alpha_file_ofs = image_info.m_alpha_file_ofs;
+		result.m_alpha_file_len = image_info.m_alpha_file_len;
 				
-				return result;
+		return result;
+	}
+
+	uint32_t getImageTranscodedSizeInBytes(uint32_t image_index, uint32_t level_index, uint32_t format) 
+	{
+		assert(m_magic == BASIS_MAGIC);
+		if (m_magic != BASIS_MAGIC)
+			return 0;
+
+		if (format >= (int)transcoder_texture_format::cTFTotalTextureFormats)
+			return 0;
+
+		uint32_t orig_width, orig_height, total_blocks;
+		if (!m_transcoder.get_image_level_desc(m_file.data(), m_file.size(), image_index, level_index, orig_width, orig_height, total_blocks))
+			return 0;
+
+		const transcoder_texture_format transcoder_format = static_cast<transcoder_texture_format>(format);
+
+		if (basis_transcoder_format_is_uncompressed(transcoder_format))
+		{
+			// Uncompressed formats are just plain raster images.
+			const uint32_t bytes_per_pixel = basis_get_uncompressed_bytes_per_pixel(transcoder_format);
+			const uint32_t bytes_per_line = orig_width * bytes_per_pixel;
+			const uint32_t bytes_per_slice = bytes_per_line * orig_height;
+			return bytes_per_slice;
+		}
+		else
+		{
+			// Compressed formats are 2D arrays of blocks.
+			const uint32_t bytes_per_block = basis_get_bytes_per_block_or_pixel(transcoder_format);
+
+			if (transcoder_format == transcoder_texture_format::cTFPVRTC1_4_RGB || transcoder_format == transcoder_texture_format::cTFPVRTC1_4_RGBA)
+			{
+				// For PVRTC1, Basis only writes (or requires) total_blocks * bytes_per_block. But GL requires extra padding for very small textures: 
+					// https://www.khronos.org/registry/OpenGL/extensions/IMG/IMG_texture_compression_pvrtc.txt
+				const uint32_t width = (orig_width + 3) & ~3;
+				const uint32_t height = (orig_height + 3) & ~3;
+				const uint32_t size_in_bytes = (std::max(8U, width) * std::max(8U, height) * 4 + 7) / 8;
+				return size_in_bytes;
 			}
 
-			uint32_t getImageTranscodedSizeInBytes(uint32_t image_index, uint32_t level_index, uint32_t format) {
-				assert(m_magic == MAGIC);
-				if (m_magic != MAGIC)
-					return 0;
+			return total_blocks * bytes_per_block;
+		}
+	}
 
-				if (format >= (int)transcoder_texture_format::cTFTotalTextureFormats)
-					return 0;
+	bool isUASTC() 
+	{
+		assert(m_magic == BASIS_MAGIC);
+		if (m_magic != BASIS_MAGIC)
+			return false;
 
-				uint32_t orig_width, orig_height, total_blocks;
-				if (!m_transcoder.get_image_level_desc(m_file.data(), m_file.size(), image_index, level_index, orig_width, orig_height, total_blocks))
-					return 0;
+		return m_transcoder.get_tex_format(m_file.data(), m_file.size()) == basis_tex_format::cUASTC4x4;
+	}
 
-				const transcoder_texture_format transcoder_format = static_cast<transcoder_texture_format>(format);
+	uint32_t startTranscoding() 
+	{
+		assert(m_magic == BASIS_MAGIC);
+		if (m_magic != BASIS_MAGIC)
+			return 0;
 
-				if (basis_transcoder_format_is_uncompressed(transcoder_format))
-				{
-					// Uncompressed formats are just plain raster images.
-					const uint32_t bytes_per_pixel = basis_get_uncompressed_bytes_per_pixel(transcoder_format);
-					const uint32_t bytes_per_line = orig_width * bytes_per_pixel;
-					const uint32_t bytes_per_slice = bytes_per_line * orig_height;
-					return bytes_per_slice;
-				}
-				else
-				{
-					// Compressed formats are 2D arrays of blocks.
-					const uint32_t bytes_per_block = basis_get_bytes_per_block_or_pixel(transcoder_format);
+		return m_transcoder.start_transcoding(m_file.data(), m_file.size());
+	}
 
-					if (transcoder_format == transcoder_texture_format::cTFPVRTC1_4_RGB || transcoder_format == transcoder_texture_format::cTFPVRTC1_4_RGBA)
-					{
-						// For PVRTC1, Basis only writes (or requires) total_blocks * bytes_per_block. But GL requires extra padding for very small textures: 
-						 // https://www.khronos.org/registry/OpenGL/extensions/IMG/IMG_texture_compression_pvrtc.txt
-						const uint32_t width = (orig_width + 3) & ~3;
-						const uint32_t height = (orig_height + 3) & ~3;
-						const uint32_t size_in_bytes = (std::max(8U, width) * std::max(8U, height) * 4 + 7) / 8;
-						return size_in_bytes;
-					}
+	uint32_t transcodeImage(const emscripten::val& dst, uint32_t image_index, uint32_t level_index, uint32_t format, uint32_t unused, uint32_t get_alpha_for_opaque_formats) 
+	{
+		(void)unused;
 
-					return total_blocks * bytes_per_block;
-				}
+		assert(m_magic == BASIS_MAGIC);
+		if (m_magic != BASIS_MAGIC)
+			return 0;
+
+		if (format >= (int)transcoder_texture_format::cTFTotalTextureFormats)
+			return 0;
+
+		const transcoder_texture_format transcoder_format = static_cast<transcoder_texture_format>(format);
+
+		uint32_t orig_width, orig_height, total_blocks;
+		if (!m_transcoder.get_image_level_desc(m_file.data(), m_file.size(), image_index, level_index, orig_width, orig_height, total_blocks))
+			return 0;
+
+		basisu::vector<uint8_t> dst_data;
+
+		uint32_t flags = get_alpha_for_opaque_formats ? cDecodeFlagsTranscodeAlphaDataToOpaqueFormats : 0;
+
+		uint32_t status;
+
+		if (basis_transcoder_format_is_uncompressed(transcoder_format))
+		{
+			const uint32_t bytes_per_pixel = basis_get_uncompressed_bytes_per_pixel(transcoder_format);
+			const uint32_t bytes_per_line = orig_width * bytes_per_pixel;
+			const uint32_t bytes_per_slice = bytes_per_line * orig_height;
+
+			dst_data.resize(bytes_per_slice);
+
+			status = m_transcoder.transcode_image_level(
+				m_file.data(), m_file.size(), image_index, level_index,
+				dst_data.data(), orig_width * orig_height,
+				transcoder_format,
+				flags,
+				orig_width,
+				nullptr,
+				orig_height);
+		}
+		else
+		{
+			uint32_t bytes_per_block = basis_get_bytes_per_block_or_pixel(transcoder_format);
+
+			uint32_t required_size = total_blocks * bytes_per_block;
+
+			if (transcoder_format == transcoder_texture_format::cTFPVRTC1_4_RGB || transcoder_format == transcoder_texture_format::cTFPVRTC1_4_RGBA)
+			{
+				// For PVRTC1, Basis only writes (or requires) total_blocks * bytes_per_block. But GL requires extra padding for very small textures: 
+				// https://www.khronos.org/registry/OpenGL/extensions/IMG/IMG_texture_compression_pvrtc.txt
+				// The transcoder will clear the extra bytes followed the used blocks to 0.
+				const uint32_t width = (orig_width + 3) & ~3;
+				const uint32_t height = (orig_height + 3) & ~3;
+				required_size = (std::max(8U, width) * std::max(8U, height) * 4 + 7) / 8;
+				assert(required_size >= total_blocks * bytes_per_block);
 			}
 
-			bool isUASTC() {
-				assert(m_magic == MAGIC);
-				if (m_magic != MAGIC)
-					return false;
+			dst_data.resize(required_size);
 
-				return m_transcoder.get_tex_format(m_file.data(), m_file.size()) == basis_tex_format::cUASTC4x4;
-			}
+			status = m_transcoder.transcode_image_level(
+				m_file.data(), m_file.size(), image_index, level_index,
+				dst_data.data(), dst_data.size() / bytes_per_block,
+				static_cast<basist::transcoder_texture_format>(format),
+				flags);
+		}
 
-			uint32_t startTranscoding() {
-				assert(m_magic == MAGIC);
-				if (m_magic != MAGIC)
-					return 0;
+		emscripten::val memory = emscripten::val::module_property("HEAP8")["buffer"];
+		emscripten::val memoryView = emscripten::val::global("Uint8Array").new_(memory, reinterpret_cast<uintptr_t>(dst_data.data()), dst_data.size());
 
-				return m_transcoder.start_transcoding(m_file.data(), m_file.size());
-			}
-
-			uint32_t transcodeImage(const emscripten::val& dst, uint32_t image_index, uint32_t level_index, uint32_t format, uint32_t unused, uint32_t get_alpha_for_opaque_formats) {
-				(void)unused;
-
-				assert(m_magic == MAGIC);
-				if (m_magic != MAGIC)
-					return 0;
-
-				if (format >= (int)transcoder_texture_format::cTFTotalTextureFormats)
-					return 0;
-
-				const transcoder_texture_format transcoder_format = static_cast<transcoder_texture_format>(format);
-
-				uint32_t orig_width, orig_height, total_blocks;
-				if (!m_transcoder.get_image_level_desc(m_file.data(), m_file.size(), image_index, level_index, orig_width, orig_height, total_blocks))
-					return 0;
-
-				basisu::vector<uint8_t> dst_data;
-
-				uint32_t flags = get_alpha_for_opaque_formats ? cDecodeFlagsTranscodeAlphaDataToOpaqueFormats : 0;
-
-				uint32_t status;
-
-				if (basis_transcoder_format_is_uncompressed(transcoder_format))
-				{
-					const uint32_t bytes_per_pixel = basis_get_uncompressed_bytes_per_pixel(transcoder_format);
-					const uint32_t bytes_per_line = orig_width * bytes_per_pixel;
-					const uint32_t bytes_per_slice = bytes_per_line * orig_height;
-
-					dst_data.resize(bytes_per_slice);
-
-					status = m_transcoder.transcode_image_level(
-						m_file.data(), m_file.size(), image_index, level_index,
-						dst_data.data(), orig_width * orig_height,
-						transcoder_format,
-						flags,
-						orig_width,
-						nullptr,
-						orig_height);
-				}
-				else
-				{
-					uint32_t bytes_per_block = basis_get_bytes_per_block_or_pixel(transcoder_format);
-
-					uint32_t required_size = total_blocks * bytes_per_block;
-
-					if (transcoder_format == transcoder_texture_format::cTFPVRTC1_4_RGB || transcoder_format == transcoder_texture_format::cTFPVRTC1_4_RGBA)
-					{
-						// For PVRTC1, Basis only writes (or requires) total_blocks * bytes_per_block. But GL requires extra padding for very small textures: 
-						// https://www.khronos.org/registry/OpenGL/extensions/IMG/IMG_texture_compression_pvrtc.txt
-						// The transcoder will clear the extra bytes followed the used blocks to 0.
-						const uint32_t width = (orig_width + 3) & ~3;
-						const uint32_t height = (orig_height + 3) & ~3;
-						required_size = (std::max(8U, width) * std::max(8U, height) * 4 + 7) / 8;
-						assert(required_size >= total_blocks * bytes_per_block);
-					}
-
-					dst_data.resize(required_size);
-
-					status = m_transcoder.transcode_image_level(
-						m_file.data(), m_file.size(), image_index, level_index,
-						dst_data.data(), dst_data.size() / bytes_per_block,
-						static_cast<basist::transcoder_texture_format>(format),
-						flags);
-				}
-
-				emscripten::val memory = emscripten::val::module_property("HEAP8")["buffer"];
-				emscripten::val memoryView = emscripten::val::global("Uint8Array").new_(memory, reinterpret_cast<uintptr_t>(dst_data.data()), dst_data.size());
-
-				dst.call<void>("set", memoryView);
-				return status;
-			}
+		dst.call<void>("set", memoryView);
+		return status;
+	}
 };
+
+#if BASISD_SUPPORT_KTX2
+struct ktx2_header_js
+{
+	uint32_t m_vk_format;
+	uint32_t m_type_size;
+	uint32_t m_pixel_width;
+	uint32_t m_pixel_height;
+	uint32_t m_pixel_depth;
+	uint32_t m_layer_count;
+	uint32_t m_face_count;
+	uint32_t m_level_count;
+	uint32_t m_supercompression_scheme;
+	uint32_t m_dfd_byte_offset;
+	uint32_t m_dfd_byte_length;
+	uint32_t m_kvd_byte_offset;
+	uint32_t m_kvd_byte_length;
+	uint32_t m_sgd_byte_offset;
+	uint32_t m_sgd_byte_length;
+};
+
+struct ktx2_file
+{
+	int m_magic = 0;
+	basist::ktx2_transcoder m_transcoder;
+	basisu::vector<uint8_t> m_file;
+	bool m_is_valid = false;
+
+	ktx2_file(const emscripten::val& jsBuffer)
+		: m_file([&]() {
+		size_t byteLength = jsBuffer["byteLength"].as<size_t>();
+		return basisu::vector<uint8_t>(byteLength);
+			}()),
+		m_transcoder(g_pGlobal_codebook)
+	{
+		if (!g_pGlobal_codebook)
+		{
+#if BASISU_DEBUG_PRINTF   
+			printf("basis_file::basis_file: Must call basis_init() first!\n");
+#endif   		
+			assert(0);
+			return;
+		}
+
+		unsigned int length = jsBuffer["length"].as<unsigned int>();
+		emscripten::val memory = emscripten::val::module_property("HEAP8")["buffer"];
+		emscripten::val memoryView = jsBuffer["constructor"].new_(memory, reinterpret_cast<uintptr_t>(m_file.data()), length);
+		memoryView.call<void>("set", jsBuffer);
+
+		if (!m_transcoder.init(m_file.data(), m_file.size()))
+		{
+#if BASISU_DEBUG_PRINTF   
+			printf("m_transcoder.init() failed!\n");
+#endif
+			assert(0);
+
+			m_file.clear();
+		}
+
+		m_is_valid = true;
+
+		// Initialized after validation
+		m_magic = KTX2_MAGIC;
+	}
+
+	bool isValid()
+	{
+		assert(m_magic == KTX2_MAGIC);
+		if (m_magic != KTX2_MAGIC)
+			return false;
+
+		return m_is_valid;
+	}
+
+	void close()
+	{
+		assert(m_magic == KTX2_MAGIC);
+		if (m_magic != KTX2_MAGIC)
+			return;
+
+		m_file.clear();
+		m_transcoder.clear();
+	}
+
+	uint32_t getDFDSize()
+	{
+		return m_transcoder.get_dfd().size();
+	}
+
+	uint32_t getDFD(const emscripten::val& dst)
+	{
+		assert(m_magic == KTX2_MAGIC);
+		if (m_magic != KTX2_MAGIC)
+			return 0;
+
+		const uint8_vec &dst_data = m_transcoder.get_dfd();
+
+		if (dst_data.size())
+			return copy_to_jsbuffer(dst, dst_data);
+
+		return 1;
+	}
+
+	ktx2_header_js getHeader()
+	{
+		ktx2_header_js hdr;
+		memset(&hdr, 0, sizeof(hdr));
+
+		assert(m_magic == KTX2_MAGIC);
+		if (m_magic != KTX2_MAGIC)
+			return hdr;
+
+		const basist::ktx2_header& h = m_transcoder.get_header();
+		
+		hdr.m_vk_format = h.m_vk_format;
+		hdr.m_type_size = h.m_type_size;
+		hdr.m_pixel_width = h.m_pixel_width;
+		hdr.m_pixel_height = h.m_pixel_height;
+		hdr.m_pixel_depth = h.m_pixel_depth;
+		hdr.m_layer_count = h.m_layer_count;
+		hdr.m_face_count = h.m_face_count;
+		hdr.m_level_count = h.m_level_count;
+		hdr.m_supercompression_scheme = h.m_supercompression_scheme;
+		hdr.m_dfd_byte_offset = h.m_dfd_byte_offset;
+		hdr.m_dfd_byte_length = h.m_dfd_byte_length;
+		hdr.m_kvd_byte_offset = h.m_kvd_byte_offset;
+		hdr.m_kvd_byte_length = h.m_kvd_byte_length;
+		
+		// emscripten doesn't support binding uint64_t for some reason
+		assert(h.m_sgd_byte_offset <= UINT32_MAX);
+		assert(h.m_sgd_byte_length <= UINT32_MAX);
+		hdr.m_sgd_byte_offset = (uint32_t)h.m_sgd_byte_offset;
+		hdr.m_sgd_byte_length = (uint32_t)h.m_sgd_byte_length;
+
+		return hdr;
+	}
+
+	bool hasKey(std::string key_name)
+	{
+		assert(m_magic == KTX2_MAGIC);
+		if (m_magic != KTX2_MAGIC)
+			return false;
+
+		return m_transcoder.find_key(key_name) != nullptr;
+	}
+
+	uint32_t getTotalKeys()
+	{
+		assert(m_magic == KTX2_MAGIC);
+		if (m_magic != KTX2_MAGIC)
+			return 0;
+
+		return m_transcoder.get_key_values().size();
+	}
+
+	std::string getKey(uint32_t index)
+	{
+		assert(m_magic == KTX2_MAGIC);
+		if (m_magic != KTX2_MAGIC)
+			return std::string("");
+
+		return std::string((const char*)m_transcoder.get_key_values()[index].m_key.data());
+	}
+		
+	uint32_t getKeyValueSize(std::string key_name)
+	{
+		assert(m_magic == KTX2_MAGIC);
+		if (m_magic != KTX2_MAGIC)
+			return 0;
+
+		const uint8_vec* p = m_transcoder.find_key(key_name);
+		return p ? p->size() : 0;
+	}
+
+	uint32_t getKeyValue(std::string key_name, const emscripten::val& dst)
+	{
+		assert(m_magic == KTX2_MAGIC);
+		if (m_magic != KTX2_MAGIC)
+			return 0;
+
+		const uint8_vec* p = m_transcoder.find_key(key_name);
+		if (!p)
+			return 0;
+
+		if (p->size())
+			return copy_to_jsbuffer(dst, *p);
+
+		return 1;
+	}
+				
+	uint32_t getWidth()
+	{
+		assert(m_magic == KTX2_MAGIC);
+		if (m_magic != KTX2_MAGIC)
+			return 0;
+		return m_transcoder.get_width();
+	}
+
+	uint32_t getHeight()
+	{
+		assert(m_magic == KTX2_MAGIC);
+		if (m_magic != KTX2_MAGIC)
+			return 0;
+		return m_transcoder.get_height();
+	}
+		
+	uint32_t getFaces()
+	{
+		assert(m_magic == KTX2_MAGIC);
+		if (m_magic != KTX2_MAGIC)
+			return 0;
+		return m_transcoder.get_faces();
+	}
+
+	uint32_t getLayers()
+	{
+		assert(m_magic == KTX2_MAGIC);
+		if (m_magic != KTX2_MAGIC)
+			return 0;
+		return m_transcoder.get_layers();
+	}
+
+	uint32_t getLevels()
+	{
+		assert(m_magic == KTX2_MAGIC);
+		if (m_magic != KTX2_MAGIC)
+			return 0;
+		return m_transcoder.get_levels();
+	}
+
+	uint32_t getFormat()
+	{
+		assert(m_magic == KTX2_MAGIC);
+		if (m_magic != KTX2_MAGIC)
+			return 0;
+		return (uint32_t)m_transcoder.get_format();
+	}
+
+	bool isUASTC()
+	{
+		assert(m_magic == KTX2_MAGIC);
+		if (m_magic != KTX2_MAGIC)
+			return false;
+		return m_transcoder.is_uastc();
+	}
+
+	bool isETC1S()
+	{
+		assert(m_magic == KTX2_MAGIC);
+		if (m_magic != KTX2_MAGIC)
+			return false;
+		return m_transcoder.is_etc1s();
+	}
+
+	bool getHasAlpha()
+	{
+		assert(m_magic == KTX2_MAGIC);
+		if (m_magic != KTX2_MAGIC)
+			return false;
+		return m_transcoder.get_has_alpha();
+	}
+
+	uint32_t getDFDColorModel()
+	{
+		assert(m_magic == KTX2_MAGIC);
+		if (m_magic != KTX2_MAGIC)
+			return 0;
+		return m_transcoder.get_dfd_color_model();
+	}
+
+	uint32_t getDFDColorPrimaries()
+	{
+		assert(m_magic == KTX2_MAGIC);
+		if (m_magic != KTX2_MAGIC)
+			return 0;
+		return m_transcoder.get_dfd_color_primaries();
+	}
+
+	uint32_t getDFDTransferFunc()
+	{
+		assert(m_magic == KTX2_MAGIC);
+		if (m_magic != KTX2_MAGIC)
+			return 0;
+		return m_transcoder.get_dfd_transfer_func();
+	}
+
+	uint32_t getDFDFlags()
+	{
+		assert(m_magic == KTX2_MAGIC);
+		if (m_magic != KTX2_MAGIC)
+			return 0;
+		return m_transcoder.get_dfd_flags();
+	}
+
+	uint32_t getDFDTotalSamples()
+	{
+		assert(m_magic == KTX2_MAGIC);
+		if (m_magic != KTX2_MAGIC)
+			return 0;
+		return m_transcoder.get_dfd_total_samples();
+	}
+
+	uint32_t getDFDChannelID0()
+	{
+		assert(m_magic == KTX2_MAGIC);
+		if (m_magic != KTX2_MAGIC)
+			return 0;
+		return m_transcoder.get_dfd_channel_id0();
+	}
+
+	uint32_t getDFDChannelID1()
+	{
+		assert(m_magic == KTX2_MAGIC);
+		if (m_magic != KTX2_MAGIC)
+			return 0;
+		return m_transcoder.get_dfd_channel_id1();
+	}
+
+	// isVideo() will return true if there was a KTXanimData key, or if (after calling start_transcoding()) there were any P-frames on ETC1S files.
+	bool isVideo()
+	{
+		assert(m_magic == KTX2_MAGIC);
+		if (m_magic != KTX2_MAGIC)
+			return 0;
+		return m_transcoder.is_video();
+	}
+
+	// startTranscoding() must be called before calling getETC1SImageDescImageFlags().
+	uint32_t getETC1SImageDescImageFlags(uint32_t level_index, uint32_t layer_index, uint32_t face_index)
+	{
+		assert(m_magic == KTX2_MAGIC);
+		if (m_magic != KTX2_MAGIC)
+			return 0;
+
+		return m_transcoder.get_etc1s_image_descs_image_flags(level_index, layer_index, face_index);
+	}
+		
+	ktx2_image_level_info getImageLevelInfo(uint32_t level_index, uint32_t layer_index, uint32_t face_index)
+	{
+		ktx2_image_level_info info;
+		memset(&info, 0, sizeof(info));
+		
+		assert(m_magic == KTX2_MAGIC);
+		if (m_magic != KTX2_MAGIC)
+			return info;
+
+		if (!m_transcoder.get_image_level_info(info, level_index, layer_index, face_index))
+		{
+			assert(0);
+			return info;
+		}
+				
+		return info;
+	}
+
+	uint32_t getImageTranscodedSizeInBytes(uint32_t level_index, uint32_t layer_index, uint32_t face_index, uint32_t format)
+	{
+		assert(m_magic == KTX2_MAGIC);
+		if (m_magic != KTX2_MAGIC)
+			return 0;
+
+		if (format >= (int)transcoder_texture_format::cTFTotalTextureFormats)
+			return 0;
+
+		ktx2_image_level_info info;
+		if (!m_transcoder.get_image_level_info(info, level_index, layer_index, face_index))
+			return 0;
+
+		uint32_t orig_width = info.m_orig_width, orig_height = info.m_orig_height, total_blocks = info.m_total_blocks;
+
+		const transcoder_texture_format transcoder_format = static_cast<transcoder_texture_format>(format);
+
+		if (basis_transcoder_format_is_uncompressed(transcoder_format))
+		{
+			// Uncompressed formats are just plain raster images.
+			const uint32_t bytes_per_pixel = basis_get_uncompressed_bytes_per_pixel(transcoder_format);
+			const uint32_t bytes_per_line = orig_width * bytes_per_pixel;
+			const uint32_t bytes_per_slice = bytes_per_line * orig_height;
+			return bytes_per_slice;
+		}
+		else
+		{
+			// Compressed formats are 2D arrays of blocks.
+			const uint32_t bytes_per_block = basis_get_bytes_per_block_or_pixel(transcoder_format);
+
+			if (transcoder_format == transcoder_texture_format::cTFPVRTC1_4_RGB || transcoder_format == transcoder_texture_format::cTFPVRTC1_4_RGBA)
+			{
+				// For PVRTC1, Basis only writes (or requires) total_blocks * bytes_per_block. But GL requires extra padding for very small textures: 
+					// https://www.khronos.org/registry/OpenGL/extensions/IMG/IMG_texture_compression_pvrtc.txt
+				const uint32_t width = (orig_width + 3) & ~3;
+				const uint32_t height = (orig_height + 3) & ~3;
+				const uint32_t size_in_bytes = (std::max(8U, width) * std::max(8U, height) * 4 + 7) / 8;
+				return size_in_bytes;
+			}
+
+			return total_blocks * bytes_per_block;
+		}
+	}
+
+	// Must be called before transcodeImage() can be called. 
+	// On ETC1S files this method decompresses the ETC1S global data, along with fetching the ETC1S image desc array, so it's not free to call.
+	uint32_t startTranscoding()
+	{
+		assert(m_magic == KTX2_MAGIC);
+		if (m_magic != KTX2_MAGIC)
+			return 0;
+
+		return m_transcoder.start_transcoding();
+	}
+	
+	// get_alpha_for_opaque_formats defaults to false
+	// channel0/channel1 default to -1
+	uint32_t transcodeImage(const emscripten::val& dst, uint32_t level_index, uint32_t layer_index, uint32_t face_index, uint32_t format, uint32_t get_alpha_for_opaque_formats, int channel0, int channel1)
+	{
+		assert(m_magic == KTX2_MAGIC);
+		if (m_magic != KTX2_MAGIC)
+			return 0;
+
+		if (format >= (int)transcoder_texture_format::cTFTotalTextureFormats)
+			return 0;
+
+		const transcoder_texture_format transcoder_format = static_cast<transcoder_texture_format>(format);
+
+		ktx2_image_level_info info;
+		if (!m_transcoder.get_image_level_info(info, level_index, layer_index, face_index))
+			return 0;
+
+		uint32_t orig_width = info.m_orig_width, orig_height = info.m_orig_height, total_blocks = info.m_total_blocks;
+
+		basisu::vector<uint8_t> dst_data;
+
+		uint32_t flags = get_alpha_for_opaque_formats ? cDecodeFlagsTranscodeAlphaDataToOpaqueFormats : 0;
+
+		uint32_t status;
+
+		if (basis_transcoder_format_is_uncompressed(transcoder_format))
+		{
+			const uint32_t bytes_per_pixel = basis_get_uncompressed_bytes_per_pixel(transcoder_format);
+			const uint32_t bytes_per_line = orig_width * bytes_per_pixel;
+			const uint32_t bytes_per_slice = bytes_per_line * orig_height;
+
+			dst_data.resize(bytes_per_slice);
+
+			status = m_transcoder.transcode_image_level(
+				level_index, layer_index, face_index,
+				dst_data.data(), orig_width * orig_height,
+				transcoder_format,
+				flags,
+				orig_width,
+				orig_height,
+				channel0, channel1,
+				nullptr);
+		}
+		else
+		{
+			uint32_t bytes_per_block = basis_get_bytes_per_block_or_pixel(transcoder_format);
+
+			uint32_t required_size = total_blocks * bytes_per_block;
+
+			if (transcoder_format == transcoder_texture_format::cTFPVRTC1_4_RGB || transcoder_format == transcoder_texture_format::cTFPVRTC1_4_RGBA)
+			{
+				// For PVRTC1, Basis only writes (or requires) total_blocks * bytes_per_block. But GL requires extra padding for very small textures: 
+				// https://www.khronos.org/registry/OpenGL/extensions/IMG/IMG_texture_compression_pvrtc.txt
+				// The transcoder will clear the extra bytes followed the used blocks to 0.
+				const uint32_t width = (orig_width + 3) & ~3;
+				const uint32_t height = (orig_height + 3) & ~3;
+				required_size = (std::max(8U, width) * std::max(8U, height) * 4 + 7) / 8;
+				assert(required_size >= total_blocks * bytes_per_block);
+			}
+
+			dst_data.resize(required_size);
+
+			status = m_transcoder.transcode_image_level(
+				level_index, layer_index, face_index,
+				dst_data.data(), dst_data.size() / bytes_per_block,
+				static_cast<basist::transcoder_texture_format>(format),
+				flags,
+				0,
+				0,
+				channel0, channel1,
+				nullptr);
+		}
+
+		emscripten::val memory = emscripten::val::module_property("HEAP8")["buffer"];
+		emscripten::val memoryView = emscripten::val::global("Uint8Array").new_(memory, reinterpret_cast<uintptr_t>(dst_data.data()), dst_data.size());
+
+		dst.call<void>("set", memoryView);
+		return status;
+	}
+
+};
+#endif // BASISD_SUPPORT_KTX2
 
 #if BASISU_SUPPORT_ENCODING
 class basis_encoder
@@ -593,12 +1107,24 @@ public:
 			return 0;
 		}
 
-		// Compression succeeded, so copy the .basis file bytes to the caller's buffer.
-		if (!copy_to_jsbuffer(dst_basis_file_js_val, comp.get_output_basis_file()))
-			return 0;
+		if (params.m_create_ktx2_file)
+		{
+			// Compression succeeded, so copy the .ktx2 file bytes to the caller's buffer.
+			if (!copy_to_jsbuffer(dst_basis_file_js_val, comp.get_output_ktx2_file()))
+				return 0;
 
-		// Return the file size of the .basis file in bytes.
-		return (uint32_t)comp.get_output_basis_file().size();
+			// Return the file size of the .basis file in bytes.
+			return (uint32_t)comp.get_output_ktx2_file().size();
+		}
+		else
+		{
+			// Compression succeeded, so copy the .basis file bytes to the caller's buffer.
+			if (!copy_to_jsbuffer(dst_basis_file_js_val, comp.get_output_basis_file()))
+				return 0;
+			
+			// Return the file size of the .basis file in bytes.
+			return (uint32_t)comp.get_output_basis_file().size();
+		}
 	}
 };
 #endif
@@ -898,7 +1424,7 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
 
   // enum class transcoder_texture_format
   enum_<transcoder_texture_format>("transcoder_texture_format")
-        .value("cTFETC1_RGB", transcoder_texture_format::cTFETC1_RGB)
+      .value("cTFETC1_RGB", transcoder_texture_format::cTFETC1_RGB)
 		.value("cTFETC2_RGBA", transcoder_texture_format::cTFETC2_RGBA)
 		.value("cTFBC1_RGB", transcoder_texture_format::cTFBC1_RGB)
 		.value("cTFBC3_RGBA", transcoder_texture_format::cTFBC3_RGBA)
@@ -932,7 +1458,7 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
 
 	// Expose enum basis_texture_type
 	enum_<basis_texture_type>("basis_texture_type")
-   		.value("cBASISTexType2D", cBASISTexType2D)	
+   	.value("cBASISTexType2D", cBASISTexType2D)	
 		.value("cBASISTexType2DArray", cBASISTexType2DArray)	
 		.value("cBASISTexTypeCubemapArray", cBASISTexTypeCubemapArray)	
 		.value("cBASISTexTypeVideoFrames", cBASISTexTypeVideoFrames)	
@@ -941,11 +1467,11 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
 	
 	// Expose enum basis_tex_format
 	enum_<basis_tex_format>("basis_tex_format")
-   		.value("cETC1S", basis_tex_format::cETC1S)	
+   	.value("cETC1S", basis_tex_format::cETC1S)	
 		.value("cUASTC4x4", basis_tex_format::cUASTC4x4)	
 	;
-   
-  // Transcoder object. If all you want to do is transcode already encoded .basis files, this is all you really need.
+
+  // .basis file transcoder object. If all you want to do is transcode already encoded .basis files, this is all you really need.
   class_<basis_file>("BasisFile")
     .constructor<const emscripten::val&>()
     .function("close", optional_override([](basis_file& self) {
@@ -1016,13 +1542,137 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
   // The low-level UASTC transcoder is a single function.   
   function("transcodeUASTCImage", &transcode_uastc_image);
 
-  // Optional encoding/compression support
+  function("transcoderSupportsKTX2", &basisu_transcoder_supports_ktx2);
+  function("transcoderSupportsKTX2Zstd", &basisu_transcoder_supports_ktx2_zstd);
+
+#if BASISD_SUPPORT_KTX2
+  // KTX2 enums/constants
+  enum_<ktx2_supercompression>("ktx2_supercompression")
+	  .value("KTX2_SS_NONE", KTX2_SS_NONE)
+	  .value("KTX2_SS_BASISLZ", KTX2_SS_BASISLZ)
+	  .value("KTX2_SS_ZSTANDARD", KTX2_SS_ZSTANDARD)
+	  ;
+
+  constant("KTX2_VK_FORMAT_UNDEFINED", KTX2_VK_FORMAT_UNDEFINED);
+  constant("KTX2_KDF_DF_MODEL_UASTC", KTX2_KDF_DF_MODEL_UASTC);
+  constant("KTX2_KDF_DF_MODEL_ETC1S", KTX2_KDF_DF_MODEL_ETC1S);
+  constant("KTX2_IMAGE_IS_P_FRAME", KTX2_IMAGE_IS_P_FRAME);
+  constant("KTX2_UASTC_BLOCK_SIZE", KTX2_UASTC_BLOCK_SIZE);
+  constant("KTX2_MAX_SUPPORTED_LEVEL_COUNT", KTX2_MAX_SUPPORTED_LEVEL_COUNT);
+
+  constant("KTX2_KHR_DF_TRANSFER_LINEAR", KTX2_KHR_DF_TRANSFER_LINEAR);
+  constant("KTX2_KHR_DF_TRANSFER_SRGB", KTX2_KHR_DF_TRANSFER_SRGB);
+
+  enum_<ktx2_df_channel_id>("ktx2_df_channel_id")
+	  .value("KTX2_DF_CHANNEL_ETC1S_RGB", KTX2_DF_CHANNEL_ETC1S_RGB)
+	  .value("KTX2_DF_CHANNEL_ETC1S_RRR", KTX2_DF_CHANNEL_ETC1S_RRR)
+	  .value("KTX2_DF_CHANNEL_ETC1S_GGG", KTX2_DF_CHANNEL_ETC1S_GGG)
+	  .value("KTX2_DF_CHANNEL_ETC1S_AAA", KTX2_DF_CHANNEL_ETC1S_AAA)
+	  .value("KTX2_DF_CHANNEL_UASTC_DATA", KTX2_DF_CHANNEL_UASTC_DATA)
+	  .value("KTX2_DF_CHANNEL_UASTC_RGB", KTX2_DF_CHANNEL_UASTC_RGB)
+	  .value("KTX2_DF_CHANNEL_UASTC_RGBA", KTX2_DF_CHANNEL_UASTC_RGBA)
+	  .value("KTX2_DF_CHANNEL_UASTC_RRR", KTX2_DF_CHANNEL_UASTC_RRR)
+	  .value("KTX2_DF_CHANNEL_UASTC_RRRG", KTX2_DF_CHANNEL_UASTC_RRRG)
+	  .value("KTX2_DF_CHANNEL_UASTC_RG", KTX2_DF_CHANNEL_UASTC_RG)
+	  ;
+
+  enum_<ktx2_df_color_primaries>("ktx2_df_color_primaries")
+	  .value("KTX2_DF_PRIMARIES_UNSPECIFIED", KTX2_DF_PRIMARIES_UNSPECIFIED)
+	  .value("KTX2_DF_PRIMARIES_BT709", KTX2_DF_PRIMARIES_BT709)
+	  .value("KTX2_DF_PRIMARIES_SRGB", KTX2_DF_PRIMARIES_SRGB)
+	  .value("KTX2_DF_PRIMARIES_BT601_EBU", KTX2_DF_PRIMARIES_BT601_EBU)
+	  .value("KTX2_DF_PRIMARIES_BT601_SMPTE", KTX2_DF_PRIMARIES_BT601_SMPTE)
+	  .value("KTX2_DF_PRIMARIES_BT2020", KTX2_DF_PRIMARIES_BT2020)
+	  .value("KTX2_DF_PRIMARIES_CIEXYZ", KTX2_DF_PRIMARIES_CIEXYZ)
+	  .value("KTX2_DF_PRIMARIES_ACES", KTX2_DF_PRIMARIES_ACES)
+	  .value("KTX2_DF_PRIMARIES_ACESCC", KTX2_DF_PRIMARIES_ACESCC)
+	  .value("KTX2_DF_PRIMARIES_NTSC1953", KTX2_DF_PRIMARIES_NTSC1953)
+	  .value("KTX2_DF_PRIMARIES_PAL525", KTX2_DF_PRIMARIES_PAL525)
+	  .value("KTX2_DF_PRIMARIES_DISPLAYP3", KTX2_DF_PRIMARIES_DISPLAYP3)
+	  .value("KTX2_DF_PRIMARIES_ADOBERGB", KTX2_DF_PRIMARIES_ADOBERGB)
+	  ;
+
+  // Expose ktx2_image_level_info structure
+  value_object<ktx2_image_level_info>("KTX2ImageLevelInfo")
+	  .field("levelIndex", &ktx2_image_level_info::m_level_index)
+	  .field("layerIndex", &ktx2_image_level_info::m_layer_index)
+	  .field("faceIndex", &ktx2_image_level_info::m_face_index)
+	  .field("origWidth", &ktx2_image_level_info::m_orig_width)
+	  .field("origHeight", &ktx2_image_level_info::m_orig_height)
+	  .field("width", &ktx2_image_level_info::m_width)
+	  .field("height", &ktx2_image_level_info::m_height)
+	  .field("numBlocksX", &ktx2_image_level_info::m_num_blocks_x)
+	  .field("numBlocksY", &ktx2_image_level_info::m_num_blocks_y)
+	  .field("totalBlocks", &ktx2_image_level_info::m_total_blocks)
+	  .field("alphaFlag", &ktx2_image_level_info::m_alpha_flag)
+	  .field("iframeFlag", &ktx2_image_level_info::m_iframe_flag)
+	  ;
+
+  // Expose the ktx2_header_js structure
+  value_object<ktx2_header_js>("KTX2Header")
+	  .field("vkFormat", &ktx2_header_js::m_vk_format)
+	  .field("typeSize", &ktx2_header_js::m_type_size)
+	  .field("pixelWidth", &ktx2_header_js::m_pixel_width)
+	  .field("pixelHeight", &ktx2_header_js::m_pixel_height)
+	  .field("pixelDepth", &ktx2_header_js::m_pixel_depth)
+	  .field("layerCount", &ktx2_header_js::m_layer_count)
+	  .field("faceCount", &ktx2_header_js::m_face_count)
+	  .field("levelCount", &ktx2_header_js::m_level_count)
+	  .field("supercompressionScheme", &ktx2_header_js::m_supercompression_scheme)
+	  .field("dfdByteOffset", &ktx2_header_js::m_dfd_byte_offset)
+	  .field("dfdByteLength", &ktx2_header_js::m_dfd_byte_length)
+	  .field("kvdByteOffset", &ktx2_header_js::m_kvd_byte_offset)
+	  .field("kvdByteLength", &ktx2_header_js::m_kvd_byte_length)
+	  .field("sgdByteOffset", &ktx2_header_js::m_sgd_byte_offset)
+	  .field("sgdByteLength", &ktx2_header_js::m_sgd_byte_length)
+	  ;
+
+  // KTX2 transcoder class
+  class_<ktx2_file>("KTX2File")
+	  .constructor<const emscripten::val&>()
+	   .function("isValid", &ktx2_file::isValid)
+	   .function("close", &ktx2_file::close)
+		.function("getDFDSize", &ktx2_file::getDFDSize)
+		.function("getDFD", &ktx2_file::getDFD)
+		.function("getHeader", &ktx2_file::getHeader)
+		.function("hasKey", &ktx2_file::hasKey)
+	   .function("getTotalKeys", &ktx2_file::getTotalKeys)
+	   .function("getKey", &ktx2_file::getKey)
+		.function("getKeyValueSize", &ktx2_file::getKeyValueSize)
+		.function("getKeyValue", &ktx2_file::getKeyValue)
+		.function("getWidth", &ktx2_file::getWidth)
+		.function("getHeight", &ktx2_file::getHeight)
+		.function("getFaces", &ktx2_file::getFaces)
+		.function("getLayers", &ktx2_file::getLayers)
+	   .function("getLevels", &ktx2_file::getLevels)
+		.function("getFormat", &ktx2_file::getFormat)
+		.function("isUASTC", &ktx2_file::isUASTC)
+		.function("isETC1S", &ktx2_file::isETC1S)
+		.function("getHasAlpha", &ktx2_file::getHasAlpha)
+		.function("getDFDColorModel", &ktx2_file::getDFDColorModel)
+		.function("getDFDColorPrimaries", &ktx2_file::getDFDColorPrimaries)
+		.function("getDFDTransferFunc", &ktx2_file::getDFDTransferFunc)
+		.function("getDFDFlags", &ktx2_file::getDFDFlags)
+		.function("getDFDTotalSamples", &ktx2_file::getDFDTotalSamples)
+		.function("getDFDChannelID0", &ktx2_file::getDFDChannelID0)
+		.function("getDFDChannelID1", &ktx2_file::getDFDChannelID1)
+		.function("isVideo", &ktx2_file::isVideo)
+		.function("getETC1SImageDescImageFlags", &ktx2_file::getETC1SImageDescImageFlags)
+		.function("getImageLevelInfo", &ktx2_file::getImageLevelInfo)
+		.function("getImageTranscodedSizeInBytes", &ktx2_file::getImageTranscodedSizeInBytes)
+		.function("startTranscoding", &ktx2_file::startTranscoding)
+		.function("transcodeImage", &ktx2_file::transcodeImage)
+	  ;
+
+#endif // BASISD_SUPPORT_KTX2
+
+  // Optional encoding/compression support of .basis and .KTX2 files (the same class encodes/compresses to either format).
   
 #if BASISU_SUPPORT_ENCODING
 
 	// Compressor Constants
 	
-    constant("BASISU_MAX_SUPPORTED_TEXTURE_DIMENSION", BASISU_MAX_SUPPORTED_TEXTURE_DIMENSION);
+	constant("BASISU_MAX_SUPPORTED_TEXTURE_DIMENSION", BASISU_MAX_SUPPORTED_TEXTURE_DIMENSION);
 	constant("BASISU_DEFAULT_ENDPOINT_RDO_THRESH", BASISU_DEFAULT_ENDPOINT_RDO_THRESH);
 	constant("BASISU_DEFAULT_SELECTOR_RDO_THRESH", BASISU_DEFAULT_SELECTOR_RDO_THRESH);
 	constant("BASISU_DEFAULT_QUALITY", BASISU_DEFAULT_QUALITY);
@@ -1054,10 +1704,11 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
 	
 	constant("UASTC_RDO_DEFAULT_MAX_ALLOWED_RMS_INCREASE_RATIO", UASTC_RDO_DEFAULT_MAX_ALLOWED_RMS_INCREASE_RATIO);
 	constant("UASTC_RDO_DEFAULT_SKIP_BLOCK_RMS_THRESH", UASTC_RDO_DEFAULT_SKIP_BLOCK_RMS_THRESH);
-
+		
   // Compression/encoding object.
-  // You create this object, call the set() methods to fill in the parameters/source images/options, call encode(), and you get back a .basis file.
+  // You create this object, call the set() methods to fill in the parameters/source images/options, call encode(), and you get back a .basis or .KTX2 file.
   // You can call .encode() multiple times, changing the parameters/options in between calls.
+  // By default this class encodes to .basis, but call setCreateKTX2File() with true to get .KTX2 files.
   class_<basis_encoder>("BasisEncoder")
   	.constructor<>()
 
@@ -1088,6 +1739,7 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
 	// Enables debug output	to stdout
 	.function("setDebug", optional_override([](basis_encoder& self, bool debug_flag) {
 		self.m_params.m_debug = debug_flag;
+		g_debug_printf = debug_flag;
 	}))
 	
 	// If true, the input is assumed to be in sRGB space. Be sure to set this correctly! (Examples: True on photos, albedo/spec maps, and false on normal maps.)
@@ -1169,6 +1821,27 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
 	.function("setEndpointRDOThresh", optional_override([](basis_encoder& self, float endpoint_rdo_thresh) {
 		self.m_params.m_endpoint_rdo_thresh = endpoint_rdo_thresh;
 	}))
+
+#if BASISD_SUPPORT_KTX2
+	// --- KTX2 related options
+	// 
+	// Create .KTX2 files instead of .basis files. By default this is FALSE.
+	.function("setCreateKTX2File", optional_override([](basis_encoder& self, bool create_ktx2_file) {
+	self.m_params.m_create_ktx2_file = create_ktx2_file;
+		}))
+
+	// KTX2: Use UASTC Zstandard supercompression. Defaults to disabled or KTX2_SS_NONE.
+	.function("setKTX2UASTCSupercompression", optional_override([](basis_encoder& self, bool use_zstandard) {
+	self.m_params.m_ktx2_uastc_supercompression = use_zstandard ? basist::KTX2_SS_ZSTANDARD : basist::KTX2_SS_NONE;
+		}))
+
+	// KTX2: Use sRGB transfer func in the file's DFD. Default is FALSE. This should very probably match the "perceptual" setting.
+	.function("setKTX2SRGBTransferFunc", optional_override([](basis_encoder& self, bool srgb_transfer_func) {
+	self.m_params.m_ktx2_srgb_transfer_func = srgb_transfer_func;
+		}))
+
+	// TODO: Expose KTX2 key value array, other options to JavaScript. See encoder/basisu_comp.h.
+#endif
 	
 	// --- Mip-map options
 	

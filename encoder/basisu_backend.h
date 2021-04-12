@@ -85,6 +85,7 @@ namespace basisu
 		bool m_use_hybrid_sel_codebooks;
 
 		bool m_used_global_codebooks;
+
 		basisu_backend_params()
 		{
 			clear();
@@ -113,10 +114,12 @@ namespace basisu
 		{
 			clear();
 		}
+
 		void clear()
 		{
 			clear_obj(*this);
 		}
+
 		uint32_t m_first_block_index;
 
 		uint32_t m_orig_width;
@@ -145,6 +148,7 @@ namespace basisu
 
 		bool m_etc1s;
 		bool m_uses_global_codebooks;
+		bool m_srgb;
 
 		uint32_t m_num_endpoints;
 		uint32_t m_num_selectors;
@@ -168,6 +172,7 @@ namespace basisu
 			m_tex_format = basist::basis_tex_format::cETC1S;
 			m_etc1s = false;
 			m_uses_global_codebooks = false;
+			m_srgb = true;
 
 			m_num_endpoints = 0;
 			m_num_selectors = 0;

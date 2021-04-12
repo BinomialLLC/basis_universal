@@ -4,10 +4,10 @@ Source: https://github.com/BinomialLLC/basis_universal
 
 # We have asked Binomial about REUSE compliance for their repo, see https://github.com/BinomialLLC/basis_universal/issues/165
 Files: *
-Copyright: 2019-2020 Binomial LLC
+Copyright: 2019-2021 Binomial LLC
 License: Apache-2.0
 
-Files: encoder/apg_bmp.* CMakeLists.txt webgl/transcoder/CMakeLists.txt
+Files: encoder/apg_bmp.*
 Copyright: 2019 Anton Gerdelan
 License: Apache-2.0
 
@@ -15,6 +15,14 @@ Files: encoder/basisu_astc_decomp.*
 Copyright: 2016 The Android Open Source Project
 License: Apache-2.0
 
+Files: encoder/cppspmd_sse.h
+Copyright: Copyright 2016 Nicolas Guillemot
+License: Apache-2.0
+
 Files: encoder/lodepng.*
 Copyright: 2005-2019 Lode Vandevenne
 License: Zlib
+
+Files: zstd/*
+Copyright: 2016-present, Facebook, Inc.
+License: BSD

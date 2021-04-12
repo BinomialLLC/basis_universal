@@ -49,6 +49,8 @@ namespace basisu
 			m_header.m_flags = m_header.m_flags | basist::cBASISHeaderFlagYFlipped;
 		if (encoder_output.m_uses_global_codebooks)
 			m_header.m_flags = m_header.m_flags | basist::cBASISHeaderFlagUsesGlobalCodebook;
+		if (encoder_output.m_srgb)
+			m_header.m_flags = m_header.m_flags | basist::cBASISHeaderFlagSRGB;
 				
 		for (uint32_t i = 0; i < encoder_output.m_slice_desc.size(); i++)
 		{

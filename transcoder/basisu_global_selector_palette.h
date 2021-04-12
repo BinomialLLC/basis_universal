@@ -1,5 +1,7 @@
 // basisu_global_selector_palette.h
 // Copyright (C) 2019-2021 Binomial LLC. All Rights Reserved.
+// 
+// TODO: NONE of this is used in .basis/.ktx2 files. It will be deleted soon.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.

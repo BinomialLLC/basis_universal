@@ -1687,6 +1687,7 @@ namespace basisu
 		m_output.m_slice_desc = m_slices;
 		m_output.m_etc1s = m_params.m_etc1s;
 		m_output.m_uses_global_codebooks = m_params.m_used_global_codebooks;
+		m_output.m_srgb = m_pFront_end->get_params().m_perceptual;
 
 		create_endpoint_palette();
 		create_selector_palette();

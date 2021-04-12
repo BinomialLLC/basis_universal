@@ -104,7 +104,7 @@
       <AdditionalIncludeDirectories>ispc_texcomp</AdditionalIncludeDirectories>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <OpenMPSupport>true</OpenMPSupport>
-      <PreprocessorDefinitions>_MBCS;%(PreprocessorDefinitions);BASISU_SUPPORT_SSE=1</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_MBCS;%(PreprocessorDefinitions);BASISU_SUPPORT_SSE=1;</PreprocessorDefinitions>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -140,7 +140,7 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <AdditionalIncludeDirectories>ispc_texcomp</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>NDEBUG;_HAS_EXCEPTIONS=0;%(PreprocessorDefinitions);BASISU_SUPPORT_SSE=1</PreprocessorDefinitions>
+      <PreprocessorDefinitions>NDEBUG;_HAS_EXCEPTIONS=0;%(PreprocessorDefinitions);BASISU_SUPPORT_SSE=1;</PreprocessorDefinitions>
       <BufferSecurityCheck>false</BufferSecurityCheck>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <InlineFunctionExpansion>AnySuitable</InlineFunctionExpansion>
@@ -175,6 +175,7 @@
     <ClCompile Include="encoder\basisu_uastc_enc.cpp" />
     <ClCompile Include="encoder\jpgd.cpp" />
     <ClCompile Include="encoder\lodepng.cpp" />
+    <ClCompile Include="zstd\zstd.c" />
     <ClInclude Include="transcoder\basisu_containers_impl.h" />
     <ClCompile Include="transcoder\basisu_transcoder.cpp" />
     <ClInclude Include="encoder\apg_bmp.h" />

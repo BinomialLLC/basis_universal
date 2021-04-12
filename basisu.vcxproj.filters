@@ -62,6 +62,9 @@
     <ClCompile Include="encoder\basisu_kernels_sse.cpp">
       <Filter>encoder</Filter>
     </ClCompile>
+    <ClCompile Include="zstd\zstd.c">
+      <Filter>encoder</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="transcoder\basisu_global_selector_palette.h">

@@ -20,6 +20,20 @@
 #include "../transcoder/basisu_transcoder.h"
 #include "basisu_uastc_enc.h"
 
+#define BASISU_LIB_VERSION 115
+#define BASISU_LIB_VERSION_STRING "1.15"
+
+#ifndef BASISD_SUPPORT_KTX2
+	#error BASISD_SUPPORT_KTX2 is undefined
+#endif
+#ifndef BASISD_SUPPORT_KTX2_ZSTD
+	#error BASISD_SUPPORT_KTX2_ZSTD is undefined
+#endif
+
+#if !BASISD_SUPPORT_KTX2
+	#error BASISD_SUPPORT_KTX2 must be enabled when building the encoder. To reduce code size if KTX2 support isn't needed, set BASISD_SUPPORT_KTX2_ZSTD to 0.
+#endif
+
 namespace basisu
 {
 	const uint32_t BASISU_MAX_SUPPORTED_TEXTURE_DIMENSION = 16384;
@@ -185,7 +199,7 @@ namespace basisu
 		T m_max;
 		bool m_changed;
 	};
-		
+
 	struct basis_compressor_params
 	{
 		basis_compressor_params() :
@@ -209,6 +223,8 @@ namespace basisu
 			m_rdo_uastc_max_allowed_rms_increase_ratio(UASTC_RDO_DEFAULT_MAX_ALLOWED_RMS_INCREASE_RATIO, .01f, 100.0f),
 			m_rdo_uastc_skip_block_rms_thresh(UASTC_RDO_DEFAULT_SKIP_BLOCK_RMS_THRESH, .01f, 100.0f),
 			m_resample_factor(0.0f, .00125f, 100.0f),
+			m_ktx2_uastc_supercompression(basist::KTX2_SS_NONE),
+			m_ktx2_zstd_supercompression_level(6, INT_MIN, INT_MAX),
 			m_pJob_pool(nullptr)
 		{
 			clear();
@@ -291,6 +307,13 @@ namespace basisu
 			m_resample_factor.clear();
 
 			m_pGlobal_codebooks = nullptr;
+
+			m_create_ktx2_file.clear();
+			m_ktx2_uastc_supercompression = basist::KTX2_SS_NONE;
+			m_ktx2_key_values.clear();
+			m_ktx2_zstd_supercompression_level.clear();
+			m_ktx2_srgb_transfer_func.clear();
+
 			m_pJob_pool = nullptr;
 		}
 				
@@ -309,7 +332,7 @@ namespace basisu
 		// TODO: Allow caller to supply their own mipmaps
 						
 		// Filename of the output basis file
-		std::string m_out_filename;	
+		std::string m_out_filename;
 
 		// The params are done this way so we can detect when the user has explictly changed them.
 
@@ -335,7 +358,7 @@ namespace basisu
 		// Frontend/backend codec parameters
 		bool_param<false> m_no_hybrid_sel_cb;
 		
-		// Use perceptual sRGB colorspace metrics (for normal maps, etc.)
+		// Use perceptual sRGB colorspace metrics instead of linear
 		bool_param<true> m_perceptual;
 
 		// Disable selector RDO, for faster compression but larger files
@@ -350,7 +373,7 @@ namespace basisu
 
 		// Write the output basis file to disk using m_out_filename
 		bool_param<false> m_write_output_basis_files;
-				
+								
 		// Compute and display image metrics 
 		bool_param<false> m_compute_stats;
 		
@@ -412,6 +435,14 @@ namespace basisu
 		param<float> m_resample_factor;
 		const basist::basisu_lowlevel_etc1s_transcoder *m_pGlobal_codebooks;
 
+		// KTX2 specific parameters.
+		// Internally, the compressor always creates a .basis file then it converts that lossless to KTX2.
+		bool_param<false> m_create_ktx2_file;
+		basist::ktx2_supercompression m_ktx2_uastc_supercompression;
+		basist::ktx2_transcoder::key_value_vec m_ktx2_key_values;
+		param<int> m_ktx2_zstd_supercompression_level;
+		bool_param<false> m_ktx2_srgb_transfer_func;
+
 		job_pool *m_pJob_pool;
 	};
 	
@@ -435,20 +466,25 @@ namespace basisu
 			cECFailedBackend,
 			cECFailedCreateBasisFile,
 			cECFailedWritingOutput,
-			cECFailedUASTCRDOPostProcess
+			cECFailedUASTCRDOPostProcess,
+			cECFailedCreateKTX2File
 		};
 
 		error_code process();
 
+		// The output .basis file will always be valid of process() succeeded.
 		const uint8_vec &get_output_basis_file() const { return m_output_basis_file; }
 		
+		// The output .ktx2 file will only be valid if m_create_ktx2_file was true and process() succeeded.
+		const uint8_vec& get_output_ktx2_file() const { return m_output_ktx2_file; }
+
 		const basisu::vector<image_stats> &get_stats() const { return m_stats; }
 
 		uint32_t get_basis_file_size() const { return m_basis_file_size; }
 		double get_basis_bits_per_texel() const { return m_basis_bits_per_texel; }
 		
 		bool get_any_source_image_has_alpha() const { return m_any_source_image_has_alpha; }
-				
+								
 	private:
 		basis_compressor_params m_params;
 		
@@ -482,6 +518,7 @@ namespace basisu
 		basisu::vector<image> m_decoded_output_textures_unpacked_bc7;
 
 		uint8_vec m_output_basis_file;
+		uint8_vec m_output_ktx2_file;
 		
 		basisu::vector<gpu_image> m_uastc_slice_textures;
 		basisu_backend_output m_uastc_backend_output;
@@ -498,6 +535,9 @@ namespace basisu
 		error_code encode_slices_to_uastc();
 		bool generate_mipmaps(const image &img, basisu::vector<image> &mips, bool has_alpha);
 		bool validate_texture_type_constraints();
+		bool validate_ktx2_constraints();
+		void get_dfd(uint8_vec& dfd, const basist::ktx2_header& hdr);
+		bool create_ktx2_file();
 	};
 
 } // namespace basisu

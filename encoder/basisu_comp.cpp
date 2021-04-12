@@ -16,8 +16,18 @@
 #include "basisu_enc.h"
 #include <unordered_set>
 #include <atomic>
-#define MINIZ_NO_ZLIB_APIS
+
+// basisu_transcoder.cpp is where basisu_miniz lives now, we just need the declarations here.
+#define MINIZ_NO_ZLIB_COMPATIBLE_NAMES
 #include "basisu_miniz.h"
+
+#if !BASISD_SUPPORT_KTX2
+#error BASISD_SUPPORT_KTX2 must be enabled (set to 1).
+#endif
+
+#if BASISD_SUPPORT_KTX2_ZSTD
+#include "../zstd/zstd.h"
+#endif
 
 using namespace buminiz;
 
@@ -122,10 +132,22 @@ namespace basisu
 			PRINT_BOOL_VALUE(m_rdo_uastc_multithreading);
 
 			PRINT_FLOAT_VALUE(m_resample_factor);
-			printf("Has global codebooks: %u\n", m_params.m_pGlobal_codebooks ? 1 : 0);
+			debug_printf("Has global codebooks: %u\n", m_params.m_pGlobal_codebooks ? 1 : 0);
 			if (m_params.m_pGlobal_codebooks)
 			{
-				printf("Global codebook endpoints: %u selectors: %u\n", m_params.m_pGlobal_codebooks->get_endpoints().size(), m_params.m_pGlobal_codebooks->get_selectors().size());
+				debug_printf("Global codebook endpoints: %u selectors: %u\n", m_params.m_pGlobal_codebooks->get_endpoints().size(), m_params.m_pGlobal_codebooks->get_selectors().size());
+			}
+
+			PRINT_BOOL_VALUE(m_create_ktx2_file);
+
+			debug_printf("KTX2 UASTC supercompression: %u\n", m_params.m_ktx2_uastc_supercompression);
+			debug_printf("KTX2 Zstd supercompression level: %i\n", (int)m_params.m_ktx2_zstd_supercompression_level);
+			debug_printf("KTX2 sRGB transfer func: %u\n", (int)m_params.m_ktx2_srgb_transfer_func);
+			debug_printf("Total KTX2 key values: %u\n", m_params.m_ktx2_key_values.size());
+			for (uint32_t i = 0; i < m_params.m_ktx2_key_values.size(); i++)
+			{
+				debug_printf("Key: \"%s\"\n", m_params.m_ktx2_key_values[i].m_key.data());
+				debug_printf("Value size: %u\n", m_params.m_ktx2_key_values[i].m_value.size());
 			}
 						
 #undef PRINT_BOOL_VALUE
@@ -153,6 +175,12 @@ namespace basisu
 		if (!validate_texture_type_constraints())
 			return cECFailedValidating;
 
+		if (m_params.m_create_ktx2_file)
+		{
+			if (!validate_ktx2_constraints())
+				return cECFailedValidating;
+		}
+
 		if (!extract_source_blocks())
 			return cECFailedFrontEnd;
 
@@ -176,6 +204,12 @@ namespace basisu
 
 		if (!create_basis_file_and_transcode())
 			return cECFailedCreateBasisFile;
+		
+		if (m_params.m_create_ktx2_file)
+		{
+			if (!create_ktx2_file())
+				return cECFailedCreateKTX2File;
+		}
 
 		if (!write_output_files_and_compute_stats())
 			return cECFailedWritingOutput;
@@ -1294,20 +1328,18 @@ namespace basisu
 	{
 		debug_printf("basis_compressor::write_output_files_and_compute_stats\n");
 
-		//const basisu_backend_output& encoded_output = m_params.m_uastc ? m_uastc_backend_output : m_backend.get_output();
-
-		const uint8_vec& comp_data = m_basis_file.get_compressed_data();
+		const uint8_vec& comp_data = m_params.m_create_ktx2_file ? m_output_ktx2_file : m_basis_file.get_compressed_data();
 		if (m_params.m_write_output_basis_files)
 		{
-			const std::string& basis_filename = m_params.m_out_filename;
+			const std::string& output_filename = m_params.m_out_filename;
 
-			if (!write_vec_to_file(basis_filename.c_str(), comp_data))
+			if (!write_vec_to_file(output_filename.c_str(), comp_data))
 			{
-				error_printf("Failed writing output data to file \"%s\"\n", basis_filename.c_str());
+				error_printf("Failed writing output data to file \"%s\"\n", output_filename.c_str());
 				return false;
 			}
 
-			printf("Wrote output .basis file \"%s\"\n", basis_filename.c_str());
+			printf("Wrote output .basis/.ktx2 file \"%s\"\n", output_filename.c_str());
 		}
 
 		size_t comp_size = 0;
@@ -1509,6 +1541,476 @@ namespace basisu
 			}
 		}
 				
+		return true;
+	}
+	
+	// Make sure all the mip 0's have the same dimensions and number of mipmap levels, or we can't encode the KTX2 file.
+	bool basis_compressor::validate_ktx2_constraints()
+	{
+		uint32_t base_width = 0, base_height = 0;
+		uint32_t total_layers = 0;
+		for (uint32_t i = 0; i < m_slice_descs.size(); i++)
+		{
+			if (m_slice_descs[i].m_mip_index == 0)
+			{
+				if (!base_width)
+				{
+					base_width = m_slice_descs[i].m_orig_width;
+					base_height = m_slice_descs[i].m_orig_height;
+				}
+				else
+				{
+					if ((m_slice_descs[i].m_orig_width != base_width) || (m_slice_descs[i].m_orig_height != base_height))
+					{
+						return false;
+					}
+				}
+
+				total_layers = maximum<uint32_t>(total_layers, m_slice_descs[i].m_source_file_index + 1);
+			}
+		}
+
+		basisu::vector<uint32_t> total_mips(total_layers);
+		for (uint32_t i = 0; i < m_slice_descs.size(); i++)
+			total_mips[m_slice_descs[i].m_source_file_index] = maximum<uint32_t>(total_mips[m_slice_descs[i].m_source_file_index], m_slice_descs[i].m_mip_index + 1);
+
+		for (uint32_t i = 1; i < total_layers; i++)
+		{
+			if (total_mips[0] != total_mips[i])
+			{
+				return false;
+			}
+		}
+
+		return true;
+	}
+
+	static uint8_t g_ktx2_etc1s_nonalpha_dfd[44] = { 0x2C,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x2,0x0,0x28,0x0,0xA3,0x1,0x2,0x0,0x3,0x3,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x3F,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0xFF,0xFF,0xFF,0xFF };
+	static uint8_t g_ktx2_etc1s_alpha_dfd[60] = { 0x3C,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x2,0x0,0x38,0x0,0xA3,0x1,0x2,0x0,0x3,0x3,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x3F,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0xFF,0xFF,0xFF,0xFF,0x40,0x0,0x3F,0xF,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0xFF,0xFF,0xFF,0xFF };
+	static uint8_t g_ktx2_uastc_nonalpha_dfd[44] = { 0x2C,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x2,0x0,0x28,0x0,0xA6,0x1,0x2,0x0,0x3,0x3,0x0,0x0,0x10,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x7F,0x4,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0xFF,0xFF,0xFF,0xFF };
+	static uint8_t g_ktx2_uastc_alpha_dfd[44] = { 0x2C,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x2,0x0,0x28,0x0,0xA6,0x1,0x2,0x0,0x3,0x3,0x0,0x0,0x10,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x7F,0x3,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0xFF,0xFF,0xFF,0xFF };
+		
+	void basis_compressor::get_dfd(uint8_vec &dfd, const basist::ktx2_header &header)
+	{
+		const uint8_t* pDFD;
+		uint32_t dfd_len;
+
+		if (m_params.m_uastc)
+		{
+			if (m_any_source_image_has_alpha)
+			{
+				pDFD = g_ktx2_uastc_alpha_dfd;
+				dfd_len = sizeof(g_ktx2_uastc_alpha_dfd);
+			}
+			else
+			{
+				pDFD = g_ktx2_uastc_nonalpha_dfd;
+				dfd_len = sizeof(g_ktx2_uastc_nonalpha_dfd);
+			}
+		}
+		else
+		{
+			if (m_any_source_image_has_alpha)
+			{
+				pDFD = g_ktx2_etc1s_alpha_dfd;
+				dfd_len = sizeof(g_ktx2_etc1s_alpha_dfd);
+			}
+			else
+			{
+				pDFD = g_ktx2_etc1s_nonalpha_dfd;
+				dfd_len = sizeof(g_ktx2_etc1s_nonalpha_dfd);
+			}
+		}
+				
+		assert(dfd_len >= 44);
+
+		dfd.resize(dfd_len);
+		memcpy(dfd.data(), pDFD, dfd_len);
+
+		uint32_t dfd_bits = basisu::read_le_dword(dfd.data() + 3 * sizeof(uint32_t));
+		
+		dfd_bits &= ~(0xFF << 16);
+
+		if (m_params.m_ktx2_srgb_transfer_func)
+			dfd_bits |= (basist::KTX2_KHR_DF_TRANSFER_SRGB << 16);
+		else
+			dfd_bits |= (basist::KTX2_KHR_DF_TRANSFER_LINEAR << 16);
+
+		basisu::write_le_dword(dfd.data() + 3 * sizeof(uint32_t), dfd_bits);
+
+		if (header.m_supercompression_scheme != basist::KTX2_SS_NONE)
+		{
+			uint32_t plane_bits = basisu::read_le_dword(dfd.data() + 5 * sizeof(uint32_t));
+
+			plane_bits &= ~0xFF;
+
+			basisu::write_le_dword(dfd.data() + 5 * sizeof(uint32_t), plane_bits);
+		}
+
+		// Fix up the DFD channel(s)
+		uint32_t dfd_chan0 = basisu::read_le_dword(dfd.data() + 7 * sizeof(uint32_t));
+
+		if (m_params.m_uastc)
+		{
+			dfd_chan0 &= ~(0xF << 24);
+			
+			// TODO: Allow the caller to override this
+			if (m_any_source_image_has_alpha)
+				dfd_chan0 |= (basist::KTX2_DF_CHANNEL_UASTC_RGBA << 24);
+			else
+				dfd_chan0 |= (basist::KTX2_DF_CHANNEL_UASTC_RGB << 24);
+		}
+
+		basisu::write_le_dword(dfd.data() + 7 * sizeof(uint32_t), dfd_chan0);
+	}
+
+	bool basis_compressor::create_ktx2_file()
+	{
+		if (m_params.m_uastc)
+		{
+			if ((m_params.m_ktx2_uastc_supercompression != basist::KTX2_SS_NONE) && (m_params.m_ktx2_uastc_supercompression != basist::KTX2_SS_ZSTANDARD))
+				return false;
+		}
+
+		const basisu_backend_output& backend_output = m_backend.get_output();
+
+		// Determine the width/height, number of array layers, mipmap levels, and the number of faces (1 for 2D, 6 for cubemap).
+		// This does not support 1D or 3D.
+		uint32_t base_width = 0, base_height = 0, total_layers = 0, total_levels = 0, total_faces = 1;
+				
+		for (uint32_t i = 0; i < m_slice_descs.size(); i++)
+		{
+			if ((m_slice_descs[i].m_mip_index == 0) && (!base_width))
+			{
+				base_width = m_slice_descs[i].m_orig_width;
+				base_height = m_slice_descs[i].m_orig_height;
+			}
+
+			total_layers = maximum<uint32_t>(total_layers, m_slice_descs[i].m_source_file_index + 1);
+
+			if (!m_slice_descs[i].m_source_file_index)
+				total_levels = maximum<uint32_t>(total_levels, m_slice_descs[i].m_mip_index + 1);
+		}
+
+		if (m_params.m_tex_type == basist::cBASISTexTypeCubemapArray)
+		{
+			assert((total_layers % 6) == 0);
+			
+			total_layers /= 6;
+			assert(total_layers >= 1);
+
+			total_faces = 6;
+		}
+
+		basist::ktx2_header header;
+		memset(&header, 0, sizeof(header));
+
+		memcpy(header.m_identifier, basist::g_ktx2_file_identifier, sizeof(basist::g_ktx2_file_identifier));
+		header.m_pixel_width = base_width;
+		header.m_pixel_height = base_height;
+		header.m_face_count = total_faces;
+		header.m_vk_format = basist::KTX2_VK_FORMAT_UNDEFINED;
+		header.m_type_size = 1;
+		header.m_level_count = total_levels;
+		header.m_layer_count = (total_layers > 1) ? total_layers : 0;
+
+		if (m_params.m_uastc)
+		{
+			switch (m_params.m_ktx2_uastc_supercompression)
+			{
+			case basist::KTX2_SS_NONE:
+			{
+				header.m_supercompression_scheme = basist::KTX2_SS_NONE;
+				break;
+			}
+			case basist::KTX2_SS_ZSTANDARD:
+			{
+#if BASISD_SUPPORT_KTX2_ZSTD
+				header.m_supercompression_scheme = basist::KTX2_SS_ZSTANDARD;
+#else
+				header.m_supercompression_scheme = basist::KTX2_SS_NONE;
+#endif
+				break;
+			}
+			default: assert(0); return false;
+			}
+		}
+
+		basisu::vector<uint8_vec> level_data_bytes(total_levels);
+		basisu::vector<uint8_vec> compressed_level_data_bytes(total_levels);
+		uint_vec slice_level_offsets(m_slice_descs.size());
+
+		// This will append the texture data in the correct order (for each level: layer, then face).
+		for (uint32_t slice_index = 0; slice_index < m_slice_descs.size(); slice_index++)
+		{
+			const basisu_backend_slice_desc& slice_desc = m_slice_descs[slice_index];
+
+			slice_level_offsets[slice_index] = level_data_bytes[slice_desc.m_mip_index].size();
+
+			if (m_params.m_uastc)
+				append_vector(level_data_bytes[slice_desc.m_mip_index], m_uastc_backend_output.m_slice_image_data[slice_index]);
+			else
+				append_vector(level_data_bytes[slice_desc.m_mip_index], backend_output.m_slice_image_data[slice_index]);
+		}
+
+		// UASTC supercompression
+		if ((m_params.m_uastc) && (header.m_supercompression_scheme == basist::KTX2_SS_ZSTANDARD))
+		{
+#if BASISD_SUPPORT_KTX2_ZSTD
+			for (uint32_t level_index = 0; level_index < total_levels; level_index++)
+			{
+				compressed_level_data_bytes[level_index].resize(ZSTD_compressBound(level_data_bytes[level_index].size()));
+
+				size_t result = ZSTD_compress(compressed_level_data_bytes[level_index].data(), compressed_level_data_bytes[level_index].size(),
+					level_data_bytes[level_index].data(), level_data_bytes[level_index].size(),
+					m_params.m_ktx2_zstd_supercompression_level);
+
+				if (ZSTD_isError(result))
+					return false;
+
+				compressed_level_data_bytes[level_index].resize(result);
+			}
+#else
+			// Can't get here
+			assert(0);
+			return false;
+#endif
+		}
+		else
+		{
+			// No supercompression
+			compressed_level_data_bytes = level_data_bytes;
+		}
+				
+		uint8_vec etc1s_global_data;
+
+		// Create ETC1S global supercompressed data
+		if (!m_params.m_uastc)
+		{
+			basist::ktx2_etc1s_global_data_header etc1s_global_data_header;
+			clear_obj(etc1s_global_data_header);
+
+			etc1s_global_data_header.m_endpoint_count = backend_output.m_num_endpoints;
+			etc1s_global_data_header.m_selector_count = backend_output.m_num_selectors;
+			etc1s_global_data_header.m_endpoints_byte_length = backend_output.m_endpoint_palette.size();
+			etc1s_global_data_header.m_selectors_byte_length = backend_output.m_selector_palette.size();
+			etc1s_global_data_header.m_tables_byte_length = backend_output.m_slice_image_tables.size();
+
+			basisu::vector<basist::ktx2_etc1s_image_desc> etc1s_image_descs(total_levels * total_layers * total_faces);
+			memset(etc1s_image_descs.data(), 0, etc1s_image_descs.size_in_bytes());
+
+			for (uint32_t slice_index = 0; slice_index < m_slice_descs.size(); slice_index++)
+			{
+				const basisu_backend_slice_desc& slice_desc = m_slice_descs[slice_index];
+
+				const uint32_t level_index = slice_desc.m_mip_index;
+				uint32_t layer_index = slice_desc.m_source_file_index;
+				uint32_t face_index = 0;
+
+				if (m_params.m_tex_type == basist::cBASISTexTypeCubemapArray)
+				{
+					face_index = layer_index % 6;
+					layer_index /= 6;
+				}
+
+				const uint32_t etc1s_image_index = level_index * (total_layers * total_faces) + layer_index * total_faces + face_index;
+
+				if (slice_desc.m_alpha)
+				{
+					etc1s_image_descs[etc1s_image_index].m_alpha_slice_byte_length = backend_output.m_slice_image_data[slice_index].size();
+					etc1s_image_descs[etc1s_image_index].m_alpha_slice_byte_offset = slice_level_offsets[slice_index];
+				}
+				else
+				{
+					if (m_params.m_tex_type == basist::cBASISTexTypeVideoFrames)
+						etc1s_image_descs[etc1s_image_index].m_image_flags = !slice_desc.m_iframe ? basist::KTX2_IMAGE_IS_P_FRAME : 0;
+
+					etc1s_image_descs[etc1s_image_index].m_rgb_slice_byte_length = backend_output.m_slice_image_data[slice_index].size();
+					etc1s_image_descs[etc1s_image_index].m_rgb_slice_byte_offset = slice_level_offsets[slice_index];
+				}
+			} // slice_index
+
+			append_vector(etc1s_global_data, (const uint8_t*)&etc1s_global_data_header, sizeof(etc1s_global_data_header));
+			append_vector(etc1s_global_data, (const uint8_t*)etc1s_image_descs.data(), etc1s_image_descs.size_in_bytes());
+			append_vector(etc1s_global_data, backend_output.m_endpoint_palette);
+			append_vector(etc1s_global_data, backend_output.m_selector_palette);
+			append_vector(etc1s_global_data, backend_output.m_slice_image_tables);
+			
+			header.m_supercompression_scheme = basist::KTX2_SS_BASISLZ;
+		}
+
+		// Key values
+		basist::ktx2_transcoder::key_value_vec key_values(m_params.m_ktx2_key_values);
+		key_values.enlarge(1);
+		
+		const char* pKTXwriter = "KTXwriter";
+		key_values.back().m_key.resize(strlen(pKTXwriter) + 1);
+		memcpy(key_values.back().m_key.data(), pKTXwriter, strlen(pKTXwriter) + 1);
+
+		char writer_id[128];
+#ifdef _MSC_VER
+		sprintf_s(writer_id, sizeof(writer_id), "Basis Universal %s", BASISU_LIB_VERSION_STRING);
+#else
+		snprintf(writer_id, sizeof(writer_id), "Basis Universal %s", BASISU_LIB_VERSION_STRING);
+#endif
+		key_values.back().m_value.resize(strlen(writer_id) + 1);
+		memcpy(key_values.back().m_value.data(), writer_id, strlen(writer_id) + 1);
+
+		key_values.sort();
+
+		uint8_vec key_value_data;
+
+		// DFD
+		uint8_vec dfd;
+		get_dfd(dfd, header);
+
+		const uint32_t kvd_file_offset = sizeof(header) + sizeof(basist::ktx2_level_index) * total_levels + dfd.size();
+
+		for (uint32_t pass = 0; pass < 2; pass++)
+		{
+			for (uint32_t i = 0; i < key_values.size(); i++)
+			{
+				if (key_values[i].m_key.size() < 2)
+					return false;
+
+				if (key_values[i].m_key.back() != 0)
+					return false;
+
+				const uint64_t total_len = (uint64_t)key_values[i].m_key.size() + (uint64_t)key_values[i].m_value.size();
+				if (total_len >= UINT32_MAX)
+					return false;
+
+				packed_uint<4> le_len((uint32_t)total_len);
+				append_vector(key_value_data, (const uint8_t*)&le_len, sizeof(le_len));
+
+				append_vector(key_value_data, key_values[i].m_key);
+				append_vector(key_value_data, key_values[i].m_value);
+
+				const uint32_t ofs = key_value_data.size() & 3;
+				const uint32_t padding = (4 - ofs) & 3;
+				for (uint32_t p = 0; p < padding; p++)
+					key_value_data.push_back(0);
+			}
+
+			if (header.m_supercompression_scheme != basist::KTX2_SS_NONE)
+				break;
+			
+			// Hack to ensure the KVD block ends on a 16 byte boundary, because we have no other official way of aligning the data.
+			uint32_t kvd_end_file_offset = kvd_file_offset + key_value_data.size();
+			uint32_t bytes_needed_to_pad = (16 - (kvd_end_file_offset & 15)) & 15;
+			if (!bytes_needed_to_pad)
+			{
+				// We're good. No need to add a dummy key.
+				break;
+			}
+
+			assert(!pass);
+			if (pass)
+				return false;
+
+			if (bytes_needed_to_pad < 6)
+				bytes_needed_to_pad += 16;
+
+			printf("WARNING: Due to a KTX2 validator bug related to mipPadding, we must insert a dummy key into the KTX2 file of %u bytes\n", bytes_needed_to_pad);
+			
+			// We're not good - need to add a dummy key large enough to force file alignment so the mip level array gets aligned. 
+			// We can't just add some bytes before the mip level array because ktx2check will see that as extra data in the file that shouldn't be there in ktxValidator::validateDataSize().
+			key_values.enlarge(1);
+			for (uint32_t i = 0; i < (bytes_needed_to_pad - 4 - 1 - 1); i++)
+				key_values.back().m_key.push_back(127);
+			
+			key_values.back().m_key.push_back(0);
+
+			key_values.back().m_value.push_back(0);
+
+			key_values.sort();
+
+			key_value_data.resize(0);
+			
+			// Try again
+		}
+
+		basisu::vector<basist::ktx2_level_index> level_index_array(total_levels);
+		memset(level_index_array.data(), 0, level_index_array.size_in_bytes());
+				
+		m_output_ktx2_file.clear();
+		m_output_ktx2_file.reserve(m_output_basis_file.size());
+
+		// Dummy header
+		m_output_ktx2_file.resize(sizeof(header));
+
+		// Level index array
+		append_vector(m_output_ktx2_file, (const uint8_t*)level_index_array.data(), level_index_array.size_in_bytes());
+				
+		// DFD
+		const uint8_t* pDFD = dfd.data();
+		uint32_t dfd_len = dfd.size();
+
+		header.m_dfd_byte_offset = m_output_ktx2_file.size();
+		header.m_dfd_byte_length = dfd_len;
+		append_vector(m_output_ktx2_file, pDFD, dfd_len);
+
+		// Key value data
+		if (key_value_data.size())
+		{
+			assert(kvd_file_offset == m_output_ktx2_file.size());
+
+			header.m_kvd_byte_offset = m_output_ktx2_file.size();
+			header.m_kvd_byte_length = key_value_data.size();
+			append_vector(m_output_ktx2_file, key_value_data);
+		}
+
+		// Global Supercompressed Data
+		if (etc1s_global_data.size())
+		{
+			uint32_t ofs = m_output_ktx2_file.size() & 7;
+			uint32_t padding = (8 - ofs) & 7;
+			for (uint32_t i = 0; i < padding; i++)
+				m_output_ktx2_file.push_back(0);
+
+			header.m_sgd_byte_length = etc1s_global_data.size();
+			header.m_sgd_byte_offset = m_output_ktx2_file.size();
+
+			append_vector(m_output_ktx2_file, etc1s_global_data);
+		}
+
+		// mipPadding
+		if (header.m_supercompression_scheme == basist::KTX2_SS_NONE)
+		{
+			// We currently can't do this or the validator will incorrectly give an error.
+			uint32_t ofs = m_output_ktx2_file.size() & 15;
+			uint32_t padding = (16 - ofs) & 15;
+
+			// Make sure we're always aligned here (due to a validator bug).
+			assert(!padding);
+			if (padding)
+			{
+				printf("WARNING: KTX2 mip level data is not 16-byte aligned! This will trigger a ktx2check validation bug.\n");
+			}
+
+			for (uint32_t i = 0; i < padding; i++)
+				m_output_ktx2_file.push_back(0);
+		}
+
+		// Level data - write the smallest mipmap first.
+		for (int level = total_levels - 1; level >= 0; level--)
+		{
+			level_index_array[level].m_byte_length = compressed_level_data_bytes[level].size();
+			if (m_params.m_uastc)
+				level_index_array[level].m_uncompressed_byte_length = level_data_bytes[level].size();
+
+			level_index_array[level].m_byte_offset = m_output_ktx2_file.size();
+			append_vector(m_output_ktx2_file, compressed_level_data_bytes[level]);
+		}
+		
+		// Write final header
+		memcpy(m_output_ktx2_file.data(), &header, sizeof(header));
+
+		// Write final level index array
+		memcpy(m_output_ktx2_file.data() + sizeof(header), level_index_array.data(), level_index_array.size_in_bytes());
+
+		debug_printf("Total .ktx2 output file size: %u\n", m_output_ktx2_file.size());
+
 		return true;
 	}
 
