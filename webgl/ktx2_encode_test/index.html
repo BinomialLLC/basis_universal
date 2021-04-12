@@ -1,0 +1,675 @@
+<html>
+<head>
+<script src="renderer.js"></script>
+<script src="dxt-to-rgb565.js"></script>
+<script src="../encoder/build/basis_encoder.js"></script>
+<script type="text/javascript">
+
+function log(s) {
+  var div = document.createElement('div');
+  div.innerHTML = s;
+  document.getElementById('logger').appendChild(div);
+}
+
+function logTime(desc, t) {
+  log(t + 'ms ' + desc);
+}
+
+function isDef(v) {
+  return typeof v != 'undefined';
+}
+
+function elem(id) {
+  return document.getElementById(id);
+}
+
+formatTable = function(rows) {
+  var colLengths = [];
+
+  for (var i = 0; i < rows.length; i++) {
+    var row = rows[i];
+    for (var j = 0; j < row.length; j++) {
+      if (colLengths.length <= j) colLengths.push(0);
+      if (colLengths[j] < row[j].length) colLengths[j] = row[j].length;
+    }
+  }
+
+  function formatRow(row) {
+    var parts = [];
+    for (var i = 0; i < colLengths.length; i++) {
+      var s = row.length > i ? row[i] : '';
+      var padding = (new Array(1 + colLengths[i] - s.length)).join(' ');
+      if (s && s[0] >= '0' && s[0] <= '9') {
+        // Right-align numbers.
+        parts.push(padding + s);
+      } else {
+        parts.push(s + padding);
+      }
+    }
+    return parts.join(' | ');
+  }
+
+  var width = 0;
+  for (var i = 0; i < colLengths.length; i++) {
+    width += colLengths[i];
+    // Add another 3 for the separator.
+    if (i != 0) width += 3;
+  }
+
+  var lines = [];
+  lines.push(formatRow(rows[0]));
+  lines.push((new Array(width + 1)).join('-'));
+  for (var i = 1; i < rows.length; i++) {
+    lines.push(formatRow(rows[i]));
+  }
+
+  return lines.join('\n');
+};
+
+
+function loadArrayBuffer(uri, callback) {
+  log('Loading ' + uri + '...');
+  var xhr = new XMLHttpRequest();
+  xhr.responseType = "arraybuffer";
+  xhr.open('GET', uri, true);
+  xhr.onreadystatechange = function(e) {
+    if (xhr.readyState == 4 && xhr.status == 200) {
+      callback(xhr.response);
+    }
+  }
+  xhr.send(null);
+}
+
+// ASTC format, from:
+// https://www.khronos.org/registry/webgl/extensions/WEBGL_compressed_texture_astc/
+COMPRESSED_RGBA_ASTC_4x4_KHR = 0x93B0;
+
+// DXT formats, from:
+// http://www.khronos.org/registry/webgl/extensions/WEBGL_compressed_texture_s3tc/
+COMPRESSED_RGB_S3TC_DXT1_EXT  = 0x83F0;
+COMPRESSED_RGBA_S3TC_DXT1_EXT = 0x83F1;
+COMPRESSED_RGBA_S3TC_DXT3_EXT = 0x83F2;
+COMPRESSED_RGBA_S3TC_DXT5_EXT = 0x83F3;
+
+// BC7 format, from:
+// https://www.khronos.org/registry/webgl/extensions/EXT_texture_compression_bptc/
+COMPRESSED_RGBA_BPTC_UNORM = 0x8E8C;
+
+// ETC format, from:
+// https://www.khronos.org/registry/webgl/extensions/WEBGL_compressed_texture_etc1/
+COMPRESSED_RGB_ETC1_WEBGL = 0x8D64;
+
+// PVRTC format, from:
+// https://www.khronos.org/registry/webgl/extensions/WEBGL_compressed_texture_pvrtc/
+COMPRESSED_RGB_PVRTC_4BPPV1_IMG = 0x8C00;
+COMPRESSED_RGBA_PVRTC_4BPPV1_IMG = 0x8C02;
+
+// Same as the Module.transcoder_texture_format enum
+BASIS_FORMAT = {
+  cTFETC1: 0,
+  cTFETC2: 1,
+  cTFBC1: 2,
+  cTFBC3: 3,
+  cTFBC4: 4,
+  cTFBC5: 5,
+  cTFBC7: 6,
+  cTFPVRTC1_4_RGB: 8,
+  cTFPVRTC1_4_RGBA: 9,
+  cTFASTC_4x4: 10,
+  cTFATC_RGB: 11,
+  cTFATC_RGBA_INTERPOLATED_ALPHA: 12,
+  cTFRGBA32: 13,
+  cTFRGB565: 14,
+  cTFBGR565: 15,
+  cTFRGBA4444: 16,
+  cTFFXT1_RGB: 17,
+  cTFPVRTC2_4_RGB: 18,
+  cTFPVRTC2_4_RGBA: 19,
+  cTFETC2_EAC_R11: 20,				
+  cTFETC2_EAC_RG11: 21	
+};
+
+BASIS_FORMAT_NAMES = {};
+for (var name in BASIS_FORMAT) {
+  BASIS_FORMAT_NAMES[BASIS_FORMAT[name]] = name;
+}
+
+DXT_FORMAT_MAP = {};
+DXT_FORMAT_MAP[BASIS_FORMAT.cTFBC1] = COMPRESSED_RGB_S3TC_DXT1_EXT;
+DXT_FORMAT_MAP[BASIS_FORMAT.cTFBC3] = COMPRESSED_RGBA_S3TC_DXT5_EXT;
+DXT_FORMAT_MAP[BASIS_FORMAT.cTFBC7] = COMPRESSED_RGBA_BPTC_UNORM; 
+
+var astcSupported = false;
+var etcSupported = false;
+var dxtSupported = false;
+var bc7Supported = false;
+var pvrtcSupported = false;
+var drawMode = 0;
+
+var tex, width, height, images, levels, have_alpha, alignedWidth, alignedHeight, format, displayWidth, displayHeight;
+
+function redraw()
+{
+  if (!width)
+   return;
+
+  renderer.drawTexture(tex, displayWidth, displayHeight, drawMode);
+}
+
+function dumpKTX2FileDesc(ktx2File)
+{
+  log('------');  
+  
+  log('Width: ' + ktx2File.getWidth());
+  log('Height: ' + ktx2File.getHeight());
+  log('Faces: ' + ktx2File.getFaces());
+  log('Layers: ' + ktx2File.getLayers());
+  log('Levels: ' + ktx2File.getLevels());
+  log('isUASTC: ' + ktx2File.isUASTC());
+  log('isETC1S: ' + ktx2File.isETC1S());
+  log('Format: ' + ktx2File.getFormat());
+  log('Has alpha: ' + ktx2File.getHasAlpha());
+  log('Total Keys: ' + ktx2File.getTotalKeys());
+  log('DFD Size: ' + ktx2File.getDFDSize());
+  log('DFD Color Model: ' + ktx2File.getDFDColorModel());
+  log('DFD Color Primaries: ' + ktx2File.getDFDColorPrimaries());
+  log('DFD Transfer Function: ' + ktx2File.getDFDTransferFunc());
+  log('DFD Flags: ' + ktx2File.getDFDFlags());
+  log('DFD Total Samples: ' + ktx2File.getDFDTotalSamples());
+  log('DFD Channel0: ' + ktx2File.getDFDChannelID0());
+  log('DFD Channel1: ' + ktx2File.getDFDChannelID1());
+  log('Is Video: ' + ktx2File.isVideo());
+  
+  var dfdSize = ktx2File.getDFDSize();
+  var dvdData = new Uint8Array(dfdSize);
+  ktx2File.getDFD(dvdData);
+
+  log('DFD bytes:' + dvdData.toString());
+  log('--');
+
+  log('--');
+  log('Key values:');  
+  var key_index;
+  for (key_index = 0; key_index < ktx2File.getTotalKeys(); key_index++)  
+  {
+  	var key_name = ktx2File.getKey(key_index);
+	log('Key ' + key_index + ': "' + key_name + '"');
+	
+	var valSize = ktx2File.getKeyValueSize(key_name);
+
+	if (valSize != 0)
+	{	
+		var val_data = new Uint8Array(valSize);
+		var status = ktx2File.getKeyValue(key_name, val_data);
+		if (!status)
+			log('getKeyValue() failed');
+		else
+		{
+			log('value size: ' + val_data.length);
+			var i, str = "";
+			
+			for (i = 0; i < val_data.length; i++)
+			{
+				var c = val_data[i];
+				str = str + String.fromCharCode(c);
+			}
+			
+			log(str);
+		}
+			
+	}
+	else
+		log('<empty value>');
+  }
+  
+  log('--');
+  log('Image level information:');
+  var level_index;
+  for (level_index = 0; level_index < ktx2File.getLevels(); level_index++)
+  {
+	  var layer_index;
+	  for (layer_index = 0; layer_index < Math.max(1, ktx2File.getLayers()); layer_index++)
+	  { 	
+  		var face_index;
+		for (face_index = 0; face_index < ktx2File.getFaces(); face_index++)
+		{
+			var imageLevelInfo = ktx2File.getImageLevelInfo(level_index, layer_index, face_index);
+			
+			log('level: ' + level_index + ' layer: ' + layer_index + ' face: ' + face_index);
+			
+			log('orig_width: ' + imageLevelInfo.origWidth);
+			log('orig_height: ' + imageLevelInfo.origHeight);
+			log('width: ' + imageLevelInfo.width);
+			log('height: ' + imageLevelInfo.height);
+			log('numBlocksX: ' + imageLevelInfo.numBlocksX);
+			log('numBlocksY: ' + imageLevelInfo.numBlocksY);
+			log('totalBlocks: ' + imageLevelInfo.totalBlocks);
+			log('alphaFlag: ' + imageLevelInfo.alphaFlag);
+			log('iframeFlag: ' + imageLevelInfo.iframeFlag);
+			if (ktx2File.isETC1S())
+				log('ETC1S image desc image flags: ' + ktx2File.getETC1SImageDescImageFlags(level_index, layer_index, face_index));
+				
+			log('--');
+		}
+	 }
+  }
+  log('--');
+  log('KTX2 header:');
+  var hdr = ktx2File.getHeader();
+  
+  log('vkFormat: ' + hdr.vkFormat);
+  log('typeSize: ' + hdr.typeSize);
+  log('pixelWidth: ' + hdr.pixelWidth);
+  log('pixelHeight: ' + hdr.pixelHeight);
+  log('pixelDepth: ' + hdr.pixelDepth);
+  log('layerCount: ' + hdr.layerCount);
+  log('faceCount: ' + hdr.faceCount);
+  log('levelCount: ' + hdr.levelCount);
+  log('superCompressionScheme: ' + hdr.supercompressionScheme);
+  log('dfdByteOffset: ' + hdr.dfdByteOffset);
+  log('dfdByteLength: ' + hdr.dfdByteLength);
+  log('kvdByteOffset: ' + hdr.kvdByteOffset);
+  log('kvdByteLength: ' + hdr.kvdByteLength);
+  log('sgdByteOffset: ' + hdr.sgdByteOffset);
+  log('sgdByteLength: ' + hdr.sgdByteLength);
+  
+  log('------');
+}
+
+function dataLoaded(data)
+{
+  log('Done loading .ktx2 file, decoded header:');
+
+  const { KTX2File, initializeBasis, encodeBasisTexture } = Module;
+  initializeBasis();
+
+  const startTime = performance.now();
+
+  const ktx2File = new KTX2File(new Uint8Array(data));
+  
+  if (!ktx2File.isValid())
+  {
+  	console.warn('Invalid or unsupported .ktx2 file');
+    ktx2File.close();
+    ktx2File.delete();
+    return;
+  }
+
+  width = ktx2File.getWidth();
+  height = ktx2File.getHeight();
+  layers = ktx2File.getLayers();
+  levels = ktx2File.getLevels();
+  faces = ktx2File.getFaces();
+  has_alpha = ktx2File.getHasAlpha();
+    
+  if (!width || !height || !levels) {
+    console.warn('Invalid .ktx2 file');
+    ktx2File.close();
+    ktx2File.delete();
+    return;
+  }
+  
+  // Note: If the file is UASTC, the preferred formats are ASTC/BC7.
+  // If the file is ETC1S and doesn't have alpha, the preferred formats are ETC1 and BC1. For alpha, the preferred formats are ETC2, BC3 or BC7. 
+
+  var formatString = 'UNKNOWN';
+  if (astcSupported)
+  {
+    formatString = 'ASTC';
+    format = BASIS_FORMAT.cTFASTC_4x4;
+  }
+  else if (bc7Supported)
+  {
+    formatString = 'BC7';
+    format = BASIS_FORMAT.cTFBC7;
+  }
+  else if (dxtSupported)
+  {
+    if (has_alpha)
+    {
+      formatString = 'BC3';
+      format = BASIS_FORMAT.cTFBC3;
+    }
+    else
+    {
+      formatString = 'BC1';
+      format = BASIS_FORMAT.cTFBC1;
+    }
+  }
+  else if (pvrtcSupported)
+  {
+    if (has_alpha)
+    {
+      formatString = 'PVRTC1_RGBA';
+      format = BASIS_FORMAT.cTFPVRTC1_4_RGBA;
+    }
+    else
+    {
+      formatString = 'PVRTC1_RGB';
+      format = BASIS_FORMAT.cTFPVRTC1_4_RGB;
+    }
+    
+    if (
+         ((width & (width - 1)) != 0) || ((height & (height - 1)) != 0)
+        )
+    {
+      log('ERROR: PVRTC1 requires square power of 2 textures');
+    }
+    if (width != height)
+    {
+      log('ERROR: PVRTC1 requires square power of 2 textures');    
+    }
+  }
+  else if (etcSupported)
+  {
+    formatString = 'ETC1';
+    format = BASIS_FORMAT.cTFETC1;
+  }
+  else
+  {
+    formatString = 'RGB565';
+    format = BASIS_FORMAT.cTFRGB565;
+    log('Decoding .basis data to 565');
+  }
+
+  elem('format').innerText = formatString;
+
+  if (!ktx2File.startTranscoding()) {
+    log('startTranscoding failed');
+    console.warn('startTranscoding failed');
+    basisFile.close();
+    basisFile.delete();
+    return;
+  }
+  
+  dumpKTX2FileDesc(ktx2File);
+
+  const dstSize = ktx2File.getImageTranscodedSizeInBytes(0, 0, 0, format);
+  const dst = new Uint8Array(dstSize);
+  
+  //log(dstSize);
+
+  if (!ktx2File.transcodeImage(dst, 0, 0, 0, format, 0, -1, -1)) {
+    log('ktx2File.transcodeImage failed');
+    console.warn('transcodeImage failed');
+    ktx2File.close();
+    ktx2File.delete();
+       
+    return;
+  }
+
+  const elapsed = performance.now() - startTime;
+
+  ktx2File.close();
+  ktx2File.delete();
+
+  log('width: ' + width);
+  log('height: ' + height);
+  log('levels: ' + levels);
+  log('layers: ' + layers);
+  log('faces: ' + faces);
+  log('has_alpha: ' + has_alpha);
+  logTime('transcoding time', elapsed.toFixed(2));
+
+  alignedWidth = (width + 3) & ~3;
+  alignedHeight = (height + 3) & ~3;
+  
+  displayWidth = alignedWidth;
+  displayHeight = alignedHeight;
+
+  var canvas = elem('canvas');
+  canvas.width = alignedWidth;
+  canvas.height = alignedHeight;
+
+  if (format === BASIS_FORMAT.cTFASTC_4x4)
+  {
+    tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_4x4_KHR);
+  }
+  else if ((format === BASIS_FORMAT.cTFBC3) || (format === BASIS_FORMAT.cTFBC1) || (format == BASIS_FORMAT.cTFBC7))
+  {
+     tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, DXT_FORMAT_MAP[format]);
+  }
+  else if (format === BASIS_FORMAT.cTFETC1)
+  {
+    tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGB_ETC1_WEBGL);
+  }
+  else if (format === BASIS_FORMAT.cTFPVRTC1_4_RGB)
+  {
+    tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGB_PVRTC_4BPPV1_IMG);
+  }
+  else if (format === BASIS_FORMAT.cTFPVRTC1_4_RGBA)
+  {
+    tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_PVRTC_4BPPV1_IMG);
+  }
+  else
+  {
+   canvas.width = width;
+   canvas.height = height;
+   displayWidth = width;
+   displayHeight = height;
+
+   // Create 565 texture. 
+   var dstTex = new Uint16Array(width * height);
+   
+   // Convert the array of bytes to an array of uint16's.
+   var pix = 0;
+   for (var y = 0; y < height; y++)
+      for (var x = 0; x < width; x++, pix++)
+         dstTex[pix] = dst[2 * pix + 0] | (dst[2 * pix + 1] << 8);
+
+   tex = renderer.createRgb565Texture(dstTex, width, height);
+  }
+
+  redraw();
+}
+
+function download_file(filename, body) 
+{
+  var element = document.createElement('a');
+  
+  //element.setAttribute('href', 'data:text/plain;charset=utf-8,' + encodeURIComponent(text));
+
+  const blob = new Blob([body]);  
+  const url = URL.createObjectURL(blob);
+  element.setAttribute('href', url);
+  
+  element.setAttribute('download', filename);
+
+  element.style.display = 'none';
+  document.body.appendChild(element);
+
+  element.click();
+
+  document.body.removeChild(element);
+}
+
+var encodedKTX2File;
+
+function PNGDataLoaded(data)
+{
+	const { BasisFile, BasisEncoder, initializeBasis, encodeBasisTexture } = Module;
+	
+	initializeBasis();
+	
+	// Create a destination buffer to hold the compressed .basis file data. If this buffer isn't large enough compression will fail.
+	var ktx2FileData = new Uint8Array(1024*1024*10);
+			
+	var num_output_bytes;
+	
+	// Compress using the BasisEncoder class.
+	log('BasisEncoder::encode() started:');
+
+	const basisEncoder = new BasisEncoder();
+
+	const qualityLevel = parseInt(elem('EncodeQuality').value, 10);
+	const uastcFlag = elem('EncodeUASTC').checked;
+
+	basisEncoder.setCreateKTX2File(true);
+	basisEncoder.setKTX2UASTCSupercompression(true);
+	basisEncoder.setKTX2SRGBTransferFunc(true);
+	
+	basisEncoder.setSliceSourceImage(0, new Uint8Array(data), 0, 0, true);
+	basisEncoder.setDebug(elem('Debug').checked);
+	basisEncoder.setComputeStats(elem('ComputeStats').checked);
+	basisEncoder.setPerceptual(elem('SRGB').checked);
+	basisEncoder.setMipSRGB(elem('SRGB').checked);
+	basisEncoder.setQualityLevel(qualityLevel);
+	basisEncoder.setUASTC(uastcFlag);
+	basisEncoder.setMipGen(elem('Mipmaps').checked);
+	
+	if (!uastcFlag)
+		log('Encoding at ETC1S quality level ' + qualityLevel);
+		
+	const startTime = performance.now();
+	
+	num_output_bytes = basisEncoder.encode(ktx2FileData);
+	
+	const elapsed = performance.now() - startTime;
+	
+	logTime('encoding time', elapsed.toFixed(2));
+	
+	var actualKTX2FileData = new Uint8Array(ktx2FileData.buffer, 0, num_output_bytes);
+
+	basisEncoder.delete();
+	   
+	if (num_output_bytes == 0)
+	{
+		log('encodeBasisTexture() failed!');
+	}
+	else
+	{
+		log('encodeBasisTexture() succeeded, output size ' + num_output_bytes);
+		
+		encodedKTX2File = actualKTX2FileData;
+		
+		//download("test.ktx2", actualKTX2FileData);
+	}
+	  
+	if (num_output_bytes != 0)
+	{
+		dataLoaded(actualKTX2FileData);
+	}
+}
+
+function runLoadFile() {
+  elem('logger').innerHTML = '';
+  loadArrayBuffer(elem('file').value, dataLoaded);
+}
+
+function runEncodePNGFile() {
+  elem('logger').innerHTML = '';
+  loadArrayBuffer(elem('pngfile').value, PNGDataLoaded);
+}
+
+function alphaBlend() { drawMode = 0; redraw(); }
+function viewRGB() { drawMode = 1; redraw(); }
+function viewAlpha() { drawMode = 2; redraw(); }
+
+function downloadEncodedFile() 
+{
+	if (encodedKTX2File)
+	{	
+		if (encodedKTX2File.length)
+			download_file("encoded_file.ktx2", encodedKTX2File);
+	}
+}
+
+</script>
+</head>
+<body>
+  <br>
+  <div style="font-size: 24pt; font-weight: bold">
+    Basis Universal KTX2 encoding and transcoding test
+  </div>
+
+  <br>This demo uses the Basis C++ transcoder (compiled to Javascript using Emscripten) to transcode a .ktx2 file to <b id='format'>FORMAT</b>
+  <br>It also supports encoding .PNG files to .KTX2.
+  <br>Thanks to Evan Parker for providing <a href="https://github.com/toji/webgl-texture-utils">webgl-texture-utils</a> and this test bed.
+  <br>
+  <br>
+      .ktx2 file:
+      <input id="file" type="text" size=30 value="assets/kodim23.ktx2"></input>
+      <input type="button" value="Transcode!" onclick="runLoadFile()"></input>
+  <br>
+  
+  <br>
+      .png file:
+      <input id="pngfile" type="text" size=30 value="assets/kodim18_64x64.png"></input>
+      <input type="button" value="Encode!" onclick="runEncodePNGFile()"></input>
+  <br>
+      <input type="button" value="Download Encoded File" onclick="downloadEncodedFile()">
+  <br>
+      Debug:
+      <input type="checkbox" id="Debug">
+  <br>
+      Compute Stats:
+      <input type="checkbox" id="ComputeStats">
+  <br>
+      sRGB:
+      <input type="checkbox" id="SRGB">
+  <br>
+  	  Mipmaps:
+	  <input type="checkbox" id="Mipmaps">
+  <br>
+  	  UASTC:
+	  <input type="checkbox" id="EncodeUASTC">
+   
+
+  <br>
+   	  
+      ETC1S Quality:
+      <input type="range" min="1" max="255" value="10" class="slider" id="EncodeQuality"> 
+	  
+  <br>
+      
+  <br>
+      <input type="button" value="Alpha blend" onclick="alphaBlend()"></input>
+      <input type="button" value="View RGB" onclick="viewRGB()"></input>
+     <input type="button" value="View Alpha" onclick="viewAlpha()"></input>
+
+  <div style="position:absolute; left: 525px; top:130px; font-size: 20pt; font-weight: bold; color: red">
+    <div id="no-compressed-tex" style="display: none; width: 768px; font-size: 20pt; font-weight: bold; color: red">
+      NOTE: Your browser does not support several compressed texture format, so using RGB565.
+    </div>
+    <canvas id='canvas'></canvas>
+  </div>
+  <br><br>
+  <div id='logger'></div>
+</body>
+<script>
+  BASIS({onRuntimeInitialized : () => {
+  
+  	elem('SRGB').checked = true;
+	
+    var gl = elem('canvas').getContext('webgl');
+    
+    astcSupported = !!gl.getExtension('WEBGL_compressed_texture_astc');
+    etcSupported = !!gl.getExtension('WEBGL_compressed_texture_etc1');
+    dxtSupported = !!gl.getExtension('WEBGL_compressed_texture_s3tc');
+    pvrtcSupported = !!(gl.getExtension('WEBGL_compressed_texture_pvrtc')) || !!(gl.getExtension('WEBKIT_WEBGL_compressed_texture_pvrtc'));
+    bc7Supported = !!gl.getExtension('EXT_texture_compression_bptc');
+    
+   // HACK HACK - for testing uncompressed
+   //astcSupported = false;
+   //etcSupported = false;
+   //dxtSupported = false;
+   //bc7Supported = false;
+   //pvrtcSupported = false;
+
+    window.renderer = new Renderer(gl);
+
+    elem('file').addEventListener('keydown', function(e) {
+      if (e.keyCode == 13) {
+        runLoadFile();
+      }
+    }, false);
+
+    if (!(astcSupported || etcSupported || dxtSupported || pvrtcSupported))
+    {
+//      elem('nodxt').style.display = 'block';
+    }
+
+    runLoadFile();
+  }}).then(module => window.Module = module);
+</script>
+</html>
