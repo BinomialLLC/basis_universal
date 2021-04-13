@@ -31,7 +31,7 @@
 #endif
 
 #if !BASISD_SUPPORT_KTX2
-	#error BASISD_SUPPORT_KTX2 must be enabled when building the encoder. To reduce code size if KTX2 support isn't needed, set BASISD_SUPPORT_KTX2_ZSTD to 0
+	#error BASISD_SUPPORT_KTX2 must be enabled when building the encoder. To reduce code size if KTX2 support is not needed, set BASISD_SUPPORT_KTX2_ZSTD to 0
 #endif
 
 namespace basisu
