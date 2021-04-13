@@ -60,7 +60,7 @@ before any build artifacts have been created.
 
 ### Command Line Compression Tool
 
-The command line tool used to create, validate, and transcode/unpack .basis files is named "basisu". Run basisu without any parameters for help. 
+The command line tool used to create, validate, and transcode/unpack .basis/.KTX2 files is named "basisu". Run basisu without any parameters for help. 
 
 To build basisu (without SSE 4.1 support - the default):
 
@@ -131,9 +131,11 @@ Note `-comp_level`'s 3-4 are almost as good as 5 and are a lot faster.
 
 You can either use the command line tool or [call the transcoder directly](https://github.com/BinomialLLC/basis_universal/wiki/How-to-Use-and-Configure-the-Transcoder) from JavaScript or C/C++ code to decompress .basis/.KTX2 files to GPU texture data or uncompressed images.
 
-To use the command line tool to unpack a .basis file to multiple .png/.ktx files:
+To use the command line tool to unpack a .basis or .KTX2 file to multiple .png/.ktx files:
 
 `basisu x.basis`
+
+Use the `-no_ktx` and `-etc1_only` options to unpack to less files. `-info` and `-validate` will just display file information and not output any files. The output .KTX1 files are currently in the KTX1 file format, not KTX2.
 
 The mipmapped or cubemap .KTX files will be in a wide variety of compressed GPU texture formats (PVRTC1 4bpp, ETC1-2, BC1-5, BC7, etc.), and to my knowledge there is no single .KTX viewer tool that correctly and reliably supports every GPU texture format that we support. BC1-5 and BC7 files are viewable using AMD's Compressonator, ETC1/2 using Mali's Texture Compression Tool, and PVRTC1 using Imagination Tech's PVRTexTool. Links:
 
