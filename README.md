@@ -11,7 +11,7 @@ The system's bitrate depends on the quality setting and image content, but commo
 
 The .basis and .KTX2 transcoders have been fuzz tested using [zzuf](https://www.linux.com/news/fuzz-testing-zzuf).
 
-So far, we've compiled the code using MSVS 2019, under Ubuntu x64 using cmake with either clang 3.8 or gcc 5.4, and emscripten 1.35 to asm.js. (Be sure to use this version or later of emcc, as earlier versions fail with internal errors/exceptions during compilation.) The compressor is multithreaded by default, but this can be disabled using the -no_multithreading command line option. The transcoder is currently single threaded.
+So far, we've compiled the code using MSVC 2019, under Ubuntu 18.04 and 20 x64 using cmake with either clang 3.8 or gcc 5.4, and emscripten 1.35 to asm.js. (Be sure to use this version or later of emcc, as earlier versions fail with internal errors/exceptions during compilation.) 
 
 Basis Universal supports "skip blocks" in ETC1S compressed texture arrays, which makes it useful for basic [compressed texture video](http://gamma.cs.unc.edu/MPTC/) applications. Note that Basis Universal is still at heart a GPU texture compression system, not a dedicated video codec, so bitrates will be larger than even MPEG1.
 1/10/21 release notes:
@@ -114,6 +114,8 @@ Or try:
 `basisu -ktx2 x.png -comp_level 5 -max_endpoints 16128 -max_selectors 16128`
 
 Note `-comp_level`'s 3-4 are almost as good as 5 and are a lot faster.
+
+The compressor is multithreaded by default, but this can be disabled using the `-no_multithreading` command line option. The transcoder is currently single threaded although it supports multithreading decompression of multiple texture slices in parallel.
 
 ### Unpacking .basis/.KTX2 files to .PNG/.KTX files
 
