@@ -36,27 +36,13 @@ Detailed legal, license, and IP information is [here](https://github.com/Binomia
 
 All C/C++ code dependencies are present inside the Basis Universal repo itself to simplify building.
 
-The stand-alone transcoder (in the "transcoder" directory) is a single .cpp source file library which has no 3rd party code dependencies apart from zstd/zstdeclib.c, which is optional. (It's only used for decompressing UASTC KTX2 files that use Zstandard.)
+The stand-alone transcoder (in the "transcoder" directory) is a single .cpp source file library which has no 3rd party code dependencies apart from zstd/zstddeclib.c, which is optional. (It's only used for decompressing UASTC KTX2 files that use Zstandard.)
 
 The encoder uses [lodepng](https://lodev.org/lodepng/) for loading and saving PNG images, which is Copyright (c) 2005-2019 Lode Vandevenne. It uses the zlib license. It also uses [apg_bmp](https://github.com/capnramses/apg/tree/master/apg_bmp) for loading BMP images, which is Copyright 2019 Anton Gerdelan. It uses the Apache 2.0 license.
 
 The encoder uses [tcuAstcUtil.cpp](https://chromium.googlesource.com/external/deqp/+/refs/heads/master/framework/common/tcuAstcUtil.cpp), from the [Android drawElements Quality Program (deqp) Testing Suite](https://source.android.com/devices/graphics/deqp-testing), for unpacking the transcoder's ASTC output for testing/validation purposes. This code is Copyright 2016 The Android Open Source Project, and uses the Apache 2.0 license. We have modified the code so it has no external dependencies, and disabled HDR support.
 
 The encoder optionally uses Zstandard's single source file compressor (in zstd/zstd.c) to support compressing supercompressed KTX2 files.
-
-### Repository Licensing with REUSE
-
-The repository has been updated to be compliant with the REUSE licenese
-checking tool (https://reuse.software/). This was done by adding the complete
-text of all licenses used under the LICENSES/ directory and adding the
-.reuse/dep5 file which specifies licenses for files which don't contain
-them in a form which can be automatically parse by the reuse tool. REUSE
-does not alter copyrights or licenses, simply captures information about
-licensing to ensure the entire repository has explicit licensing information.
-
-To ensure continued REUSE compliance, run `reuse lint` at the root of
-a clean, checked-out repository periodically, or run it during CI tests
-before any build artifacts have been created.
 
 ### Command Line Compression Tool
 
@@ -224,7 +210,21 @@ Both the transcoder and now the compressor (as of 12/17/2020) may be compiled us
 
 To enable compression support compile the JavaScript wrappers in `webgl/transcoding/basis_wrappers.cpp` with `BASISU_SUPPORT_ENCODING` set to 1. See the webgl/encoding directory. 
 
-### Special thanks
+### Repository Licensing with REUSE
+
+The repository has been updated to be compliant with the REUSE licenese
+checking tool (https://reuse.software/). This was done by adding the complete
+text of all licenses used under the LICENSES/ directory and adding the
+.reuse/dep5 file which specifies licenses for files which don't contain
+them in a form which can be automatically parse by the reuse tool. REUSE
+does not alter copyrights or licenses, simply captures information about
+licensing to ensure the entire repository has explicit licensing information.
+
+To ensure continued REUSE compliance, run `reuse lint` at the root of
+a clean, checked-out repository periodically, or run it during CI tests
+before any build artifacts have been created.
+
+### Special Thanks
 A huge thanks to Google for partnering with us and enabling this system to be open sourced. 
 
 Thank you to [Esri - Environmental Systems Research Institute](https://www.esri.com/) for sponsoring the encoder optimization work in the v1.13 release, and the KTX2 work in the v1.15 release.
