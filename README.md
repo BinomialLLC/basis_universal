@@ -238,7 +238,7 @@ Thanks to Dave Wilkinson (AMD/Khronos) for supporting us and giving us very valu
 
 Thanks to Chris Wein (Netflix), who showed us the path to Texture Video.
 
-Thanks to Mike Dussault (SpaceX) for supporting Binomial in the early days.
+Thanks to Mike Dussault (SpaceX) and Elon Musk for supporting Binomial in the early days.
 
 Thanks to Graeme Devine at Magic Leap.
 
