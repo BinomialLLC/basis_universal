@@ -2040,194 +2040,199 @@ static bool unpack_and_validate_basis_file(
 
 	} // if (!validate_flag)
 
-	// Now unpack to RGBA using the transcoder itself to do the unpacking to raster images
-	for (uint32_t image_index = 0; image_index < fileinfo.m_total_images; image_index++)
-	{
-		for (uint32_t level_index = 0; level_index < fileinfo.m_image_mipmap_levels[image_index]; level_index++)
-		{
-			const basist::transcoder_texture_format transcoder_tex_fmt = basist::transcoder_texture_format::cTFRGBA32;
-
-			basist::basisu_image_level_info level_info;
-
-			if (!dec.get_image_level_info(&basis_file_data[0], (uint32_t)basis_file_data.size(), level_info, image_index, level_index))
-			{
-				error_printf("Failed retrieving image level information (%u %u)!\n", image_index, level_index);
-				return false;
-			}
-
-			image img(level_info.m_orig_width, level_info.m_orig_height);
-
-			fill_buffer_with_random_bytes(&img(0, 0), img.get_total_pixels() * sizeof(uint32_t));
-
-			tm.start();
-
-			if (!dec.transcode_image_level(&basis_file_data[0], (uint32_t)basis_file_data.size(), image_index, level_index, &img(0, 0).r, img.get_total_pixels(), transcoder_tex_fmt, 0, img.get_pitch(), nullptr, img.get_height()))
-			{
-				error_printf("Failed transcoding image level (%u %u %u)!\n", image_index, level_index, transcoder_tex_fmt);
-				return false;
-			}
-
-			double total_transcode_time = tm.get_elapsed_ms();
-
-			total_format_transcoding_time_ms[(int)transcoder_tex_fmt] += total_transcode_time;
-
-			printf("Transcode of image %u level %u res %ux%u format %s succeeded in %3.3f ms\n", image_index, level_index, level_info.m_orig_width, level_info.m_orig_height, basist::basis_get_format_name(transcoder_tex_fmt), total_transcode_time);
-
-			if (!validate_flag)
-			{
-				std::string rgb_filename(base_filename + string_format("_unpacked_rgb_%s_%u_%04u.png", basist::basis_get_format_name(transcoder_tex_fmt), level_index, image_index));
-				if (!save_png(rgb_filename, img, cImageSaveIgnoreAlpha))
-				{
-					error_printf("Failed writing to PNG file \"%s\"\n", rgb_filename.c_str());
-					return false;
-				}
-				printf("Wrote PNG file \"%s\"\n", rgb_filename.c_str());
-
-				std::string a_filename(base_filename + string_format("_unpacked_a_%s_%u_%04u.png", basist::basis_get_format_name(transcoder_tex_fmt), level_index, image_index));
-				if (!save_png(a_filename, img, cImageSaveGrayscale, 3))
-				{
-					error_printf("Failed writing to PNG file \"%s\"\n", a_filename.c_str());
-					return false;
-				}
-				printf("Wrote PNG file \"%s\"\n", a_filename.c_str());
-			}
-
-		} // level_index
-	} // image_index
-
-	// Now unpack to RGB565 using the transcoder itself to do the unpacking to raster images
-	for (uint32_t image_index = 0; image_index < fileinfo.m_total_images; image_index++)
-	{
-		for (uint32_t level_index = 0; level_index < fileinfo.m_image_mipmap_levels[image_index]; level_index++)
-		{
-			const basist::transcoder_texture_format transcoder_tex_fmt = basist::transcoder_texture_format::cTFRGB565;
-
-			basist::basisu_image_level_info level_info;
-
-			if (!dec.get_image_level_info(&basis_file_data[0], (uint32_t)basis_file_data.size(), level_info, image_index, level_index))
-			{
-				error_printf("Failed retrieving image level information (%u %u)!\n", image_index, level_index);
-				return false;
-			}
-
-			basisu::vector<uint16_t> packed_img(level_info.m_orig_width * level_info.m_orig_height);
-
-			fill_buffer_with_random_bytes(&packed_img[0], packed_img.size() * sizeof(uint16_t));
-
-			tm.start();
-
-			if (!dec.transcode_image_level(&basis_file_data[0], (uint32_t)basis_file_data.size(), image_index, level_index, &packed_img[0], (uint32_t)packed_img.size(), transcoder_tex_fmt, 0, level_info.m_orig_width, nullptr, level_info.m_orig_height))
-			{
-				error_printf("Failed transcoding image level (%u %u %u)!\n", image_index, level_index, transcoder_tex_fmt);
-				return false;
-			}
-
-			double total_transcode_time = tm.get_elapsed_ms();
-
-			total_format_transcoding_time_ms[(int)transcoder_tex_fmt] += total_transcode_time;
-
-			image img(level_info.m_orig_width, level_info.m_orig_height);
-			for (uint32_t y = 0; y < level_info.m_orig_height; y++)
-			{
-				for (uint32_t x = 0; x < level_info.m_orig_width; x++)
-				{
-					const uint16_t p = packed_img[x + y * level_info.m_orig_width];
-					uint32_t r = p >> 11, g = (p >> 5) & 63, b = p & 31;
-					r = (r << 3) | (r >> 2);
-					g = (g << 2) | (g >> 4);
-					b = (b << 3) | (b >> 2);
-					img(x, y).set(r, g, b, 255);
-				}
-			}
-
-			printf("Transcode of image %u level %u res %ux%u format %s succeeded in %3.3f ms\n", image_index, level_index, level_info.m_orig_width, level_info.m_orig_height, basist::basis_get_format_name(transcoder_tex_fmt), total_transcode_time);
-
-			if (!validate_flag)
-			{
-				std::string rgb_filename(base_filename + string_format("_unpacked_rgb_%s_%u_%04u.png", basist::basis_get_format_name(transcoder_tex_fmt), level_index, image_index));
-				if (!save_png(rgb_filename, img, cImageSaveIgnoreAlpha))
-				{
-					error_printf("Failed writing to PNG file \"%s\"\n", rgb_filename.c_str());
-					return false;
-				}
-				printf("Wrote PNG file \"%s\"\n", rgb_filename.c_str());
-			}
-
-		} // level_index
-	} // image_index
-
-	// Now unpack to RGBA4444 using the transcoder itself to do the unpacking to raster images
 	uint32_t max_mipmap_levels = 0;
-	for (uint32_t image_index = 0; image_index < fileinfo.m_total_images; image_index++)
+
+	if (!opts.m_etc1_only)
 	{
-		for (uint32_t level_index = 0; level_index < fileinfo.m_image_mipmap_levels[image_index]; level_index++)
+		// Now unpack to RGBA using the transcoder itself to do the unpacking to raster images
+		for (uint32_t image_index = 0; image_index < fileinfo.m_total_images; image_index++)
 		{
-			max_mipmap_levels = basisu::maximum(max_mipmap_levels, fileinfo.m_image_mipmap_levels[image_index]);
-
-			const basist::transcoder_texture_format transcoder_tex_fmt = basist::transcoder_texture_format::cTFRGBA4444;
-
-			basist::basisu_image_level_info level_info;
-
-			if (!dec.get_image_level_info(&basis_file_data[0], (uint32_t)basis_file_data.size(), level_info, image_index, level_index))
+			for (uint32_t level_index = 0; level_index < fileinfo.m_image_mipmap_levels[image_index]; level_index++)
 			{
-				error_printf("Failed retrieving image level information (%u %u)!\n", image_index, level_index);
-				return false;
-			}
+				const basist::transcoder_texture_format transcoder_tex_fmt = basist::transcoder_texture_format::cTFRGBA32;
 
-			basisu::vector<uint16_t> packed_img(level_info.m_orig_width * level_info.m_orig_height);
+				basist::basisu_image_level_info level_info;
 
-			fill_buffer_with_random_bytes(&packed_img[0], packed_img.size() * sizeof(uint16_t));
-
-			tm.start();
-
-			if (!dec.transcode_image_level(&basis_file_data[0], (uint32_t)basis_file_data.size(), image_index, level_index, &packed_img[0], (uint32_t)packed_img.size(), transcoder_tex_fmt, 0, level_info.m_orig_width, nullptr, level_info.m_orig_height))
-			{
-				error_printf("Failed transcoding image level (%u %u %u)!\n", image_index, level_index, transcoder_tex_fmt);
-				return false;
-			}
-
-			double total_transcode_time = tm.get_elapsed_ms();
-
-			total_format_transcoding_time_ms[(int)transcoder_tex_fmt] += total_transcode_time;
-
-			image img(level_info.m_orig_width, level_info.m_orig_height);
-			for (uint32_t y = 0; y < level_info.m_orig_height; y++)
-			{
-				for (uint32_t x = 0; x < level_info.m_orig_width; x++)
+				if (!dec.get_image_level_info(&basis_file_data[0], (uint32_t)basis_file_data.size(), level_info, image_index, level_index))
 				{
-					const uint16_t p = packed_img[x + y * level_info.m_orig_width];
-					uint32_t r = p >> 12, g = (p >> 8) & 15, b = (p >> 4) & 15, a = p & 15;
-					r = (r << 4) | r;
-					g = (g << 4) | g;
-					b = (b << 4) | b;
-					a = (a << 4) | a;
-					img(x, y).set(r, g, b, a);
-				}
-			}
-
-			printf("Transcode of image %u level %u res %ux%u format %s succeeded in %3.3f ms\n", image_index, level_index, level_info.m_orig_width, level_info.m_orig_height, basist::basis_get_format_name(transcoder_tex_fmt), total_transcode_time);
-
-			if (!validate_flag)
-			{
-				std::string rgb_filename(base_filename + string_format("_unpacked_rgb_%s_%u_%04u.png", basist::basis_get_format_name(transcoder_tex_fmt), level_index, image_index));
-				if (!save_png(rgb_filename, img, cImageSaveIgnoreAlpha))
-				{
-					error_printf("Failed writing to PNG file \"%s\"\n", rgb_filename.c_str());
+					error_printf("Failed retrieving image level information (%u %u)!\n", image_index, level_index);
 					return false;
 				}
-				printf("Wrote PNG file \"%s\"\n", rgb_filename.c_str());
 
-				std::string a_filename(base_filename + string_format("_unpacked_a_%s_%u_%04u.png", basist::basis_get_format_name(transcoder_tex_fmt), level_index, image_index));
-				if (!save_png(a_filename, img, cImageSaveGrayscale, 3))
+				image img(level_info.m_orig_width, level_info.m_orig_height);
+
+				fill_buffer_with_random_bytes(&img(0, 0), img.get_total_pixels() * sizeof(uint32_t));
+
+				tm.start();
+
+				if (!dec.transcode_image_level(&basis_file_data[0], (uint32_t)basis_file_data.size(), image_index, level_index, &img(0, 0).r, img.get_total_pixels(), transcoder_tex_fmt, 0, img.get_pitch(), nullptr, img.get_height()))
 				{
-					error_printf("Failed writing to PNG file \"%s\"\n", a_filename.c_str());
+					error_printf("Failed transcoding image level (%u %u %u)!\n", image_index, level_index, transcoder_tex_fmt);
 					return false;
 				}
-				printf("Wrote PNG file \"%s\"\n", a_filename.c_str());
-			}
 
-		} // level_index
-	} // image_index
+				double total_transcode_time = tm.get_elapsed_ms();
+
+				total_format_transcoding_time_ms[(int)transcoder_tex_fmt] += total_transcode_time;
+
+				printf("Transcode of image %u level %u res %ux%u format %s succeeded in %3.3f ms\n", image_index, level_index, level_info.m_orig_width, level_info.m_orig_height, basist::basis_get_format_name(transcoder_tex_fmt), total_transcode_time);
+
+				if (!validate_flag)
+				{
+					std::string rgb_filename(base_filename + string_format("_unpacked_rgb_%s_%u_%04u.png", basist::basis_get_format_name(transcoder_tex_fmt), level_index, image_index));
+					if (!save_png(rgb_filename, img, cImageSaveIgnoreAlpha))
+					{
+						error_printf("Failed writing to PNG file \"%s\"\n", rgb_filename.c_str());
+						return false;
+					}
+					printf("Wrote PNG file \"%s\"\n", rgb_filename.c_str());
+
+					std::string a_filename(base_filename + string_format("_unpacked_a_%s_%u_%04u.png", basist::basis_get_format_name(transcoder_tex_fmt), level_index, image_index));
+					if (!save_png(a_filename, img, cImageSaveGrayscale, 3))
+					{
+						error_printf("Failed writing to PNG file \"%s\"\n", a_filename.c_str());
+						return false;
+					}
+					printf("Wrote PNG file \"%s\"\n", a_filename.c_str());
+				}
+
+			} // level_index
+		} // image_index
+
+		// Now unpack to RGB565 using the transcoder itself to do the unpacking to raster images
+		for (uint32_t image_index = 0; image_index < fileinfo.m_total_images; image_index++)
+		{
+			for (uint32_t level_index = 0; level_index < fileinfo.m_image_mipmap_levels[image_index]; level_index++)
+			{
+				const basist::transcoder_texture_format transcoder_tex_fmt = basist::transcoder_texture_format::cTFRGB565;
+
+				basist::basisu_image_level_info level_info;
+
+				if (!dec.get_image_level_info(&basis_file_data[0], (uint32_t)basis_file_data.size(), level_info, image_index, level_index))
+				{
+					error_printf("Failed retrieving image level information (%u %u)!\n", image_index, level_index);
+					return false;
+				}
+
+				basisu::vector<uint16_t> packed_img(level_info.m_orig_width * level_info.m_orig_height);
+
+				fill_buffer_with_random_bytes(&packed_img[0], packed_img.size() * sizeof(uint16_t));
+
+				tm.start();
+
+				if (!dec.transcode_image_level(&basis_file_data[0], (uint32_t)basis_file_data.size(), image_index, level_index, &packed_img[0], (uint32_t)packed_img.size(), transcoder_tex_fmt, 0, level_info.m_orig_width, nullptr, level_info.m_orig_height))
+				{
+					error_printf("Failed transcoding image level (%u %u %u)!\n", image_index, level_index, transcoder_tex_fmt);
+					return false;
+				}
+
+				double total_transcode_time = tm.get_elapsed_ms();
+
+				total_format_transcoding_time_ms[(int)transcoder_tex_fmt] += total_transcode_time;
+
+				image img(level_info.m_orig_width, level_info.m_orig_height);
+				for (uint32_t y = 0; y < level_info.m_orig_height; y++)
+				{
+					for (uint32_t x = 0; x < level_info.m_orig_width; x++)
+					{
+						const uint16_t p = packed_img[x + y * level_info.m_orig_width];
+						uint32_t r = p >> 11, g = (p >> 5) & 63, b = p & 31;
+						r = (r << 3) | (r >> 2);
+						g = (g << 2) | (g >> 4);
+						b = (b << 3) | (b >> 2);
+						img(x, y).set(r, g, b, 255);
+					}
+				}
+
+				printf("Transcode of image %u level %u res %ux%u format %s succeeded in %3.3f ms\n", image_index, level_index, level_info.m_orig_width, level_info.m_orig_height, basist::basis_get_format_name(transcoder_tex_fmt), total_transcode_time);
+
+				if (!validate_flag)
+				{
+					std::string rgb_filename(base_filename + string_format("_unpacked_rgb_%s_%u_%04u.png", basist::basis_get_format_name(transcoder_tex_fmt), level_index, image_index));
+					if (!save_png(rgb_filename, img, cImageSaveIgnoreAlpha))
+					{
+						error_printf("Failed writing to PNG file \"%s\"\n", rgb_filename.c_str());
+						return false;
+					}
+					printf("Wrote PNG file \"%s\"\n", rgb_filename.c_str());
+				}
+
+			} // level_index
+		} // image_index
+
+		// Now unpack to RGBA4444 using the transcoder itself to do the unpacking to raster images
+		for (uint32_t image_index = 0; image_index < fileinfo.m_total_images; image_index++)
+		{
+			for (uint32_t level_index = 0; level_index < fileinfo.m_image_mipmap_levels[image_index]; level_index++)
+			{
+				max_mipmap_levels = basisu::maximum(max_mipmap_levels, fileinfo.m_image_mipmap_levels[image_index]);
+
+				const basist::transcoder_texture_format transcoder_tex_fmt = basist::transcoder_texture_format::cTFRGBA4444;
+
+				basist::basisu_image_level_info level_info;
+
+				if (!dec.get_image_level_info(&basis_file_data[0], (uint32_t)basis_file_data.size(), level_info, image_index, level_index))
+				{
+					error_printf("Failed retrieving image level information (%u %u)!\n", image_index, level_index);
+					return false;
+				}
+
+				basisu::vector<uint16_t> packed_img(level_info.m_orig_width * level_info.m_orig_height);
+
+				fill_buffer_with_random_bytes(&packed_img[0], packed_img.size() * sizeof(uint16_t));
+
+				tm.start();
+
+				if (!dec.transcode_image_level(&basis_file_data[0], (uint32_t)basis_file_data.size(), image_index, level_index, &packed_img[0], (uint32_t)packed_img.size(), transcoder_tex_fmt, 0, level_info.m_orig_width, nullptr, level_info.m_orig_height))
+				{
+					error_printf("Failed transcoding image level (%u %u %u)!\n", image_index, level_index, transcoder_tex_fmt);
+					return false;
+				}
+
+				double total_transcode_time = tm.get_elapsed_ms();
+
+				total_format_transcoding_time_ms[(int)transcoder_tex_fmt] += total_transcode_time;
+
+				image img(level_info.m_orig_width, level_info.m_orig_height);
+				for (uint32_t y = 0; y < level_info.m_orig_height; y++)
+				{
+					for (uint32_t x = 0; x < level_info.m_orig_width; x++)
+					{
+						const uint16_t p = packed_img[x + y * level_info.m_orig_width];
+						uint32_t r = p >> 12, g = (p >> 8) & 15, b = (p >> 4) & 15, a = p & 15;
+						r = (r << 4) | r;
+						g = (g << 4) | g;
+						b = (b << 4) | b;
+						a = (a << 4) | a;
+						img(x, y).set(r, g, b, a);
+					}
+				}
+
+				printf("Transcode of image %u level %u res %ux%u format %s succeeded in %3.3f ms\n", image_index, level_index, level_info.m_orig_width, level_info.m_orig_height, basist::basis_get_format_name(transcoder_tex_fmt), total_transcode_time);
+
+				if (!validate_flag)
+				{
+					std::string rgb_filename(base_filename + string_format("_unpacked_rgb_%s_%u_%04u.png", basist::basis_get_format_name(transcoder_tex_fmt), level_index, image_index));
+					if (!save_png(rgb_filename, img, cImageSaveIgnoreAlpha))
+					{
+						error_printf("Failed writing to PNG file \"%s\"\n", rgb_filename.c_str());
+						return false;
+					}
+					printf("Wrote PNG file \"%s\"\n", rgb_filename.c_str());
+
+					std::string a_filename(base_filename + string_format("_unpacked_a_%s_%u_%04u.png", basist::basis_get_format_name(transcoder_tex_fmt), level_index, image_index));
+					if (!save_png(a_filename, img, cImageSaveGrayscale, 3))
+					{
+						error_printf("Failed writing to PNG file \"%s\"\n", a_filename.c_str());
+						return false;
+					}
+					printf("Wrote PNG file \"%s\"\n", a_filename.c_str());
+				}
+
+			} // level_index
+		} // image_index
+
+	} // if (!m_etc1_only)
 
 	if (pCSV_file)
 	{

@@ -238,6 +238,8 @@ namespace basisu
 		// Maps OLD to NEW endpoint/selector indices
 		uint_vec m_endpoint_remap_table_old_to_new;
 		uint_vec m_endpoint_remap_table_new_to_old;
+		bool_vec m_old_endpoint_was_used;
+		bool_vec m_new_endpoint_was_used;
 
 		uint_vec m_selector_remap_table_old_to_new;
 

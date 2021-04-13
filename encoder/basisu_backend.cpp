@@ -185,6 +185,7 @@ namespace basisu
 
 		if (m_params.m_used_global_codebooks)
 		{
+			m_endpoint_remap_table_old_to_new.clear();
 			m_endpoint_remap_table_old_to_new.resize(r.get_total_endpoint_clusters());
 			for (uint32_t i = 0; i < r.get_total_endpoint_clusters(); i++)
 				m_endpoint_remap_table_old_to_new[i] = i;
@@ -193,62 +194,104 @@ namespace basisu
 		{
 			//if ((total_block_endpoints_remapped) && (m_params.m_compression_level > 0))
 			if ((total_block_endpoints_remapped) && (m_params.m_compression_level > 1))
-		{
-			// We've changed the block endpoint indices, so we need to go and adjust the endpoint codebook (remove unused entries, optimize existing entries that have changed)
-			uint_vec new_block_endpoints(get_total_blocks());
-
-			for (uint32_t slice_index = 0; slice_index < m_slices.size(); slice_index++)
 			{
-				const uint32_t first_block_index = m_slices[slice_index].m_first_block_index;
-				const uint32_t num_blocks_x = m_slices[slice_index].m_num_blocks_x;
-				const uint32_t num_blocks_y = m_slices[slice_index].m_num_blocks_y;
+				// We've changed the block endpoint indices, so we need to go and adjust the endpoint codebook (remove unused entries, optimize existing entries that have changed)
+				uint_vec new_block_endpoints(get_total_blocks());
 
-				for (uint32_t block_y = 0; block_y < num_blocks_y; block_y++)
-					for (uint32_t block_x = 0; block_x < num_blocks_x; block_x++)
-						new_block_endpoints[first_block_index + block_x + block_y * num_blocks_x] = m_slice_encoder_blocks[slice_index](block_x, block_y).m_endpoint_index;
-			}
-
-			int_vec old_to_new_endpoint_indices;
-			r.reoptimize_remapped_endpoints(new_block_endpoints, old_to_new_endpoint_indices, true);
-
-			create_endpoint_palette();
-
-			for (uint32_t slice_index = 0; slice_index < m_slices.size(); slice_index++)
-			{
-				//const uint32_t first_block_index = m_slices[slice_index].m_first_block_index;
-
-				//const uint32_t width = m_slices[slice_index].m_width;
-				//const uint32_t height = m_slices[slice_index].m_height;
-				const uint32_t num_blocks_x = m_slices[slice_index].m_num_blocks_x;
-				const uint32_t num_blocks_y = m_slices[slice_index].m_num_blocks_y;
-
-				for (uint32_t block_y = 0; block_y < num_blocks_y; block_y++)
+				for (uint32_t slice_index = 0; slice_index < m_slices.size(); slice_index++)
 				{
-					for (uint32_t block_x = 0; block_x < num_blocks_x; block_x++)
+					const uint32_t first_block_index = m_slices[slice_index].m_first_block_index;
+					const uint32_t num_blocks_x = m_slices[slice_index].m_num_blocks_x;
+					const uint32_t num_blocks_y = m_slices[slice_index].m_num_blocks_y;
+
+					for (uint32_t block_y = 0; block_y < num_blocks_y; block_y++)
+						for (uint32_t block_x = 0; block_x < num_blocks_x; block_x++)
+							new_block_endpoints[first_block_index + block_x + block_y * num_blocks_x] = m_slice_encoder_blocks[slice_index](block_x, block_y).m_endpoint_index;
+				}
+
+				int_vec old_to_new_endpoint_indices;
+				r.reoptimize_remapped_endpoints(new_block_endpoints, old_to_new_endpoint_indices, true);
+
+				create_endpoint_palette();
+
+				for (uint32_t slice_index = 0; slice_index < m_slices.size(); slice_index++)
+				{
+					//const uint32_t first_block_index = m_slices[slice_index].m_first_block_index;
+
+					//const uint32_t width = m_slices[slice_index].m_width;
+					//const uint32_t height = m_slices[slice_index].m_height;
+					const uint32_t num_blocks_x = m_slices[slice_index].m_num_blocks_x;
+					const uint32_t num_blocks_y = m_slices[slice_index].m_num_blocks_y;
+
+					for (uint32_t block_y = 0; block_y < num_blocks_y; block_y++)
 					{
-						//const uint32_t block_index = first_block_index + block_x + block_y * num_blocks_x;
+						for (uint32_t block_x = 0; block_x < num_blocks_x; block_x++)
+						{
+							//const uint32_t block_index = first_block_index + block_x + block_y * num_blocks_x;
 
-						encoder_block& m = m_slice_encoder_blocks[slice_index](block_x, block_y);
+							encoder_block& m = m_slice_encoder_blocks[slice_index](block_x, block_y);
 
-						m.m_endpoint_index = old_to_new_endpoint_indices[m.m_endpoint_index];
-					} // block_x
-				} // block_y
-			} // slice_index
+							m.m_endpoint_index = old_to_new_endpoint_indices[m.m_endpoint_index];
+						} // block_x
+					} // block_y
+				} // slice_index
 
-			for (uint32_t i = 0; i < all_endpoint_indices.size(); i++)
-				all_endpoint_indices[i] = old_to_new_endpoint_indices[all_endpoint_indices[i]];
+				for (uint32_t i = 0; i < all_endpoint_indices.size(); i++)
+					all_endpoint_indices[i] = old_to_new_endpoint_indices[all_endpoint_indices[i]];
 
-		} //if (total_block_endpoints_remapped)
+			} //if (total_block_endpoints_remapped)
 
-		// Sort endpoint codebook
-		palette_index_reorderer reorderer;
-		reorderer.init((uint32_t)all_endpoint_indices.size(), &all_endpoint_indices[0], r.get_total_endpoint_clusters(), nullptr, nullptr, 0);
-		m_endpoint_remap_table_old_to_new = reorderer.get_remap_table();
+			// Sort endpoint codebook
+			palette_index_reorderer reorderer;
+			reorderer.init((uint32_t)all_endpoint_indices.size(), &all_endpoint_indices[0], r.get_total_endpoint_clusters(), nullptr, nullptr, 0);
+			m_endpoint_remap_table_old_to_new = reorderer.get_remap_table();
 		}
 
+		// For endpoints, old_to_new[] may not be bijective! 
+		// Some "old" entries may be unused and don't get remapped into the "new" array.
+
+		m_old_endpoint_was_used.clear();
+		m_old_endpoint_was_used.resize(r.get_total_endpoint_clusters());
+		uint32_t first_old_entry_index = UINT32_MAX;
+
+		for (uint32_t slice_index = 0; slice_index < m_slices.size(); slice_index++)
+		{
+			const uint32_t num_blocks_x = m_slices[slice_index].m_num_blocks_x, num_blocks_y = m_slices[slice_index].m_num_blocks_y;
+			for (uint32_t block_y = 0; block_y < num_blocks_y; block_y++)
+			{
+				for (uint32_t block_x = 0; block_x < num_blocks_x; block_x++)
+				{
+					encoder_block& m = m_slice_encoder_blocks[slice_index](block_x, block_y);
+					const uint32_t old_endpoint_index = m.m_endpoint_index;
+
+					m_old_endpoint_was_used[old_endpoint_index] = true;
+					first_old_entry_index = basisu::minimum(first_old_entry_index, old_endpoint_index);
+				} // block_x
+			} // block_y
+		} // slice_index
+
+		debug_printf("basisu_backend::reoptimize_and_sort_endpoints_codebook: First old entry index: %u\n", first_old_entry_index);
+						
+		m_new_endpoint_was_used.clear();
+		m_new_endpoint_was_used.resize(r.get_total_endpoint_clusters());
+
+		m_endpoint_remap_table_new_to_old.clear();
 		m_endpoint_remap_table_new_to_old.resize(r.get_total_endpoint_clusters());
-		for (uint32_t i = 0; i < m_endpoint_remap_table_old_to_new.size(); i++)
-			m_endpoint_remap_table_new_to_old[m_endpoint_remap_table_old_to_new[i]] = i;
+		
+		// Set unused entries in the new array to point to the first used entry in the old array.
+		m_endpoint_remap_table_new_to_old.set_all(first_old_entry_index);
+
+		for (uint32_t old_index = 0; old_index < m_endpoint_remap_table_old_to_new.size(); old_index++)
+		{
+			if (m_old_endpoint_was_used[old_index])
+			{
+				const uint32_t new_index = m_endpoint_remap_table_old_to_new[old_index];
+				
+				m_new_endpoint_was_used[new_index] = true;
+
+				m_endpoint_remap_table_new_to_old[new_index] = old_index;
+			}
+		}
 	}
 
 	void basisu_backend::sort_selector_codebook()
@@ -838,6 +881,10 @@ namespace basisu
 									if (trial_idx == new_endpoint_index)
 										continue;
 
+									// Skip it if this new endpoint palette entry is actually never used.
+									if (!m_new_endpoint_was_used[trial_idx])
+										continue;
+
 									const etc1_endpoint_palette_entry& p = m_endpoint_palette[m_endpoint_remap_table_new_to_old[trial_idx]];
 									trial_etc_blk.set_block_color5_etc1s(p.m_color5);
 									trial_etc_blk.set_inten_tables_etc1s(p.m_inten5);
@@ -1335,10 +1382,53 @@ namespace basisu
 	{
 		const basisu_frontend& r = *m_pFront_end;
 
+		// The endpoint indices may have been changed by the backend's RDO step, so go and figure out which ones are actually used again.
+		bool_vec old_endpoint_was_used(r.get_total_endpoint_clusters());
+		uint32_t first_old_entry_index = UINT32_MAX;
+
+		for (uint32_t slice_index = 0; slice_index < m_slices.size(); slice_index++)
+		{
+			const uint32_t num_blocks_x = m_slices[slice_index].m_num_blocks_x, num_blocks_y = m_slices[slice_index].m_num_blocks_y;
+			for (uint32_t block_y = 0; block_y < num_blocks_y; block_y++)
+			{
+				for (uint32_t block_x = 0; block_x < num_blocks_x; block_x++)
+				{
+					encoder_block& m = m_slice_encoder_blocks[slice_index](block_x, block_y);
+					const uint32_t old_endpoint_index = m.m_endpoint_index;
+
+					old_endpoint_was_used[old_endpoint_index] = true;
+					first_old_entry_index = basisu::minimum(first_old_entry_index, old_endpoint_index);
+				} // block_x
+			} // block_y
+		} // slice_index
+
+		debug_printf("basisu_backend::encode_endpoint_palette: first_old_entry_index: %u\n", first_old_entry_index);
+
 		// Maps NEW to OLD endpoints
-		uint_vec endpoint_remap_table_inv(r.get_total_endpoint_clusters());
+		uint_vec endpoint_remap_table_new_to_old(r.get_total_endpoint_clusters());
+		endpoint_remap_table_new_to_old.set_all(first_old_entry_index);
+
+		bool_vec new_endpoint_was_used(r.get_total_endpoint_clusters());
+
 		for (uint32_t old_endpoint_index = 0; old_endpoint_index < m_endpoint_remap_table_old_to_new.size(); old_endpoint_index++)
-			endpoint_remap_table_inv[m_endpoint_remap_table_old_to_new[old_endpoint_index]] = old_endpoint_index;
+		{
+			if (old_endpoint_was_used[old_endpoint_index])
+			{
+				const uint32_t new_endpoint_index = m_endpoint_remap_table_old_to_new[old_endpoint_index];
+				
+				new_endpoint_was_used[new_endpoint_index] = true;
+
+				endpoint_remap_table_new_to_old[new_endpoint_index] = old_endpoint_index;
+			}
+		}
+
+		// TODO: Some new endpoint palette entries may actually be unused and aren't worth coding. Fix that.
+
+		uint32_t total_unused_new_entries = 0;
+		for (uint32_t i = 0; i < new_endpoint_was_used.size(); i++)
+			if (!new_endpoint_was_used[i])
+				total_unused_new_entries++;
+		debug_printf("basisu_backend::encode_endpoint_palette: total_unused_new_entries: %u out of %u\n", total_unused_new_entries, new_endpoint_was_used.size());
 
 		bool is_grayscale = true;
 		for (uint32_t old_endpoint_index = 0; old_endpoint_index < (uint32_t)m_endpoint_palette.size(); old_endpoint_index++)
@@ -1363,7 +1453,7 @@ namespace basisu
 
 		for (uint32_t new_endpoint_index = 0; new_endpoint_index < r.get_total_endpoint_clusters(); new_endpoint_index++)
 		{
-			const uint32_t old_endpoint_index = endpoint_remap_table_inv[new_endpoint_index];
+			const uint32_t old_endpoint_index = endpoint_remap_table_new_to_old[new_endpoint_index];
 
 			int delta_inten = m_endpoint_palette[old_endpoint_index].m_inten5 - prev_inten;
 			inten_delta_hist.inc(delta_inten & 7);
@@ -1429,7 +1519,7 @@ namespace basisu
 
 		for (uint32_t new_endpoint_index = 0; new_endpoint_index < r.get_total_endpoint_clusters(); new_endpoint_index++)
 		{
-			const uint32_t old_endpoint_index = endpoint_remap_table_inv[new_endpoint_index];
+			const uint32_t old_endpoint_index = endpoint_remap_table_new_to_old[new_endpoint_index];
 
 			int delta_inten = (m_endpoint_palette[old_endpoint_index].m_inten5 - prev_inten) & 7;
 			coder.put_code(delta_inten, inten_delta_model);
