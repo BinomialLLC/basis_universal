@@ -228,7 +228,7 @@ To enable compression support compile the JavaScript wrappers in `webgl/transcod
 ### Special thanks
 A huge thanks to Google for partnering with us and enabling this system to be open sourced. 
 
-Thank you to [Esri](https://www.esri.com/) for sponsoring the encoder optimization work in the v1.13 release.
+Thank you to [Esri - Environmental Systems Research Institute](https://www.esri.com/) for sponsoring the encoder optimization work in the v1.13 release, and the KTX2 work in the v1.15 release.
 
 Thanks to the Khronos Group for building an open ecosystem that supports ETC1S/UASTC.
 
