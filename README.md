@@ -118,7 +118,15 @@ To create a slightly higher quality ETC1S .basis file (one with better codebooks
 
 `basisu -comp_level 2 x.png`
 
-To unpack a .basis file to multiple .png/.ktx files:
+In some rare images (ones with blue sky gradients come to bind), you may need to increase the ETC1S comp_level setting. This controls the amount of overall effort the encoder uses to optimize the codebooks (palettes) and compressed data stream. Higher comp_level's are significantly slower, and shouldn't be used unless necessary:
+
+`basisu -ktx2 x.png -comp_level 5 -q 255`
+
+### Unpacking .basis/.KTX2 files to .PNG/.KTX files
+
+You can either use the command line tool or [call the transcoder directly](https://github.com/BinomialLLC/basis_universal/wiki/How-to-Use-and-Configure-the-Transcoder) from JavaScript or C/C++ code to decompress .basis/.KTX2 files to GPU texture data or uncompressed images.
+
+To use the command line tool to unpack a .basis file to multiple .png/.ktx files:
 
 `basisu x.basis`
 
@@ -132,7 +140,7 @@ The mipmapped or cubemap .KTX files will be in a wide variety of compressed GPU 
 
 After compression, the compressor transcodes all slices in the output .basis file to validate that the file decompresses correctly. It also validates all header, compressed data, and slice data CRC16's.
 
-For best quality, you must supply basisu with original uncompressed source images. Any other type of lossy compression applied before basisu (including ETC1/BC1-5, BC7, JPEG, etc.) will cause multi-generational artifacts to appear in the final output textures. 
+For best quality, you must **supply basisu with original uncompressed source images**. Any other type of lossy compression applied before basisu (including ETC1/BC1-5, BC7, JPEG, etc.) will cause multi-generational artifacts to appear in the final output textures. 
 
 For the maximum possible achievable ETC1S mode quality with the current format and encoder (completely ignoring encoding speed!), use:
 
@@ -157,7 +165,7 @@ For video, level 1 should result in decent results on most clips. For less bandi
 
 To control the ETC1S encoder's quality vs. encoding speed tradeoff, see [ETC1S Compression Effort Levels](https://github.com/BinomialLLC/basis_universal/wiki/ETC1S-Compression-Effort-Levels).
 
-### More detailed examples
+### More Examples
 
 `basisu x.png`\
 Compress sRGB image x.png to a ETC1S format x.basis file using default settings (multiple filenames OK). ETC1S format files are typically very small on disk (around .5-1.5 bits/texel).
