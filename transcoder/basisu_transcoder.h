@@ -78,38 +78,38 @@ namespace basist
 														// Punch-through alpha is relatively easy to support, but full alpha is harder. This format is only here for completeness so opaque-only is fine for now.
 														// See the BASISU_USE_ORIGINAL_3DFX_FXT1_ENCODING macro in basisu_transcoder_internal.h.
 
-														cTFPVRTC2_4_RGB = 18,					// Opaque-only, almost BC1 quality, much faster to transcode and supports arbitrary texture dimensions (unlike PVRTC1 RGB).
-														cTFPVRTC2_4_RGBA = 19,					// Opaque+alpha, slower to encode than cTFPVRTC2_4_RGB. Premultiplied alpha is highly recommended, otherwise the color channel can leak into the alpha channel on transparent blocks.
+		cTFPVRTC2_4_RGB = 18,					// Opaque-only, almost BC1 quality, much faster to transcode and supports arbitrary texture dimensions (unlike PVRTC1 RGB).
+		cTFPVRTC2_4_RGBA = 19,					// Opaque+alpha, slower to encode than cTFPVRTC2_4_RGB. Premultiplied alpha is highly recommended, otherwise the color channel can leak into the alpha channel on transparent blocks.
 
-														cTFETC2_EAC_R11 = 20,					// R only (ETC2 EAC R11 unsigned)
-														cTFETC2_EAC_RG11 = 21,					// RG only (ETC2 EAC RG11 unsigned), R=opaque.r, G=alpha - for tangent space normal maps
+		cTFETC2_EAC_R11 = 20,					// R only (ETC2 EAC R11 unsigned)
+		cTFETC2_EAC_RG11 = 21,					// RG only (ETC2 EAC RG11 unsigned), R=opaque.r, G=alpha - for tangent space normal maps
 
-														// Uncompressed (raw pixel) formats
-														cTFRGBA32 = 13,							// 32bpp RGBA image stored in raster (not block) order in memory, R is first byte, A is last byte.
-														cTFRGB565 = 14,							// 16bpp RGB image stored in raster (not block) order in memory, R at bit position 11
-														cTFBGR565 = 15,							// 16bpp RGB image stored in raster (not block) order in memory, R at bit position 0
-														cTFRGBA4444 = 16,							// 16bpp RGBA image stored in raster (not block) order in memory, R at bit position 12, A at bit position 0
+		// Uncompressed (raw pixel) formats
+		cTFRGBA32 = 13,							// 32bpp RGBA image stored in raster (not block) order in memory, R is first byte, A is last byte.
+		cTFRGB565 = 14,							// 16bpp RGB image stored in raster (not block) order in memory, R at bit position 11
+		cTFBGR565 = 15,							// 16bpp RGB image stored in raster (not block) order in memory, R at bit position 0
+		cTFRGBA4444 = 16,							// 16bpp RGBA image stored in raster (not block) order in memory, R at bit position 12, A at bit position 0
 
-														cTFTotalTextureFormats = 22,
+		cTFTotalTextureFormats = 22,
 
-														// Old enums for compatibility with code compiled against previous versions
-														cTFETC1 = cTFETC1_RGB,
-														cTFETC2 = cTFETC2_RGBA,
-														cTFBC1 = cTFBC1_RGB,
-														cTFBC3 = cTFBC3_RGBA,
-														cTFBC4 = cTFBC4_R,
-														cTFBC5 = cTFBC5_RG,
+		// Old enums for compatibility with code compiled against previous versions
+		cTFETC1 = cTFETC1_RGB,
+		cTFETC2 = cTFETC2_RGBA,
+		cTFBC1 = cTFBC1_RGB,
+		cTFBC3 = cTFBC3_RGBA,
+		cTFBC4 = cTFBC4_R,
+		cTFBC5 = cTFBC5_RG,
 
-														// Previously, the caller had some control over which BC7 mode the transcoder output. We've simplified this due to UASTC, which supports numerous modes.
-														cTFBC7_M6_RGB = cTFBC7_RGBA,			// Opaque only, RGB or alpha if cDecodeFlagsTranscodeAlphaDataToOpaqueFormats flag is specified. Highest quality of all the non-ETC1 formats.
-														cTFBC7_M5_RGBA = cTFBC7_RGBA,			// Opaque+alpha, alpha channel will be opaque for opaque .basis files
-														cTFBC7_M6_OPAQUE_ONLY = cTFBC7_RGBA,
-														cTFBC7_M5 = cTFBC7_RGBA,
-														cTFBC7_ALT = 7,
+		// Previously, the caller had some control over which BC7 mode the transcoder output. We've simplified this due to UASTC, which supports numerous modes.
+		cTFBC7_M6_RGB = cTFBC7_RGBA,			// Opaque only, RGB or alpha if cDecodeFlagsTranscodeAlphaDataToOpaqueFormats flag is specified. Highest quality of all the non-ETC1 formats.
+		cTFBC7_M5_RGBA = cTFBC7_RGBA,			// Opaque+alpha, alpha channel will be opaque for opaque .basis files
+		cTFBC7_M6_OPAQUE_ONLY = cTFBC7_RGBA,
+		cTFBC7_M5 = cTFBC7_RGBA,
+		cTFBC7_ALT = 7,
 
-														cTFASTC_4x4 = cTFASTC_4x4_RGBA,
+		cTFASTC_4x4 = cTFASTC_4x4_RGBA,
 
-														cTFATC_RGBA_INTERPOLATED_ALPHA = cTFATC_RGBA,
+		cTFATC_RGBA_INTERPOLATED_ALPHA = cTFATC_RGBA,
 	};
 
 	// For compressed texture formats, this returns the # of bytes per block. For uncompressed, it returns the # of bytes per pixel.
