@@ -30,35 +30,19 @@ Basis Universal is not an image compression codec. It's a texture compression co
 
 For tangent space normal maps, you should separate X into RGB and Y into Alpha, and provide the compressor with 32-bit/pixel input images. Or use the "-separate_rg_to_color_alpha" command line option which does this for you. The internal texture format that Basis Universal uses (ETC1S) doesn't handle tangent space normal maps encoded into RGB well. You need to separate the channels and recover Z in the pixel shader using z=sqrt(1-x^2-y^2).
 
-### 3rd party code dependencies
+### License and 3rd party code dependencies
 
-The stand-alone transcoder (in the "transcoder" directory) is a single .cpp source file library which has no 3rd party code dependencies.
+Detailed legal, license, and IP information is [here](https://github.com/BinomialLLC/basis_universal/wiki/Legal-IP-License-Information). Basis Universal itself is Apache 2.0, but it utilizes some ZLIB and optional BSD code (Zstandard). The supported texture formats are [open Khronos Group standards](https://www.khronos.org/registry/DataFormat/specs/1.1/dataformat.1.1.html).
+
+All C/C++ code dependencies are present inside the Basis Universal repo itself to simplify building.
+
+The stand-alone transcoder (in the "transcoder" directory) is a single .cpp source file library which has no 3rd party code dependencies apart from zstd/zstdeclib.c, which is optional. (It's only used for decompressing UASTC KTX2 files that use Zstandard.)
 
 The encoder uses [lodepng](https://lodev.org/lodepng/) for loading and saving PNG images, which is Copyright (c) 2005-2019 Lode Vandevenne. It uses the zlib license. It also uses [apg_bmp](https://github.com/capnramses/apg/tree/master/apg_bmp) for loading BMP images, which is Copyright 2019 Anton Gerdelan. It uses the Apache 2.0 license.
 
 The encoder uses [tcuAstcUtil.cpp](https://chromium.googlesource.com/external/deqp/+/refs/heads/master/framework/common/tcuAstcUtil.cpp), from the [Android drawElements Quality Program (deqp) Testing Suite](https://source.android.com/devices/graphics/deqp-testing), for unpacking the transcoder's ASTC output for testing/validation purposes. This code is Copyright 2016 The Android Open Source Project, and uses the Apache 2.0 license. We have modified the code so it has no external dependencies, and disabled HDR support.
 
-### Legal/IP/license stuff
-
-Basis Universal uses texture compression formats or technologies created by several companies: ARM Holdings, AMD, Ericsson, Microsoft, and Imagination Technologies Limited. All are supported by various open standards or API's from [The Khronos Group](https://www.khronos.org/), such as OpenGL 4.5, OpenGL ES, or Vulkan. 
-
-A few texture formats (such as AMD/ATI's ATC texture format, or PVRTC2) were not documented sufficiently by the originator of the format. In these cases, we relied on open source code references from other authors, or information in published articles/papers to implement support for those texture formats in our transcoder. These references are included here.
-
-ASTC usage falls under ARM's [END USER LICENCE AGREEMENT FOR THE MALI ASTC SPECIFICATION AND SOFTWARE CODEC license agreement](https://github.com/ARM-software/astc-encoder/blob/master/LICENSE.md). (NOTE: ARM has changed the ASTC license to be more open, so this no longer applies. I'll update this soon.)
-
-PVRTC1/2: See the [PVRTC Specification and User Guide](https://www.imgtec.com/downloads/download-info/pvrtc-texture-compression-user-guide-2/). Imagination Technologies Limited, 23 Nov 2018. Also see the [Khronos Data Format Specification](https://www.khronos.org/registry/DataFormat/specs/1.3/dataformat.1.3.html). See [PVR Texture Compression Exploration](https://roartindon.blogspot.com/2014/08/pvr-texture-compression-exploration.html) and [PvrTcCompressor](https://bitbucket.org/jthlim/pvrtccompressor/src). Also see [Texture Compression Techniques](http://sv-journal.org/2014-1/06/en/index.php?lang=en#7-3).
-
-ETC1 and ETC2 EAC: See the [Khronos Data Format Specification](https://www.khronos.org/registry/DataFormat/specs/1.3/dataformat.1.3.html) and the [OpenGL 4.5 Core Profile](https://www.khronos.org/registry/OpenGL/specs/gl/glspec45.core.pdf) Appendix C.
-
-BC1-5,7: Part of Microsoft's Direct3D API technology. See [Texture Block Compression in Direct3D 11](https://docs.microsoft.com/en-us/windows/win32/direct3d11/texture-block-compression-in-direct3d-11). Also see the [squish library](https://github.com/Ethatron/squish-ccr).
-
-ATC: See the OpenGL extension [GL_AMD_compressed_ATC_texture](https://www.khronos.org/registry/OpenGL/extensions/AMD/AMD_compressed_ATC_texture.txt). For low-level ATC texture format information, see [S3TConv](https://github.com/Triang3l/S3TConv) and the paper [A Method for Load-Time Conversion of DXTC Assets to ATC](http://www.guildsoftware.com/papers/2012.Converting.DXTC.to.ATC.pdf).
-
-FXT1: See the OpenGL extension [GL_3DFX_texture_compression_FXT1](https://www.khronos.org/registry/OpenGL/extensions/3DFX/3DFX_texture_compression_FXT1.txt).
-
-Also see [Intel(R) Open Source HD Graphics Programmers' Reference Manual (PRM)](https://01.org/sites/default/files/documentation/intel-gfx-bspec-osrc-chv-bsw-vol05-memory-views.pdf). This reference manual details how to encode FXT1, ETC1, ETC2, EAC, DXT/BC1-3, BC4/5/7, and ASTC.
-
-Basis Universal's KTX2 transcoder and encoder utilize Zstandard, a stable lossless compressed file format defined by [IETF RFC 8478](https://tools.ietf.org/html/rfc8478). The Zstandard library uses the BSD license and is Copyright (c) 2016-present, Facebook, Inc. We have included copies of the [single source file variants of Zstandard](https://github.com/facebook/zstd/tree/dev/contrib/single_file_libs) in the "zstd" directory to simplify building.
+The encoder optionally uses Zstandard's single source file compressor (in zstd/zstd.c) to support compressing supercompressed KTX2 files.
 
 ### Repository Licensing with REUSE
 
