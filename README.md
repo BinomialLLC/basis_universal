@@ -32,7 +32,7 @@ For tangent space normal maps, you should separate X into RGB and Y into Alpha, 
 
 ### License and 3rd party code dependencies
 
-Detailed legal, license, and IP information is [here](https://github.com/BinomialLLC/basis_universal/wiki/Legal-IP-License-Information). Basis Universal itself is Apache 2.0, but it utilizes some ZLIB and optional BSD code (Zstandard). The supported texture formats are [open Khronos Group standards](https://www.khronos.org/registry/DataFormat/specs/1.1/dataformat.1.1.html).
+Detailed legal, license, and IP information is [here](https://github.com/BinomialLLC/basis_universal/wiki/Legal-IP-License-Information). Basis Universal itself uses the Apache 2.0 licenses, but it utilizes some zlib and optional BSD code (Zstandard). The supported texture formats are [open Khronos Group standards](https://www.khronos.org/registry/DataFormat/specs/1.1/dataformat.1.1.html).
 
 All C/C++ code dependencies are present inside the Basis Universal repo itself to simplify building.
 
