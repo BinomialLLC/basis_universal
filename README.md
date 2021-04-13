@@ -118,9 +118,14 @@ To create a slightly higher quality ETC1S .basis file (one with better codebooks
 
 `basisu -comp_level 2 x.png`
 
-In some rare images (ones with blue sky gradients come to bind), you may need to increase the ETC1S comp_level setting. This controls the amount of overall effort the encoder uses to optimize the codebooks (palettes) and compressed data stream. Higher comp_level's are significantly slower, and shouldn't be used unless necessary:
+On some rare images (ones with blue sky gradients come to bind), you may need to increase the ETC1S `-comp_level` setting. This controls the amount of overall effort the encoder uses to optimize the ETC1S codebooks (palettes) and compressed data stream. Higher comp_level's are *significantly* slower, and shouldn't be used unless necessary:
 
 `basisu -ktx2 x.png -comp_level 5 -q 255`
+
+Or try:
+`basisu -ktx2 x.png -comp_level 5 -max_endpoints 16128 -max_selectors 16128`
+
+Note `-comp_level`'s 3-4 are almost as good as 5 and are a lot faster.
 
 ### Unpacking .basis/.KTX2 files to .PNG/.KTX files
 
