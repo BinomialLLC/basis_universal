@@ -241,6 +241,7 @@ namespace basisu
 			m_source_alpha_filenames.clear();
 
 			m_source_images.clear();
+			m_source_mipmap_images.clear();
 
 			m_out_filename.clear();
 
@@ -329,7 +330,11 @@ namespace basisu
 		basisu::vector<std::string> m_source_alpha_filenames;
 		
 		basisu::vector<image> m_source_images;
-		// TODO: Allow caller to supply their own mipmaps
+		
+		// Stores mipmaps starting from level 1. Level 0 is still stored in m_source_images, as usual.
+		// If m_source_mipmaps isn't empty, automatic mipmap generation isn't done. m_source_mipmaps.size() MUST equal m_source_images.size() or the compressor returns an error.
+		// Note the compressor doesn't apply the user-provided swizzling (in m_swizzle), or any other preprocessing, to these images.
+		basisu::vector< basisu::vector<image> > m_source_mipmap_images;
 						
 		// Filename of the output basis file
 		std::string m_out_filename;

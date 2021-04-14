@@ -71,8 +71,16 @@ namespace basisu
 
 			debug_printf("Has global selector codebook: %i\n", m_params.m_pSel_codebook != nullptr);
 
-			debug_printf("Source images: %u, source filenames: %u, source alpha filenames: %i\n", 
-				(uint32_t)m_params.m_source_images.size(), (uint32_t)m_params.m_source_filenames.size(), (uint32_t)m_params.m_source_alpha_filenames.size());
+			debug_printf("Source images: %u, source filenames: %u, source alpha filenames: %i, Source mipmap images: %u\n",
+				m_params.m_source_images.size(), m_params.m_source_filenames.size(), m_params.m_source_alpha_filenames.size(), m_params.m_source_mipmap_images.size());
+
+			if (m_params.m_source_mipmap_images.size())
+			{
+				debug_printf("m_source_mipmap_images array sizes:\n");
+				for (uint32_t i = 0; i < m_params.m_source_mipmap_images.size(); i++)
+					debug_printf("%u ", m_params.m_source_mipmap_images[i].size());
+				debug_printf("\n");
+			}
 
 			PRINT_BOOL_VALUE(m_uastc);
 			PRINT_BOOL_VALUE(m_y_flip);
@@ -540,7 +548,7 @@ namespace basisu
 
 				debug_printf("Resampling to %ix%i\n", new_width, new_height);
 
-				// TODO: A box filter - kaiser looks too sharp on video.
+				// TODO: A box filter - kaiser looks too sharp on video. Let the caller control this.
 				image temp_img(new_width, new_height);
 				image_resample(file_image, temp_img, m_params.m_perceptual, "box"); // "kaiser");
 				temp_img.swap(file_image);
@@ -562,6 +570,39 @@ namespace basisu
 			source_filenames.push_back(pSource_filename);
 		}
 
+		// Check if the caller has generated their own mipmaps. 
+		if (m_params.m_source_mipmap_images.size())
+		{
+			// Make sure they've passed us enough mipmap chains.
+			if ((m_params.m_source_images.size() != m_params.m_source_mipmap_images.size()) || (total_source_files != m_params.m_source_images.size()))
+			{
+				error_printf("basis_compressor::read_source_images(): m_params.m_source_mipmap_images.size() must equal m_params.m_source_images.size()!\n");
+				return false;
+			}
+
+			// Check if any of the user-supplied mipmap levels has alpha.
+			// We're assuming the user has already preswizzled their mipmap source images.
+			if (!m_any_source_image_has_alpha)
+			{
+				for (uint32_t source_file_index = 0; source_file_index < total_source_files; source_file_index++)
+				{
+					for (uint32_t mip_index = 0; mip_index < m_params.m_source_mipmap_images[source_file_index].size(); mip_index++)
+					{
+						const image& mip_img = m_params.m_source_mipmap_images[source_file_index][mip_index];
+
+						if (mip_img.has_alpha())
+						{
+							m_any_source_image_has_alpha = true;
+							break;
+						}
+					}
+
+					if (m_any_source_image_has_alpha)
+						break;
+				}
+			}
+		}
+
 		debug_printf("Any source image has alpha: %u\n", m_any_source_image_has_alpha);
 
 		for (uint32_t source_file_index = 0; source_file_index < total_source_files; source_file_index++)
@@ -573,10 +614,22 @@ namespace basisu
 			basisu::vector<image> slices;
 			
 			slices.reserve(32);
+			
+			// The first (largest) mipmap level.
 			slices.push_back(file_image);
-									
-			if (m_params.m_mip_gen)
+			
+			if (m_params.m_source_mipmap_images.size())
 			{
+				// User-provided mipmaps for each layer or image in the texture array.
+				for (uint32_t mip_index = 0; mip_index < m_params.m_source_mipmap_images[source_file_index].size(); mip_index++)
+				{
+					const image& mip_img = m_params.m_source_mipmap_images[source_file_index][mip_index];
+					slices.push_back(mip_img);
+				}
+			}
+			else if (m_params.m_mip_gen)
+			{
+				// Automatically generate mipmaps.
 				if (!generate_mipmaps(file_image, slices, m_any_source_image_has_alpha))
 					return false;
 			}
