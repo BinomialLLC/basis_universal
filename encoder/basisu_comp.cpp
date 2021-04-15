@@ -145,6 +145,8 @@ namespace basisu
 			PRINT_BOOL_VALUE(m_rdo_uastc_favor_simpler_modes_in_rdo_mode)
 			PRINT_BOOL_VALUE(m_rdo_uastc_multithreading);
 
+			PRINT_INT_VALUE(m_resample_width);
+			PRINT_INT_VALUE(m_resample_height);
 			PRINT_FLOAT_VALUE(m_resample_factor);
 			debug_printf("Has global codebooks: %u\n", m_params.m_pGlobal_codebooks ? 1 : 0);
 			if (m_params.m_pGlobal_codebooks)
@@ -541,7 +543,19 @@ namespace basisu
 			file_image.resize(64, 64);
 #endif
 
-			if (m_params.m_resample_factor > 0.0f)
+			if (m_params.m_resample_width > 0 && m_params.m_resample_height > 0)
+			{
+				int new_width = basisu::minimum<int>(m_params.m_resample_width, BASISU_MAX_SUPPORTED_TEXTURE_DIMENSION);
+				int new_height = basisu::minimum<int>(m_params.m_resample_height, BASISU_MAX_SUPPORTED_TEXTURE_DIMENSION);
+
+				debug_printf("Resampling to %ix%i\n", new_width, new_height);
+
+				// TODO: A box filter - kaiser looks too sharp on video. Let the caller control this.
+				image temp_img(new_width, new_height);
+				image_resample(file_image, temp_img, m_params.m_perceptual, "box"); // "kaiser");
+				temp_img.swap(file_image);
+			}
+			else if (m_params.m_resample_factor > 0.0f)
 			{
 				int new_width = basisu::minimum<int>(basisu::maximum(1, (int)ceilf(file_image.get_width() * m_params.m_resample_factor)), BASISU_MAX_SUPPORTED_TEXTURE_DIMENSION);
 				int new_height = basisu::minimum<int>(basisu::maximum(1, (int)ceilf(file_image.get_height() * m_params.m_resample_factor)), BASISU_MAX_SUPPORTED_TEXTURE_DIMENSION);

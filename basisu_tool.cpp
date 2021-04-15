@@ -127,6 +127,7 @@ static void print_usage()
 		" -disable_hierarchical_endpoint_codebooks: Disable hierarchical endpoint codebook usage, slower but higher quality on some compression levels\n"
 		" -compare_ssim: Compute and display SSIM of image comparison (slow)\n"
 		" -bench: UASTC benchmark mode, for development only\n"
+		" -resample X Y: Resample all input textures to XxY pixels using a box filter\n"
 		" -resample_factor X: Resample all input textures by scale factor X using a box filter\n"
 		" -no_sse: Forbid all SSE instruction set usage\n"
 		" -validate_etc1s: Validate internal ETC1S compressor's data structures during compression (slower, intended for development).\n"
@@ -391,6 +392,13 @@ public:
 				m_comp_params.m_pack_uastc_flags |= s_level_flags[uastc_level];
 				
 				arg_count++;
+			}
+			else if (strcasecmp(pArg, "-resample") == 0)
+			{
+				REMAINING_ARGS_CHECK(2);
+				m_comp_params.m_resample_width = atoi(arg_v[arg_index + 1]);
+				m_comp_params.m_resample_height = atoi(arg_v[arg_index + 2]);
+				arg_count += 2;
 			}
 			else if (strcasecmp(pArg, "-resample_factor") == 0)
 			{
