@@ -2196,6 +2196,17 @@ namespace basisu
 					color_rgba trial_block_colors[4];
 					blk.get_block_colors(trial_block_colors, 0);
 
+					// precompute errors for the i-th block pixel and selector sel: [sel][i]
+					uint32_t trial_errors[4][16];
+
+					for (int sel = 0; sel < 4; ++sel)
+					{
+						for (int i = 0; i < 16; ++i)
+						{
+							trial_errors[sel][i] = color_distance(m_params.m_perceptual, pBlock_pixels[i], trial_block_colors[sel], false);
+						}
+					}
+
 					uint64_t best_cluster_err = INT64_MAX;
 					uint32_t best_cluster_index = 0;
 
@@ -2249,7 +2260,7 @@ namespace basisu
 							{
 								const uint32_t sel = unpacked_optimized_cluster_selectors[cluster_index * 16 + i];
 										
-								trial_err += color_distance(true, trial_block_colors[sel], pBlock_pixels[i], false);
+								trial_err += trial_errors[sel][i];
 								if (trial_err > best_cluster_err)
 									goto early_out;
 							}
@@ -2280,7 +2291,7 @@ namespace basisu
 							{
 								const uint32_t sel = unpacked_optimized_cluster_selectors[cluster_index * 16 + i];
 
-								trial_err += color_distance(false, trial_block_colors[sel], pBlock_pixels[i], false);
+								trial_err += trial_errors[sel][i];
 								if (trial_err > best_cluster_err)
 									goto early_out2;
 							}
