@@ -623,7 +623,22 @@ namespace basisu
 				// User-provided mipmaps for each layer or image in the texture array.
 				for (uint32_t mip_index = 0; mip_index < m_params.m_source_mipmap_images[source_file_index].size(); mip_index++)
 				{
-					const image& mip_img = m_params.m_source_mipmap_images[source_file_index][mip_index];
+					image& mip_img = m_params.m_source_mipmap_images[source_file_index][mip_index];
+
+					if (m_params.m_swizzle[0] != 0 ||
+						m_params.m_swizzle[1] != 1 ||
+						m_params.m_swizzle[2] != 2 ||
+						m_params.m_swizzle[3] != 3)
+					{
+						// Used for XY normal maps in RG - puts X in color, Y in alpha
+						for (uint32_t y = 0; y < mip_img.get_height(); y++)
+							for (uint32_t x = 0; x < mip_img.get_width(); x++)
+							{
+								const color_rgba &c = mip_img(x, y);
+								mip_img(x, y).set_noclamp_rgba(c[m_params.m_swizzle[0]], c[m_params.m_swizzle[1]], c[m_params.m_swizzle[2]], c[m_params.m_swizzle[3]]);
+							}
+					}
+
 					slices.push_back(mip_img);
 				}
 			}
