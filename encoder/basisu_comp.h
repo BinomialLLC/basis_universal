@@ -222,6 +222,8 @@ namespace basisu
 			m_rdo_uastc_smooth_block_max_std_dev(UASTC_RDO_DEFAULT_MAX_SMOOTH_BLOCK_STD_DEV, .01f, 65536.0f),
 			m_rdo_uastc_max_allowed_rms_increase_ratio(UASTC_RDO_DEFAULT_MAX_ALLOWED_RMS_INCREASE_RATIO, .01f, 100.0f),
 			m_rdo_uastc_skip_block_rms_thresh(UASTC_RDO_DEFAULT_SKIP_BLOCK_RMS_THRESH, .01f, 100.0f),
+			m_resample_width(0, 1, 16384),
+			m_resample_height(0, 1, 16384),
 			m_resample_factor(0.0f, .00125f, 100.0f),
 			m_ktx2_uastc_supercompression(basist::KTX2_SS_NONE),
 			m_ktx2_zstd_supercompression_level(6, INT_MIN, INT_MAX),
@@ -305,6 +307,8 @@ namespace basisu
 			m_rdo_uastc_favor_simpler_modes_in_rdo_mode.clear();
 			m_rdo_uastc_multithreading.clear();
 
+			m_resample_width.clear();
+			m_resample_height.clear();
 			m_resample_factor.clear();
 
 			m_pGlobal_codebooks = nullptr;
@@ -437,6 +441,8 @@ namespace basisu
 		bool_param<true> m_rdo_uastc_favor_simpler_modes_in_rdo_mode;
 		bool_param<true> m_rdo_uastc_multithreading;
 
+		param<int> m_resample_width;
+		param<int> m_resample_height;
 		param<float> m_resample_factor;
 		const basist::basisu_lowlevel_etc1s_transcoder *m_pGlobal_codebooks;
 
