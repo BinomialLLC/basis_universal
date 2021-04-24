@@ -161,6 +161,7 @@ add_executable(basisu ${BASISU_SRC_LIST})
 
 if (ZSTD)
 	target_compile_definitions(basisu PRIVATE BASISD_SUPPORT_KTX2_ZSTD=1)
+	target_include_directories(basisu PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/zstd)
 else()
 	target_compile_definitions(basisu PRIVATE BASISD_SUPPORT_KTX2_ZSTD=0)
 endif()
