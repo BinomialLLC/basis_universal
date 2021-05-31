@@ -1779,8 +1779,6 @@ namespace basisu
 			return nullptr;
 		}
 
-		const uint32_t bytes_per_line = hdr.m_width * tga_bytes_per_pixel;
-
 		const uint8_t *pSrc = pBuf + sizeof(tga_header);
 		uint32_t bytes_remaining = buf_size - sizeof(tga_header);
 
