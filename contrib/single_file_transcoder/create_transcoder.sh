@@ -4,8 +4,7 @@
 OUT_FILE="tempbin"
 
 echo "Amalgamating files... this can take a while"
-echo "Note: basisu_transcoder_tables_bc7_m6.inc is excluded"
-./combine.sh -r ../../transcoder -x basisu_transcoder_tables_bc7_m6.inc -o basisu_transcoder.cpp basisu_transcoder-in.cpp
+./combine.sh -r ../../transcoder -o basisu_transcoder.cpp basisu_transcoder-in.cpp
 # Did combining work?
 if [ $? -ne 0 ]; then
   echo "Combine script: FAILED"
