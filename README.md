@@ -86,11 +86,11 @@ To compress a image to a higher quality UASTC .basis file:
 
 To compress a image to a higher quality UASTC .basis file with RDO post processing, so the .basis file is more compressible:
 
-`basisu -uastc -uastc_level 2 -uastc_rdo_q .75 x.png`
+`basisu -uastc -uastc_level 2 -uastc_rdo_l .75 x.png`
 
 -uastc_level X ranges from 0-4 and controls the UASTC encoder's performance vs. quality tradeoff. Level 0 is very fast, but low quality, level 2 is the default quality, while level 3 is the highest practical quality. Level 4 is impractically slow, but highest quality.
 
--uastc_rdo_q X controls the rate distortion stage's quality setting. The lower this value, the higher the quality, but the larger the compressed file size. Good values to try are between .2-3.0. The default is 1.0. RDO post-processing is currently pretty slow, but we'll be optimizing it over time.
+-uastc_rdo_l X controls the rate distortion stage's quality setting. The lower this value, the higher the quality, but the larger the compressed file size. Good values to try are between .2-3.0. The default is 1.0. RDO post-processing is currently pretty slow, but we'll be optimizing it over time.
 
 UASTC texture video is supported and has been tested. In RDO mode with 7zip LZMA, we've seen average bitrates between 1-2 bpp. ETC1S mode is recommended for texture video, which gets bitrates around .25-.3 bpp.
 
