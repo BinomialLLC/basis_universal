@@ -50,6 +50,8 @@ The encoder optionally uses Zstandard's single source file compressor (in zstd/z
 
 The command line tool used to create, validate, and transcode/unpack .basis/.KTX2 files is named "basisu". Run basisu without any parameters for help. 
 
+The library and command line tool have no other 3rd party dependencies (that are not already in the repo), so it's pretty easy to build.
+
 To build basisu (without SSE 4.1 support - the default):
 
 ```
