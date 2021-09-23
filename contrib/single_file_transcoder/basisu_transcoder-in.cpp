@@ -1,17 +1,14 @@
 /**
  * Basis Universal single file library. Generated using:
  * \code
- *	./combine.sh -r ../../transcoder -x basisu_transcoder_tables_bc7_m6.inc -o basisu_transcoder.cpp basisu_transcoder-in.cpp
+ *	./combine.sh -r ../../transcoder -o basisu_transcoder.cpp basisu_transcoder-in.cpp
  * \endcode
- * 
- * \note The script above excludes the BC7 mode 6 tables, a choice reflected in
- * the build options.
  */
 
 /*
  * Transcoder build options for known platforms (iOS has ETC, ASTC and PVRTC;
  * Emscripten adds DXT to iOS's options; Android adds PVRTC2 to Emscripten's
- * options; other platforms build all except BC7 mode 6 and FXT1).
+ * options; other platforms build all except FXT1).
  * 
  * See https://github.com/BinomialLLC/basis_universal#shrinking-the-transcoders-compiled-size
  */
@@ -28,10 +25,13 @@
 	#ifndef __ANDROID__
 		#define BASISD_SUPPORT_PVRTC2 0
 	#endif
-#else
-	#define BASISD_SUPPORT_BC7_MODE6_OPAQUE_ONLY 0
 #endif
 #define BASISD_SUPPORT_FXT1 0
+
+/*
+ * KTX2 support disabled.
+ */
+#define BASISD_SUPPORT_KTX2 0
 
 #include "basisu_transcoder.cpp"
 

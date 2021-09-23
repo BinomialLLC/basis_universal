@@ -5,8 +5,8 @@
  * \n
  * Compile using:
  * \code
- *	export CC_FLAGS="-std=c++11 -Wall -Wextra -Werror -Os -g0 -flto --llvm-lto 3 -fno-exceptions -fno-rtti -lGL -DNDEBUG=1"
- *	export EM_FLAGS="-s ENVIRONMENT=web -s WASM=1 --shell-file shell.html --closure 1"
+ *	export "CC_FLAGS=-std=c++11 -Wall -Wextra -Werror -Os -g0 -flto --llvm-lto 3 -fno-exceptions -fno-rtti -lGL -DNDEBUG=1"
+ *	export "EM_FLAGS=-s ENVIRONMENT=web -s WASM=1 --shell-file shell.html --closure 1"
  *	emcc $CC_FLAGS $EM_FLAGS -o out.html emscripten.cpp
  * \endcode
  * Alternatively include \c basisu_transcoder.h and compile \c
