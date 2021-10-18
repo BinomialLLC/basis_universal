@@ -216,6 +216,69 @@ Both the transcoder and now the compressor (as of 12/17/2020) may be compiled us
 
 To enable compression support compile the JavaScript wrappers in `webgl/transcoding/basis_wrappers.cpp` with `BASISU_SUPPORT_ENCODING` set to 1. See the webgl/encoding directory. 
 
+### Low-level C++ encoder API
+
+You can call the encoder directly, instead of using the command line tool. We'll be adding documentation and some examples by the end of the year. For now, some important notes:
+
+First, ALWAYS call ```basisu::basisu_encoder_init()``` to initialize the library. Otherwise, you'll get undefined behavior or black textures.
+
+Create a job pool, fill in the ```basis_compress_params``` struct, then call ```basisu::basis_compressor::init()```, then ```basisu::basis_compressor::process()```. Like this for UASTC:
+
+```
+bool test()
+{
+	basisu_encoder_init();
+
+	image img;
+	if (!load_image("test.png", img))
+	{
+		printf("Can't load image\n");
+		return false;
+	}
+
+	basis_compressor_params basisCompressorParams;
+
+	basisCompressorParams.m_source_images.push_back(img);
+	basisCompressorParams.m_perceptual = false;
+	basisCompressorParams.m_mip_srgb = false;
+
+	basisCompressorParams.m_write_output_basis_files = true;
+	basisCompressorParams.m_out_filename = "test.basis";
+
+	basisCompressorParams.m_uastc = true;
+	basisCompressorParams.m_rdo_uastc_multithreading = false;
+	basisCompressorParams.m_multithreading = false;
+	basisCompressorParams.m_debug = true;
+	basisCompressorParams.m_status_output = true;
+	basisCompressorParams.m_compute_stats = true;
+	
+	basisu::job_pool jpool(1);
+	basisCompressorParams.m_pJob_pool = &jpool;
+
+	basisu::basis_compressor basisCompressor;
+	basisu::enable_debug_printf(true);
+
+	bool ok = basisCompressor.init(basisCompressorParams);
+	if (ok)
+	{
+		basisu::basis_compressor::error_code result = basisCompressor.process();
+
+		if (result == basisu::basis_compressor::cECSuccess)
+			printf("Success\n");
+		else
+		{
+			printf("Failure\n");
+			ok = false;
+		}
+	}
+	else
+		printf("Failure\n");
+	return ok;
+}
+```
+
+The command line tool uses this API too, so you can always look at that to see what it does given a set of command line options.
+
 ### Repository Licensing with REUSE
 
 The repository has been updated to be compliant with the REUSE licenese
