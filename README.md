@@ -5,9 +5,6 @@ Basis Universal is a ["supercompressed"](http://gamma.cs.unc.edu/GST/gst.pdf) GP
 
 The system now supports two modes: a high quality mode which is internally based off the [UASTC compressed texture format](https://richg42.blogspot.com/2020/01/uastc-block-format-encoding.html), and the original lower quality mode which is based off a subset of ETC1 called "ETC1S". UASTC is for extremely high quality (similar to BC7 quality) textures, and ETC1S is for very small files. The ETC1S system includes built-in data compression, while the UASTC system includes an optional Rate Distortion Optimization (RDO) post-process stage that conditions the encoded UASTC texture data in the .basis file so it can be more effectively LZ compressed by the end user. More technical details about UASTC integration are [here](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-implementation-details).
 
-Basis Universal is the world's first texture and image codec developed without using "Lena", which we have retired:
-https://www.losinglena.com/
-
 Basis files support non-uniform texture arrays, so cubemaps, volume textures, texture arrays, mipmap levels, video sequences, or arbitrary texture "tiles" can be stored in a single file. The compressor is able to exploit color and pattern correlations across the entire file, so multiple images with mipmaps can be stored very efficiently in a single file.
 
 The system's bitrate depends on the quality setting and image content, but common usable ETC1S bitrates are .3-1.25 bits/texel. ETC1S .basis files are typically 10-25% smaller than using RDO texture compression of the internal texture data stored in the .basis file followed by LZMA. For UASTC files, the bitrate is fixed at 8bpp, but with RDO post-processing and user-provided LZ compression on the .basis file the effective bitrate can be as low as 2bpp for video or for individual textures approximately 4-6bpp.
@@ -22,6 +19,11 @@ Basis Universal supports "skip blocks" in ETC1S compressed texture arrays, which
 For v1.13, we've added numerous ETC1S encoder optimizations designed to greatly speed up single threaded encoding time, as well as greatly reducing overall CPU utilization when multithreading is enabled. For benchmarking, we're using "-q 128 -no_multithreading -mip_fast". The encoder now uses approximately 1/3rd as much total CPU time for the same PSNR. The encoder can now optionally utilize SSE 4.1 - see the "-no_sse" command line option.
 
 [Release Notes](https://github.com/BinomialLLC/basis_universal/wiki/Release-Notes)
+
+### The world's first image/texture/video compression codec developed without testing with "Lena"
+
+We retired Lena years ago. No testing is done with this image:
+https://www.losinglena.com/
 
 ### Quick Introduction
 
