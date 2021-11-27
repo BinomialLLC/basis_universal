@@ -22,7 +22,7 @@ For v1.13, we've added numerous ETC1S encoder optimizations designed to greatly 
 
 ### The first texture (and possibly image/video) compression codec developed without "Lena"
 
-We retired "Lena" years ago. No testing is done with this image:
+We retired Lena years ago. No testing is done with this image:
 
 https://www.losinglena.com/
 
