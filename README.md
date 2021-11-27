@@ -20,9 +20,10 @@ For v1.13, we've added numerous ETC1S encoder optimizations designed to greatly 
 
 [Release Notes](https://github.com/BinomialLLC/basis_universal/wiki/Release-Notes)
 
-### The world's first image/texture/video compression codec developed without testing with "Lena"
+### The first image/texture/video compression codec developed without "Lena"
 
-We retired Lena years ago. No testing is done with this image:
+We retired "Lena" years ago. No testing is done with this image:
+
 https://www.losinglena.com/
 
 ### Quick Introduction
