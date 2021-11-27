@@ -20,7 +20,7 @@ For v1.13, we've added numerous ETC1S encoder optimizations designed to greatly 
 
 [Release Notes](https://github.com/BinomialLLC/basis_universal/wiki/Release-Notes)
 
-### The first image/texture/video compression codec developed without "Lena"
+### The first texture (and possibly image/video) compression codec developed without "Lena"
 
 We retired "Lena" years ago. No testing is done with this image:
 
