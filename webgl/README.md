@@ -4,8 +4,6 @@ Requires WebAssembly and WebGL support.
 
 ## Texture
 
-[Live demo: `texture/index.html`](https://basis-universal-webgl.now.sh/texture/)
-
 (Note the Live texture demo hasn't been updated to the latest release yet.)
 
 Renders a single texture, using the transcoder (compiled to WASM with emscripten) to generate one of the following compressed texture formats:
@@ -22,21 +20,12 @@ On browsers that don't support any compressed texture format, there's a low-qual
 
 ## glTF 3D Model
 
-[Live demo: `gltf/index.html`](https://basis-universal-webgl.now.sh/gltf/)
+glTF 2.0 assets support Basis Universal compression in KTX2 texture containers, defined in the glTF 2.0 extension [`KHR_texture_basisu`](https://github.com/KhronosGroup/glTF/tree/main/extensions/2.0/Khronos/KHR_texture_basisu).
 
-Renders a glTF 3D model with `.basis` texture files, transcoded into one of the following compressed texture formats:
+Further reading:
 
-* ASTC
-  * Tested in Chrome on Android, Pixel 3 XL.
-* DTX (BC1/BC3)
-  * Tested in Chrome (Linux and macOS) and Firefox (macOS).
-* ETC1
-  * Tested in Chrome on Android, Pixel 3 XL.
-* PVRTC
-  * Tested in Chrome and Safari on iOS iPhone 6 Plus.
-
-The glTF model in this demo uses a hypothetical `GOOGLE_texture_basis` extension. That extension is defined for the sake of example only - the glTF format will officially embed Basis files within a KTX2 wrapper, through a new
-extension that is [currently in development](https://github.com/KhronosGroup/glTF/pull/1612).
+- [Artist guide to KTX2 and Basis Universal](https://github.com/KhronosGroup/3D-Formats-Guidelines/blob/main/KTXArtistGuide.md)
+- three.js documentation for [GLTFLoader](https://threejs.org/docs/?q=gltfl#examples/en/loaders/GLTFLoader) and [KTX2Loader](https://threejs.org/docs/?q=ktx2#examples/en/loaders/KTX2Loader)
 
 ![Screenshot showing a basis texture rendered as the base color texture for a 3D model in a webpage.](gltf/preview.png)
 
