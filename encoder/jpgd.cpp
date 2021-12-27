@@ -2085,7 +2085,7 @@ namespace jpgd {
 		if (setjmp(m_jmp_state))
 			return JPGD_FAILED;
 
-		const bool chroma_y_filtering = (m_flags & cFlagLinearChromaFiltering) && ((m_scan_type == JPGD_YH2V2) || (m_scan_type == JPGD_YH1V2));
+		const bool chroma_y_filtering = (m_flags & cFlagLinearChromaFiltering) && ((m_scan_type == JPGD_YH2V2) || (m_scan_type == JPGD_YH1V2)) && (m_image_x_size >= 2) && (m_image_y_size >= 2);
 		if (chroma_y_filtering)
 		{
 			std::swap(m_pSample_buf, m_pSample_buf_prev);
@@ -2114,7 +2114,7 @@ namespace jpgd {
 		if (m_total_lines_left == 0)
 			return JPGD_DONE;
 
-		const bool chroma_y_filtering = (m_flags & cFlagLinearChromaFiltering) && ((m_scan_type == JPGD_YH2V2) || (m_scan_type == JPGD_YH1V2));
+		const bool chroma_y_filtering = (m_flags & cFlagLinearChromaFiltering) && ((m_scan_type == JPGD_YH2V2) || (m_scan_type == JPGD_YH1V2)) && (m_image_x_size >= 2) && (m_image_y_size >= 2);
 
 		bool get_another_mcu_row = false;
 		bool got_mcu_early = false;
@@ -2144,7 +2144,7 @@ namespace jpgd {
 		{
 		case JPGD_YH2V2:
 		{
-			if (m_flags & cFlagLinearChromaFiltering)
+			if ((m_flags & cFlagLinearChromaFiltering) && (m_image_x_size >= 2) && (m_image_y_size >= 2))
 			{
 				if (m_num_buffered_scanlines == 1)
 				{
@@ -2173,7 +2173,7 @@ namespace jpgd {
 		}
 		case JPGD_YH2V1:
 		{
-			if (m_flags & cFlagLinearChromaFiltering)
+			if ((m_flags & cFlagLinearChromaFiltering) && (m_image_x_size >= 2) && (m_image_y_size >= 2))
 				H2V1ConvertFiltered();
 			else
 				H2V1Convert();
