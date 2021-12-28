@@ -186,6 +186,8 @@ CPPSPMD_FORCE_INLINE __m128i blendv_epi32(__m128i a, __m128i b, __m128i mask)
 	return _mm_castps_si128(blendv_ps(_mm_castsi128_ps(a), _mm_castsi128_ps(b), _mm_castsi128_ps(mask)));
 }
 
+CPPSPMD_FORCE_INLINE float cast_int_bits_as_float(int v) { union { int32_t i; float f; } u = { v }; return u.f; }
+
 #if CPPSPMD_SSE2
 CPPSPMD_FORCE_INLINE int extract_x(const __m128i& vec) { return _mm_cvtsi128_si32(vec); }
 CPPSPMD_FORCE_INLINE int extract_y(const __m128i& vec) { return _mm_cvtsi128_si32(_mm_shuffle_epi32(vec, 0x55)); }
@@ -216,10 +218,10 @@ CPPSPMD_FORCE_INLINE int extract_ps_z(const __m128& vec) { return _mm_extract_ps
 CPPSPMD_FORCE_INLINE int extract_ps_w(const __m128& vec) { return _mm_extract_ps(vec, 3); }
 
 // Returns floats
-CPPSPMD_FORCE_INLINE float extractf_ps_x(const __m128& vec) { int v = extract_ps_x(vec); return *(const float*)&v; }
-CPPSPMD_FORCE_INLINE float extractf_ps_y(const __m128& vec) { int v = extract_ps_y(vec); return *(const float*)&v; }
-CPPSPMD_FORCE_INLINE float extractf_ps_z(const __m128& vec) { int v = extract_ps_z(vec); return *(const float*)&v; }
-CPPSPMD_FORCE_INLINE float extractf_ps_w(const __m128& vec) { int v = extract_ps_w(vec); return *(const float*)&v; }
+CPPSPMD_FORCE_INLINE float extractf_ps_x(const __m128& vec) { int v = extract_ps_x(vec); return cast_int_bits_as_float(v); }
+CPPSPMD_FORCE_INLINE float extractf_ps_y(const __m128& vec) { int v = extract_ps_y(vec); return cast_int_bits_as_float(v); }
+CPPSPMD_FORCE_INLINE float extractf_ps_z(const __m128& vec) { int v = extract_ps_z(vec); return cast_int_bits_as_float(v); }
+CPPSPMD_FORCE_INLINE float extractf_ps_w(const __m128& vec) { int v = extract_ps_w(vec); return cast_int_bits_as_float(v); }
 #endif
 
 #if CPPSPMD_SSE2
@@ -1915,8 +1917,6 @@ CPPSPMD_FORCE_INLINE bool extract(const vbool& v, int instance) { assert(instanc
 #define VBOOL_EXTRACT(v, instance) ( ((instance) == 0) ? extract_x((v).m_value) : (((instance) == 1) ? extract_y((v).m_value) : (((instance) == 2) ? extract_z((v).m_value) : extract_w((v).m_value))) )
 #define VFLOAT_EXTRACT(v, instance) ( ((instance) == 0) ? extractf_ps_x((v).m_value) : (((instance) == 1) ? extractf_ps_y((v).m_value) : (((instance) == 2) ? extractf_ps_z((v).m_value) : extractf_ps_w((v).m_value))) )
 #else
-CPPSPMD_FORCE_INLINE float cast_int_bits_as_float(int v) { return *(const float*)&v; }
-
 #define VINT_EXTRACT(v, instance) _mm_extract_epi32((v).m_value, instance)
 #define VBOOL_EXTRACT(v, instance) _mm_extract_epi32((v).m_value, instance)
 #define VFLOAT_EXTRACT(v, instance) cast_int_bits_as_float(_mm_extract_ps((v).m_value, instance))
