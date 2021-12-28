@@ -535,6 +535,9 @@ namespace basisu
 		std::atomic<bool> m_kill_flag;
 
 		void job_thread(uint32_t index);
+
+		// distribute the threads across all CPU groups
+		bool distribute();
 	};
 
 	// Simple 32-bit color class
