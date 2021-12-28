@@ -107,15 +107,15 @@ namespace basisu
 			PRINT_BOOL_VALUE(m_renormalize);
 			PRINT_BOOL_VALUE(m_multithreading);
 			PRINT_BOOL_VALUE(m_disable_hierarchical_endpoint_codebooks);
-			
+
 			PRINT_FLOAT_VALUE(m_hybrid_sel_cb_quality_thresh);
-			
+
 			PRINT_INT_VALUE(m_global_pal_bits);
 			PRINT_INT_VALUE(m_global_mod_bits);
 
 			PRINT_FLOAT_VALUE(m_endpoint_rdo_thresh);
 			PRINT_FLOAT_VALUE(m_selector_rdo_thresh);
-			
+
 			PRINT_BOOL_VALUE(m_mip_gen);
 			PRINT_BOOL_VALUE(m_mip_renormalize);
 			PRINT_BOOL_VALUE(m_mip_wrapping);
@@ -134,7 +134,7 @@ namespace basisu
 			debug_printf("m_userdata0: 0x%X, m_userdata1: 0x%X\n", m_params.m_userdata0, m_params.m_userdata1);
 			debug_printf("m_us_per_frame: %i (%f fps)\n", m_params.m_us_per_frame, m_params.m_us_per_frame ? 1.0f / (m_params.m_us_per_frame / 1000000.0f) : 0);
 			debug_printf("m_pack_uastc_flags: 0x%X\n", m_params.m_pack_uastc_flags);
-			
+
 			PRINT_BOOL_VALUE(m_rdo_uastc);
 			PRINT_FLOAT_VALUE(m_rdo_uastc_quality_scalar);
 			PRINT_INT_VALUE(m_rdo_uastc_dict_size);
@@ -165,7 +165,7 @@ namespace basisu
 				debug_printf("Key: \"%s\"\n", m_params.m_ktx2_key_values[i].m_key.data());
 				debug_printf("Value size: %u\n", m_params.m_ktx2_key_values[i].m_value.size());
 			}
-						
+
 #undef PRINT_BOOL_VALUE
 #undef PRINT_INT_VALUE
 #undef PRINT_UINT_VALUE
@@ -180,7 +180,7 @@ namespace basisu
 
 		return true;
 	}
-		
+
 	basis_compressor::error_code basis_compressor::process()
 	{
 		debug_printf("basis_compressor::process\n");
@@ -220,7 +220,7 @@ namespace basisu
 
 		if (!create_basis_file_and_transcode())
 			return cECFailedCreateBasisFile;
-		
+
 		if (m_params.m_create_ktx2_file)
 		{
 			if (!create_ktx2_file())
@@ -246,7 +246,7 @@ namespace basisu
 		m_uastc_backend_output.m_slice_desc = m_slice_descs;
 		m_uastc_backend_output.m_slice_image_data.resize(m_slice_descs.size());
 		m_uastc_backend_output.m_slice_image_crcs.resize(m_slice_descs.size());
-				
+
 		for (uint32_t slice_index = 0; slice_index < m_slice_descs.size(); slice_index++)
 		{
 			gpu_image& tex = m_uastc_slice_textures[slice_index];
@@ -257,7 +257,7 @@ namespace basisu
 			const uint32_t num_blocks_y = tex.get_blocks_y();
 			const uint32_t total_blocks = tex.get_total_blocks();
 			const image& source_image = m_slice_images[slice_index];
-			
+
 			std::atomic<uint32_t> total_blocks_processed;
 			total_blocks_processed = 0;
 
@@ -273,7 +273,7 @@ namespace basisu
 					{
 #endif
 						BASISU_NOTE_UNUSED(num_blocks_y);
-						
+
 						uint32_t uastc_flags = m_params.m_pack_uastc_flags;
 						if ((m_params.m_rdo_uastc) && (m_params.m_rdo_uastc_favor_simpler_modes_in_rdo_mode))
 							uastc_flags |= cPackUASTCFavorSimplerModes;
@@ -292,7 +292,7 @@ namespace basisu
 							encode_uastc(&block_pixels[0][0].r, dest_block, uastc_flags);
 
 							total_blocks_processed++;
-							
+
 							uint32_t val = total_blocks_processed;
 							if ((val & 16383) == 16383)
 							{
@@ -320,7 +320,7 @@ namespace basisu
 				rdo_params.m_lz_dict_size = m_params.m_rdo_uastc_dict_size;
 				rdo_params.m_smooth_block_max_error_scale = m_params.m_rdo_uastc_max_smooth_block_error_scale;
 				rdo_params.m_max_smooth_block_std_dev = m_params.m_rdo_uastc_smooth_block_max_std_dev;
-								
+
 				bool status = uastc_rdo(tex.get_total_blocks(), (basist::uastc_block*)tex.get_ptr(),
 					(const color_rgba *)m_source_blocks[slice_desc.m_first_block_index].m_pixels, rdo_params, m_params.m_pack_uastc_flags, m_params.m_rdo_uastc_multithreading ? m_params.m_pJob_pool : nullptr,
 					(m_params.m_rdo_uastc_multithreading && m_params.m_pJob_pool) ? basisu::minimum<uint32_t>(4, (uint32_t)m_params.m_pJob_pool->get_total_threads()) : 0);
@@ -332,11 +332,11 @@ namespace basisu
 
 			m_uastc_backend_output.m_slice_image_data[slice_index].resize(tex.get_size_in_bytes());
 			memcpy(&m_uastc_backend_output.m_slice_image_data[slice_index][0], tex.get_ptr(), tex.get_size_in_bytes());
-			
+
 			m_uastc_backend_output.m_slice_image_crcs[slice_index] = basist::crc16(tex.get_ptr(), tex.get_size_in_bytes(), 0);
-						
+
 		} // slice_index
-				
+
 		return cECSuccess;
 	}
 
@@ -377,12 +377,12 @@ namespace basisu
 
 			image &level_img = *enlarge_vector(mips, 1);
 			level_img.resize(level_width, level_height);
-						
-			int result = stbir_resize_uint8_generic( 
+
+			int result = stbir_resize_uint8_generic(
 				(const uint8_t *)img.get_ptr(), img.get_width(), img.get_height(), img.get_pitch() * sizeof(color_rgba),
             (uint8_t *)level_img.get_ptr(), level_img.get_width(), level_img.get_height(), level_img.get_pitch() * sizeof(color_rgba),
             has_alpha ? 4 : 3, has_alpha ? 3 : STBIR_ALPHA_CHANNEL_NONE, m_params.m_mip_premultiplied ? STBIR_FLAG_ALPHA_PREMULTIPLIED : 0,
-            m_params.m_mip_wrapping ? STBIR_EDGE_WRAP : STBIR_EDGE_CLAMP, filter, m_params.m_mip_srgb ? STBIR_COLORSPACE_SRGB : STBIR_COLORSPACE_LINEAR, 
+            m_params.m_mip_wrapping ? STBIR_EDGE_WRAP : STBIR_EDGE_CLAMP, filter, m_params.m_mip_srgb ? STBIR_COLORSPACE_SRGB : STBIR_COLORSPACE_LINEAR,
 				nullptr);
 
 			if (result == 0)
@@ -390,7 +390,7 @@ namespace basisu
 				error_printf("basis_compressor::generate_mipmaps: stbir_resize_uint8_generic() failed!\n");
 				return false;
 			}
-			
+
 			if (m_params.m_mip_renormalize)
 				level_img.renormalize_normal_map();
 		}
@@ -448,14 +448,14 @@ namespace basisu
 
 		basisu::vector<image> source_images;
 		basisu::vector<std::string> source_filenames;
-		
+
 		// First load all source images, and determine if any have an alpha channel.
 		for (uint32_t source_file_index = 0; source_file_index < total_source_files; source_file_index++)
 		{
 			const char *pSource_filename = "";
 
 			image file_image;
-			
+
 			if (m_params.m_read_source_images)
 			{
 				pSource_filename = m_params.m_source_filenames[source_file_index].c_str();
@@ -517,7 +517,7 @@ namespace basisu
 					}
 				alpha_swizzled = m_params.m_swizzle[3] != 3;
 			}
-						
+
 			bool has_alpha = false;
 			if (m_params.m_force_alpha || alpha_swizzled)
 				has_alpha = true;
@@ -530,7 +530,7 @@ namespace basisu
 				m_any_source_image_has_alpha = true;
 
 			debug_printf("Source image index %u filename %s %ux%u has alpha: %u\n", source_file_index, pSource_filename, file_image.get_width(), file_image.get_height(), has_alpha);
-												
+
 			if (m_params.m_y_flip)
 				file_image.flip_y();
 
@@ -587,7 +587,7 @@ namespace basisu
 			source_filenames.push_back(pSource_filename);
 		}
 
-		// Check if the caller has generated their own mipmaps. 
+		// Check if the caller has generated their own mipmaps.
 		if (m_params.m_source_mipmap_images.size())
 		{
 			// Make sure they've passed us enough mipmap chains.
@@ -629,12 +629,12 @@ namespace basisu
 
 			// Now, for each source image, create the slices corresponding to that image.
 			basisu::vector<image> slices;
-			
+
 			slices.reserve(32);
-			
+
 			// The first (largest) mipmap level.
 			slices.push_back(file_image);
-			
+
 			if (m_params.m_source_mipmap_images.size())
 			{
 				// User-provided mipmaps for each layer or image in the texture array.
@@ -669,10 +669,10 @@ namespace basisu
 			uint_vec mip_indices(slices.size());
 			for (uint32_t i = 0; i < slices.size(); i++)
 				mip_indices[i] = i;
-						
+
 			if ((m_any_source_image_has_alpha) && (!m_params.m_uastc))
 			{
-				// For ETC1S, if source has alpha, then even mips will have RGB, and odd mips will have alpha in RGB. 
+				// For ETC1S, if source has alpha, then even mips will have RGB, and odd mips will have alpha in RGB.
 				basisu::vector<image> alpha_slices;
 				uint_vec new_mip_indices;
 
@@ -691,7 +691,7 @@ namespace basisu
 							lvl_a(x, y).set_noclamp_rgba(a, a, a, 255);
 						}
 					}
-					
+
 					lvl_rgb.set_alpha(255);
 
 					alpha_slices.push_back(lvl_rgb);
@@ -706,7 +706,7 @@ namespace basisu
 			}
 
 			assert(slices.size() == mip_indices.size());
-						
+
 			for (uint32_t slice_index = 0; slice_index < slices.size(); slice_index++)
 			{
 				image& slice_image = slices[slice_index];
@@ -765,7 +765,7 @@ namespace basisu
 				slice_desc.m_num_macroblocks_y = (slice_desc.m_num_blocks_y + 1) >> 1;
 
 				slice_desc.m_source_file_index = source_file_index;
-				
+
 				slice_desc.m_mip_index = mip_indices[slice_index];
 
 				slice_desc.m_alpha = is_alpha_slice;
@@ -777,7 +777,7 @@ namespace basisu
 
 				m_total_blocks += slice_desc.m_num_blocks_x * slice_desc.m_num_blocks_y;
 				total_macroblocks += slice_desc.m_num_macroblocks_x * slice_desc.m_num_macroblocks_y;
-			
+
 			} // slice_index
 
 		} // source_file_index
@@ -790,7 +790,7 @@ namespace basisu
 			error_printf("Too many slices!\n");
 			return false;
 		}
-				
+
 		// Basic sanity check on the slices
 		for (uint32_t i = 1; i < m_slice_descs.size(); i++)
 		{
@@ -800,7 +800,7 @@ namespace basisu
 			// Make sure images are in order
 			int image_delta = (int)slice_desc.m_source_file_index - (int)prev_slice_desc.m_source_file_index;
 			if (image_delta > 1)
-				return false;	
+				return false;
 
 			// Make sure mipmap levels are in order
 			if (!image_delta)
@@ -872,20 +872,20 @@ namespace basisu
 	}
 
 	// Do some basic validation for 2D arrays, cubemaps, video, and volumes.
-	bool basis_compressor::validate_texture_type_constraints() 
+	bool basis_compressor::validate_texture_type_constraints()
 	{
 		debug_printf("basis_compressor::validate_texture_type_constraints\n");
 
 		// In 2D mode anything goes (each image may have a different resolution and # of mipmap levels).
 		if (m_params.m_tex_type == basist::cBASISTexType2D)
 			return true;
-				
+
 		uint32_t total_basis_images = 0;
 
 		for (uint32_t slice_index = 0; slice_index < m_slice_images.size(); slice_index++)
 		{
 			const basisu_backend_slice_desc &slice_desc = m_slice_descs[slice_index];
-				
+
 			total_basis_images = maximum<uint32_t>(total_basis_images, slice_desc.m_source_file_index + 1);
 		}
 
@@ -908,7 +908,7 @@ namespace basisu
 			const basisu_backend_slice_desc &slice_desc = m_slice_descs[slice_index];
 
 			image_mipmap_levels[slice_desc.m_source_file_index] = maximum(image_mipmap_levels[slice_desc.m_source_file_index], slice_desc.m_mip_index + 1);
-				
+
 			if (slice_desc.m_mip_index != 0)
 				continue;
 
@@ -962,7 +962,7 @@ namespace basisu
 	bool basis_compressor::process_frontend()
 	{
 		debug_printf("basis_compressor::process_frontend\n");
-						
+
 #if 0
 		// TODO
 		basis_etc1_pack_params pack_params;
@@ -1013,21 +1013,21 @@ namespace basisu
 			error_printf("Too many selector clusters! (%u but max is %u)\n", selector_clusters, basisu_frontend::cMaxSelectorClusters);
 			return false;
 		}
-		
+
 		if (m_params.m_quality_level != -1)
 		{
 			const float quality = saturate(m_params.m_quality_level / 255.0f);
-									
+
 			const float bits_per_endpoint_cluster = 14.0f;
 			const float max_desired_endpoint_cluster_bits_per_texel = 1.0f; // .15f
 			int max_endpoints = static_cast<int>((max_desired_endpoint_cluster_bits_per_texel * total_texels) / bits_per_endpoint_cluster);
-			
+
 			const float mid = 128.0f / 255.0f;
 
 			float color_endpoint_quality = quality;
 
 			const float endpoint_split_point = 0.5f;
-			
+
 			// In v1.2 and in previous versions, the endpoint codebook size at quality 128 was 3072. This wasn't quite large enough.
 			const int ENDPOINT_CODEBOOK_MID_QUALITY_CODEBOOK_SIZE = 4800;
 			const int MAX_ENDPOINT_CODEBOOK_SIZE = 8192;
@@ -1038,7 +1038,7 @@ namespace basisu
 
 				max_endpoints = clamp<int>(max_endpoints, 256, ENDPOINT_CODEBOOK_MID_QUALITY_CODEBOOK_SIZE);
 				max_endpoints = minimum<uint32_t>(max_endpoints, m_total_blocks);
-								
+
 				if (max_endpoints < 64)
 					max_endpoints = 64;
 				endpoint_clusters = clamp<uint32_t>((uint32_t)(.5f + lerp<float>(32, static_cast<float>(max_endpoints), color_endpoint_quality)), 32, basisu_frontend::cMaxEndpointClusters);
@@ -1049,12 +1049,12 @@ namespace basisu
 
 				max_endpoints = clamp<int>(max_endpoints, 256, MAX_ENDPOINT_CODEBOOK_SIZE);
 				max_endpoints = minimum<uint32_t>(max_endpoints, m_total_blocks);
-								
+
 				if (max_endpoints < ENDPOINT_CODEBOOK_MID_QUALITY_CODEBOOK_SIZE)
 					max_endpoints = ENDPOINT_CODEBOOK_MID_QUALITY_CODEBOOK_SIZE;
 				endpoint_clusters = clamp<uint32_t>((uint32_t)(.5f + lerp<float>(ENDPOINT_CODEBOOK_MID_QUALITY_CODEBOOK_SIZE, static_cast<float>(max_endpoints), color_endpoint_quality)), 32, basisu_frontend::cMaxEndpointClusters);
 			}
-						
+
 			float bits_per_selector_cluster = m_params.m_global_sel_pal ? 21.0f : 14.0f;
 
 			const float max_desired_selector_cluster_bits_per_texel = 1.0f; // .15f
@@ -1078,7 +1078,7 @@ namespace basisu
 				{
 					if (!m_params.m_endpoint_rdo_thresh.was_changed())
 						m_params.m_endpoint_rdo_thresh *= .25f;
-					
+
 					if (!m_params.m_selector_rdo_thresh.was_changed())
 						m_params.m_selector_rdo_thresh *= .25f;
 				}
@@ -1105,7 +1105,7 @@ namespace basisu
 
 				if (!m_params.m_endpoint_rdo_thresh.was_changed())
 					m_params.m_endpoint_rdo_thresh *= lerp<float>(1.0f, .75f, l);
-				
+
 				if (!m_params.m_selector_rdo_thresh.was_changed())
 					m_params.m_selector_rdo_thresh *= lerp<float>(1.0f, .75f, l);
 			}
@@ -1163,18 +1163,18 @@ namespace basisu
 			for (uint32_t i = 0; i < m_slice_descs.size(); i++)
 			{
 				char filename[1024];
-#ifdef _WIN32				
+#ifdef _WIN32
 				sprintf_s(filename, sizeof(filename), "rdo_frontend_output_output_blocks_%u.png", i);
 #else
 				snprintf(filename, sizeof(filename), "rdo_frontend_output_output_blocks_%u.png", i);
-#endif				
+#endif
 				m_frontend.dump_debug_image(filename, m_slice_descs[i].m_first_block_index, m_slice_descs[i].m_num_blocks_x, m_slice_descs[i].m_num_blocks_y, true);
 
 #ifdef _WIN32
 				sprintf_s(filename, sizeof(filename), "rdo_frontend_output_api_%u.png", i);
 #else
 				snprintf(filename, sizeof(filename), "rdo_frontend_output_api_%u.png", i);
-#endif				
+#endif
 				m_frontend.dump_debug_image(filename, m_slice_descs[i].m_first_block_index, m_slice_descs[i].m_num_blocks_x, m_slice_descs[i].m_num_blocks_y, false);
 			}
 		}
@@ -1235,13 +1235,13 @@ namespace basisu
 		backend_params.m_debug_images = m_params.m_debug_images;
 		backend_params.m_etc1s = true;
 		backend_params.m_compression_level = m_params.m_compression_level;
-		
+
 		if (!m_params.m_no_endpoint_rdo)
 			backend_params.m_endpoint_rdo_quality_thresh = m_params.m_endpoint_rdo_thresh;
 
 		if (!m_params.m_no_selector_rdo)
 			backend_params.m_selector_rdo_quality_thresh = m_params.m_selector_rdo_thresh;
-				
+
 		backend_params.m_use_global_sel_codebook = (m_frontend.get_params().m_pGlobal_sel_codebook != NULL);
 		backend_params.m_global_sel_codebook_pal_bits = m_frontend.get_params().m_num_global_sel_codebook_pal_bits;
 		backend_params.m_global_sel_codebook_mod_bits = m_frontend.get_params().m_num_global_sel_codebook_mod_bits;
@@ -1273,7 +1273,7 @@ namespace basisu
 			error_printf("basis_compressor::create_basis_file_and_transcode: basisu_backend:init() failed!\n");
 			return false;
 		}
-	
+
 		const uint8_vec &comp_data = m_basis_file.get_compressed_data();
 
 		m_output_basis_file = comp_data;
@@ -1298,7 +1298,7 @@ namespace basisu
 
 		m_decoded_output_textures_bc7.resize(m_slice_descs.size());
 		m_decoded_output_textures_unpacked_bc7.resize(m_slice_descs.size());
-								
+
 		tm.start();
 		if (m_params.m_pGlobal_codebooks)
 		{
@@ -1324,12 +1324,12 @@ namespace basisu
 		{
 			gpu_image decoded_texture;
 			decoded_texture.init(m_params.m_uastc ? texture_format::cASTC4x4 : texture_format::cETC1, m_slice_descs[i].m_width, m_slice_descs[i].m_height);
-						
+
 			tm.start();
 
 			basist::block_format format = m_params.m_uastc ? basist::block_format::cASTC_4x4 : basist::block_format::cETC1;
 			uint32_t bytes_per_block = m_params.m_uastc ? 16 : 8;
-						
+
 			if (!decoder.transcode_slice(&comp_data[0], (uint32_t)comp_data.size(), i,
 				reinterpret_cast<etc_block *>(decoded_texture.get_ptr()), m_slice_descs[i].m_num_blocks_x * m_slice_descs[i].m_num_blocks_y, format, bytes_per_block))
 			{
@@ -1355,7 +1355,7 @@ namespace basisu
 			total_orig_pixels += m_slice_descs[i].m_orig_width * m_slice_descs[i].m_orig_height;
 			total_texels += m_slice_descs[i].m_width * m_slice_descs[i].m_height;
 		}
-												
+
 		double total_time_bc7 = 0;
 
 		if (basist::basis_is_format_supported(basist::transcoder_texture_format::cTFBC7_RGBA, basist::basis_tex_format::cUASTC4x4) &&
@@ -1395,7 +1395,7 @@ namespace basisu
 			debug_printf("Transcoded to BC7 in %3.3fms, %f texels/sec\n", total_time_bc7 * 1000.0f, total_orig_pixels / total_time_bc7);
 
 		debug_printf("Total .basis output file size: %u, %3.3f bits/texel\n", comp_data.size(), comp_data.size() * 8.0f / total_orig_pixels);
-				
+
 		uint32_t total_orig_texels = 0;
 		for (uint32_t slice_index = 0; slice_index < m_slice_descs.size(); slice_index++)
 		{
@@ -1454,7 +1454,7 @@ namespace basisu
 			uint32_t total_texels = 0;
 			for (uint32_t i = 0; i < m_slice_descs.size(); i++)
 				total_texels += (m_slice_descs[i].m_num_blocks_x * m_slice_descs[i].m_num_blocks_y) * 16;
-			
+
 			m_basis_bits_per_texel = comp_size * 8.0f / total_texels;
 
 			debug_printf(".basis file size: %u, LZ compressed file size: %u, %3.2f bits/texel\n",
@@ -1464,13 +1464,13 @@ namespace basisu
 		}
 
 		m_stats.resize(m_slice_descs.size());
-		
+
 		uint32_t total_orig_texels = 0;
 
 		for (uint32_t slice_index = 0; slice_index < m_slice_descs.size(); slice_index++)
 		{
 			const basisu_backend_slice_desc &slice_desc = m_slice_descs[slice_index];
-						
+
 			total_orig_texels += slice_desc.m_orig_width * slice_desc.m_orig_height;
 
 			if (m_params.m_compute_stats)
@@ -1482,7 +1482,7 @@ namespace basisu
 				// TODO: We used to output SSIM (during heavy encoder development), but this slowed down compression too much. We'll be adding it back.
 
 				image_metrics em;
-								
+
 				// ---- .basis stats
 				em.calc(m_slice_images[slice_index], m_decoded_output_textures_unpacked[slice_index], 0, 3);
 				em.print(".basis RGB Avg:          ");
@@ -1494,10 +1494,10 @@ namespace basisu
 
 				em.calc(m_slice_images[slice_index], m_decoded_output_textures_unpacked[slice_index], 0, 1);
 				em.print(".basis R   Avg:          ");
-				
+
 				em.calc(m_slice_images[slice_index], m_decoded_output_textures_unpacked[slice_index], 1, 1);
 				em.print(".basis G   Avg:          ");
-				
+
 				em.calc(m_slice_images[slice_index], m_decoded_output_textures_unpacked[slice_index], 2, 1);
 				em.print(".basis B   Avg:          ");
 
@@ -1517,7 +1517,7 @@ namespace basisu
 				em.calc(m_slice_images[slice_index], m_decoded_output_textures_unpacked[slice_index], 0, 0, true, true);
 				em.print(".basis 601 Luma:         ");
 				s.m_basis_luma_601_psnr = static_cast<float>(em.m_psnr);
-								
+
 				if (m_slice_descs.size() == 1)
 				{
 					const uint32_t output_size = comp_size ? (uint32_t)comp_size : (uint32_t)comp_data.size();
@@ -1583,7 +1583,7 @@ namespace basisu
 					s.m_best_etc1s_rgb_avg_psnr = static_cast<float>(em.m_psnr);
 				}
 			}
-		
+
 			std::string out_basename;
 			if (m_params.m_out_filename.size())
 				string_get_filename(m_params.m_out_filename.c_str(), out_basename);
@@ -1634,10 +1634,10 @@ namespace basisu
 				}
 			}
 		}
-				
+
 		return true;
 	}
-	
+
 	// Make sure all the mip 0's have the same dimensions and number of mipmap levels, or we can't encode the KTX2 file.
 	bool basis_compressor::validate_ktx2_constraints()
 	{
@@ -1683,7 +1683,7 @@ namespace basisu
 	static uint8_t g_ktx2_etc1s_alpha_dfd[60] = { 0x3C,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x2,0x0,0x38,0x0,0xA3,0x1,0x2,0x0,0x3,0x3,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x3F,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0xFF,0xFF,0xFF,0xFF,0x40,0x0,0x3F,0xF,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0xFF,0xFF,0xFF,0xFF };
 	static uint8_t g_ktx2_uastc_nonalpha_dfd[44] = { 0x2C,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x2,0x0,0x28,0x0,0xA6,0x1,0x2,0x0,0x3,0x3,0x0,0x0,0x10,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x7F,0x4,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0xFF,0xFF,0xFF,0xFF };
 	static uint8_t g_ktx2_uastc_alpha_dfd[44] = { 0x2C,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x2,0x0,0x28,0x0,0xA6,0x1,0x2,0x0,0x3,0x3,0x0,0x0,0x10,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x7F,0x3,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0xFF,0xFF,0xFF,0xFF };
-		
+
 	void basis_compressor::get_dfd(uint8_vec &dfd, const basist::ktx2_header &header)
 	{
 		const uint8_t* pDFD;
@@ -1715,14 +1715,14 @@ namespace basisu
 				dfd_len = sizeof(g_ktx2_etc1s_nonalpha_dfd);
 			}
 		}
-				
+
 		assert(dfd_len >= 44);
 
 		dfd.resize(dfd_len);
 		memcpy(dfd.data(), pDFD, dfd_len);
 
 		uint32_t dfd_bits = basisu::read_le_dword(dfd.data() + 3 * sizeof(uint32_t));
-		
+
 		dfd_bits &= ~(0xFF << 16);
 
 		if (m_params.m_ktx2_srgb_transfer_func)
@@ -1747,7 +1747,7 @@ namespace basisu
 		if (m_params.m_uastc)
 		{
 			dfd_chan0 &= ~(0xF << 24);
-			
+
 			// TODO: Allow the caller to override this
 			if (m_any_source_image_has_alpha)
 				dfd_chan0 |= (basist::KTX2_DF_CHANNEL_UASTC_RGBA << 24);
@@ -1771,7 +1771,7 @@ namespace basisu
 		// Determine the width/height, number of array layers, mipmap levels, and the number of faces (1 for 2D, 6 for cubemap).
 		// This does not support 1D or 3D.
 		uint32_t base_width = 0, base_height = 0, total_layers = 0, total_levels = 0, total_faces = 1;
-				
+
 		for (uint32_t i = 0; i < m_slice_descs.size(); i++)
 		{
 			if ((m_slice_descs[i].m_mip_index == 0) && (!base_width))
@@ -1789,7 +1789,7 @@ namespace basisu
 		if (m_params.m_tex_type == basist::cBASISTexTypeCubemapArray)
 		{
 			assert((total_layers % 6) == 0);
-			
+
 			total_layers /= 6;
 			assert(total_layers >= 1);
 
@@ -1875,7 +1875,7 @@ namespace basisu
 			// No supercompression
 			compressed_level_data_bytes = level_data_bytes;
 		}
-				
+
 		uint8_vec etc1s_global_data;
 
 		// Create ETC1S global supercompressed data
@@ -1929,14 +1929,14 @@ namespace basisu
 			append_vector(etc1s_global_data, backend_output.m_endpoint_palette);
 			append_vector(etc1s_global_data, backend_output.m_selector_palette);
 			append_vector(etc1s_global_data, backend_output.m_slice_image_tables);
-			
+
 			header.m_supercompression_scheme = basist::KTX2_SS_BASISLZ;
 		}
 
 		// Key values
 		basist::ktx2_transcoder::key_value_vec key_values(m_params.m_ktx2_key_values);
 		key_values.enlarge(1);
-		
+
 		const char* pKTXwriter = "KTXwriter";
 		key_values.back().m_key.resize(strlen(pKTXwriter) + 1);
 		memcpy(key_values.back().m_key.data(), pKTXwriter, strlen(pKTXwriter) + 1);
@@ -1997,7 +1997,7 @@ namespace basisu
 #if BASISU_DISABLE_KTX2_ALIGNMENT_WORKAROUND
 			break;
 #endif
-			
+
 			// Hack to ensure the KVD block ends on a 16 byte boundary, because we have no other official way of aligning the data.
 			uint32_t kvd_end_file_offset = kvd_file_offset + key_value_data.size();
 			uint32_t bytes_needed_to_pad = (16 - (kvd_end_file_offset & 15)) & 15;
@@ -2015,13 +2015,13 @@ namespace basisu
 				bytes_needed_to_pad += 16;
 
 			printf("WARNING: Due to a KTX2 validator bug related to mipPadding, we must insert a dummy key into the KTX2 file of %u bytes\n", bytes_needed_to_pad);
-			
-			// We're not good - need to add a dummy key large enough to force file alignment so the mip level array gets aligned. 
+
+			// We're not good - need to add a dummy key large enough to force file alignment so the mip level array gets aligned.
 			// We can't just add some bytes before the mip level array because ktx2check will see that as extra data in the file that shouldn't be there in ktxValidator::validateDataSize().
 			key_values.enlarge(1);
 			for (uint32_t i = 0; i < (bytes_needed_to_pad - 4 - 1 - 1); i++)
 				key_values.back().m_key.push_back(127);
-			
+
 			key_values.back().m_key.push_back(0);
 
 			key_values.back().m_value.push_back(0);
@@ -2029,13 +2029,13 @@ namespace basisu
 			key_values.sort();
 
 			key_value_data.resize(0);
-			
+
 			// Try again
 		}
 
 		basisu::vector<basist::ktx2_level_index> level_index_array(total_levels);
 		memset(level_index_array.data(), 0, level_index_array.size_in_bytes());
-				
+
 		m_output_ktx2_file.clear();
 		m_output_ktx2_file.reserve(m_output_basis_file.size());
 
@@ -2044,7 +2044,7 @@ namespace basisu
 
 		// Level index array
 		append_vector(m_output_ktx2_file, (const uint8_t*)level_index_array.data(), level_index_array.size_in_bytes());
-				
+
 		// DFD
 		const uint8_t* pDFD = dfd.data();
 		uint32_t dfd_len = dfd.size();
@@ -2104,7 +2104,7 @@ namespace basisu
 			level_index_array[level].m_byte_offset = m_output_ktx2_file.size();
 			append_vector(m_output_ktx2_file, compressed_level_data_bytes[level]);
 		}
-		
+
 		// Write final header
 		memcpy(m_output_ktx2_file.data(), &header, sizeof(header));
 

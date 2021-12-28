@@ -13,7 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
-// TODO: 
+// TODO:
 // This code originally supported full ETC1 and ETC1S, so there's some legacy stuff to be cleaned up in here.
 // Add endpoint tiling support (where we force adjacent blocks to use the same endpoints during quantization), for a ~10% or more increase in bitrate at same SSIM. The backend already supports this.
 //
@@ -39,14 +39,14 @@ namespace basisu
 	const uint32_t BASISU_ENDPOINT_PARENT_CODEBOOK_SIZE = 16;
 	const uint32_t BASISU_SELECTOR_PARENT_CODEBOOK_SIZE_COMP_LEVEL_01 = 32;
 	const uint32_t BASISU_SELECTOR_PARENT_CODEBOOK_SIZE_COMP_LEVEL_DEFAULT = 16;
-	
+
 	// TODO - How to handle internal verifies in the basisu lib
 	static inline void handle_verify_failure(int line)
 	{
 			fprintf(stderr, "ERROR: basisu_frontend: verify check failed at line %i!\n", line);
 			abort();
 	}
-			
+
 	bool basisu_frontend::init(const params &p)
 	{
 #if 0
@@ -98,7 +98,7 @@ namespace basisu
 			p.m_num_global_sel_codebook_mod_bits,
 			p.m_use_hybrid_selector_codebooks,
 			p.m_hybrid_codebook_quality_thresh);
-				
+
 		if ((p.m_max_endpoint_clusters < 1) || (p.m_max_endpoint_clusters > cMaxEndpointClusters))
 			return false;
 		if ((p.m_max_selector_clusters < 1) || (p.m_max_selector_clusters > cMaxSelectorClusters))
@@ -111,7 +111,7 @@ namespace basisu
 
 		m_encoded_blocks.resize(m_params.m_num_source_blocks);
 		memset(&m_encoded_blocks[0], 0, m_encoded_blocks.size() * sizeof(m_encoded_blocks[0]));
-			
+
 		m_num_endpoint_codebook_iterations = 1;
 		m_num_selector_codebook_iterations = 1;
 
@@ -181,7 +181,7 @@ namespace basisu
 		if (m_params.m_disable_hierarchical_endpoint_codebooks)
 			m_use_hierarchical_endpoint_codebooks = false;
 
-		debug_printf("Endpoint refinement: %u, Hierarchical endpoint codebooks: %u, Hierarchical selector codebooks: %u, Endpoint codebook iters: %u, Selector codebook iters: %u\n", 
+		debug_printf("Endpoint refinement: %u, Hierarchical endpoint codebooks: %u, Hierarchical selector codebooks: %u, Endpoint codebook iters: %u, Selector codebook iters: %u\n",
 			m_endpoint_refinement, m_use_hierarchical_endpoint_codebooks, m_use_hierarchical_selector_codebooks, m_num_endpoint_codebook_iterations, m_num_selector_codebook_iterations);
 
 		return true;
@@ -205,7 +205,7 @@ namespace basisu
 			init_endpoint_training_vectors();
 
 			generate_endpoint_clusters();
-				
+
 			for (uint32_t refine_endpoint_step = 0; refine_endpoint_step < m_num_endpoint_codebook_iterations; refine_endpoint_step++)
 			{
 				BASISU_FRONTEND_VERIFY(check_etc1s_constraints());
@@ -250,7 +250,7 @@ namespace basisu
 						dump_endpoint_clusterization_visualization(buf, true);
 					}
 				}
-						
+
 				eliminate_redundant_or_empty_endpoint_clusters();
 
 				if (m_params.m_debug_stats)
@@ -270,13 +270,13 @@ namespace basisu
 
 			if (m_use_hierarchical_selector_codebooks)
 				compute_selector_clusters_within_each_parent_cluster();
-				
+
 			if (m_params.m_compression_level == 0)
 			{
 				create_optimized_selector_codebook(0);
 
 				find_optimal_selector_clusters_for_each_block();
-			
+
 				introduce_special_selector_clusters();
 			}
 			else
@@ -289,7 +289,7 @@ namespace basisu
 					find_optimal_selector_clusters_for_each_block();
 
 					introduce_special_selector_clusters();
-				
+
 					if ((m_params.m_compression_level >= 4) || (m_params.m_tex_type == basist::cBASISTexTypeVideoFrames))
 					{
 						if (!refine_block_endpoints_given_selectors())
@@ -297,7 +297,7 @@ namespace basisu
 					}
 				}
 			}
-						
+
 			optimize_selector_codebook();
 
 			if (m_params.m_debug_stats)
@@ -323,7 +323,7 @@ namespace basisu
 
 		const basist::basisu_lowlevel_etc1s_transcoder::endpoint_vec& endpoints = pTranscoder->get_endpoints();
 		const basist::basisu_lowlevel_etc1s_transcoder::selector_vec& selectors = pTranscoder->get_selectors();
-				
+
 		m_endpoint_cluster_etc_params.resize(endpoints.size());
 		for (uint32_t i = 0; i < endpoints.size(); i++)
 		{
@@ -430,7 +430,7 @@ namespace basisu
 #ifndef __EMSCRIPTEN__
 				m_params.m_pJob_pool->add_job([this, first_index, last_index, pass] {
 #endif
-										
+
 					for (uint32_t block_index = first_index; block_index < last_index; block_index++)
 					{
 						const etc_block& blk = pass ? m_encoded_blocks[block_index] : m_etc1_blocks_etc1s[block_index];
@@ -443,7 +443,7 @@ namespace basisu
 						uint64_t best_err = UINT64_MAX;
 						uint32_t best_index = 0;
 						etc_block best_block(trial_blk);
-												
+
 						for (uint32_t i = 0; i < m_endpoint_cluster_etc_params.size(); i++)
 						{
 							if (m_endpoint_cluster_etc_params[i].m_inten_table[0] > blk.get_inten_table(0))
@@ -566,7 +566,7 @@ namespace basisu
 		m_selector_cluster_block_indices.resize(selectors.size());
 		for (uint32_t block_index = 0; block_index < m_etc1_blocks_etc1s.size(); block_index++)
 			m_selector_cluster_block_indices[m_block_selector_cluster_index[block_index]].push_back(block_index);
-				
+
 		return true;
 	}
 
@@ -603,9 +603,9 @@ namespace basisu
 			const uint32_t new_selector_cluster_index = (uint32_t)m_optimized_cluster_selectors.size();
 
 			m_optimized_cluster_selectors.push_back(blk);
-			
+
 			vector_ensure_element_is_valid(m_selector_cluster_block_indices, new_selector_cluster_index);
-			
+
 			for (uint32_t block_index = 0; block_index < m_total_blocks; block_index++)
 			{
 				if (m_orig_encoded_blocks[block_index].get_raw_selector_bits() != blk.get_raw_selector_bits())
@@ -613,7 +613,7 @@ namespace basisu
 
 				// See if using flat selectors actually decreases the block's error.
 				const uint32_t old_selector_cluster_index = m_block_selector_cluster_index[block_index];
-				
+
 				etc_block cur_blk;
 				const uint32_t endpoint_cluster_index = get_subblock_endpoint_cluster_index(block_index, 0);
 				cur_blk.set_block_color5_etc1s(get_endpoint_cluster_unscaled_color(endpoint_cluster_index, false));
@@ -629,10 +629,10 @@ namespace basisu
 
 				if (new_err >= cur_err)
 					continue;
-				
+
 				// Change the block to use the new cluster
 				m_block_selector_cluster_index[block_index] = new_selector_cluster_index;
-				
+
 				m_selector_cluster_block_indices[new_selector_cluster_index].push_back(block_index);
 
 				block_relocated_flags[block_index] = true;
@@ -708,7 +708,7 @@ namespace basisu
 				old_to_new[i] = (find_res.first)->second;
 				continue;
 			}
-						
+
 			old_to_new[i] = total_new_entries++;
 			new_to_old.push_back(i);
 		}
@@ -745,7 +745,7 @@ namespace basisu
 		{
 			new_selector_cluster_indices[m_block_selector_cluster_index[i]].push_back(i);
 		}
-				
+
 		m_optimized_cluster_selectors.swap(new_optimized_cluster_selectors);
 		m_optimized_cluster_selector_global_cb_ids.swap(new_optimized_cluster_selector_global_cb_ids);
 		m_selector_cluster_block_indices.swap(new_selector_cluster_indices);
@@ -758,7 +758,7 @@ namespace basisu
 				for (uint32_t j = 0; j < m_selector_clusters_within_each_parent_cluster[i].size(); j++)
 					m_selector_clusters_within_each_parent_cluster[i][j] = old_to_new[m_selector_clusters_within_each_parent_cluster[i][j]];
 		}
-								
+
 		debug_printf("optimize_selector_codebook: Before: %u After: %u\n", orig_total_selector_clusters, total_new_entries);
 	}
 
@@ -768,34 +768,34 @@ namespace basisu
 
 		interval_timer tm;
 		tm.start();
-				
+
 		m_etc1_blocks_etc1s.resize(m_total_blocks);
 
 		const uint32_t N = 4096;
 		for (uint32_t block_index_iter = 0; block_index_iter < m_total_blocks; block_index_iter += N)
 		{
-			const uint32_t first_index = block_index_iter;                                        
-			const uint32_t last_index = minimum<uint32_t>(m_total_blocks, first_index + N);       
+			const uint32_t first_index = block_index_iter;
+			const uint32_t last_index = minimum<uint32_t>(m_total_blocks, first_index + N);
 
 #ifndef __EMSCRIPTEN__
 			m_params.m_pJob_pool->add_job( [this, first_index, last_index] {
 #endif
 
-				for (uint32_t block_index = first_index; block_index < last_index; block_index++) 
+				for (uint32_t block_index = first_index; block_index < last_index; block_index++)
 				{
 					const pixel_block &source_blk = get_source_pixel_block(block_index);
 
 					etc1_optimizer optimizer;
 					etc1_optimizer::params optimizer_params;
 					etc1_optimizer::results optimizer_results;
-			
+
 					if (m_params.m_compression_level == 0)
 						optimizer_params.m_quality = cETCQualityFast;
 					else if (m_params.m_compression_level == 1)
 						optimizer_params.m_quality = cETCQualityMedium;
 					else if (m_params.m_compression_level == BASISU_MAX_COMPRESSION_LEVEL)
 						optimizer_params.m_quality = cETCQualityUber;
-						
+
 					optimizer_params.m_num_src_pixels = 16;
 					optimizer_params.m_pSrc_pixels = source_blk.get_ptr();
 					optimizer_params.m_perceptual = m_params.m_perceptual;
@@ -836,9 +836,9 @@ namespace basisu
 	void basisu_frontend::init_endpoint_training_vectors()
 	{
 		debug_printf("init_endpoint_training_vectors\n");
-								
+
 		vec6F_quantizer::array_of_weighted_training_vecs &training_vecs = m_endpoint_clusterizer.get_training_vecs();
-		
+
 		training_vecs.resize(m_total_blocks * 2);
 
 		const uint32_t N = 16384;
@@ -852,12 +852,12 @@ namespace basisu
 #endif
 
 				for (uint32_t block_index = first_index; block_index < last_index; block_index++)
-				{			
+				{
 					const etc_block &blk = m_etc1_blocks_etc1s[block_index];
 
 					color_rgba block_colors[2];
 					blk.get_block_low_high_colors(block_colors, 0);
-				
+
 					vec6F v;
 					v[0] = block_colors[0].r * (1.0f / 255.0f);
 					v[1] = block_colors[0].g * (1.0f / 255.0f);
@@ -865,7 +865,7 @@ namespace basisu
 					v[3] = block_colors[1].r * (1.0f / 255.0f);
 					v[4] = block_colors[1].g * (1.0f / 255.0f);
 					v[5] = block_colors[1].b * (1.0f / 255.0f);
-				
+
 					training_vecs[block_index * 2 + 0] = std::make_pair(v, 1);
 					training_vecs[block_index * 2 + 1] = std::make_pair(v, 1);
 
@@ -935,7 +935,7 @@ namespace basisu
 			for (uint32_t cluster_index = 0; cluster_index < m_endpoint_clusters.size(); cluster_index++)
 			{
 				const uint_vec &cluster = m_endpoint_clusters[cluster_index];
-			
+
 				uint32_t parent_cluster_index = 0;
 				for (uint32_t j = 0; j < cluster.size(); j++)
 				{
@@ -951,7 +951,7 @@ namespace basisu
 				}
 			}
 		}
-								
+
 		if (m_params.m_debug_stats)
 			debug_printf("Total endpoint clusters: %u, parent clusters: %u\n", (uint32_t)m_endpoint_clusters.size(), (uint32_t)m_endpoint_parent_clusters.size());
 	}
@@ -1004,7 +1004,7 @@ namespace basisu
 			BASISU_FRONTEND_VERIFY(cluster_indices.size());
 
 			vector_sort(cluster_indices);
-			
+
 			auto last = std::unique(cluster_indices.begin(), cluster_indices.end());
 			cluster_indices.erase(last, cluster_indices.end());
 		}
@@ -1017,8 +1017,8 @@ namespace basisu
 		const uint32_t N = 512;
 		for (uint32_t cluster_index_iter = 0; cluster_index_iter < m_endpoint_clusters.size(); cluster_index_iter += N)
 		{
-			const uint32_t first_index = cluster_index_iter;                                    
-			const uint32_t last_index = minimum<uint32_t>((uint32_t)m_endpoint_clusters.size(), cluster_index_iter + N);   
+			const uint32_t first_index = cluster_index_iter;
+			const uint32_t last_index = minimum<uint32_t>((uint32_t)m_endpoint_clusters.size(), cluster_index_iter + N);
 
 #ifndef __EMSCRIPTEN__
 			m_params.m_pJob_pool->add_job( [this, first_index, last_index] {
@@ -1049,7 +1049,7 @@ namespace basisu
 						const endpoint_cluster_etc_params &etc_params = m_endpoint_cluster_etc_params[cluster_index];
 
 						assert(etc_params.m_valid);
-																				
+
 						color_rgba block_colors[4];
 						etc_block::get_block_colors5(block_colors, etc_params.m_color_unscaled[0], etc_params.m_inten_table[0], true);
 
@@ -1081,7 +1081,7 @@ namespace basisu
 						quant_err.m_cluster_subblock_index = cluster_indices_iter;
 						quant_err.m_block_index = block_index;
 						quant_err.m_subblock_index = subblock_index;
-					
+
 						{
 							std::lock_guard<std::mutex> lock(m_lock);
 
@@ -1102,7 +1102,7 @@ namespace basisu
 
 		vector_sort(m_subblock_endpoint_quant_err_vec);
 	}
-		
+
 	void basisu_frontend::introduce_new_endpoint_clusters()
 	{
 		debug_printf("introduce_new_endpoint_clusters\n");
@@ -1171,7 +1171,7 @@ namespace basisu
 
 			BASISU_FRONTEND_VERIFY(cluster_sizes[subblock_to_move.m_cluster_index] >= 2);
 			cluster_sizes[subblock_to_move.m_cluster_index] -= 2;
-						
+
 			ignore_cluster.insert(subblock_to_move.m_cluster_index);
 
 			num_new_endpoint_clusters--;
@@ -1211,8 +1211,8 @@ namespace basisu
 		const uint32_t N = 128;
 		for (uint32_t cluster_index_iter = 0; cluster_index_iter < m_endpoint_clusters.size(); cluster_index_iter += N)
 		{
-			const uint32_t first_index = cluster_index_iter;                                    
-			const uint32_t last_index = minimum<uint32_t>((uint32_t)m_endpoint_clusters.size(), cluster_index_iter + N);   
+			const uint32_t first_index = cluster_index_iter;
+			const uint32_t last_index = minimum<uint32_t>((uint32_t)m_endpoint_clusters.size(), cluster_index_iter + N);
 
 #ifndef __EMSCRIPTEN__
 			m_params.m_pJob_pool->add_job( [this, first_index, last_index, step ] {
@@ -1245,7 +1245,7 @@ namespace basisu
 					}
 
 					endpoint_cluster_etc_params new_subblock_params;
-						
+
 					{
 						etc1_optimizer optimizer;
 						etc1_solution_coordinates solutions[2];
@@ -1276,7 +1276,7 @@ namespace basisu
 						new_subblock_params.m_color_unscaled[0] = cluster_optimizer_results.m_block_color_unscaled;
 						new_subblock_params.m_inten_table[0] = cluster_optimizer_results.m_block_inten_table;
 						new_subblock_params.m_color_error[0] = cluster_optimizer_results.m_error;
-					} 
+					}
 
 					endpoint_cluster_etc_params &prev_etc_params = m_endpoint_cluster_etc_params[cluster_index];
 
@@ -1288,7 +1288,7 @@ namespace basisu
 						assert(prev_etc_params.m_valid);
 
 						uint64_t total_prev_err = 0;
-								
+
 						{
 							color_rgba block_colors[4];
 
@@ -1332,7 +1332,7 @@ namespace basisu
 
 						prev_etc_params = new_subblock_params;
 					}
-				
+
 				} // cluster_index
 
 #ifndef __EMSCRIPTEN__
@@ -1376,7 +1376,7 @@ namespace basisu
 	uint32_t basisu_frontend::refine_endpoint_clusterization()
 	{
 		debug_printf("refine_endpoint_clusterization\n");
-		
+
 		if (m_use_hierarchical_endpoint_codebooks)
 			compute_endpoint_clusters_within_each_parent_cluster();
 
@@ -1395,9 +1395,9 @@ namespace basisu
 
 			} // cluster_indices_iter
 		}
-				
+
 		//----------------------------------------------------------
-				
+
 		// Create a new endpoint clusterization
 
 		uint_vec best_cluster_indices(m_total_blocks);
@@ -1427,7 +1427,7 @@ namespace basisu
 					const uint_vec *pCluster_indices = m_endpoint_clusters_within_each_parent_cluster.size() ? &m_endpoint_clusters_within_each_parent_cluster[block_parent_endpoint_cluster_index] : nullptr;
 
 					const uint32_t total_clusters = m_use_hierarchical_endpoint_codebooks ? (uint32_t)pCluster_indices->size() : (uint32_t)m_endpoint_clusters.size();
-			
+
 					for (uint32_t i = 0; i < total_clusters; i++)
 					{
 						const uint32_t cluster_iter = m_use_hierarchical_endpoint_codebooks ? (*pCluster_indices)[i] : i;
@@ -1448,7 +1448,7 @@ namespace basisu
 						}
 
 						etc_block::get_block_colors5(subblock_colors, cluster_etc_base_color, cluster_etc_inten);
-												
+
 #if 0
 						for (uint32_t p = 0; p < num_subblock_pixels; p++)
 						{
@@ -1531,12 +1531,12 @@ namespace basisu
 						{
 							best_cluster_err = total_err;
 							best_cluster_index = cluster_iter;
-					
+
 							if (!best_cluster_err)
 								break;
 						}
 					} // j
-						
+
 					best_cluster_indices[block_index] = best_cluster_index;
 
 				} // block_index
@@ -1544,7 +1544,7 @@ namespace basisu
 #ifndef __EMSCRIPTEN__
 			} );
 #endif
-						
+
 		} // block_index_iter
 
 #ifndef __EMSCRIPTEN__
@@ -1591,7 +1591,7 @@ namespace basisu
 
 		basisu::vector<basisu::vector<uint32_t> > new_endpoint_clusters(m_endpoint_clusters.size());
 		basisu::vector<endpoint_cluster_etc_params> new_subblock_etc_params(m_endpoint_clusters.size());
-		
+
 		for (uint32_t i = 0; i < m_endpoint_clusters.size(); i++)
 		{
 			uint32_t j = sorted_endpoint_cluster_indices[i];
@@ -1606,7 +1606,7 @@ namespace basisu
 
 		new_endpoint_clusters.resize(0);
 		new_subblock_etc_params.resize(0);
-		
+
 		for (int i = 0; i < (int)m_endpoint_clusters.size(); )
 		{
 			if (!m_endpoint_clusters[i].size())
@@ -1624,7 +1624,7 @@ namespace basisu
 
 			new_endpoint_clusters.push_back(m_endpoint_clusters[i]);
 			new_subblock_etc_params.push_back(m_endpoint_cluster_etc_params[i]);
-						
+
 			for (int k = i + 1; k < j; k++)
 			{
 				append_vector(new_endpoint_clusters.back(), m_endpoint_clusters[k]);
@@ -1632,7 +1632,7 @@ namespace basisu
 
 			i = j;
 		}
-				
+
 		if (m_endpoint_clusters.size() != new_endpoint_clusters.size())
 		{
 			if (m_params.m_debug_stats)
@@ -1657,7 +1657,7 @@ namespace basisu
 #ifndef __EMSCRIPTEN__
 			m_params.m_pJob_pool->add_job( [this, first_index, last_index] {
 #endif
-				
+
 				for (uint32_t block_index = first_index; block_index < last_index; block_index++)
 				{
 					uint32_t cluster0 = m_block_endpoint_clusters_indices[block_index][0];
@@ -1670,7 +1670,7 @@ namespace basisu
 
 					color_rgba unscaled[2] = { m_endpoint_cluster_etc_params[cluster0].m_color_unscaled[0], m_endpoint_cluster_etc_params[cluster1].m_color_unscaled[0] };
 					uint32_t inten[2] = { m_endpoint_cluster_etc_params[cluster0].m_inten_table[0], m_endpoint_cluster_etc_params[cluster1].m_inten_table[0] };
-									
+
 					blk.set_block_color5(unscaled[0], unscaled[1]);
 					blk.set_flip_bit(true);
 
@@ -1678,7 +1678,7 @@ namespace basisu
 					blk.set_inten_table(1, inten[1]);
 
 					blk.determine_selectors(pSource_pixels, m_params.m_perceptual);
-						
+
 				} // block_index
 
 #ifndef __EMSCRIPTEN__
@@ -1705,7 +1705,7 @@ namespace basisu
 			for (uint32_t cluster_indices_iter = 0; cluster_indices_iter < cluster_indices.size(); cluster_indices_iter++)
 			{
 				const uint32_t block_index = cluster_indices[cluster_indices_iter];
-				
+
 				block_selector_cluster_indices[block_index] = cluster_index;
 
 			} // cluster_indices_iter
@@ -1730,7 +1730,7 @@ namespace basisu
 			BASISU_FRONTEND_VERIFY(cluster_indices.size());
 
 			vector_sort(cluster_indices);
-			
+
 			auto last = std::unique(cluster_indices.begin(), cluster_indices.end());
 			cluster_indices.erase(last, cluster_indices.end());
 		}
@@ -1742,9 +1742,9 @@ namespace basisu
 
 		typedef vec<16, float> vec16F;
 		typedef tree_vector_quant<vec16F> vec16F_clusterizer;
-				
+
 		vec16F_clusterizer::array_of_weighted_training_vecs training_vecs(m_total_blocks);
-				
+
 		const uint32_t N = 4096;
 		for (uint32_t block_index_iter = 0; block_index_iter < m_total_blocks; block_index_iter += N)
 		{
@@ -1774,10 +1774,10 @@ namespace basisu
 					const uint32_t cColorDistToWeight = 300;
 					const uint32_t cMaxWeight = 4096;
 					uint32_t weight = clamp<uint32_t>(dist / cColorDistToWeight, 1, cMaxWeight);
-						
+
 					training_vecs[block_index].first = v;
 					training_vecs[block_index].second = weight;
-				
+
 				} // block_index
 
 #ifndef __EMSCRIPTEN__
@@ -1840,7 +1840,7 @@ namespace basisu
 			for (uint32_t cluster_index = 0; cluster_index < m_selector_cluster_block_indices.size(); cluster_index++)
 			{
 				const uint_vec &cluster = m_selector_cluster_block_indices[cluster_index];
-			
+
 				uint32_t parent_cluster_index = 0;
 				for (uint32_t j = 0; j < cluster.size(); j++)
 				{
@@ -1879,13 +1879,13 @@ namespace basisu
 			const uint32_t N = 256;
 			for (uint32_t cluster_index_iter = 0; cluster_index_iter < total_selector_clusters; cluster_index_iter += N)
 			{
-				const uint32_t first_index = cluster_index_iter;                                    
-				const uint32_t last_index = minimum<uint32_t>((uint32_t)total_selector_clusters, cluster_index_iter + N);   
+				const uint32_t first_index = cluster_index_iter;
+				const uint32_t last_index = minimum<uint32_t>((uint32_t)total_selector_clusters, cluster_index_iter + N);
 
 #ifndef __EMSCRIPTEN__
 				m_params.m_pJob_pool->add_job( [this, first_index, last_index, &total_clusters_processed, &total_selector_clusters] {
 #endif
-					
+
 					for (uint32_t cluster_index = first_index; cluster_index < last_index; cluster_index++)
 					{
 						const basisu::vector<uint32_t> &cluster_block_indices = m_selector_cluster_block_indices[cluster_index];
@@ -1963,13 +1963,13 @@ namespace basisu
 			const uint32_t N = 256;
 			for (uint32_t cluster_index_iter = 0; cluster_index_iter < total_selector_clusters; cluster_index_iter += N)
 			{
-				const uint32_t first_index = cluster_index_iter;                                    
-				const uint32_t last_index = minimum<uint32_t>((uint32_t)total_selector_clusters, cluster_index_iter + N);   
+				const uint32_t first_index = cluster_index_iter;
+				const uint32_t last_index = minimum<uint32_t>((uint32_t)total_selector_clusters, cluster_index_iter + N);
 
-#ifndef __EMSCRIPTEN__			
+#ifndef __EMSCRIPTEN__
 				m_params.m_pJob_pool->add_job( [this, first_index, last_index, &uses_hybrid_sel_codebook, &total_clusters_processed, &total_selector_clusters] {
 #endif
-					
+
 					for (uint32_t cluster_index = first_index; cluster_index < last_index; cluster_index++)
 					{
 						const basisu::vector<uint32_t> &cluster_block_indices = m_selector_cluster_block_indices[cluster_index];
@@ -2074,7 +2074,7 @@ namespace basisu
 						if (uses_hybrid_sel_codebook)
 						{
 							std::lock_guard<std::mutex> lock(m_lock);
-		
+
 							total_clusters_processed++;
 							if ((total_clusters_processed % 63) == 0)
 								debug_printf("Global selector palette optimization: %3.1f%% complete\n", total_clusters_processed * 100.0f / total_selector_clusters);
@@ -2093,7 +2093,7 @@ namespace basisu
 #endif
 
 		} // if (m_params.m_pGlobal_sel_codebook)
-				
+
 		if (m_params.m_debug_images)
 		{
 			uint32_t max_selector_cluster_size = 0;
@@ -2119,7 +2119,7 @@ namespace basisu
 						uint32_t block_index = cluster_block_indices[i];
 
 						const etc_block &blk = m_orig_encoded_blocks[block_index];
-						
+
 						for (uint32_t y = 0; y < 4; y++)
 							for (uint32_t x = 0; x < 4; x++)
 								selector_cluster_vis.set_clipped(x_spacer_len + x + 5 * i, selector_cluster_index * 5 + y, color_rgba((blk.get_selector(x, y) * 255) / 3));
@@ -2148,7 +2148,7 @@ namespace basisu
 		}
 
 		m_block_selector_cluster_index.resize(m_total_blocks);
-							
+
 		if (m_params.m_compression_level == 0)
 		{
 			// Don't do anything, just leave the blocks in their original selector clusters.
@@ -2162,7 +2162,7 @@ namespace basisu
 		{
 			// Note that this method may leave some empty clusters (i.e. arrays with no block indices), including at the end.
 			basisu::vector< basisu::vector<uint32_t> > new_cluster_indices(m_optimized_cluster_selectors.size());
-						
+
 			// For each block: Determine which quantized selectors best encode that block, given its quantized endpoints.
 
 			basisu::vector<uint8_t> unpacked_optimized_cluster_selectors(16 * m_optimized_cluster_selectors.size());
@@ -2176,7 +2176,7 @@ namespace basisu
 					}
 				}
 			}
-						
+
 			const uint32_t N = 1024;
 			for (uint32_t block_index_iter = 0; block_index_iter < m_total_blocks; block_index_iter += N)
 			{
@@ -2192,7 +2192,7 @@ namespace basisu
 					const color_rgba* pBlock_pixels = get_source_pixel_block(block_index).get_ptr();
 
 					etc_block& blk = m_encoded_blocks[block_index];
-			
+
 					color_rgba trial_block_colors[4];
 					blk.get_block_colors(trial_block_colors, 0);
 
@@ -2255,11 +2255,11 @@ namespace basisu
 							//const etc_block& cluster_blk = m_optimized_cluster_selectors[cluster_index];
 
 							uint64_t trial_err = 0;
-																
+
 							for (int i = 0; i < 16; i++)
 							{
 								const uint32_t sel = unpacked_optimized_cluster_selectors[cluster_index * 16 + i];
-										
+
 								trial_err += trial_errors[sel][i];
 								if (trial_err > best_cluster_err)
 									goto early_out;
@@ -2314,14 +2314,14 @@ namespace basisu
 					blk.set_raw_selector_bits(m_optimized_cluster_selectors[best_cluster_index].get_raw_selector_bits());
 
 					m_block_selector_cluster_index[block_index] = best_cluster_index;
-	
+
 					{
 						std::lock_guard<std::mutex> lock(m_lock);
 
 						vector_ensure_element_is_valid(new_cluster_indices, best_cluster_index);
 						new_cluster_indices[best_cluster_index].push_back(block_index);
 					}
-					
+
 				} // block_index
 
 #ifndef __EMSCRIPTEN__
@@ -2345,7 +2345,7 @@ namespace basisu
 	uint32_t basisu_frontend::refine_block_endpoints_given_selectors()
 	{
 		debug_printf("refine_block_endpoints_given_selectors\n");
-				
+
 		for (int block_index = 0; block_index < static_cast<int>(m_total_blocks); block_index++)
 		{
 			//uint32_t selector_cluster = m_block_selector_cluster_index(block_x, block_y);
@@ -2526,7 +2526,7 @@ namespace basisu
 
 		if (m_params.m_debug_stats)
 			debug_printf("Total subblock endpoints refined: %u (%3.1f%%)\n", total_subblocks_refined, total_subblocks_refined * 100.0f / total_subblocks_examined);
-				
+
 		return total_subblocks_refined;
 	}
 
@@ -2618,7 +2618,7 @@ namespace basisu
 	}
 
 	// The backend has remapped the block endpoints while optimizing the output symbols for better rate distortion performance, so let's go and reoptimize the endpoint codebook.
-	// This is currently the only place where the backend actually goes and changes the quantization and calls the frontend to fix things up. 
+	// This is currently the only place where the backend actually goes and changes the quantization and calls the frontend to fix things up.
 	// This is basically a bottom up clusterization stage, where some leaves can be combined.
 	void basisu_frontend::reoptimize_remapped_endpoints(const uint_vec &new_block_endpoints, int_vec &old_to_new_endpoint_cluster_indices, bool optimize_final_codebook, uint_vec *pBlock_selector_indices)
 	{
@@ -2630,12 +2630,12 @@ namespace basisu
 
 		basisu::vector<uint8_t> cluster_valid(new_endpoint_cluster_block_indices.size());
 		basisu::vector<uint8_t> cluster_improved(new_endpoint_cluster_block_indices.size());
-		
+
 		const uint32_t N = 256;
 		for (uint32_t cluster_index_iter = 0; cluster_index_iter < new_endpoint_cluster_block_indices.size(); cluster_index_iter += N)
 		{
-			const uint32_t first_index = cluster_index_iter;                                    
-			const uint32_t last_index = minimum<uint32_t>((uint32_t)new_endpoint_cluster_block_indices.size(), cluster_index_iter + N);   
+			const uint32_t first_index = cluster_index_iter;
+			const uint32_t last_index = minimum<uint32_t>((uint32_t)new_endpoint_cluster_block_indices.size(), cluster_index_iter + N);
 
 #ifndef __EMSCRIPTEN__
 			m_params.m_pJob_pool->add_job( [this, first_index, last_index, &cluster_improved, &cluster_valid, &new_endpoint_cluster_block_indices, &pBlock_selector_indices ] {
@@ -2657,13 +2657,13 @@ namespace basisu
 					blk.set_block_color5_etc1s(get_endpoint_cluster_unscaled_color(cluster_index, false));
 					blk.set_inten_tables_etc1s(get_endpoint_cluster_inten_table(cluster_index, false));
 					blk.set_flip_bit(true);
-						
+
 					uint64_t cur_err = 0;
 
 					for (uint32_t cluster_block_indices_iter = 0; cluster_block_indices_iter < cluster_block_indices.size(); cluster_block_indices_iter++)
 					{
 						const uint32_t block_index = cluster_block_indices[cluster_block_indices_iter];
-				
+
 						const color_rgba *pBlock_pixels = get_source_pixel_block(block_index).get_ptr();
 
 						memcpy(&cluster_pixels[cluster_block_indices_iter * 16], pBlock_pixels, 16 * sizeof(color_rgba));
@@ -2675,14 +2675,14 @@ namespace basisu
 						blk.set_raw_selector_bits(blk_selectors.get_raw_selector_bits());
 
 						cur_err += blk.evaluate_etc1_error(pBlock_pixels, m_params.m_perceptual);
-				
+
 						for (uint32_t y = 0; y < 4; y++)
 							for (uint32_t x = 0; x < 4; x++)
 								force_selectors[cluster_block_indices_iter * 16 + x + y * 4] = static_cast<uint8_t>(blk_selectors.get_selector(x, y));
 					}
 
 					endpoint_cluster_etc_params new_endpoint_cluster_etc_params;
-						
+
 					{
 						etc1_optimizer optimizer;
 						etc1_solution_coordinates solutions[2];
@@ -2721,7 +2721,7 @@ namespace basisu
 					if (new_endpoint_cluster_etc_params.m_color_error[0] < cur_err)
 					{
 						m_endpoint_cluster_etc_params[cluster_index] = new_endpoint_cluster_etc_params;
-				
+
 						cluster_improved[cluster_index] = true;
 					}
 
@@ -2738,13 +2738,13 @@ namespace basisu
 #ifndef __EMSCRIPTEN__
 		m_params.m_pJob_pool->wait_for_all();
 #endif
-				
+
 		uint32_t total_unused_clusters = 0;
 		uint32_t total_improved_clusters = 0;
-		
+
 		old_to_new_endpoint_cluster_indices.resize(m_endpoint_clusters.size());
 		vector_set_all(old_to_new_endpoint_cluster_indices, -1);
-				
+
 		int total_new_endpoint_clusters = 0;
 
 		for (uint32_t old_cluster_index = 0; old_cluster_index < m_endpoint_clusters.size(); old_cluster_index++)
@@ -2779,7 +2779,7 @@ namespace basisu
 			for (uint32_t block_index = 0; block_index < new_block_endpoints.size(); block_index++)
 			{
 				const uint32_t old_endpoint_cluster_index = new_block_endpoints[block_index];
-			
+
 				const int new_endpoint_cluster_index = old_to_new_endpoint_cluster_indices[old_endpoint_cluster_index];
 				BASISU_FRONTEND_VERIFY(new_endpoint_cluster_index >= 0);
 
@@ -2792,13 +2792,13 @@ namespace basisu
 
 				new_endpoint_cluster_etc_params[new_endpoint_cluster_index].m_subblocks.push_back(block_index * 2 + 0);
 				new_endpoint_cluster_etc_params[new_endpoint_cluster_index].m_subblocks.push_back(block_index * 2 + 1);
-									
+
 				m_block_endpoint_clusters_indices[block_index][0] = new_endpoint_cluster_index;
 				m_block_endpoint_clusters_indices[block_index][1] = new_endpoint_cluster_index;
 			}
 
 			debug_printf("basisu_frontend::reoptimize_remapped_endpoints: stage 2\n");
-		
+
 			m_endpoint_clusters = new_endpoint_clusters;
 			m_endpoint_cluster_etc_params = new_endpoint_cluster_etc_params;
 
@@ -2834,10 +2834,10 @@ namespace basisu
 
 			debug_printf("Final (post-RDO) endpoint clusters: %u\n", m_endpoint_clusters.size());
 		}
-						
+
 		//debug_printf("validate_output: %u\n", validate_output());
 	}
-	
+
 	bool basisu_frontend::validate_output() const
 	{
 		debug_printf("validate_output\n");
@@ -2850,10 +2850,10 @@ namespace basisu
 //#define CHECK(x) do { if (!(x)) { DebugBreak(); return false; } } while(0)
 #define CHECK(x) BASISU_FRONTEND_VERIFY(x);
 
-			CHECK(get_output_block(block_index).get_flip_bit() == true);
-			
+			CHECK(get_output_block(block_index).get_flip_bit());
+
 			const bool diff_flag = get_diff_flag(block_index);
-			CHECK(diff_flag == true);
+			CHECK(diff_flag);
 
 			etc_block blk;
 			memset(&blk, 0, sizeof(blk));
@@ -2865,11 +2865,11 @@ namespace basisu
 
 			// basisu only supports ETC1S, so these must be equal.
 			CHECK(endpoint_cluster0_index == endpoint_cluster1_index);
-			
+
 			CHECK(blk.set_block_color5_check(get_endpoint_cluster_unscaled_color(endpoint_cluster0_index, false), get_endpoint_cluster_unscaled_color(endpoint_cluster1_index, false)));
 
 			CHECK(get_endpoint_cluster_color_is_used(endpoint_cluster0_index, false));
-			
+
 			blk.set_inten_table(0, get_endpoint_cluster_inten_table(endpoint_cluster0_index, false));
 			blk.set_inten_table(1, get_endpoint_cluster_inten_table(endpoint_cluster1_index, false));
 

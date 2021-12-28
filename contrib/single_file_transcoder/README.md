@@ -20,7 +20,7 @@ The combiner script can also generate separate amalgamated header and source fil
 ```
 ./combine.sh -r ../../transcoder -o basisu_transcoder.h -p ../../transcoder/basisu_transcoder.h
 
-./combine.sh -r ../../transcoder -x basisu_transcoder_tables_bc7_m6.inc -k basisu_transcoder.h -o basisu_transcoder.cpp basisu_transcoder-in.cpp 
+./combine.sh -r ../../transcoder -x basisu_transcoder_tables_bc7_m6.inc -k basisu_transcoder.h -o basisu_transcoder.cpp basisu_transcoder-in.cpp
 
 ```
 
@@ -29,6 +29,6 @@ Note: the amalgamation script will run on pretty much anything but is _extremely
 Why?
 ----
 
-Because all it now takes to support Basis Universal is the addition of a single file, two if using the header, with no configuration or further build steps (the out-of-the-box defaults tailor the included formats for various platforms). 
+Because all it now takes to support Basis Universal is the addition of a single file, two if using the header, with no configuration or further build steps (the out-of-the-box defaults tailor the included formats for various platforms).
 
 The library is small, adding, for example, around 250kB to an Emscripten compiled WebAssembly project (with transcoding disabled for BC7 and ATC; disabling ASTC will remove a further 64kB, and `gzip` will approximately half the `wasm` file).

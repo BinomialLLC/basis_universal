@@ -89,7 +89,7 @@ static bool _read_entire_file( const char* filename, _entire_file_t* record ) {
   fseek( fp, 0L, SEEK_END );
   record->sz   = (size_t)ftell( fp );
 
-  // Immediately bail on anything larger than _BMP_MAX_IMAGE_FILE_SIZE. 
+  // Immediately bail on anything larger than _BMP_MAX_IMAGE_FILE_SIZE.
   if (record->sz > _BMP_MAX_IMAGE_FILE_SIZE) {
     fclose( fp );
     return false;

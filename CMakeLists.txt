@@ -62,7 +62,7 @@ if (NOT MSVC)
 	  	set(CMAKE_C_FLAGS  "${CMAKE_C_FLAGS} -DBASISU_SUPPORT_SSE=0")
 		set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -DBASISU_SUPPORT_SSE=0")
 	  endif()
-	  
+
 	  set(CMAKE_EXE_LINKER_FLAGS  "${CMAKE_EXE_LINKER_FLAGS} ${GCC_LINK_FLAGS} -static-libgcc -static-libstdc++ -static")
    else()
    	  if (SSE)
@@ -72,7 +72,7 @@ if (NOT MSVC)
 	  	set(CMAKE_C_FLAGS  "${CMAKE_C_FLAGS} -DBASISU_SUPPORT_SSE=0")
 		set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -DBASISU_SUPPORT_SSE=0")
 	  endif()
-	  
+
 	  set(CMAKE_EXE_LINKER_FLAGS  "${CMAKE_EXE_LINKER_FLAGS} ${GCC_LINK_FLAGS} -Wl,-rpath .")
    endif()
 
@@ -93,7 +93,7 @@ else()
 	endif()
 endif()
 
-set(BASISU_SRC_LIST ${COMMON_SRC_LIST} 
+set(BASISU_SRC_LIST ${COMMON_SRC_LIST}
 	basisu_tool.cpp
 	encoder/basisu_backend.cpp
 	encoder/basisu_basis_file.cpp
@@ -143,7 +143,7 @@ endif()
 
 if (NOT EMSCRIPTEN)
 	install(TARGETS basisu DESTINATION bin)
-	
+
 	if (UNIX)
 		if (CMAKE_BUILD_TYPE STREQUAL Release)
 			if (APPLE)

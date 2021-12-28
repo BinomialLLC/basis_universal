@@ -23,11 +23,11 @@
  * we don't need it, minor fix to decompress() so it converts non-sRGB
  * output to 8-bits correctly. I've compared this decoder's output
  * vs. astc-codec with random inputs on 4x4 blocks, and after fixing a few obvious
- * bugs in astc-codec where it didn't correctly follow the spec they match so 
+ * bugs in astc-codec where it didn't correctly follow the spec they match so
  * I'm assuming they are both correct for 4x4 now.
- * HDR support should be easily added back in, but as we don't need it 
+ * HDR support should be easily added back in, but as we don't need it
  * I'm leaving this for someone else.
- * 
+ *
  *//*!
  * \file
  * \brief ASTC Utilities.
@@ -1387,7 +1387,7 @@ DecompressResult setTexelColors (void* dst, ColorEndpointPair* colorEndpoints, T
 	for (int i = 0; i < numPartitions; i++)
 	{
 		isHDREndpoint[i] = isColorEndpointModeHDR(colorEndpointModes[i]);
-		
+
 		// rg - REMOVING HDR SUPPORT FOR NOW
 		if (isHDREndpoint[i])
 			return DECOMPRESS_RESULT_ERROR;
@@ -1527,14 +1527,14 @@ bool decompress(uint8_t *pDst, const uint8_t * data, bool isSRGB, int blockWidth
 	// rg - We only support LDR here, although adding back in HDR would be easy.
 	const bool isLDR = true;
 	DE_ASSERT(isLDR || !isSRGB);
-	
+
 	float linear[MAX_BLOCK_WIDTH * MAX_BLOCK_HEIGHT * 4];
 
 	const Block128 blockData(data);
 	if (decompressBlock(isSRGB ? (void*)pDst : (void*)& linear[0],
 		blockData, blockWidth, blockHeight, isSRGB, isLDR) != DECOMPRESS_RESULT_VALID_BLOCK)
 		return false;
-	
+
 	if (!isSRGB)
 	{
 		int pix = 0;

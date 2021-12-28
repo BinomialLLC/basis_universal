@@ -1,8 +1,8 @@
 /* miniz.c v1.15 - deflate/inflate, zlib-subset, ZIP reading/writing/appending, PNG writing
    Implements RFC 1950: http://www.ietf.org/rfc/rfc1950.txt and RFC 1951: http://www.ietf.org/rfc/rfc1951.txt
-  
-   Forked from the public domain/unlicense version at: https://code.google.com/archive/p/miniz/ 
-   
+
+   Forked from the public domain/unlicense version at: https://code.google.com/archive/p/miniz/
+
    Copyright (C) 2019-2021 Binomial LLC. All Rights Reserved.
 
    Licensed under the Apache License, Version 2.0 (the "License");
@@ -488,7 +488,7 @@ size_t tdefl_compress_mem_to_mem(void *pOut_buf, size_t out_buf_len, const void 
 
 // Compresses an image to a compressed PNG file in memory.
 // On entry:
-//  pImage, w, h, and num_chans describe the image to compress. num_chans may be 1, 2, 3, or 4. 
+//  pImage, w, h, and num_chans describe the image to compress. num_chans may be 1, 2, 3, or 4.
 //  The image pitch in bytes per scanline will be w*num_chans. The leftmost pixel on the top scanline is stored first in memory.
 //  level may range from [0,10], use MZ_NO_COMPRESSION, MZ_BEST_SPEED, MZ_BEST_COMPRESSION, etc. or a decent default is MZ_DEFAULT_LEVEL
 //  If flip is true, the image will be flipped on the Y axis (useful for OpenGL apps).
@@ -790,7 +790,7 @@ mz_ulong mz_deflateBound(mz_streamp pStream, mz_ulong source_len)
   // This is really over conservative. (And lame, but it's actually pretty tricky to compute a true upper bound given the way tdefl's blocking works.)
   mz_uint64 a = 128ULL + (source_len * 110ULL) / 100ULL;
   mz_uint64 b = 128ULL + (mz_uint64)source_len + ((source_len / (31 * 1024)) + 1ULL) * 5ULL;
-  
+
   mz_uint64 t = MZ_MAX(a, b);
   if (((mz_ulong)t) != t)
      t = (mz_ulong)(-1);

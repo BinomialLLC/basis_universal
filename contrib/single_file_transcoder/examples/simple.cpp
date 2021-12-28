@@ -8,7 +8,7 @@
  * \code
  *	cc -std=c++11 -lstdc++ simple.cpp
  * \endcode
- * 
+ *
  * Example code released under a CC0 license.
  */
 #include "../basisu_transcoder.cpp"

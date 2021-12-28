@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #if _MSC_VER
-// For sprintf(), strcpy() 
+// For sprintf(), strcpy()
 #define _CRT_SECURE_NO_WARNINGS (1)
 #endif
 
@@ -58,7 +58,7 @@ enum tool_mode
 static void print_usage()
 {
 	printf("\nUsage: basisu filename [filename ...] <options>\n");
-	
+
 	puts("\n"
 		"The default mode is compression of one or more PNG/BMP/TGA/JPG files to a .basis file. Alternate modes:\n"
 		" -unpack: Use transcoder to unpack .basis file to one or more .ktx/.png files\n"
@@ -226,7 +226,7 @@ static bool load_listing_file(const std::string &f, basisu::vector<std::string> 
 		{
 			if (read_filename[0] == ' ')
 				read_filename.erase(0, 1);
-			else 
+			else
 				break;
 		}
 
@@ -235,7 +235,7 @@ static bool load_listing_file(const std::string &f, basisu::vector<std::string> 
 			const char c = read_filename.back();
 			if ((c == ' ') || (c == '\n') || (c == '\r'))
 				read_filename.erase(read_filename.size() - 1, 1);
-			else 
+			else
 				break;
 		}
 
@@ -384,13 +384,13 @@ public:
 				int uastc_level = atoi(arg_v[arg_index + 1]);
 
 				uastc_level = clamp<int>(uastc_level, 0, TOTAL_PACK_UASTC_LEVELS - 1);
-								
+
 				static_assert(TOTAL_PACK_UASTC_LEVELS == 5, "TOTAL_PACK_UASTC_LEVELS==5");
 				static const uint32_t s_level_flags[TOTAL_PACK_UASTC_LEVELS] = { cPackUASTCLevelFastest, cPackUASTCLevelFaster, cPackUASTCLevelDefault, cPackUASTCLevelSlower, cPackUASTCLevelVerySlow };
-				
+
 				m_comp_params.m_pack_uastc_flags &= ~cPackUASTCLevelMask;
 				m_comp_params.m_pack_uastc_flags |= s_level_flags[uastc_level];
-				
+
 				arg_count++;
 			}
 			else if (strcasecmp(pArg, "-resample") == 0)
@@ -575,7 +575,7 @@ public:
 			{
 				REMAINING_ARGS_CHECK(1);
 				m_comp_params.m_mip_filter = arg_v[arg_index + 1];
-				// TODO: Check filter 
+				// TODO: Check filter
 				arg_count++;
 			}
 			else if (strcasecmp(pArg, "-mip_renorm") == 0)
@@ -708,7 +708,7 @@ public:
 
 			arg_index += arg_count;
 		}
-		
+
 		if (m_comp_params.m_quality_level != -1)
 		{
 			m_comp_params.m_max_endpoint_clusters = 0;
@@ -730,7 +730,7 @@ public:
 			else
 				m_comp_params.m_mip_srgb = false;
 		}
-				
+
 		return true;
 	}
 
@@ -761,12 +761,12 @@ public:
 				new_input_alpha_filenames.push_back(m_input_alpha_filenames[i]);
 		}
 		new_input_alpha_filenames.swap(m_input_alpha_filenames);
-		
+
 		return true;
 	}
 
 	basis_compressor_params m_comp_params;
-		
+
 	tool_mode m_mode;
 
 	bool m_ktx2_mode;
@@ -775,7 +775,7 @@ public:
 	uint32_t m_ktx2_animdata_duration;
 	uint32_t m_ktx2_animdata_timescale;
 	uint32_t m_ktx2_animdata_loopcount;
-		
+
 	basisu::vector<std::string> m_input_filenames;
 	basisu::vector<std::string> m_input_alpha_filenames;
 
@@ -801,13 +801,13 @@ static bool expand_multifile(command_line_params &opts)
 {
 	if (!opts.m_multifile_printf.size())
 		return true;
-	
+
 	if (!opts.m_multifile_num)
 	{
 		error_printf("-multifile_printf specified, but not -multifile_num\n");
 		return false;
 	}
-	
+
 	std::string fmt(opts.m_multifile_printf);
 	// Workaround for MSVC debugger issues. Questionable to leave in here.
 	size_t x = fmt.find_first_of('!');
@@ -819,15 +819,15 @@ static bool expand_multifile(command_line_params &opts)
 		error_printf("Must include C-style printf() format character '%%' in -multifile_printf string\n");
 		return false;
 	}
-		
+
 	for (uint32_t i = opts.m_multifile_first; i < opts.m_multifile_first + opts.m_multifile_num; i++)
 	{
 		char buf[1024];
-#ifdef _WIN32		
+#ifdef _WIN32
 		sprintf_s(buf, sizeof(buf), fmt.c_str(), i);
 #else
 		snprintf(buf, sizeof(buf), fmt.c_str(), i);
-#endif		
+#endif
 
 		if (buf[0])
 			opts.m_input_filenames.push_back(buf);
@@ -838,8 +838,8 @@ static bool expand_multifile(command_line_params &opts)
 
 struct basis_data
 {
-	basis_data(basist::etc1_global_selector_codebook& sel_codebook) : 
-		m_transcoder(&sel_codebook) 
+	basis_data(basist::etc1_global_selector_codebook& sel_codebook) :
+		m_transcoder(&sel_codebook)
 	{
 	}
 	uint8_vec m_file_data;
@@ -902,7 +902,7 @@ static bool compress_mode(command_line_params &opts)
 
 	job_pool jpool(num_threads);
 	opts.m_comp_params.m_pJob_pool = &jpool;
-		
+
 	if (!expand_multifile(opts))
 	{
 		error_printf("-multifile expansion failed!\n");
@@ -914,7 +914,7 @@ static bool compress_mode(command_line_params &opts)
 		error_printf("No input files to process!\n");
 		return false;
 	}
-		
+
 	basis_data* pGlobal_codebook_data = nullptr;
 	if (opts.m_etc1s_use_global_codebooks_file.size())
 	{
@@ -958,7 +958,7 @@ static bool compress_mode(command_line_params &opts)
 		pGlobal_codebook_data2 = nullptr;
 #endif
 	}
-						
+
 	basis_compressor_params &params = opts.m_comp_params;
 
 	if (opts.m_ktx2_mode)
@@ -968,7 +968,7 @@ static bool compress_mode(command_line_params &opts)
 			params.m_ktx2_uastc_supercompression = basist::KTX2_SS_ZSTANDARD;
 		else
 			params.m_ktx2_uastc_supercompression = basist::KTX2_SS_NONE;
-		
+
 		params.m_ktx2_srgb_transfer_func = opts.m_comp_params.m_perceptual;
 
 		if (params.m_tex_type == basist::basis_texture_type::cBASISTexTypeVideoFrames)
@@ -980,7 +980,7 @@ static bool compress_mode(command_line_params &opts)
 			const char* pAD = "KTXanimData";
 			kv.m_key.resize(strlen(pAD) + 1);
 			strcpy((char*)kv.m_key.data(), pAD);
-			
+
 			basist::ktx2_animdata ad;
 			ad.m_duration = opts.m_ktx2_animdata_duration;
 			ad.m_timescale = opts.m_ktx2_animdata_timescale;
@@ -991,7 +991,7 @@ static bool compress_mode(command_line_params &opts)
 
 			params.m_ktx2_key_values.push_back(kv);
 		}
-		
+
 		// TODO- expose this to command line.
 		params.m_ktx2_zstd_supercompression_level = opts.m_ktx2_zstandard_level;
 	}
@@ -999,7 +999,7 @@ static bool compress_mode(command_line_params &opts)
 	params.m_read_source_images = true;
 	params.m_write_output_basis_files = true;
 	params.m_pSel_codebook = &sel_codebook;
-	params.m_pGlobal_codebooks = pGlobal_codebook_data ? &pGlobal_codebook_data->m_transcoder.get_lowlevel_etc1s_decoder() : nullptr; 
+	params.m_pGlobal_codebooks = pGlobal_codebook_data ? &pGlobal_codebook_data->m_transcoder.get_lowlevel_etc1s_decoder() : nullptr;
 	FILE *pCSV_file = nullptr;
 	if (opts.m_csv_file.size())
 	{
@@ -1015,7 +1015,7 @@ static bool compress_mode(command_line_params &opts)
 	}
 
 	printf("Processing %u total file(s)\n", (uint32_t)opts.m_input_filenames.size());
-				
+
 	interval_timer all_tm;
 	all_tm.start();
 
@@ -1027,17 +1027,17 @@ static bool compress_mode(command_line_params &opts)
 			params.m_source_filenames.resize(1);
 			params.m_source_filenames[0] = opts.m_input_filenames[file_index];
 
-			if (file_index < opts.m_input_alpha_filenames.size()) 
+			if (file_index < opts.m_input_alpha_filenames.size())
 			{
 				params.m_source_alpha_filenames.resize(1);
 				params.m_source_alpha_filenames[0] = opts.m_input_alpha_filenames[file_index];
-				
+
 				printf("Processing source file \"%s\", alpha file \"%s\"\n", params.m_source_filenames[0].c_str(), params.m_source_alpha_filenames[0].c_str());
 			}
 			else
 			{
 				params.m_source_alpha_filenames.resize(0);
-				
+
 				printf("Processing source file \"%s\"\n", params.m_source_filenames[0].c_str());
 			}
 		}
@@ -1046,16 +1046,16 @@ static bool compress_mode(command_line_params &opts)
 			params.m_source_filenames = opts.m_input_filenames;
 			params.m_source_alpha_filenames = opts.m_input_alpha_filenames;
 		}
-				
+
 		if ((opts.m_output_filename.size()) && (!opts.m_individual))
 			params.m_out_filename = opts.m_output_filename;
-		else 
+		else
 		{
 			std::string filename;
-		
+
 			string_get_filename(opts.m_input_filenames[file_index].c_str(), filename);
 			string_remove_extension(filename);
-			
+
 			if (opts.m_ktx2_mode)
 				filename += ".ktx2";
 			else
@@ -1063,10 +1063,10 @@ static bool compress_mode(command_line_params &opts)
 
 			if (opts.m_output_path.size())
 				string_combine_path(filename, opts.m_output_path.c_str(), filename.c_str());
-		
+
 			params.m_out_filename = filename;
 		}
-		
+
 		basis_compressor c;
 
 		if (!c.init(opts.m_comp_params))
@@ -1092,8 +1092,8 @@ static bool compress_mode(command_line_params &opts)
 
 		if (ec == basis_compressor::cECSuccess)
 		{
-			printf("Compression succeeded to file \"%s\" size %u bytes in %3.3f secs\n", params.m_out_filename.c_str(), 
-				opts.m_ktx2_mode ? c.get_output_ktx2_file().size() : c.get_output_basis_file().size(), 
+			printf("Compression succeeded to file \"%s\" size %u bytes in %3.3f secs\n", params.m_out_filename.c_str(),
+				opts.m_ktx2_mode ? c.get_output_ktx2_file().size() : c.get_output_basis_file().size(),
 				tm.get_elapsed_secs());
 		}
 		else
@@ -1105,7 +1105,7 @@ static bool compress_mode(command_line_params &opts)
 				case basis_compressor::cECFailedReadingSourceImages:
 				{
 					error_printf("Compressor failed reading a source image!\n");
-					
+
 					if (opts.m_individual)
 						exit_flag = false;
 
@@ -1142,7 +1142,7 @@ static bool compress_mode(command_line_params &opts)
 					error_printf("basis_compress::process() failed!\n");
 					break;
 			}
-		
+
 			if (exit_flag)
 			{
 				if (pCSV_file)
@@ -1195,7 +1195,7 @@ static bool compress_mode(command_line_params &opts)
 				rgb_avg_psnr_avg /= c.get_stats().size();
 				a_avg_psnr_avg /= c.get_stats().size();
 				luma_709_psnr_avg /= c.get_stats().size();
-				
+
 				fprintf(pCSV_file, "\"%s\", %u, %u, %u, %u, %u, %f, %f, %f, %f, %f, %u, %u, %f, %f, %f, %f, %f, %f, %f\n",
 					params.m_out_filename.c_str(),
 					c.get_basis_file_size(),
@@ -1214,7 +1214,7 @@ static bool compress_mode(command_line_params &opts)
 			}
 #endif
 		}
-				
+
 		if (opts.m_individual)
 			printf("\n");
 
@@ -1230,9 +1230,9 @@ static bool compress_mode(command_line_params &opts)
 		fclose(pCSV_file);
 		pCSV_file = nullptr;
 	}
-	delete pGlobal_codebook_data; 
+	delete pGlobal_codebook_data;
 	pGlobal_codebook_data = nullptr;
-		
+
 	return true;
 }
 
@@ -1266,16 +1266,16 @@ static bool unpack_and_validate_ktx2_file(
 		error_printf("ktx2_transcoder::start_transcoding() failed! File either uses an unsupported feature, is invalid, was corrupted, or this is a bug.\n");
 		return false;
 	}
-		
+
 	printf("Resolution: %ux%u\n", dec.get_width(), dec.get_height());
 	printf("Mipmap Levels: %u\n", dec.get_levels());
 	printf("Texture Array Size (layers): %u\n", dec.get_layers());
 	printf("Total Faces: %u (%s)\n", dec.get_faces(), (dec.get_faces() == 6) ? "CUBEMAP" : "2D");
 	printf("Is Texture Video: %u\n", dec.is_video());
-	
+
 	const bool is_etc1s = dec.get_format() == basist::basis_tex_format::cETC1S;
 	printf("Supercompression Format: %s\n", is_etc1s ? "ETC1S" : "UASTC");
-	
+
 	printf("Supercompression Scheme: ");
 	switch (dec.get_header().m_supercompression_scheme)
 	{
@@ -1305,7 +1305,7 @@ static bool unpack_and_validate_ktx2_file(
 	}
 	else
 		printf("DFD chan0: %s\n", basist::ktx2_get_uastc_df_channel_id_str(dec.get_dfd_channel_id0()));
-		
+
 	printf("DFD hex values:\n");
 	for (uint32_t i = 0; i < dec.get_dfd().size(); i++)
 	{
@@ -1323,13 +1323,13 @@ static bool unpack_and_validate_ktx2_file(
 
 		if (dec.get_key_values()[i].m_value.size() > 256)
 			continue;
-		
+
 		bool is_ascii = true;
 		for (uint32_t j = 0; j < dec.get_key_values()[i].m_value.size(); j++)
 		{
 			uint8_t c = dec.get_key_values()[i].m_value[j];
-			if (!( 
-				((c >= ' ') && (c < 0x80)) || 
+			if (!(
+				((c >= ' ') && (c < 0x80)) ||
 				((j == dec.get_key_values()[i].m_value.size() - 1) && (!c))
 				))
 			{
@@ -1645,7 +1645,7 @@ static bool unpack_and_validate_basis_file(
 	uint32_t file_index,
 	const std::string &base_filename,
 	uint8_vec &basis_file_data,
-	command_line_params& opts, 
+	command_line_params& opts,
 	FILE *pCSV_file,
 	basis_data* pGlobal_codebook_data,
 	basist::etc1_global_selector_codebook &sel_codebook,
@@ -1669,7 +1669,7 @@ static bool unpack_and_validate_basis_file(
 		if (!dec.validate_file_checksums(&basis_file_data[0], (uint32_t)basis_file_data.size(), true))
 		{
 			error_printf("File version is unsupported, or file failed one or more CRC checks!\n");
-			
+
 			return false;
 		}
 	}
@@ -2343,7 +2343,7 @@ static bool unpack_and_validate_mode(command_line_params &opts)
 			delete pGlobal_codebook_data; pGlobal_codebook_data = nullptr;
 			return false;
 		}
-		
+
 		bool is_ktx2 = false;
 		if (file_data.size() >= sizeof(basist::g_ktx2_file_identifier))
 		{
@@ -2382,10 +2382,10 @@ static bool unpack_and_validate_mode(command_line_params &opts)
 
 		if (!status)
 		{
-			if (pCSV_file) 
+			if (pCSV_file)
 				fclose(pCSV_file);
 
-			delete pGlobal_codebook_data; 
+			delete pGlobal_codebook_data;
 			pGlobal_codebook_data = nullptr;
 
 			return false;
@@ -2406,7 +2406,7 @@ static bool unpack_and_validate_mode(command_line_params &opts)
 		fclose(pCSV_file);
 		pCSV_file = nullptr;
 	}
-	delete pGlobal_codebook_data; 
+	delete pGlobal_codebook_data;
 	pGlobal_codebook_data = nullptr;
 
 	return true;
@@ -2474,7 +2474,7 @@ static bool compare_mode(command_line_params &opts)
 
 	im.calc(a, b, 0, 0, true, true);
 	im.print("Y 601  " );
-	
+
 	if (opts.m_compare_ssim)
 	{
 		vec4F s_rgb(compute_ssim(a, b, false, false));
@@ -2517,10 +2517,10 @@ static bool compare_mode(command_line_params &opts)
 
 	save_png("delta_img_rgb.png", delta_img, cImageSaveIgnoreAlpha);
 	printf("Wrote delta_img_rgb.png\n");
-	
+
 	save_png("delta_img_a.png", delta_img, cImageSaveGrayscale, 3);
 	printf("Wrote delta_img_a.png\n");
-	
+
 	return true;
 }
 
@@ -3087,7 +3087,7 @@ static bool bench_mode(command_line_params& opts)
 
 		// HACK HACK
 		const uint32_t max_rdo_jobs = 4;
-		
+
 		char rdo_fname[256];
 		FILE* pFile = nullptr;
 		for (uint32_t try_index = 0; try_index < 100; try_index++)
@@ -3099,7 +3099,7 @@ static bool bench_mode(command_line_params& opts)
 				fclose(pFile);
 				continue;
 			}
-			
+
 			pFile = fopen(rdo_fname, "w");
 			if (!pFile)
 				printf("Cannot open CSV file %s\n", rdo_fname);
@@ -3118,7 +3118,7 @@ static bool bench_mode(command_line_params& opts)
 			p.m_lambda = q;
 			p.m_max_allowed_rms_increase_ratio = 10.0f;
 			p.m_skip_block_rms_thresh = 8.0f;
-			
+
 			bool rdo_status = uastc_rdo((uint32_t)ublocks.size(), &ublocks[0], &orig_block_pixels[0], p, flags, &jpool, max_rdo_jobs);
 			if (!rdo_status)
 			{
@@ -3182,7 +3182,7 @@ static bool bench_mode(command_line_params& opts)
 		}
 		if (pFile)
 			fclose(pFile);
-		
+
 		{
 			size_t comp_size = 0;
 			void* pComp_data = tdefl_compress_mem_to_heap(&ublocks[0], ublocks.size() * 16, &comp_size, TDEFL_MAX_PROBES_MASK);// TDEFL_DEFAULT_MAX_PROBES);
@@ -3208,7 +3208,7 @@ static bool bench_mode(command_line_params& opts)
 			total_rdo_raw_size += ublocks.size() * 16;
 			total_comp_blocks += ublocks.size();
 		}
-										
+
 		printf("Total blocks: %u\n", total_blocks);
 		printf("Total BC1 hint 0's: %u %3.1f%%\n", total_bc1_hint0s, total_bc1_hint0s * 100.0f / total_blocks);
 		printf("Total BC1 hint 1's: %u %3.1f%%\n", total_bc1_hint1s, total_bc1_hint1s * 100.0f / total_blocks);
@@ -3253,7 +3253,7 @@ static bool bench_mode(command_line_params& opts)
 
 					c[i] = (uint8_t)v;
 				}
-			
+
 			}
 #endif
 
@@ -3374,7 +3374,7 @@ static bool bench_mode(command_line_params& opts)
 		em.print("RDOUASTC RGBA ");
 		total_rdo_uastc_rgba_psnr += basisu::minimum(99.0f, em.m_psnr);
 
-		// UASTC2 
+		// UASTC2
 		em.calc(img, uastc2_img, 0, 3);
 		em.print("UASTC2 RGB ");
 		total_uastc2_psnr += basisu::minimum(99.0f, em.m_psnr);
@@ -3467,7 +3467,7 @@ static bool bench_mode(command_line_params& opts)
 		total_obc1_psnr += basisu::minimum(99.0f, em.m_psnr);
 		total_obc1_psnr_sq += basisu::minimum(99.0f, em.m_psnr) * basisu::minimum(99.0f, em.m_psnr);
 #endif
-				
+
 		em.calc(img, opt_bc1_2_img, 0, 3);
 		em.print("OBC1 2 RGB ");
 		total_obc1_2_psnr += basisu::minimum(99.0f, em.m_psnr);
@@ -3601,7 +3601,7 @@ static bool bench_mode(command_line_params& opts)
 	} // image_index
 
 	printf("Total time: %f secs\n", otm.get_elapsed_secs());
-	
+
 	printf("Total Non-RDO UASTC size: %llu, compressed size: %llu, %3.2f bits/texel\n",
 		(unsigned long long)total_raw_size,
 		(unsigned long long)total_comp_size,
@@ -3714,7 +3714,7 @@ static int main_internal(int argc, const char **argv)
 	//tm.start();
 
 	basisu_encoder_init();
-		
+
 	//printf("Encoder and transcoder libraries initialized in %3.3f ms\n", tm.get_elapsed_ms());
 
 #if defined(DEBUG) || defined(_DEBUG)
