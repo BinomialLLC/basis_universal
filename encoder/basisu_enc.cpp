@@ -1569,16 +1569,8 @@ namespace basisu
 				
 	void job_pool::add_job(const std::function<void()>& job)
 	{
-		std::unique_lock<std::mutex> lock(m_mutex);
-
-		m_queue.emplace_back(job);
-
-		const size_t queue_size = m_queue.size();
-
-		lock.unlock();
-
-		if (queue_size > 1)
-			m_has_work.notify_one();
+		std::function<void()> copy = job;
+		add_job(std::move(copy));
 	}
 
 	void job_pool::add_job(std::function<void()>&& job)
@@ -1592,9 +1584,7 @@ namespace basisu
 		lock.unlock();
 
 		if (queue_size > 1)
-		{
 			m_has_work.notify_one();
-		}
 	}
 
 	void job_pool::wait_for_all()
@@ -1604,18 +1594,25 @@ namespace basisu
 		// Drain the job queue on the calling thread.
 		while (!m_queue.empty())
 		{
-			std::function<void()> job(m_queue.back());
+			std::function<void()> job = std::move(m_queue.back());
 			m_queue.pop_back();
+
+			++m_num_active_jobs;
 
 			lock.unlock();
 
 			job();
 
 			lock.lock();
+
+			--m_num_active_jobs;
 		}
 
 		// The queue is empty, now wait for all active jobs to finish up.
-		m_no_more_jobs.wait(lock, [this]{ return !m_num_active_jobs; } );
+		if (m_num_active_jobs == 0)
+			m_no_more_jobs.notify_all();
+		else
+			m_no_more_jobs.wait(lock, [this]{ return !m_num_active_jobs; } );
 	}
 
 	void job_pool::job_thread(uint32_t index)
@@ -1634,7 +1631,7 @@ namespace basisu
 				break;
 
 			// Get the job and execute it.
-			std::function<void()> job(m_queue.back());
+			std::function<void()> job = std::move(m_queue.back());
 			m_queue.pop_back();
 
 			++m_num_active_jobs;
