@@ -2161,7 +2161,6 @@ namespace basisu
 		else
 		{
 			// Note that this method may leave some empty clusters (i.e. arrays with no block indices), including at the end.
-			basisu::vector< basisu::vector<uint32_t> > new_cluster_indices(m_optimized_cluster_selectors.size());
 						
 			// For each block: Determine which quantized selectors best encode that block, given its quantized endpoints.
 
@@ -2184,7 +2183,7 @@ namespace basisu
 				const uint32_t last_index = minimum<uint32_t>(m_total_blocks, first_index + N);
 
 #ifndef __EMSCRIPTEN__
-				m_params.m_pJob_pool->add_job( [this, first_index, last_index, &new_cluster_indices, &unpacked_optimized_cluster_selectors] {
+				m_params.m_pJob_pool->add_job( [this, first_index, last_index, &unpacked_optimized_cluster_selectors] {
 #endif
 
 				for (uint32_t block_index = first_index; block_index < last_index; block_index++)
@@ -2314,13 +2313,6 @@ namespace basisu
 					blk.set_raw_selector_bits(m_optimized_cluster_selectors[best_cluster_index].get_raw_selector_bits());
 
 					m_block_selector_cluster_index[block_index] = best_cluster_index;
-	
-					{
-						std::lock_guard<std::mutex> lock(m_lock);
-
-						vector_ensure_element_is_valid(new_cluster_indices, best_cluster_index);
-						new_cluster_indices[best_cluster_index].push_back(block_index);
-					}
 					
 				} // block_index
 
@@ -2334,7 +2326,11 @@ namespace basisu
 			m_params.m_pJob_pool->wait_for_all();
 #endif
 
-			m_selector_cluster_block_indices.swap(new_cluster_indices);
+			for (uint32_t i = 0; i < m_selector_cluster_block_indices.size(); i++)
+				m_selector_cluster_block_indices[i].clear();
+
+			for (uint32_t i = 0; i < m_total_blocks; i++)
+				m_selector_cluster_block_indices[m_block_selector_cluster_index[i]].push_back(i);
 		}
 
 		for (uint32_t i = 0; i < m_selector_cluster_block_indices.size(); i++)
