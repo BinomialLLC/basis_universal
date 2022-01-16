@@ -567,7 +567,7 @@ namespace basisu
 							new_width = (int)roundf((float)new_height * (float)src_width / (float)src_height);
 						}
 					}
-					debug_printf("\n\nResampling %ix%i -> %ix%i\n\n", src_width, src_height, new_width, new_height);
+					debug_printf("Resampling %ix%i -> %ix%i\n", src_width, src_height, new_width, new_height);
 
 					image temp_img(new_width, new_height);
 					image_resample(file_image, temp_img, m_params.m_perceptual, m_params.m_resample_filter.c_str(), m_params.m_resample_filter_scale);
