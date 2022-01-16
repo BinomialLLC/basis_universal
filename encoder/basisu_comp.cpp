@@ -585,7 +585,6 @@ namespace basisu
 
 				debug_printf("Resampling to %ix%i\n", new_width, new_height);
 
-				// TODO: A box filter - kaiser looks too sharp on video. Let the caller control this.
 				image temp_img(new_width, new_height);
 				image_resample(file_image, temp_img, m_params.m_perceptual, m_params.m_resample_filter.c_str(), m_params.m_resample_filter_scale);
 				temp_img.swap(file_image);
