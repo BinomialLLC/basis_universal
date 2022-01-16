@@ -551,12 +551,32 @@ namespace basisu
 				int new_width = basisu::minimum<int>(m_params.m_resample_width, BASISU_MAX_SUPPORTED_TEXTURE_DIMENSION);
 				int new_height = basisu::minimum<int>(m_params.m_resample_height, BASISU_MAX_SUPPORTED_TEXTURE_DIMENSION);
 
-				debug_printf("Resampling to %ix%i\n", new_width, new_height);
+				int src_width = (int)file_image.get_width();
+				int src_height = (int)file_image.get_height();
 
-				// TODO: A box filter - kaiser looks too sharp on video. Let the caller control this.
-				image temp_img(new_width, new_height);
-				image_resample(file_image, temp_img, m_params.m_perceptual, "box"); // "kaiser");
-				temp_img.swap(file_image);
+				if (!m_params.m_resample_ifgt || new_width < src_width || new_height < src_height)
+				{
+					if (m_params.m_resample_aspect)
+					{
+						if (src_width > src_height)
+						{
+							new_height = (int)roundf((float)new_width * (float)src_height / (float)src_width);
+						}
+						else
+						{
+							new_width = (int)roundf((float)new_height * (float)src_width / (float)src_height);
+						}
+					}
+					debug_printf("\n\nResampling %ix%i -> %ix%i\n\n", src_width, src_height, new_width, new_height);
+
+					image temp_img(new_width, new_height);
+					image_resample(file_image, temp_img, m_params.m_perceptual, m_params.m_resample_filter.c_str(), m_params.m_resample_filter_scale);
+					temp_img.swap(file_image);
+				}
+				else
+				{
+					debug_printf("Resampling skipped since source is <= %ix%i\n", (int)m_params.m_resample_width, (int)m_params.m_resample_height);
+				}
 			}
 			else if (m_params.m_resample_factor > 0.0f)
 			{
@@ -567,7 +587,7 @@ namespace basisu
 
 				// TODO: A box filter - kaiser looks too sharp on video. Let the caller control this.
 				image temp_img(new_width, new_height);
-				image_resample(file_image, temp_img, m_params.m_perceptual, "box"); // "kaiser");
+				image_resample(file_image, temp_img, m_params.m_perceptual, m_params.m_resample_filter.c_str(), m_params.m_resample_filter_scale);
 				temp_img.swap(file_image);
 			}
 

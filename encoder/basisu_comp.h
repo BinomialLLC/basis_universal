@@ -225,6 +225,8 @@ namespace basisu
 			m_resample_width(0, 1, 16384),
 			m_resample_height(0, 1, 16384),
 			m_resample_factor(0.0f, .00125f, 100.0f),
+			m_resample_filter("box"),
+			m_resample_filter_scale(1.0f, .000125f, 4.0f),
 			m_ktx2_uastc_supercompression(basist::KTX2_SS_NONE),
 			m_ktx2_zstd_supercompression_level(6, INT_MIN, INT_MAX),
 			m_pJob_pool(nullptr)
@@ -310,6 +312,10 @@ namespace basisu
 			m_resample_width.clear();
 			m_resample_height.clear();
 			m_resample_factor.clear();
+			m_resample_filter = "box";
+			m_resample_filter_scale = 1.0f;
+			m_resample_ifgt.clear();
+			m_resample_aspect.clear();
 
 			m_pGlobal_codebooks = nullptr;
 
@@ -444,6 +450,10 @@ namespace basisu
 		param<int> m_resample_width;
 		param<int> m_resample_height;
 		param<float> m_resample_factor;
+		std::string m_resample_filter;
+		param<float> m_resample_filter_scale;
+		bool_param<false> m_resample_ifgt;
+		bool_param<false> m_resample_aspect;
 		const basist::basisu_lowlevel_etc1s_transcoder *m_pGlobal_codebooks;
 
 		// KTX2 specific parameters.

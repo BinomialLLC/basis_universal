@@ -127,8 +127,12 @@ static void print_usage()
 		" -disable_hierarchical_endpoint_codebooks: Disable hierarchical endpoint codebook usage, slower but higher quality on some compression levels\n"
 		" -compare_ssim: Compute and display SSIM of image comparison (slow)\n"
 		" -bench: UASTC benchmark mode, for development only\n"
-		" -resample X Y: Resample all input textures to XxY pixels using a box filter\n"
-		" -resample_factor X: Resample all input textures by scale factor X using a box filter\n"
+		" -resample X Y: Resample all input images to XxY pixels\n"
+		" -resample_factor X: Resample all input images by scale factor X\n"
+		" -resample_filter X: Set resample filter kernel, default is box, filters: box, tent, bell, blackman, catmullrom, mitchell, etc.\n"
+		" -resample_filter_scale X: Set resample filter kernel's scale, lower=sharper, higher=more blurry, default is 1.0\n"
+		" -resample_ifgt: Only resample if the image is larger than width or height provided with -resample\n"
+		" -resample_aspect: Keep aspect ratio of image while resampling. \"fit\" the image inside the -resample rectangle\n"
 		" -no_sse: Forbid all SSE instruction set usage\n"
 		" -validate_etc1s: Validate internal ETC1S compressor's data structures during compression (slower, intended for development).\n"
 		"\n"
@@ -405,6 +409,27 @@ public:
 				REMAINING_ARGS_CHECK(1);
 				m_comp_params.m_resample_factor = (float)atof(arg_v[arg_index + 1]);
 				arg_count++;
+			}
+			else if (strcasecmp(pArg, "-resample_filter") == 0)
+			{
+				REMAINING_ARGS_CHECK(1);
+				m_comp_params.m_resample_filter = arg_v[arg_index + 1];
+				// TODO: Check filter
+				arg_count++;
+			}
+			else if (strcasecmp(pArg, "-resample_filter_scale") == 0)
+			{
+				REMAINING_ARGS_CHECK(1);
+				m_comp_params.m_resample_filter_scale = (float)atof(arg_v[arg_index + 1]);
+				arg_count++;
+			}
+			else if (strcasecmp(pArg, "-resample_ifgt") == 0)
+			{
+				m_comp_params.m_resample_ifgt = true;
+			}
+			else if (strcasecmp(pArg, "-resample_aspect") == 0)
+			{
+				m_comp_params.m_resample_aspect = true;
 			}
 			else if (strcasecmp(pArg, "-uastc_rdo_l") == 0)
 			{
