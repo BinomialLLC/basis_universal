@@ -4,7 +4,12 @@
 OUT_FILE="tempbin"
 
 echo "Amalgamating files... this can take a while"
-./combine.sh -r ../../transcoder -o basisu_transcoder.cpp basisu_transcoder-in.cpp
+# Use the faster Python script if we have 3.8 or higher
+if python3 -c 'import sys; assert sys.version_info >= (3,8)' 2>/dev/null; then
+  ./combine.py -r ../../transcoder -o basisu_transcoder.cpp basisu_transcoder-in.cpp
+else
+  ./combine.sh -r ../../transcoder -o basisu_transcoder.cpp basisu_transcoder-in.cpp
+fi
 # Did combining work?
 if [ $? -ne 0 ]; then
   echo "Combine script: FAILED"
