@@ -1,6 +1,15 @@
 # basis_universal
 Basis Universal Supercompressed GPU Texture Codec
 
+<sub>(This software is available under a free and permissive license (Apache 2.0), but like many other large open source projects it needs financial support to sustain its continued security, bug fixes and improvements. In addition to maintenance and stability there are many desirable features and new interchange formats we would like to add. If your company is using Basis Universal in a product, please consider reaching out.)</sub>
+
+Businesses: support continued development and maintenance via invoiced technical support, maintenance, or sponsoring contracts:
+<br>&nbsp;&nbsp;_E-mail: info @ binomial dot info_ or contact us on [Twitter](https://twitter.com/_binomial)
+
+Also see the [Sponsors](https://github.com/BinomialLLC/basis_universal/wiki/Sponsors-and-Supporters) wiki page.
+
+----
+
 Basis Universal is a ["supercompressed"](http://gamma.cs.unc.edu/GST/gst.pdf) GPU texture data interchange system that supports two highly compressed intermediate file formats (.basis or the [.KTX2 open standard from the Khronos Group](https://github.khronos.org/KTX-Specification/)) that can be quickly transcoded to a [very wide variety](https://github.com/BinomialLLC/basis_universal/wiki/OpenGL-texture-format-enums-table) of GPU compressed and uncompressed pixel formats: ASTC 4x4 L/LA/RGB/RGBA, PVRTC1 4bpp RGB/RGBA, PVRTC2 RGB/RGBA, BC7 mode 6 RGB, BC7 mode 5 RGB/RGBA, BC1-5 RGB/RGBA/X/XY, ETC1 RGB, ETC2 RGBA, ATC RGB/RGBA, ETC2 EAC R11 and RG11, FXT1 RGB, and uncompressed raster image formats 8888/565/4444. 
 
 The system now supports two modes: a high quality mode which is internally based off the [UASTC compressed texture format](https://richg42.blogspot.com/2020/01/uastc-block-format-encoding.html), and the original lower quality mode which is based off a subset of ETC1 called "ETC1S". UASTC is for extremely high quality (similar to BC7 quality) textures, and ETC1S is for very small files. The ETC1S system includes built-in data compression, while the UASTC system includes an optional Rate Distortion Optimization (RDO) post-process stage that conditions the encoded UASTC texture data in the .basis file so it can be more effectively LZ compressed by the end user. More technical details about UASTC integration are [here](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-implementation-details).
