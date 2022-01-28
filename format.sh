@@ -14,6 +14,8 @@ while IFS= read -rd '' f; do
         continue
     elif [[ $f == *"min.js" ]]; then
         continue
+    elif [[ $f == *"coder.js" ]]; then
+        continue
     fi
     # Ensures that files are UTF-8 formatted.
     recode UTF-8 $f 2> /dev/null
