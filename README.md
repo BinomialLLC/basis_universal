@@ -1,8 +1,6 @@
 # basis_universal
 Basis Universal Supercompressed GPU Texture Codec
 
-[![Build Status]( https://ci.appveyor.com/project/BinomialLLC/basis-universal/master.svg)](https://ci.appveyor.com/project/BinomialLLC/basis-universal)
-
 <sub>(This software is available under a free and permissive license (Apache 2.0), but like many other large open source projects it needs financial support to sustain its continued security, bug fixes and improvements. In addition to maintenance and stability there are many desirable features and new interchange formats we would like to add. If your company is using Basis Universal in a product, please consider reaching out.)</sub>
 
 Businesses: support continued development and maintenance via invoiced technical support, maintenance, or sponsoring contracts:
