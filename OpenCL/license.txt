@@ -1,0 +1,4 @@
+These optional files (which are only needed when compiling with OpenCL support enabled in the encoder) are from the 
+Khronos Group OpenCL headers github repo. They are Copyright (c) 2008-2020 The Khronos Group Inc.
+https://github.com/KhronosGroup/OpenCL-Headers
+
