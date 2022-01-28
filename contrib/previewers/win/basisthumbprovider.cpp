@@ -2,7 +2,7 @@
 
 #include <Shlwapi.h>
 
-#include "basisu_transcoder.h"
+#include "basisu_transcoder.cpp"
 
 #include "helpers.h"
 
@@ -10,14 +10,9 @@
 
 using namespace basist;
 
-static etc1_global_selector_codebook* globalCodebook = NULL;
-
 BasisThumbProvider::BasisThumbProvider() : count(1), stream(NULL) {
 	dprintf("BasisThumbProvider ctor");
 	basisu_transcoder_init();
-	if (!globalCodebook) {
-		 globalCodebook = new etc1_global_selector_codebook(g_global_selector_cb_size, g_global_selector_cb);
-	}
 }
 
 BasisThumbProvider::~BasisThumbProvider() {
@@ -66,7 +61,7 @@ IFACEMETHODIMP BasisThumbProvider::GetThumbnail(UINT cx, HBITMAP *phbmp, WTS_ALP
 			ULONG size = 0;
 			if (SUCCEEDED(stream->Read(data, static_cast<ULONG>(stat.cbSize.LowPart), &size))) {
 				if (size == stat.cbSize.LowPart) {
-					basisu_transcoder transcoder(globalCodebook);
+					basisu_transcoder transcoder;
 					if (transcoder.validate_header(data, size)) {
 						dprintf("Requested %d bytes for %dx%d image", size, cx, cx);
 						basisu_image_info info;

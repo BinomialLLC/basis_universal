@@ -34,8 +34,5 @@
     <ClCompile Include="helpers.cpp">
       <Filter>src</Filter>
     </ClCompile>
-    <ClCompile Include="..\lib\basisu_transcoder.cpp">
-      <Filter>src</Filter>
-    </ClCompile>
   </ItemGroup>
 </Project>

@@ -1,15 +1,38 @@
 project(basisu)
 
 cmake_minimum_required(VERSION 3.0)
-option(BUILD_X64 "build 64-bit" TRUE)
 option(STATIC "static linking" FALSE)
-option(SSE "SSE 4.1 support" FALSE)
+
+# For MSVC builds default to SSE enabled, and determine if it's a 64-bit (-A x64) vs. 32-bit (-A Win32) build.
+if (MSVC)
+	option(SSE "SSE 4.1 support" TRUE)
+	if ( CMAKE_GENERATOR_PLATFORM STREQUAL Win32 )	
+		set(BUILD_X64 0)
+	else()
+		set(BUILD_X64 1)
+	endif()
+else()
+	option(SSE "SSE 4.1 support" FALSE)
+	option(BUILD_X64 "build 64-bit" TRUE)
+endif()
+
 option(ZSTD "ZSTD support for KTX2 transcoding/encoding" TRUE)
+option(OPENCL "OpenCL support in encoder" FALSE)
 
 message("Initial BUILD_X64=${BUILD_X64}")
 message("Initial CMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}")
 message("Initial SSE=${SSE}")
 message("Initial ZSTD=${ZSTD}")
+message("Initial OPENCL=${OPENCL}")
+
+if (NOT MSVC)
+	# With MSVC builds we use the Khronos lib/include files in the project's "OpenCL" directory, to completely avoid requiring fiddly to install vendor SDK's.
+	# Otherwise we use the system's (if any).
+	find_package( OpenCL )
+	message(STATUS "OpenCL found: ${OPENCL_FOUND}")
+	message(STATUS "OpenCL includes: ${OpenCL_INCLUDE_DIRS}")
+	message(STATUS "OpenCL libraries: ${OpenCL_LIBRARIES}")
+endif()
 
 if( NOT CMAKE_BUILD_TYPE )
   set( CMAKE_BUILD_TYPE Release )
@@ -101,19 +124,17 @@ set(BASISU_SRC_LIST ${COMMON_SRC_LIST}
 	encoder/basisu_enc.cpp
 	encoder/basisu_etc.cpp
 	encoder/basisu_frontend.cpp
-	encoder/basisu_global_selector_palette_helpers.cpp
 	encoder/basisu_gpu_texture.cpp
 	encoder/basisu_pvrtc1_4.cpp
 	encoder/basisu_resampler.cpp
 	encoder/basisu_resample_filters.cpp
 	encoder/basisu_ssim.cpp
-	encoder/basisu_astc_decomp.cpp
 	encoder/basisu_uastc_enc.cpp
 	encoder/basisu_bc7enc.cpp
-	encoder/lodepng.cpp
-	encoder/apg_bmp.c
 	encoder/jpgd.cpp
 	encoder/basisu_kernels_sse.cpp
+	encoder/basisu_opencl.cpp
+	encoder/pvpngreader.cpp
 	transcoder/basisu_transcoder.cpp
 	)
 
@@ -138,7 +159,34 @@ else()
 endif()
 
 if (NOT MSVC)
-   target_link_libraries(basisu m pthread)
+	# For Non-Windows builds, let cmake try and find the system OpenCL headers/libs for us.
+	if (OPENCL_FOUND)
+		set(CMAKE_C_FLAGS  "${CMAKE_C_FLAGS} -DBASISU_SUPPORT_OPENCL=1")
+		set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -DBASISU_SUPPORT_OPENCL=1")	
+		
+		target_include_directories( basisu PRIVATE ${OpenCL_INCLUDE_DIRS} )
+		set(BASISU_EXTRA_LIBS ${OpenCL_LIBRARIES})
+	endif()
+
+else()
+	# For Windows builds, we use our local copies of the OpenCL import lib and Khronos headers.
+	if (OPENCL)
+		set(CMAKE_C_FLAGS  "${CMAKE_C_FLAGS} -DBASISU_SUPPORT_OPENCL=1")
+		set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -DBASISU_SUPPORT_OPENCL=1")	
+		
+		target_include_directories( basisu PRIVATE "OpenCL" )
+
+		if ( BUILD_X64 )
+			target_link_libraries( basisu PRIVATE "OpenCL/lib/OpenCL64" )
+		else()
+			target_link_libraries( basisu PRIVATE "OpenCL/lib/OpenCL" )
+		endif()
+
+	endif()
+endif()	
+
+if (NOT MSVC)
+   target_link_libraries(basisu m pthread ${BASISU_EXTRA_LIBS})
 endif()
 
 if (NOT EMSCRIPTEN)

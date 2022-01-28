@@ -20,18 +20,16 @@ if (EMSCRIPTEN)
 	../../encoder/basisu_enc.cpp                             
 	../../encoder/basisu_etc.cpp                             
 	../../encoder/basisu_frontend.cpp                        
-	../../encoder/basisu_global_selector_palette_helpers.cpp 
 	../../encoder/basisu_gpu_texture.cpp                     
 	../../encoder/basisu_pvrtc1_4.cpp                        
 	../../encoder/basisu_resampler.cpp                       
 	../../encoder/basisu_resample_filters.cpp                
 	../../encoder/basisu_ssim.cpp                            
-	../../encoder/basisu_astc_decomp.cpp                     
 	../../encoder/basisu_uastc_enc.cpp                       
 	../../encoder/basisu_bc7enc.cpp
 	../../encoder/basisu_kernels_sse.cpp
-	../../encoder/lodepng.cpp                                
-	../../encoder/apg_bmp.c                                  
+	../../encoder/basisu_opencl.cpp
+	../../encoder/pvpngreader.cpp
 	../../encoder/jpgd.cpp                                   
   )
 

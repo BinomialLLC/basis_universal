@@ -17,7 +17,7 @@ which cc > /dev/null
 if [ $? -ne 0 ]; then
   echo "(Skipping compile test)"
 else
-  cc -std=c++11 -lstdc++ -Wall -Wextra -Werror -Os -g0 -fno-exceptions -fno-rtti -o $OUT_FILE examples/simple.cpp
+  cc -lm -std=c++11 -lstdc++ -Wall -Wextra -Werror -Os -g0 -fno-exceptions -fno-rtti -o $OUT_FILE examples/simple.cpp
   # Did compilation work?
   if [ $? -ne 0 ]; then
     echo "Compiling simple.cpp: FAILED"

@@ -3,8 +3,6 @@
 
 using namespace basist;
 
-static basist::etc1_global_selector_codebook *g_pGlobal_codebook;
-
 typedef unsigned int uint;
 
 extern "C" 
@@ -38,9 +36,6 @@ extern "C"
 void basis_init()
 {
 	basisu_transcoder_init();
-	
-	if (!g_pGlobal_codebook)
-		g_pGlobal_codebook = new basist::etc1_global_selector_codebook(g_global_selector_cb_size, g_global_selector_cb);
 }
 
 #define MAGIC 0xDEADBEE1
@@ -53,7 +48,7 @@ struct basis_file
 	uint m_file_size;
 
 	basis_file() : 
-		m_transcoder(g_pGlobal_codebook)
+		m_transcoder()
 	{
 	}
 };

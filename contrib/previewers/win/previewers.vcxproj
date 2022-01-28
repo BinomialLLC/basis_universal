@@ -165,7 +165,6 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="basisthumbprovider.cpp" />
-    <ClCompile Include="..\lib\basisu_transcoder.cpp" />
     <ClCompile Include="helpers.cpp" />
     <ClCompile Include="previewers.cpp">
       <CompileAsManaged Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">false</CompileAsManaged>

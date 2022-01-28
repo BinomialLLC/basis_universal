@@ -5,12 +5,6 @@
     <ClCompile Include="transcoder\basisu_transcoder.cpp">
       <Filter>transcoder</Filter>
     </ClCompile>
-    <ClCompile Include="encoder\apg_bmp.c">
-      <Filter>encoder</Filter>
-    </ClCompile>
-    <ClCompile Include="encoder\basisu_astc_decomp.cpp">
-      <Filter>encoder</Filter>
-    </ClCompile>
     <ClCompile Include="encoder\basisu_backend.cpp">
       <Filter>encoder</Filter>
     </ClCompile>
@@ -32,9 +26,6 @@
     <ClCompile Include="encoder\basisu_frontend.cpp">
       <Filter>encoder</Filter>
     </ClCompile>
-    <ClCompile Include="encoder\basisu_global_selector_palette_helpers.cpp">
-      <Filter>encoder</Filter>
-    </ClCompile>
     <ClCompile Include="encoder\basisu_gpu_texture.cpp">
       <Filter>encoder</Filter>
     </ClCompile>
@@ -50,9 +41,6 @@
     <ClCompile Include="encoder\jpgd.cpp">
       <Filter>encoder</Filter>
     </ClCompile>
-    <ClCompile Include="encoder\lodepng.cpp">
-      <Filter>encoder</Filter>
-    </ClCompile>
     <ClCompile Include="encoder\basisu_resample_filters.cpp">
       <Filter>encoder</Filter>
     </ClCompile>
@@ -65,11 +53,14 @@
     <ClCompile Include="zstd\zstd.c">
       <Filter>encoder</Filter>
     </ClCompile>
+    <ClCompile Include="encoder\basisu_opencl.cpp">
+      <Filter>encoder</Filter>
+    </ClCompile>
+    <ClCompile Include="encoder\pvpngreader.cpp">
+      <Filter>encoder</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="transcoder\basisu_global_selector_palette.h">
-      <Filter>transcoder</Filter>
-    </ClInclude>
     <ClInclude Include="transcoder\basisu.h">
       <Filter>transcoder</Filter>
     </ClInclude>
@@ -81,12 +72,6 @@
     </ClInclude>
     <ClInclude Include="transcoder\basisu_transcoder_uastc.h">
       <Filter>transcoder</Filter>
-    </ClInclude>
-    <ClInclude Include="encoder\apg_bmp.h">
-      <Filter>encoder</Filter>
-    </ClInclude>
-    <ClInclude Include="encoder\basisu_astc_decomp.h">
-      <Filter>encoder</Filter>
     </ClInclude>
     <ClInclude Include="encoder\basisu_backend.h">
       <Filter>encoder</Filter>
@@ -109,9 +94,6 @@
     <ClInclude Include="encoder\basisu_frontend.h">
       <Filter>encoder</Filter>
     </ClInclude>
-    <ClInclude Include="encoder\basisu_global_selector_palette_helpers.h">
-      <Filter>encoder</Filter>
-    </ClInclude>
     <ClInclude Include="encoder\basisu_gpu_texture.h">
       <Filter>encoder</Filter>
     </ClInclude>
@@ -128,9 +110,6 @@
       <Filter>encoder</Filter>
     </ClInclude>
     <ClInclude Include="encoder\jpgd.h">
-      <Filter>encoder</Filter>
-    </ClInclude>
-    <ClInclude Include="encoder\lodepng.h">
       <Filter>encoder</Filter>
     </ClInclude>
     <ClInclude Include="encoder\basisu_ssim.h">
@@ -169,6 +148,15 @@
     <ClInclude Include="transcoder\basisu_file_headers.h">
       <Filter>transcoder</Filter>
     </ClInclude>
+    <ClInclude Include="encoder\basisu_opencl.h">
+      <Filter>encoder</Filter>
+    </ClInclude>
+    <ClInclude Include="encoder\basisu_ocl_kernels.h">
+      <Filter>encoder</Filter>
+    </ClInclude>
+    <ClInclude Include="encoder\pvpngreader.h">
+      <Filter>encoder</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="transcoder\basisu_transcoder_tables_dxt1_6.inc">
@@ -194,6 +182,9 @@
     </None>
     <None Include="transcoder\basisu_transcoder_tables_atc_56.inc">
       <Filter>transcoder</Filter>
+    </None>
+    <None Include="bin\ocl_kernels.cl">
+      <Filter>encoder</Filter>
     </None>
   </ItemGroup>
   <ItemGroup>

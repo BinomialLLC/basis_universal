@@ -41,7 +41,7 @@ using namespace emscripten;
 using namespace basist;
 using namespace basisu;
 
-static basist::etc1_global_selector_codebook* g_pGlobal_codebook;
+static bool g_basis_initialized_flag;
 
 void basis_init()
 {
@@ -49,7 +49,7 @@ void basis_init()
 	printf("basis_init()\n");
 #endif   
 
-	if (g_pGlobal_codebook)
+	if (g_basis_initialized_flag)
 		return;
 
 #if BASISU_SUPPORT_ENCODING
@@ -58,7 +58,7 @@ void basis_init()
 
 	basisu_transcoder_init();
 
-	g_pGlobal_codebook = new basist::etc1_global_selector_codebook(g_global_selector_cb_size, g_global_selector_cb);
+	g_basis_initialized_flag = true;
 }
 
 static void copy_from_jsbuffer(const emscripten::val& srcBuffer, basisu::vector<uint8_t>& dstVec)
@@ -174,10 +174,9 @@ struct basis_file
 		: m_file([&]() {
 		size_t byteLength = jsBuffer["byteLength"].as<size_t>();
 		return basisu::vector<uint8_t>(byteLength);
-			}()),
-		m_transcoder(g_pGlobal_codebook)
+			}())
 	{
-		if (!g_pGlobal_codebook)
+		if (!g_basis_initialized_flag)
 		{
 #if BASISU_DEBUG_PRINTF   
 			printf("basis_file::basis_file: Must call basis_init() first!\n");
@@ -532,10 +531,9 @@ struct ktx2_file
 		: m_file([&]() {
 		size_t byteLength = jsBuffer["byteLength"].as<size_t>();
 		return basisu::vector<uint8_t>(byteLength);
-			}()),
-		m_transcoder(g_pGlobal_codebook)
+			}())
 	{
-		if (!g_pGlobal_codebook)
+		if (!g_basis_initialized_flag)
 		{
 #if BASISU_DEBUG_PRINTF   
 			printf("basis_file::basis_file: Must call basis_init() first!\n");
@@ -1050,7 +1048,7 @@ public:
 	
 	uint32_t encode(const emscripten::val& dst_basis_file_js_val)
 	{
-		if (!g_pGlobal_codebook)
+		if (!g_basis_initialized_flag)
 		{
 #if BASISU_DEBUG_PRINTF   
 			printf("basis_encoder::encode: Must call basis_init() first!\n");
@@ -1058,8 +1056,6 @@ public:
 			assert(0);
 			return 0;
 		}
-
-		basist::etc1_global_selector_codebook sel_codebook(basist::g_global_selector_cb_size, basist::g_global_selector_cb);
 
 		// We don't use threading for now, but the compressor needs a job pool.
 		job_pool jpool(1);
@@ -1076,7 +1072,6 @@ public:
 
 		params.m_read_source_images = false;
 		params.m_write_output_basis_files = false;
-		params.m_pSel_codebook = &sel_codebook;
 
 		basis_compressor comp;
 
@@ -1135,8 +1130,7 @@ class lowlevel_etc1s_image_transcoder : public basisu_lowlevel_etc1s_transcoder
 	basisu_transcoder_state m_state;
 	
 public:
-	lowlevel_etc1s_image_transcoder() : 
-		basisu_lowlevel_etc1s_transcoder(g_pGlobal_codebook)
+	lowlevel_etc1s_image_transcoder()
 	{
 	}
 	
@@ -1195,7 +1189,7 @@ public:
 		uint32_t output_row_pitch_in_blocks_or_pixels,
 		uint32_t output_rows_in_pixels)
 	{
-		if (!g_pGlobal_codebook)
+		if (!g_basis_initialized_flag)
 		{
 #if BASISU_DEBUG_PRINTF   
 			printf("transcode_etc1s_image: basis_init() must be called first\n");
@@ -1273,7 +1267,7 @@ bool transcode_uastc_image(
 {
 	transcoder_texture_format target_format = static_cast<transcoder_texture_format>(target_format_int);
 	
-	if (!g_pGlobal_codebook)
+	if (!g_basis_initialized_flag)
 	{
 #if BASISU_DEBUG_PRINTF   
 		printf("transcode_uastc_image: basis_init() must be called first\n");

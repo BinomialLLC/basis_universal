@@ -31,20 +31,14 @@ static uint8_t const srcRgb[] = {
 
 //****************************************************************************/
 
-/**
- * Shared codebook instance.
- */
-static etc1_global_selector_codebook* globalCodebook = NULL;
 
 /**
  * Simple single-file test to test the transcoder can build and run.
  */
 int main() {
 	basisu_transcoder_init();
-	if (!globalCodebook) {
-		 globalCodebook = new etc1_global_selector_codebook(g_global_selector_cb_size, g_global_selector_cb);
-	}
-	basisu_transcoder transcoder(globalCodebook);
+	
+	basisu_transcoder transcoder;
 	if (transcoder.validate_header(srcRgb, sizeof srcRgb)) {
 		basisu_file_info fileInfo;
 		if (transcoder.get_file_info(srcRgb, sizeof srcRgb, fileInfo)) {
