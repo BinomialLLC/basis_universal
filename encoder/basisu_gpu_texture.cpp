@@ -1504,6 +1504,8 @@ namespace basisu
 		
 		header.m_pixelWidth = width;
 		header.m_pixelHeight = height;
+				
+		header.m_glTypeSize = 1;
 		
 		header.m_glInternalFormat = internal_fmt;
 		header.m_glBaseInternalFormat = base_internal_fmt;
