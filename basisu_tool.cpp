@@ -706,9 +706,15 @@ public:
 					m_individual = false;
 				}
 				else if (strcasecmp(pType, "3d") == 0)
+				{
 					m_comp_params.m_tex_type = basist::cBASISTexTypeVolume;
+					m_individual = false;
+				}
 				else if (strcasecmp(pType, "cubemap") == 0)
+				{
 					m_comp_params.m_tex_type = basist::cBASISTexTypeCubemapArray;
+					m_individual = false;
+				}
 				else if (strcasecmp(pType, "video") == 0)
 				{
 					m_comp_params.m_tex_type = basist::cBASISTexTypeVideoFrames;
@@ -1074,6 +1080,16 @@ static bool compress_mode(command_line_params &opts)
 	const size_t total_files = (opts.m_individual ? opts.m_input_filenames.size() : 1U);
 	bool result = true;
 
+	if ((opts.m_individual) && (opts.m_output_filename.size()))
+	{
+		if (total_files > 1)
+		{
+			error_printf("-output_file specified in individual mode, but multiple input files have been specified which would cause the output file to be written multiple times.\n");
+			delete pGlobal_codebook_data; pGlobal_codebook_data = nullptr;
+			return false;
+		}
+	}
+
 	for (size_t file_index = 0; file_index < total_files; file_index++)
 	{
 		if (opts.m_individual)
@@ -1102,8 +1118,8 @@ static bool compress_mode(command_line_params &opts)
 			params.m_source_filenames = opts.m_input_filenames;
 			params.m_source_alpha_filenames = opts.m_input_alpha_filenames;
 		}
-
-		if ((opts.m_output_filename.size()) && (!opts.m_individual))
+				
+		if (opts.m_output_filename.size())
 			params.m_out_filename = opts.m_output_filename;
 		else
 		{
