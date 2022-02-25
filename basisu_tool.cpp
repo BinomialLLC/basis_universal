@@ -40,7 +40,7 @@
 using namespace basisu;
 using namespace buminiz;
 
-#define BASISU_TOOL_VERSION "1.16"
+#define BASISU_TOOL_VERSION "1.16.3"
 
 enum tool_mode
 {
@@ -2044,7 +2044,7 @@ static bool unpack_and_validate_basis_file(
 				// Fill the buffer with psuedo-random bytes, to help more visibly detect cases where the transcoder fails to write to part of the output.
 				fill_buffer_with_random_bytes(gi.get_ptr(), gi.get_size_in_bytes());
 
-				uint32_t decode_flags = 0;
+				//uint32_t decode_flags = 0;
 
 				tm.start();
 
@@ -2741,7 +2741,7 @@ static bool compare_mode(command_line_params &opts)
 	{
 		for (uint32_t x = 0; x < a.get_width(); x++)
 		{
-			color_rgba& d = delta_img(x, y);
+			//color_rgba& d = delta_img(x, y);
 
 			for (int c = 0; c < 4; c++)
 			{
