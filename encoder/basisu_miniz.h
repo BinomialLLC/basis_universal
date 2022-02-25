@@ -76,6 +76,14 @@
 #define MINIZ_USE_UNALIGNED_LOADS_AND_STORES 1
 #endif
 
+// Using unaligned loads and stores causes errors when using UBSan. Jam it off.
+#if defined(__has_feature)
+#if __has_feature(undefined_behavior_sanitizer)
+#undef MINIZ_USE_UNALIGNED_LOADS_AND_STORES
+#define MINIZ_USE_UNALIGNED_LOADS_AND_STORES 0
+#endif
+#endif
+
 #if defined(_M_X64) || defined(_WIN64) || defined(__MINGW64__) || defined(_LP64) || defined(__LP64__) || defined(__ia64__) || defined(__x86_64__)
 // Set MINIZ_HAS_64BIT_REGISTERS to 1 if operations on 64-bit integers are reasonably fast (and don't involve compiler generated calls to helper functions).
 #define MINIZ_HAS_64BIT_REGISTERS 1

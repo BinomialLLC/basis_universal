@@ -990,17 +990,28 @@ namespace basisu
 			int dg = e1.g - e2.g;
 			int db = e1.b - e2.b;
 
+#if 0
 			int delta_l = dr * 27 + dg * 92 + db * 9;
 			int delta_cr = dr * 128 - delta_l;
 			int delta_cb = db * 128 - delta_l;
-
+															
 			uint32_t id = ((uint32_t)(delta_l * delta_l) >> 7U) +
 				((((uint32_t)(delta_cr * delta_cr) >> 7U) * 26U) >> 7U) +
 				((((uint32_t)(delta_cb * delta_cb) >> 7U) * 3U) >> 7U);
+#else
+			int64_t delta_l = dr * 27 + dg * 92 + db * 9;
+			int64_t delta_cr = dr * 128 - delta_l;
+			int64_t delta_cb = db * 128 - delta_l;
+
+			uint32_t id = ((uint32_t)((delta_l * delta_l) >> 7U)) +
+				((((uint32_t)((delta_cr * delta_cr) >> 7U)) * 26U) >> 7U) +
+				((((uint32_t)((delta_cb * delta_cb) >> 7U)) * 3U) >> 7U);
+#endif
 
 			if (alpha)
 			{
 				int da = (e1.a - e2.a) << 7;
+				// This shouldn't overflow if da is 255 or -255: 29.99 bits after squaring.
 				id += ((uint32_t)(da * da) >> 7U);
 			}
 
