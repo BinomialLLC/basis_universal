@@ -1,7 +1,7 @@
 /**
  * Basis Universal single file library. Generated using:
  * \code
- *	./combine.sh -r ../../transcoder -o basisu_transcoder.cpp basisu_transcoder-in.cpp
+ *	./combine.py -r ../../transcoder -o basisu_transcoder.cpp basisu_transcoder-in.cpp
  * \endcode
  */
 
