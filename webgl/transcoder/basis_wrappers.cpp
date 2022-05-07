@@ -1302,18 +1302,7 @@ bool transcode_uastc_slice(
 		return false;
 	}
 
-#if 0
-	printf("fmt: %u\n", (uint32_t)fmt);
-	printf("dst_blocks_len: %u output_block_or_pixel_stride_in_bytes: %u\n", dst_blocks_len, output_block_or_pixel_stride_in_bytes);
-	printf("dst_blocks byte length: %u\n", dst_blocks["byteLength"].as<uint32_t>());
-	printf("image_data byte length: %u\n", image_data["byteLength"].as<uint32_t>());
-	printf("%u %u %u %u\n", num_blocks_x, num_blocks_y, orig_width, orig_height);
-	//printf("%u %u\n", slice_offset, slice_length);
-	printf("%u\n", decode_flags);
-	printf("has_alpha: %u\n", has_alpha);
-#endif
-
-basisu::vector<uint8_t> temp_dst_blocks(dst_blocks_len);
+	basisu::vector<uint8_t> temp_dst_blocks(dst_blocks_len);
 
 	basisu_lowlevel_uastc_transcoder transcoder;
 
