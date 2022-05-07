@@ -1329,7 +1329,7 @@ bool transcode_uastc_slice(
 	if (!status)
 	{
 #if BASISU_DEBUG_PRINTF
-		printf("transcode_uastc_image: basisu_lowlevel_uastc_transcoder::transcode_image failed\n");
+		printf("transcode_uastc_slice: basisu_lowlevel_uastc_transcoder::transcode_slice failed\n");
 #endif
 		assert(0);
 		return false;
