@@ -62,9 +62,7 @@ namespace basisu
 			m_ocl_mutex.unlock();
 		}
 
-		~ocl()
-		{
-		}
+		~ocl() = default;
 
 		bool is_initialized() const { return m_device_id != nullptr; }
 
@@ -891,7 +889,7 @@ namespace basisu
 
 		g_ocl.destroy_command_queue(pContext->m_command_queue);
 			
-		memset(pContext, 0, sizeof(opencl_context));
+		memset(pContext, 0, sizeof(opencl_context_ptr));
 
 		free(pContext);
 

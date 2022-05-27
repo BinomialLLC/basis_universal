@@ -1136,7 +1136,7 @@ static bool compress_mode(command_line_params &opts)
 			if (opts.m_output_path.size())
 				string_combine_path(filename, opts.m_output_path.c_str(), filename.c_str());
 
-			params.m_out_filename = filename;
+			params.m_out_filename = std::move(filename);
 		}
 
 		if (opts.m_parallel_compression)
@@ -1244,40 +1244,41 @@ static bool compress_mode(command_line_params &opts)
 				}
 			}
 
-			if ((pCSV_file) && (c.get_stats().size()))
+			const auto& stats = c.get_stats();
+			if ((pCSV_file) && (stats.size()))
 			{
-				if (c.get_stats().size())
+				if (stats.size())
 				{
 					float rgb_avg_psnr_min = 1e+9f, rgb_avg_psnr_avg = 0.0f;
 					float a_avg_psnr_min = 1e+9f, a_avg_psnr_avg = 0.0f;
 					float luma_709_psnr_min = 1e+9f, luma_709_psnr_avg = 0.0f;
 
-					for (size_t slice_index = 0; slice_index < c.get_stats().size(); slice_index++)
+					for (size_t slice_index = 0; slice_index < stats.size(); slice_index++)
 					{
-						rgb_avg_psnr_min = basisu::minimum(rgb_avg_psnr_min, c.get_stats()[slice_index].m_basis_rgb_avg_psnr);
-						rgb_avg_psnr_avg += c.get_stats()[slice_index].m_basis_rgb_avg_psnr;
+						rgb_avg_psnr_min = basisu::minimum(rgb_avg_psnr_min, stats[slice_index].m_basis_rgb_avg_psnr);
+						rgb_avg_psnr_avg += stats[slice_index].m_basis_rgb_avg_psnr;
 
-						a_avg_psnr_min = basisu::minimum(a_avg_psnr_min, c.get_stats()[slice_index].m_basis_a_avg_psnr);
-						a_avg_psnr_avg += c.get_stats()[slice_index].m_basis_a_avg_psnr;
+						a_avg_psnr_min = basisu::minimum(a_avg_psnr_min, stats[slice_index].m_basis_a_avg_psnr);
+						a_avg_psnr_avg += stats[slice_index].m_basis_a_avg_psnr;
 
-						luma_709_psnr_min = basisu::minimum(luma_709_psnr_min, c.get_stats()[slice_index].m_basis_luma_709_psnr);
-						luma_709_psnr_avg += c.get_stats()[slice_index].m_basis_luma_709_psnr;
+						luma_709_psnr_min = basisu::minimum(luma_709_psnr_min, stats[slice_index].m_basis_luma_709_psnr);
+						luma_709_psnr_avg += stats[slice_index].m_basis_luma_709_psnr;
 					}
 
-					rgb_avg_psnr_avg /= c.get_stats().size();
-					a_avg_psnr_avg /= c.get_stats().size();
-					luma_709_psnr_avg /= c.get_stats().size();
+					rgb_avg_psnr_avg /= stats.size();
+					a_avg_psnr_avg /= stats.size();
+					luma_709_psnr_avg /= stats.size();
 
 					fprintf(pCSV_file, "\"%s\", %u, %u, %u, %u, %u, %f, %f, %f, %f, %f, %u, %u, %f, %f, %f, %f, %f, %f, %f\n",
 						params.m_out_filename.c_str(),
 						c.get_basis_file_size(),
-						(uint32_t)c.get_stats().size(),
-						c.get_stats()[0].m_width, c.get_stats()[0].m_height, (uint32_t)c.get_any_source_image_has_alpha(),
+						(uint32_t)stats.size(),
+						stats[0].m_width, stats[0].m_height, (uint32_t)c.get_any_source_image_has_alpha(),
 						c.get_basis_bits_per_texel(),
-						c.get_stats()[0].m_basis_rgb_avg_psnr,
-						c.get_stats()[0].m_basis_rgba_avg_psnr,
-						c.get_stats()[0].m_basis_luma_709_psnr,
-						c.get_stats()[0].m_best_etc1s_luma_709_psnr,
+						stats[0].m_basis_rgb_avg_psnr,
+						stats[0].m_basis_rgba_avg_psnr,
+						stats[0].m_basis_luma_709_psnr,
+						stats[0].m_best_etc1s_luma_709_psnr,
 						params.m_quality_level, (int)params.m_compression_level, tm.get_elapsed_secs(),
 						rgb_avg_psnr_min, rgb_avg_psnr_avg,
 						a_avg_psnr_min, a_avg_psnr_avg,
@@ -1425,18 +1426,20 @@ static bool unpack_and_validate_ktx2_file(
 	printf("Total key values: %u\n", dec.get_key_values().size());
 	for (uint32_t i = 0; i < dec.get_key_values().size(); i++)
 	{
-		printf("%u. Key: \"%s\", Value length in bytes: %u", i, (const char*)dec.get_key_values()[i].m_key.data(), dec.get_key_values()[i].m_value.size());
+		const auto& key = dec.get_key_values()[i].m_key;
+		const auto& value = dec.get_key_values()[i].m_value;
+		printf("%u. Key: \"%s\", Value length in bytes: %u", i, (const char*)key.data(), value.size());
 
-		if (dec.get_key_values()[i].m_value.size() > 256)
+		if (value.size() > 256)
 			continue;
 		
 		bool is_ascii = true;
-		for (uint32_t j = 0; j < dec.get_key_values()[i].m_value.size(); j++)
+		for (uint32_t j = 0; j < value.size(); j++)
 		{
-			uint8_t c = dec.get_key_values()[i].m_value[j];
+			uint8_t c = value[j];
 			if (!( 
 				((c >= ' ') && (c < 0x80)) || 
-				((j == dec.get_key_values()[i].m_value.size() - 1) && (!c))
+				((j == value.size() - 1) && (!c))
 				))
 			{
 				is_ascii = false;
@@ -1446,18 +1449,18 @@ static bool unpack_and_validate_ktx2_file(
 
 		if (is_ascii)
 		{
-			uint8_vec s(dec.get_key_values()[i].m_value);
+			uint8_vec s(value);
 			s.push_back(0);
 			printf(" Value String: \"%s\"", (const char *)s.data());
 		}
 		else
 		{
 			printf(" Value Bytes: ");
-			for (uint32_t j = 0; j < dec.get_key_values()[i].m_value.size(); j++)
+			for (uint32_t j = 0; j < value.size(); j++)
 			{
 				if (j)
 					printf(",");
-				printf("0x%X", dec.get_key_values()[i].m_value[j]);
+				printf("0x%X", value[j]);
 			}
 		}
 		printf("\n");
@@ -1467,10 +1470,11 @@ static bool unpack_and_validate_ktx2_file(
 	{
 		printf("ETC1S header:\n");
 
+		const auto& header = dec.get_etc1s_header();
 		printf("Endpoint Count: %u, Selector Count: %u, Endpoint Length: %u, Selector Length: %u, Tables Length: %u, Extended Length: %u\n",
-			(uint32_t)dec.get_etc1s_header().m_endpoint_count, (uint32_t)dec.get_etc1s_header().m_selector_count,
-			(uint32_t)dec.get_etc1s_header().m_endpoints_byte_length, (uint32_t)dec.get_etc1s_header().m_selectors_byte_length,
-			(uint32_t)dec.get_etc1s_header().m_tables_byte_length, (uint32_t)dec.get_etc1s_header().m_extended_byte_length);
+			(uint32_t)header.m_endpoint_count, (uint32_t)header.m_selector_count,
+			(uint32_t)header.m_endpoints_byte_length, (uint32_t)header.m_selectors_byte_length,
+			(uint32_t)header.m_tables_byte_length, (uint32_t)header.m_extended_byte_length);
 
 		printf("Total ETC1S image descs: %u\n", dec.get_etc1s_image_descs().size());
 		for (uint32_t i = 0; i < dec.get_etc1s_image_descs().size(); i++)

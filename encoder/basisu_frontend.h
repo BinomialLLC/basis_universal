@@ -28,7 +28,7 @@ namespace basisu
 	{
 		uint32_t m_comps[2];
 
-		vec2U() { }
+		vec2U() = default;
 		vec2U(uint32_t a, uint32_t b) { set(a, b); }
 
 		void set(uint32_t a, uint32_t b) { m_comps[0] = a; m_comps[1] = b; }

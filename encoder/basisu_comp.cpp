@@ -780,7 +780,7 @@ namespace basisu
 				enlarge_vector(m_slice_images, 1);
 				enlarge_vector(m_slice_descs, 1);
 								
-				m_stats[dest_image_index].m_filename = source_filename.c_str();
+				m_stats[dest_image_index].m_filename = source_filename;
 				m_stats[dest_image_index].m_width = orig_width;
 				m_stats[dest_image_index].m_height = orig_height;
 								
@@ -1619,16 +1619,13 @@ namespace basisu
 				if ((!m_params.m_uastc) && (m_frontend.get_params().m_debug_images))
 				{
 					// Write "best" ETC1S debug images
-					if (!m_params.m_uastc)
-					{
-						gpu_image best_etc1s_gpu_image(m_best_etc1s_images[slice_index]);
-						best_etc1s_gpu_image.override_dimensions(slice_desc.m_orig_width, slice_desc.m_orig_height);
-						write_compressed_texture_file((out_basename + "_best_etc1s.ktx").c_str(), best_etc1s_gpu_image);
+					gpu_image best_etc1s_gpu_image(m_best_etc1s_images[slice_index]);
+					best_etc1s_gpu_image.override_dimensions(slice_desc.m_orig_width, slice_desc.m_orig_height);
+					write_compressed_texture_file((out_basename + "_best_etc1s.ktx").c_str(), best_etc1s_gpu_image);
 
-						image best_etc1s_unpacked;
-						best_etc1s_gpu_image.unpack(best_etc1s_unpacked);
-						save_png(out_basename + "_best_etc1s.png", best_etc1s_unpacked);
-					}
+					image best_etc1s_unpacked;
+					best_etc1s_gpu_image.unpack(best_etc1s_unpacked);
+					save_png(out_basename + "_best_etc1s.png", best_etc1s_unpacked);
 				}
 
 				if (m_params.m_debug_images)

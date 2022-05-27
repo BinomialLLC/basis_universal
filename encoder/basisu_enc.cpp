@@ -514,11 +514,12 @@ namespace basisu
 #endif
 		if (!pFile)
 			return false;
-				
-		fseek(pFile, 0, SEEK_END);
-#ifdef _WIN32
+
+#ifdef _WIN32		
+		_fseeki64(pFile, 0, SEEK_END);
 		int64_t filesize = _ftelli64(pFile);
 #else
+		fseek(pFile, 0, SEEK_END);
 		int64_t filesize = ftello(pFile);
 #endif
 		if (filesize < 0)
@@ -526,7 +527,11 @@ namespace basisu
 			fclose(pFile);
 			return false;
 		}
+#ifdef _WIN32
+		_fseeki64(pFile, 0, SEEK_SET);
+#else
 		fseek(pFile, 0, SEEK_SET);
+#endif
 
 		if (sizeof(size_t) == sizeof(uint32_t))
 		{
