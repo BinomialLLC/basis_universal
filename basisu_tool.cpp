@@ -136,6 +136,7 @@ static void print_usage()
 		" -no_ktx: Disable KTX writing when unpacking (faster, less output files)\n"
 		" -ktx_only: Only write KTX files when unpacking (faster, less output files)\n"
 		" -write_out: Write 3dfx OUT files when unpacking FXT1 textures\n"
+		" -format_only: Only unpack the specified format, by its numeric code.\n"
 		" -etc1_only: Only unpack to ETC1, skipping the other texture formats during -unpack\n"
 		" -disable_hierarchical_endpoint_codebooks: Disable hierarchical endpoint codebook usage, slower but higher quality on some compression levels\n"
 		" -compare_ssim: Compute and display SSIM of image comparison (slow)\n"
@@ -286,6 +287,7 @@ public:
 		m_no_ktx(false),
 		m_ktx_only(false),
 		m_write_out(false),
+		m_format_only(-1),
 		m_etc1_only(false),
 		m_fuzz_testing(false),
 		m_compare_ssim(false),
@@ -613,8 +615,17 @@ public:
 				m_ktx_only = true;
 			else if (strcasecmp(pArg, "-write_out") == 0)
 				m_write_out = true;
+			else if (strcasecmp(pArg, "-format_only") == 0)
+			{
+				REMAINING_ARGS_CHECK(1);
+				m_format_only = atoi(arg_v[arg_index + 1]);
+				arg_count++;
+			}
 			else if (strcasecmp(pArg, "-etc1_only") == 0)
+			{
 				m_etc1_only = true;
+				m_format_only = (int)basist::transcoder_texture_format::cTFETC1_RGB;
+			}
 			else if (strcasecmp(pArg, "-disable_hierarchical_endpoint_codebooks") == 0)
 				m_comp_params.m_disable_hierarchical_endpoint_codebooks = true;
 			else if (strcasecmp(pArg, "-opencl") == 0)
@@ -828,6 +839,8 @@ public:
 
 	std::string m_output_filename;
 	std::string m_output_path;
+
+	int m_format_only;
 
 	std::string m_multifile_printf;
 	uint32_t m_multifile_first;
@@ -1503,9 +1516,9 @@ static bool unpack_and_validate_ktx2_file(
 	int first_format = 0;
 	int last_format = (int)basist::transcoder_texture_format::cTFTotalTextureFormats;
 
-	if (opts.m_etc1_only)
+	if (opts.m_format_only > -1)
 	{
-		first_format = (int)basist::transcoder_texture_format::cTFETC1_RGB;
+		first_format = opts.m_format_only;
 		last_format = first_format + 1;
 	}
 
@@ -1910,9 +1923,9 @@ static bool unpack_and_validate_basis_file(
 	int first_format = 0;
 	int last_format = (int)basist::transcoder_texture_format::cTFTotalTextureFormats;
 
-	if (opts.m_etc1_only)
+	if (opts.m_format_only > -1)
 	{
-		first_format = (int)basist::transcoder_texture_format::cTFETC1_RGB;
+		first_format = opts.m_format_only;
 		last_format = first_format + 1;
 	}
 
