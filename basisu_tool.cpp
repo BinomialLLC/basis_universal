@@ -2268,7 +2268,8 @@ static bool unpack_and_validate_basis_file(
 
 	uint32_t max_mipmap_levels = 0;
 
-	if (!opts.m_etc1_only)
+	//if (!opts.m_etc1_only)
+	if (opts.m_format_only == -1)
 	{
 		// Now unpack to RGBA using the transcoder itself to do the unpacking to raster images
 		for (uint32_t image_index = 0; image_index < fileinfo.m_total_images; image_index++)
