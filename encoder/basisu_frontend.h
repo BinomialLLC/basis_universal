@@ -16,8 +16,8 @@
 #include "basisu_enc.h"
 #include "basisu_etc.h"
 #include "basisu_gpu_texture.h"
-#include "../transcoder/basisu_file_headers.h"
-#include "../transcoder/basisu_transcoder.h"
+#include "basisu_file_headers.h"
+#include "basisu_transcoder.h"
 
 namespace basisu
 {
