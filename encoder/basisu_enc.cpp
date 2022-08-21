@@ -187,6 +187,8 @@ namespace basisu
 			opencl_init(opencl_force_serialization);
 		}
 
+		interval_timer::init(); // make sure interval_timer globals are initialized from main thread to avoid TSAN reports
+
 		g_library_initialized = true;
 	}
 
