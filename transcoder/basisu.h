@@ -280,17 +280,17 @@ namespace basisu
 		pBytes[3] = (uint8_t)(val >> 24U);
 	}
 		
-	// Always little endian 1-8 byte unsigned int
+	// Always little endian 1-4 byte unsigned int
 	template<uint32_t NumBytes>
 	struct packed_uint
 	{
 		uint8_t m_bytes[NumBytes];
 
-		inline packed_uint() { static_assert(NumBytes <= sizeof(uint64_t), "Invalid NumBytes"); }
-		inline packed_uint(uint64_t v) { *this = v; }
+		inline packed_uint() { static_assert(NumBytes <= 4, "Invalid NumBytes"); }
+		inline packed_uint(uint32_t v) { *this = v; }
 		inline packed_uint(const packed_uint& other) { *this = other; }
 						
-		inline packed_uint& operator= (uint64_t v) 
+		inline packed_uint& operator= (uint32_t v)
 		{ 
 			for (uint32_t i = 0; i < NumBytes; i++) 
 				m_bytes[i] = static_cast<uint8_t>(v >> (i * 8)); 
@@ -323,6 +323,58 @@ namespace basisu
 				{
 					return read_le_dword(m_bytes);
 				}
+				default:
+				{
+					assert(0);
+					return 0;
+				}
+			}
+		}
+	};
+
+	// Always little endian 1-8 byte unsigned int
+	template<uint32_t NumBytes>
+	struct packed_ull
+	{
+		uint8_t m_bytes[NumBytes];
+
+		inline packed_ull() { static_assert(NumBytes <= 8, "Invalid NumBytes"); }
+		inline packed_ull(uint64_t v) { *this = v; }
+		inline packed_ull(const packed_ull& other) { *this = other; }
+
+		inline packed_ull& operator= (uint64_t v)
+		{
+			for (uint32_t i = 0; i < NumBytes; i++)
+				m_bytes[i] = static_cast<uint8_t>(v >> (i * 8));
+			return *this;
+		}
+
+		inline packed_ull& operator= (const packed_ull& rhs)
+		{
+			memcpy(m_bytes, rhs.m_bytes, sizeof(m_bytes));
+			return *this;
+		}
+
+		inline operator uint64_t() const
+		{
+			switch (NumBytes)
+			{
+				case 1:
+				{
+					return m_bytes[0];
+				}
+				case 2:
+				{
+					return (m_bytes[1] << 8U) | m_bytes[0];
+				}
+				case 3:
+				{
+					return (m_bytes[2] << 16U) | (m_bytes[1] << 8U) | m_bytes[0];
+				}
+				case 4:
+				{
+					return read_le_dword(m_bytes);
+				}
 				case 5:
 				{
 					uint32_t l = read_le_dword(m_bytes);
@@ -341,13 +393,13 @@ namespace basisu
 					uint32_t h = (m_bytes[6] << 16U) | (m_bytes[5] << 8U) | m_bytes[4];
 					return static_cast<uint64_t>(l) | (static_cast<uint64_t>(h) << 32U);
 				}
-				case 8:  
+				case 8:
 				{
 					uint32_t l = read_le_dword(m_bytes);
 					uint32_t h = read_le_dword(m_bytes + 4);
 					return static_cast<uint64_t>(l) | (static_cast<uint64_t>(h) << 32U);
 				}
-				default: 
+				default:
 				{
 					assert(0);
 					return 0;
