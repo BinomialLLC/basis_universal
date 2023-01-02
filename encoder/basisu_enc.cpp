@@ -1504,7 +1504,7 @@ namespace basisu
 	}
 
 	job_pool::job_pool(uint32_t num_threads) : 
-		m_num_active_jobs(0),
+		m_num_pending_jobs(0),
 		m_kill_flag(false)
 	{
 		assert(num_threads >= 1U);
@@ -1525,64 +1525,87 @@ namespace basisu
 		debug_printf("job_pool::~job_pool\n");
 		
 		// Notify all workers that they need to die right now.
-		m_kill_flag = true;
-		
-		m_has_work.notify_all();
+		{
+			std::unique_lock<std::mutex> lock(m_mutex);
+			m_kill_flag = true;
+			m_has_work.notify_all();
+		}
 
 		// Wait for all workers to die.
 		for (uint32_t i = 0; i < m_threads.size(); i++)
 			m_threads[i].join();
 	}
 				
-	void job_pool::add_job(const std::function<void()>& job)
+	void job_pool::add_job(std::function<void()> job, token* tok)
 	{
-		std::unique_lock<std::mutex> lock(m_mutex);
-
-		m_queue.emplace_back(job);
-
-		const size_t queue_size = m_queue.size();
-
-		lock.unlock();
-
-		if (queue_size > 1)
-			m_has_work.notify_one();
-	}
-
-	void job_pool::add_job(std::function<void()>&& job)
-	{
-		std::unique_lock<std::mutex> lock(m_mutex);
-
-		m_queue.emplace_back(std::move(job));
-						
-		const size_t queue_size = m_queue.size();
-
-		lock.unlock();
-
-		if (queue_size > 1)
 		{
-			m_has_work.notify_one();
-		}
-	}
+			std::unique_lock<std::mutex> lock(m_mutex);
 
-	void job_pool::wait_for_all()
-	{
-		std::unique_lock<std::mutex> lock(m_mutex);
+			m_queue.push_back(item{ std::move(job), tok });
 
-		// Drain the job queue on the calling thread.
-		while (!m_queue.empty())
-		{
-			std::function<void()> job(m_queue.back());
-			m_queue.pop_back();
+			if (tok)
+				(*tok)++;
 
-			lock.unlock();
-
-			job();
-
-			lock.lock();
+			m_num_pending_jobs++;
 		}
 
-		// The queue is empty, now wait for all active jobs to finish up.
-		m_no_more_jobs.wait(lock, [this]{ return !m_num_active_jobs; } );
+		m_has_work.notify_one();
+	}
+
+	void job_pool::wait_for_all(token* tok)
+	{
+		token* wait_token = tok ? tok : &m_num_pending_jobs;
+
+		std::unique_lock<std::mutex> lock(m_mutex);
+
+		while (true)
+		{
+			if (*wait_token == 0)
+				return;
+
+			item job;
+			if (!job_steal(job, tok, lock))
+				break;
+
+			job_run(job, lock);
+		}
+
+		m_job_done.wait(lock, [wait_token] { return *wait_token == 0; });
+	}
+
+	bool job_pool::job_steal(item& job, token* tok, std::unique_lock<std::mutex>&)
+	{
+		for (size_t i = m_queue.size(); i > 0; --i)
+		{
+			item& victim = m_queue[i - 1];
+
+			if (tok == nullptr || victim.tok == tok)
+			{
+				job = std::move(victim);
+				victim = std::move(m_queue.back());
+				m_queue.pop_back();
+
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	void job_pool::job_run(item& job, std::unique_lock<std::mutex>& lock)
+	{
+		lock.unlock();
+
+		job.fn();
+
+		lock.lock();
+
+		if (job.tok)
+			(*job.tok)--;
+
+		m_num_pending_jobs--;
+
+		m_job_done.notify_all();
 	}
 
 	void job_pool::job_thread(uint32_t index)
@@ -1590,10 +1613,10 @@ namespace basisu
 		BASISU_NOTE_UNUSED(index);
 		//debug_printf("job_pool::job_thread: starting %u\n", index);
 		
+		std::unique_lock<std::mutex> lock(m_mutex);
+
 		while (true)
 		{
-			std::unique_lock<std::mutex> lock(m_mutex);
-
 			// Wait for any jobs to be issued.
 			m_has_work.wait(lock, [this] { return m_kill_flag || m_queue.size(); } );
 
@@ -1602,26 +1625,10 @@ namespace basisu
 				break;
 
 			// Get the job and execute it.
-			std::function<void()> job(m_queue.back());
+			item job = std::move(m_queue.back());
 			m_queue.pop_back();
 
-			++m_num_active_jobs;
-
-			lock.unlock();
-
-			job();
-
-			lock.lock();
-
-			--m_num_active_jobs;
-
-			// Now check if there are no more jobs remaining. 
-			const bool all_done = m_queue.empty() && !m_num_active_jobs;
-			
-			lock.unlock();
-
-			if (all_done)
-				m_no_more_jobs.notify_all();
+			job_run(job, lock);
 		}
 
 		//debug_printf("job_pool::job_thread: exiting\n");

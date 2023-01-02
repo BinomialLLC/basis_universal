@@ -4144,6 +4144,8 @@ namespace basisu
 		}
 		else
 		{
+			job_pool::token token{0};
+
 			bool all_succeeded = true;
 
 			for (uint32_t block_index_iter = 0; block_index_iter < num_blocks; block_index_iter += blocks_per_job)
@@ -4170,14 +4172,13 @@ namespace basisu
 					}
 
 #ifndef __EMSCRIPTEN__
-					}
-				);
+					}, &token);
 #endif
 
 			} // block_index_iter
 
 #ifndef __EMSCRIPTEN__
-			pJob_pool->wait_for_all();
+			pJob_pool->wait_for_all(&token);
 #endif
 
 			status = all_succeeded;
