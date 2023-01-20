@@ -1749,7 +1749,7 @@ static bool unpack_and_validate_ktx2_file(
 
 							std::string rgba_filename;
 							if (gi.size() > 1)
-								rgba_filename = base_filename + string_format("_unpacked_rgba_%s_%u_%04u.png", basist::basis_get_format_name(transcoder_tex_fmt), level_index, face_index, layer_index);
+								rgba_filename = base_filename + string_format("_unpacked_rgba_%s_%u_%u_%04u.png", basist::basis_get_format_name(transcoder_tex_fmt), level_index, face_index, layer_index);
 							else
 								rgba_filename = base_filename + string_format("_unpacked_rgba_%s_%u_%04u.png", basist::basis_get_format_name(transcoder_tex_fmt), face_index, layer_index);
 							if (!save_png(rgba_filename, u))
