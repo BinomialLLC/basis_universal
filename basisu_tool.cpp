@@ -32,6 +32,10 @@
 #define MINIZ_NO_ZLIB_COMPATIBLE_NAMES
 #include "encoder/basisu_miniz.h"
 
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#endif
 // Set BASISU_CATCH_EXCEPTIONS if you want exceptions to crash the app, otherwise main() catches them.
 #ifndef BASISU_CATCH_EXCEPTIONS
 	#define BASISU_CATCH_EXCEPTIONS 0
@@ -40,7 +44,7 @@
 using namespace basisu;
 using namespace buminiz;
 
-#define BASISU_TOOL_VERSION "1.16.3"
+#define BASISU_TOOL_VERSION "1.16.4"
 
 enum tool_mode
 {
@@ -4499,6 +4503,9 @@ static int main_internal(int argc, const char **argv)
 
 int main(int argc, const char** argv)
 {
+#ifdef _WIN32
+	SetConsoleOutputCP(CP_UTF8);
+#endif
 #ifdef _DEBUG
 	printf("DEBUG\n");
 #endif
