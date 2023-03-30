@@ -80,6 +80,14 @@ make
 
 For Visual Studio 2019, you can now either use the CMakeLists.txt file or the included `basisu.sln` file. Earlier versions of Visual Studio (particularly 2017) should work but aren't actively tested. We develop with the most up to date version of 2019.
 
+To test the codec:
+
+`basisu -test`
+
+To test the codec in OpenCL mode (must have OpenCL libs/headers/drivers installed, and have compiled OpenCL support in by specifying cmake -D OPENCL=TRUE):
+
+`basisu -test -opencl`
+
 To compress a sRGB PNG/BMP/TGA/JPEG image to an ETC1S .KTX2 file:
 
 `basisu -ktx2 x.png`
