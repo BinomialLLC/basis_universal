@@ -57,6 +57,9 @@ All C/C++ code dependencies are present inside the Basis Universal repo itself t
 
 The encoder optionally uses Zstandard's single source file compressor (in zstd/zstd.c) to support compressing supercompressed KTX2 files. The stand-alone transcoder (in the "transcoder" directory) is a single .cpp source file library which has no 3rd party code dependencies apart from zstd/zstddeclib.c, which is also technically optional. It's only used for decompressing UASTC KTX2 files that use Zstandard.
 
+### Note about Visual Studio 2022 (compiling under Windows)
+The C/C++ compiler that ships with MSVC 2022 (Platform Toolset v143) is buggy, and it's been this way for years. I've reported the bugs and I've had others verify that yes, it produces buggy code. I've been doing my best to work around the 2022 compiler bugs, but it's probably not worth the effort. Either use the LLVM (clang-cl) Platform Toolset, or switch to Platform Toolset v142 (Visual Studio 2019's compiler). I test with various versions of gcc and clang, and MSVC 2019.
+
 ### Command Line Compression Tool
 
 The command line tool used to create, validate, and transcode/unpack .basis/.KTX2 files is named "basisu". Run basisu without any parameters for help. 
@@ -76,6 +79,14 @@ make
 ```
 
 For Visual Studio 2019, you can now either use the CMakeLists.txt file or the included `basisu.sln` file. Earlier versions of Visual Studio (particularly 2017) should work but aren't actively tested. We develop with the most up to date version of 2019.
+
+To test the codec:
+
+`basisu -test`
+
+To test the codec in OpenCL mode (must have OpenCL libs/headers/drivers installed, and have compiled OpenCL support in by specifying cmake -D OPENCL=TRUE):
+
+`basisu -test -opencl`
 
 To compress a sRGB PNG/BMP/TGA/JPEG image to an ETC1S .KTX2 file:
 
