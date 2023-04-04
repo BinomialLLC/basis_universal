@@ -1,11 +1,6 @@
 # basis_universal
 Basis Universal Supercompressed GPU Texture Codec
 
-Businesses: support continued development and maintenance via invoiced technical support, maintenance, or sponsoring contracts:
-<br>&nbsp;&nbsp;_E-mail: info @ binomial dot info_ or contact us on [Twitter](https://twitter.com/_binomial)
-
-Here's the [Sponsors](https://github.com/BinomialLLC/basis_universal/wiki/Sponsors-and-Supporters) wiki page.
-
 ----
 
 [![Build status](https://ci.appveyor.com/api/projects/status/87eb0o96pjho4sh0?svg=true)](https://ci.appveyor.com/project/BinomialLLC/basis-universal)
@@ -324,3 +319,10 @@ licensing to ensure the entire repository has explicit licensing information.
 To ensure continued REUSE compliance, run `reuse lint` at the root of
 a clean, checked-out repository periodically, or run it during CI tests
 before any build artifacts have been created.
+
+----
+
+Businesses: support continued development and maintenance via invoiced technical support, maintenance, or sponsoring contracts:
+<br>&nbsp;&nbsp;_E-mail: info @ binomial dot info_ or contact us on [Twitter](https://twitter.com/_binomial)
+
+Here's the [Sponsors](https://github.com/BinomialLLC/basis_universal/wiki/Sponsors-and-Supporters) wiki page.
