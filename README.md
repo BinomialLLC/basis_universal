@@ -322,7 +322,6 @@ before any build artifacts have been created.
 
 ----
 
-Businesses: support continued development and maintenance via invoiced technical support, maintenance, or sponsoring contracts:
-<br>&nbsp;&nbsp;_E-mail: info @ binomial dot info_ or contact us on [Twitter](https://twitter.com/_binomial)
+Contact info: <br>&nbsp;&nbsp;_E-mail: info @ binomial dot info_ or contact us on [Twitter](https://twitter.com/_binomial)
 
 Here's the [Sponsors](https://github.com/BinomialLLC/basis_universal/wiki/Sponsors-and-Supporters) wiki page.
