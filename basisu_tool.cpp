@@ -4206,36 +4206,39 @@ const struct test_file
 	uint32_t m_etc1s_size;
 	float m_etc1s_psnr;
 	float m_uastc_psnr;
+	
+	uint32_t m_etc1s_128_size;
+    float m_etc1s_128_psnr;
 } g_test_files[] = 
 {
-	{ "black_1x1.png", 189, 100.0f, 100.0f },
-	{ "kodim01.png", 30993, 27.40f, 44.14f },
-	{ "kodim02.png", 28529, 32.20f, 41.06f },
-	{ "kodim03.png", 23411, 32.57f, 44.87f },
-	{ "kodim04.png", 28256, 31.76f, 43.02f },
-	{ "kodim05.png", 32646, 25.94f, 40.28f },
-	{ "kodim06.png", 27336, 28.66f, 44.57f },
-	{ "kodim07.png", 26618, 31.51f, 43.94f },
-	{ "kodim08.png", 31133, 25.28f, 41.15f },
-	{ "kodim09.png", 24777, 32.05f, 45.85f },
-	{ "kodim10.png", 27247, 32.20f, 45.77f },
-	{ "kodim11.png", 26579, 29.22f, 43.68f },
-	{ "kodim12.png", 25102, 32.96f, 46.77f },
-	{ "kodim13.png", 31604, 24.25f, 41.25f },
-	{ "kodim14.png", 31162, 27.81f, 39.65f },
-	{ "kodim15.png", 25528, 31.26f, 42.87f },
-	{ "kodim16.png", 26894, 32.21f, 47.78f },
-	{ "kodim17.png", 29334, 31.40f, 45.66f },
-	{ "kodim18.png", 30929, 27.46f, 41.54f },
-	{ "kodim19.png", 27889, 29.69f, 44.95f },
-	{ "kodim20.png", 21104, 31.30f, 45.31f },
-	{ "kodim21.png", 25943, 28.53f, 44.45f },
-	{ "kodim22.png", 29277, 29.85f, 42.63f },
-	{ "kodim23.png", 23550, 31.69f, 45.11f },
-	{ "kodim24.png", 29613, 26.75f, 40.61f },
-	{ "white_1x1.png", 189, 100.0f, 100.0f },
-	{ "wikipedia.png", 38961, 24.10f, 30.47f },
-	{ "alpha0.png", 766, 100.0f, 56.16f }
+	{ "black_1x1.png", 189, 100.0f, 100.0f, 189, 100.0f },
+	{ "kodim01.png", 30993, 27.40f, 44.14f, 58354, 30.356064f },
+	{ "kodim02.png", 28529, 32.20f, 41.06f, 51411, 34.713940f },
+	{ "kodim03.png", 23411, 32.57f, 44.87f, 49282, 36.709675f },
+	{ "kodim04.png", 28256, 31.76f, 43.02f, 57003, 34.864861f },
+	{ "kodim05.png", 32646, 25.94f, 40.28f, 65731, 29.935091f },
+	{ "kodim06.png", 27336, 28.66f, 44.57f, 54963, 32.294220f },
+	{ "kodim07.png", 26618, 31.51f, 43.94f, 53352, 35.576595f },
+	{ "kodim08.png", 31133, 25.28f, 41.15f, 63347, 29.509914f },
+	{ "kodim09.png", 24777, 32.05f, 45.85f, 51355, 35.985966f },
+	{ "kodim10.png", 27247, 32.20f, 45.77f, 54291, 36.395000f },
+	{ "kodim11.png", 26579, 29.22f, 43.68f, 55491, 33.468971f },
+	{ "kodim12.png", 25102, 32.96f, 46.77f, 51465, 36.722233f },
+	{ "kodim13.png", 31604, 24.25f, 41.25f, 62629, 27.588623f },
+	{ "kodim14.png", 31162, 27.81f, 39.65f, 62866, 31.206463f },
+	{ "kodim15.png", 25528, 31.26f, 42.87f, 53343, 35.026314f },
+	{ "kodim16.png", 26894, 32.21f, 47.78f, 51325, 35.555458f },
+	{ "kodim17.png", 29334, 31.40f, 45.66f, 55630, 35.909283f },
+	{ "kodim18.png", 30929, 27.46f, 41.54f, 62421, 31.348171f },
+	{ "kodim19.png", 27889, 29.69f, 44.95f, 55055, 33.613987f },
+	{ "kodim20.png", 21104, 31.30f, 45.31f, 47136, 35.759407f },
+	{ "kodim21.png", 25943, 28.53f, 44.45f, 54768, 32.415817f },
+	{ "kodim22.png", 29277, 29.85f, 42.63f, 60889, 33.495415f },
+	{ "kodim23.png", 23550, 31.69f, 45.11f, 53774, 36.223492f },
+	{ "kodim24.png", 29613, 26.75f, 40.61f, 59014, 31.522869f },
+	{ "white_1x1.png", 189, 100.0f, 100.0f, 189, 100.000000f },
+	{ "wikipedia.png", 38961, 24.10f, 30.47f, 69558, 27.630802f },
+	{ "alpha0.png", 766, 100.0f, 56.16f, 747, 100.000000f }
 };
 const uint32_t TOTAL_TEST_FILES = sizeof(g_test_files) / sizeof(g_test_files[0]);
 
@@ -4245,6 +4248,10 @@ static bool test_mode(command_line_params& opts)
 
 	// TODO: Record min/max/avgs
 	// TODO: Add another ETC1S quality level
+
+	// Minor differences in how floating point code is optimized can result in slightly different generated files.
+	const float ETC1S_PSNR_THRESHOLD = .03f;
+	const float ETC1S_FILESIZE_THRESHOLD = .045f;
 
 	for (uint32_t i = 0; i < TOTAL_TEST_FILES; i++)
 	{
@@ -4274,35 +4281,73 @@ static bool test_mode(command_line_params& opts)
 
 		// Test ETC1S
 		flags_and_quality = (opts.m_comp_params.m_multithreading ? cFlagThreaded : 0) | cFlagPrintStats | cFlagPrintStatus;
-
-		void* pData = basis_compress(source_images, flags_and_quality, uastc_rdo_quality, &data_size, &stats);
-		if (!pData)
+		
 		{
-			error_printf("basis_compress() failed!\n");
-			return false;
+			printf("**** Testing ETC1S non-OpenCL level 1\n");
+
+			// Level 1
+			void* pData = basis_compress(source_images, flags_and_quality, uastc_rdo_quality, &data_size, &stats);
+			if (!pData)
+			{
+				error_printf("basis_compress() failed!\n");
+				return false;
+			}
+			basis_free_data(pData);
+
+			printf("ETC1S level 1 Size: %u, PSNR: %f\n", (uint32_t)data_size, stats.m_basis_rgba_avg_psnr);
+
+			float file_size_ratio = fabs((data_size / (float)g_test_files[i].m_etc1s_size) - 1.0f);
+			if (file_size_ratio > ETC1S_FILESIZE_THRESHOLD)
+			{
+				error_printf("Expected ETC1S file size was %u, but got %u instead!\n", g_test_files[i].m_etc1s_size, (uint32_t)data_size);
+				total_mismatches++;
+			}
+
+			if (fabs(stats.m_basis_rgba_avg_psnr - g_test_files[i].m_etc1s_psnr) > ETC1S_PSNR_THRESHOLD)
+			{
+				error_printf("Expected ETC1S RGBA Avg PSNR was %f, but got %f instead!\n", g_test_files[i].m_etc1s_psnr, stats.m_basis_rgba_avg_psnr);
+				total_mismatches++;
+			}
 		}
-		basis_free_data(pData);
 
-		printf("ETC1S Size: %u, PSNR: %f\n", (uint32_t)data_size, stats.m_basis_rgba_avg_psnr);
-
-		float file_size_ratio = fabs((data_size / (float)g_test_files[i].m_etc1s_size) - 1.0f);
-		if (file_size_ratio > .015f)
 		{
-			error_printf("Expected ETC1S file size was %u, but got %u instead!\n", g_test_files[i].m_etc1s_size, (uint32_t)data_size);
-			total_mismatches++;
-		}
+			printf("**** Testing ETC1S non-OpenCL level 128\n");
 
-		if (fabs(stats.m_basis_rgba_avg_psnr - g_test_files[i].m_etc1s_psnr) > .02f)
-		{
-			error_printf("Expected ETC1S RGBA Avg PSNR was %f, but got %f instead!\n", g_test_files[i].m_etc1s_psnr, stats.m_basis_rgba_avg_psnr);
-			total_mismatches++;
+			// Test ETC1S level 128
+			flags_and_quality |= 128;
+
+			void* pData = basis_compress(source_images, flags_and_quality, uastc_rdo_quality, &data_size, &stats);
+			if (!pData)
+			{
+				error_printf("basis_compress() failed!\n");
+				return false;
+			}
+			basis_free_data(pData);
+
+			printf("ETC1S level 128 Size: %u, PSNR: %f\n", (uint32_t)data_size, stats.m_basis_rgba_avg_psnr);
+
+			float file_size_ratio = fabs((data_size / (float)g_test_files[i].m_etc1s_128_size) - 1.0f);
+			if (file_size_ratio > ETC1S_FILESIZE_THRESHOLD)
+			{
+				error_printf("Expected ETC1S file size was %u, but got %u instead!\n", g_test_files[i].m_etc1s_128_size, (uint32_t)data_size);
+				total_mismatches++;
+			}
+
+			if (fabs(stats.m_basis_rgba_avg_psnr - g_test_files[i].m_etc1s_128_psnr) > ETC1S_PSNR_THRESHOLD)
+			{
+				error_printf("Expected ETC1S RGBA Avg PSNR was %f, but got %f instead!\n", g_test_files[i].m_etc1s_128_psnr, stats.m_basis_rgba_avg_psnr);
+				total_mismatches++;
+			}
 		}
 
 		if (opencl_is_available())
 		{
+			printf("**** Testing ETC1S OpenCL level 1\n");
+
+			// Test ETC1S OpenCL level 1
 			flags_and_quality = (opts.m_comp_params.m_multithreading ? cFlagThreaded : 0) | cFlagUseOpenCL | cFlagPrintStats | cFlagPrintStatus;
 
-			pData = basis_compress(source_images, flags_and_quality, uastc_rdo_quality, &data_size, &stats);
+			void *pData = basis_compress(source_images, flags_and_quality, uastc_rdo_quality, &data_size, &stats);
 			if (!pData)
 			{
 				error_printf("basis_compress() failed!\n");
@@ -4312,7 +4357,7 @@ static bool test_mode(command_line_params& opts)
 
 			printf("ETC1S+OpenCL Size: %u, PSNR: %f\n", (uint32_t)data_size, stats.m_basis_rgba_avg_psnr);
 
-			file_size_ratio = fabs((data_size / (float)g_test_files[i].m_etc1s_size) - 1.0f);
+			float file_size_ratio = fabs((data_size / (float)g_test_files[i].m_etc1s_size) - 1.0f);
 			if (file_size_ratio > .04f)
 			{
 				error_printf("Expected ETC1S+OpenCL file size was %u, but got %u instead!\n", g_test_files[i].m_etc1s_size, (uint32_t)data_size);
@@ -4336,22 +4381,26 @@ static bool test_mode(command_line_params& opts)
 		}
 
 		// Test UASTC
-		flags_and_quality = (opts.m_comp_params.m_multithreading ? cFlagThreaded : 0) | cFlagUASTC | cFlagPrintStats | cFlagPrintStatus;
-
-		pData = basis_compress(source_images, flags_and_quality, uastc_rdo_quality, &data_size, &stats);
-		if (!pData)
 		{
-			error_printf("basis_compress() failed!\n");
-			return false;
-		}
-		basis_free_data(pData);
+			printf("**** Testing UASTC\n");
 
-		printf("UASTC Size: %u, PSNR: %f\n", (uint32_t)data_size, stats.m_basis_rgba_avg_psnr);
+			flags_and_quality = (opts.m_comp_params.m_multithreading ? cFlagThreaded : 0) | cFlagUASTC | cFlagPrintStats | cFlagPrintStatus;
 
-		if (fabs(stats.m_basis_rgba_avg_psnr - g_test_files[i].m_uastc_psnr) > .005f)
-		{
-			error_printf("Expected UASTC RGBA Avg PSNR was %f, but got %f instead!\n", g_test_files[i].m_etc1s_psnr, stats.m_basis_rgba_avg_psnr);
-			total_mismatches++;
+			void* pData = basis_compress(source_images, flags_and_quality, uastc_rdo_quality, &data_size, &stats);
+			if (!pData)
+			{
+				error_printf("basis_compress() failed!\n");
+				return false;
+			}
+			basis_free_data(pData);
+
+			printf("UASTC Size: %u, PSNR: %f\n", (uint32_t)data_size, stats.m_basis_rgba_avg_psnr);
+
+			if (fabs(stats.m_basis_rgba_avg_psnr - g_test_files[i].m_uastc_psnr) > .005f)
+			{
+				error_printf("Expected UASTC RGBA Avg PSNR was %f, but got %f instead!\n", g_test_files[i].m_etc1s_psnr, stats.m_basis_rgba_avg_psnr);
+				total_mismatches++;
+			}
 		}
 	}
 
