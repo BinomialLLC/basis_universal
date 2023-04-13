@@ -145,6 +145,7 @@ static void print_usage()
 		" -etc1_only: Only unpack to ETC1, skipping the other texture formats during -unpack\n"
 		" -disable_hierarchical_endpoint_codebooks: Disable hierarchical endpoint codebook usage, slower but higher quality on some compression levels\n"
 		" -compare_ssim: Compute and display SSIM of image comparison (slow)\n"
+		" -compare_plot: Display histogram plots in -compare mode\n"
 		" -bench: UASTC benchmark mode, for development only\n"
 		" -resample X Y: Resample all input textures to XxY pixels using a box filter\n"
 		" -resample_factor X: Resample all input textures by scale factor X using a box filter\n"
@@ -296,6 +297,7 @@ public:
 		m_etc1_only(false),
 		m_fuzz_testing(false),
 		m_compare_ssim(false),
+		m_compare_plot(false),
 		m_bench(false),
 		m_parallel_compression(false)
 	{
@@ -364,6 +366,8 @@ public:
 				m_mode = cVersion;
 			else if (strcasecmp(pArg, "-compare_ssim") == 0)
 				m_compare_ssim = true;
+			else if (strcasecmp(pArg, "-compare_plot") == 0)
+				m_compare_plot = true;
 			else if (strcasecmp(pArg, "-bench") == 0)
 				m_mode = cBench;
 			else if (strcasecmp(pArg, "-comp_size") == 0)
@@ -868,6 +872,7 @@ public:
 	bool m_etc1_only;
 	bool m_fuzz_testing;
 	bool m_compare_ssim;
+	bool m_compare_plot;
 	bool m_bench;
 	bool m_parallel_compression;
 };
@@ -2749,180 +2754,184 @@ static bool compare_mode(command_line_params &opts)
 	save_png("delta_img_a.png", delta_img, cImageSaveGrayscale, 3);
 	printf("Wrote delta_img_a.png\n");
 
-	uint32_t bins[5][512];
-	clear_obj(bins);
-
-	running_stat delta_stats[5];
-	basisu::rand rm;
-
-	double avg[5];
-	clear_obj(avg);
-
-	for (uint32_t y = 0; y < a.get_height(); y++)
+	if (opts.m_compare_plot)
 	{
-		for (uint32_t x = 0; x < a.get_width(); x++)
+		uint32_t bins[5][512];
+		clear_obj(bins);
+
+		running_stat delta_stats[5];
+		basisu::rand rm;
+
+		double avg[5];
+		clear_obj(avg);
+
+		for (uint32_t y = 0; y < a.get_height(); y++)
 		{
-			//color_rgba& d = delta_img(x, y);
-
-			for (int c = 0; c < 4; c++)
+			for (uint32_t x = 0; x < a.get_width(); x++)
 			{
-				int delta = a(x, y)[c] - b(x, y)[c];
-				
-				//delta = clamp<int>((int)std::round(rm.gaussian(70.0f, 10.0f)), -255, 255);
-				
-				bins[c][delta + 256]++;
-				delta_stats[c].push(delta);
+				//color_rgba& d = delta_img(x, y);
 
-				avg[c] += delta;
-			}
-			
-			int y_delta = a(x, y).get_709_luma() - b(x, y).get_709_luma();
-			bins[4][y_delta + 256]++;
-			delta_stats[4].push(y_delta);
-			
-			avg[4] += y_delta;
+				for (int c = 0; c < 4; c++)
+				{
+					int delta = a(x, y)[c] - b(x, y)[c];
 
-		} // x
-	} // y
+					//delta = clamp<int>((int)std::round(rm.gaussian(70.0f, 10.0f)), -255, 255);
 
-	for (uint32_t i = 0; i <= 4; i++)
-		avg[i] /= a.get_total_pixels();
+					bins[c][delta + 256]++;
+					delta_stats[c].push(delta);
 
-	printf("\n");
+					avg[c] += delta;
+				}
 
-	//bins[2][256+-255] = 100000;
-	//bins[2][256-56] = 50000;
+				int y_delta = a(x, y).get_709_luma() - b(x, y).get_709_luma();
+				bins[4][y_delta + 256]++;
+				delta_stats[4].push(y_delta);
 
-	const uint32_t X_SIZE = 128, Y_SIZE = 40;
+				avg[4] += y_delta;
 
-	for (uint32_t c = 0; c <= 4; c++)
-	{
-		std::vector<uint8_t> plot[Y_SIZE + 1];
-		for (uint32_t i = 0; i < Y_SIZE; i++)
-		{
-			plot[i].resize(X_SIZE + 2);
-			memset(plot[i].data(), ' ', X_SIZE + 1);
-		}
+			} // x
+		} // y
 
-		uint32_t max_val = 0;
-		int max_val_bin_index = 0;
-		int lowest_bin_index = INT_MAX, highest_bin_index = INT_MIN;
-		double avg_val = 0;
-		double total_val = 0;
-		running_stat bin_stats;
+		for (uint32_t i = 0; i <= 4; i++)
+			avg[i] /= a.get_total_pixels();
 
-		for (int y = -255; y <= 255; y++)
-		{
-			uint32_t val = bins[c][256 + y];
-			if (!val)
-				continue;
-
-			bin_stats.push(y);
-			
-			total_val += (double)val;
-
-			lowest_bin_index = minimum(lowest_bin_index, y);
-			highest_bin_index = maximum(highest_bin_index, y);
-
-			if (val > max_val)
-			{
-				max_val = val;
-				max_val_bin_index = y;
-			}
-			avg_val += y * (double)val;
-		}
-		avg_val /= total_val;
-
-		int lo_limit = -(int)X_SIZE / 2;
-		int hi_limit = X_SIZE / 2;
-		for (int x = lo_limit; x <= hi_limit; x++)
-		{
-			uint32_t total = 0;
-			if (x == lo_limit)
-			{
-				for (int i = -255; i <= lo_limit; i++)
-					total += bins[c][256 + i];
-			}
-			else if (x == hi_limit)
-			{
-				for (int i = hi_limit; i <= 255; i++)
-					total += bins[c][256 + i];
-			}
-			else
-			{
-				total = bins[c][256 + x];
-			}
-
-			uint32_t height = max_val ? (total * Y_SIZE + max_val - 1) / max_val : 0;
-			
-			if (height)
-			{
-				for (uint32_t y = (Y_SIZE - 1) - (height - 1); y <= (Y_SIZE - 1); y++)
-					plot[y][x + X_SIZE / 2] = '*';
-			}
-		}
-
-		printf("%c delta histogram: total samples: %5.0f, max bin value: %u index: %i (%3.3f%% of total), range %i [%i,%i], weighted mean: %f\n", "RGBAY"[c], total_val, max_val, max_val_bin_index, max_val * 100.0f / total_val, highest_bin_index - lowest_bin_index + 1, lowest_bin_index, highest_bin_index, avg_val);
-		printf("bin mean: %f, bin std deviation: %f, non-zero bins: %u\n", bin_stats.get_mean(), bin_stats.get_std_dev(), bin_stats.get_num());
-		printf("delta mean: %f, delta std deviation: %f\n", delta_stats[c].get_mean(), delta_stats[c].get_std_dev());
 		printf("\n");
 
-		for (uint32_t y = 0; y < Y_SIZE; y++)
-			printf("%s\n", (char*)plot[y].data());
+		//bins[2][256+-255] = 100000;
+		//bins[2][256-56] = 50000;
 
-		char tics[1024];
-		tics[0] = '\0';
-		char tics2[1024];
-		tics2[0] = '\0';
+		const uint32_t X_SIZE = 128, Y_SIZE = 40;
 
-		for (int x = 0; x <= (int)X_SIZE; x++)
+		for (uint32_t c = 0; c <= 4; c++)
 		{
-			char buf[64];
-			if (x == X_SIZE / 2)
+			std::vector<uint8_t> plot[Y_SIZE + 1];
+			for (uint32_t i = 0; i < Y_SIZE; i++)
 			{
-				while ((int)strlen(tics) < x)
-					strcat(tics, ".");
-				
-				while ((int)strlen(tics2) < x)
-					strcat(tics2, " ");
-
-				sprintf(buf, "0");
-				strcat(tics, buf);
+				plot[i].resize(X_SIZE + 2);
+				memset(plot[i].data(), ' ', X_SIZE + 1);
 			}
-			else if (((x & 7) == 0) || (x == X_SIZE))
-			{
-				while ((int)strlen(tics) < x)
-					strcat(tics, ".");
-				
-				while ((int)strlen(tics2) < x)
-					strcat(tics2, " ");
 
-				int v = (x - (int)X_SIZE / 2);
-				sprintf(buf, "%i", v / 10);
-				strcat(tics, buf);
-				
-				if (v < 0)
+			uint32_t max_val = 0;
+			int max_val_bin_index = 0;
+			int lowest_bin_index = INT_MAX, highest_bin_index = INT_MIN;
+			double avg_val = 0;
+			double total_val = 0;
+			running_stat bin_stats;
+
+			for (int y = -255; y <= 255; y++)
+			{
+				uint32_t val = bins[c][256 + y];
+				if (!val)
+					continue;
+
+				bin_stats.push(y);
+
+				total_val += (double)val;
+
+				lowest_bin_index = minimum(lowest_bin_index, y);
+				highest_bin_index = maximum(highest_bin_index, y);
+
+				if (val > max_val)
 				{
-					if (-v < 10)
-						sprintf(buf, "%i", v % 10);
-					else
-						sprintf(buf, " %i", -v % 10);
+					max_val = val;
+					max_val_bin_index = y;
+				}
+				avg_val += y * (double)val;
+			}
+			avg_val /= total_val;
+
+			int lo_limit = -(int)X_SIZE / 2;
+			int hi_limit = X_SIZE / 2;
+			for (int x = lo_limit; x <= hi_limit; x++)
+			{
+				uint32_t total = 0;
+				if (x == lo_limit)
+				{
+					for (int i = -255; i <= lo_limit; i++)
+						total += bins[c][256 + i];
+				}
+				else if (x == hi_limit)
+				{
+					for (int i = hi_limit; i <= 255; i++)
+						total += bins[c][256 + i];
 				}
 				else
-					sprintf(buf, "%i", v % 10);
-				strcat(tics2, buf);
-			}
-			else
-			{
-				while ((int)strlen(tics) < x)
-					strcat(tics, ".");
-			}
-		}
-		printf("%s\n", tics);
-		printf("%s\n", tics2);
+				{
+					total = bins[c][256 + x];
+				}
 
-		printf("\n");
-	}
+				uint32_t height = max_val ? (total * Y_SIZE + max_val - 1) / max_val : 0;
+
+				if (height)
+				{
+					for (uint32_t y = (Y_SIZE - 1) - (height - 1); y <= (Y_SIZE - 1); y++)
+						plot[y][x + X_SIZE / 2] = '*';
+				}
+			}
+
+			printf("%c delta histogram: total samples: %5.0f, max bin value: %u index: %i (%3.3f%% of total), range %i [%i,%i], weighted mean: %f\n", "RGBAY"[c], total_val, max_val, max_val_bin_index, max_val * 100.0f / total_val, highest_bin_index - lowest_bin_index + 1, lowest_bin_index, highest_bin_index, avg_val);
+			printf("bin mean: %f, bin std deviation: %f, non-zero bins: %u\n", bin_stats.get_mean(), bin_stats.get_std_dev(), bin_stats.get_num());
+			printf("delta mean: %f, delta std deviation: %f\n", delta_stats[c].get_mean(), delta_stats[c].get_std_dev());
+			printf("\n");
+
+			for (uint32_t y = 0; y < Y_SIZE; y++)
+				printf("%s\n", (char*)plot[y].data());
+
+			char tics[1024];
+			tics[0] = '\0';
+			char tics2[1024];
+			tics2[0] = '\0';
+
+			for (int x = 0; x <= (int)X_SIZE; x++)
+			{
+				char buf[64];
+				if (x == X_SIZE / 2)
+				{
+					while ((int)strlen(tics) < x)
+						strcat(tics, ".");
+
+					while ((int)strlen(tics2) < x)
+						strcat(tics2, " ");
+
+					sprintf(buf, "0");
+					strcat(tics, buf);
+				}
+				else if (((x & 7) == 0) || (x == X_SIZE))
+				{
+					while ((int)strlen(tics) < x)
+						strcat(tics, ".");
+
+					while ((int)strlen(tics2) < x)
+						strcat(tics2, " ");
+
+					int v = (x - (int)X_SIZE / 2);
+					sprintf(buf, "%i", v / 10);
+					strcat(tics, buf);
+
+					if (v < 0)
+					{
+						if (-v < 10)
+							sprintf(buf, "%i", v % 10);
+						else
+							sprintf(buf, " %i", -v % 10);
+					}
+					else
+						sprintf(buf, "%i", v % 10);
+					strcat(tics2, buf);
+				}
+				else
+				{
+					while ((int)strlen(tics) < x)
+						strcat(tics, ".");
+				}
+			}
+			printf("%s\n", tics);
+			printf("%s\n", tics2);
+
+			printf("\n");
+		}
+
+	} // display_plot
 	
 	return true;
 }
