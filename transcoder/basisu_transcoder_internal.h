@@ -264,8 +264,8 @@ namespace basist
 		}
 
 		const basisu::uint8_vec &get_code_sizes() const { return m_code_sizes; }
-		const basisu::int_vec get_lookup() const { return m_lookup; }
-		const basisu::int16_vec get_tree() const { return m_tree; }
+		const basisu::int_vec &get_lookup() const { return m_lookup; }
+		const basisu::int16_vec &get_tree() const { return m_tree; }
 
 		bool is_valid() const { return m_code_sizes.size() > 0; }
 
