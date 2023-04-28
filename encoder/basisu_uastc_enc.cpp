@@ -3789,7 +3789,7 @@ namespace basisu
 	{
 		uint64_t m_sel;
 		uint32_t m_ofs;
-		selector_bitsequence() { }
+		selector_bitsequence() = default;
 		selector_bitsequence(uint32_t bit_ofs, uint64_t sel) : m_sel(sel), m_ofs(bit_ofs) { }
 		bool operator== (const selector_bitsequence& other) const
 		{

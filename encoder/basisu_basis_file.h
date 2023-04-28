@@ -23,9 +23,7 @@ namespace basisu
 		BASISU_NO_EQUALS_OR_COPY_CONSTRUCT(basisu_file);
 
 	public:
-		basisu_file()
-		{
-		}
+		basisu_file() = default;
 
 		void clear()
 		{

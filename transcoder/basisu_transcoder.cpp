@@ -10840,7 +10840,7 @@ namespace basist
 		case transcoder_texture_format::cTFPVRTC1_4_RGB: return "PVRTC1_4_RGB";
 		case transcoder_texture_format::cTFPVRTC1_4_RGBA: return "PVRTC1_4_RGBA";
 		case transcoder_texture_format::cTFBC7_RGBA: return "BC7_RGBA";
-		case transcoder_texture_format::cTFBC7_ALT: return "BC7_RGBA";
+		case transcoder_texture_format::cTFBC7_ALT: return "BC7_ALT";
 		case transcoder_texture_format::cTFETC2_RGBA: return "ETC2_RGBA";
 		case transcoder_texture_format::cTFBC3_RGBA: return "BC3_RGBA";
 		case transcoder_texture_format::cTFBC5_RG: return "BC5_RG";
@@ -10942,8 +10942,8 @@ namespace basist
 		case transcoder_texture_format::cTFBC4_R: return basisu::texture_format::cBC4;
 		case transcoder_texture_format::cTFPVRTC1_4_RGB: return basisu::texture_format::cPVRTC1_4_RGB;
 		case transcoder_texture_format::cTFPVRTC1_4_RGBA: return basisu::texture_format::cPVRTC1_4_RGBA;
-		case transcoder_texture_format::cTFBC7_RGBA: return basisu::texture_format::cBC7;
-		case transcoder_texture_format::cTFBC7_ALT: return basisu::texture_format::cBC7;
+		case transcoder_texture_format::cTFBC7_RGBA: return basisu::texture_format::cBC7_RGBA;
+		case transcoder_texture_format::cTFBC7_ALT: return basisu::texture_format::cBC7_ALT;
 		case transcoder_texture_format::cTFETC2_RGBA: return basisu::texture_format::cETC2_RGBA;
 		case transcoder_texture_format::cTFBC3_RGBA: return basisu::texture_format::cBC3;
 		case transcoder_texture_format::cTFBC5_RG: return basisu::texture_format::cBC5;
@@ -10955,7 +10955,7 @@ namespace basist
 		case transcoder_texture_format::cTFBGR565: return basisu::texture_format::cBGR565;
 		case transcoder_texture_format::cTFRGBA4444: return basisu::texture_format::cRGBA4444;
 		case transcoder_texture_format::cTFFXT1_RGB: return basisu::texture_format::cFXT1_RGB;
-		case transcoder_texture_format::cTFPVRTC2_4_RGB: return basisu::texture_format::cPVRTC2_4_RGBA;
+		case transcoder_texture_format::cTFPVRTC2_4_RGB: return basisu::texture_format::cPVRTC2_4_RGB;
 		case transcoder_texture_format::cTFPVRTC2_4_RGBA: return basisu::texture_format::cPVRTC2_4_RGBA;
 		case transcoder_texture_format::cTFETC2_EAC_R11: return basisu::texture_format::cETC2_R11_EAC;
 		case transcoder_texture_format::cTFETC2_EAC_RG11: return basisu::texture_format::cETC2_RG11_EAC;

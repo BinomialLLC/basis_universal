@@ -1273,7 +1273,7 @@ namespace basisu
 		std::mt19937 m_mt;
 
 	public:
-		rand() {	}
+		rand() = default;
 
 		rand(uint32_t s) { seed(s); }
 		void seed(uint32_t s) { m_mt.seed(s); }
@@ -2267,9 +2267,7 @@ namespace basisu
 	class huffman_encoding_table
 	{
 	public:
-		huffman_encoding_table()
-		{
-		}
+		huffman_encoding_table() = default;
 
 		void clear()
 		{
@@ -2464,7 +2462,7 @@ namespace basisu
 	class huff2D
 	{
 	public:
-		huff2D() { }
+		huff2D() = default;
 		huff2D(uint32_t bits_per_sym, uint32_t total_syms_per_group) { init(bits_per_sym, total_syms_per_group); }
 
 		inline const histogram &get_histogram() const { return m_histogram; }
@@ -2561,9 +2559,7 @@ namespace basisu
 	class palette_index_reorderer
 	{
 	public:
-		palette_index_reorderer()
-		{
-		}
+		palette_index_reorderer() = default;
 
 		void clear()
 		{

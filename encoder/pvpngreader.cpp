@@ -551,6 +551,7 @@ void* png_decoder::png_malloc(uint32_t len)
 			break;
 
 	if (j == PNG_MAX_ALLOC_BLOCKS)
+		delete p;
 		return nullptr;
 
 	m_pMalloc_blocks[j] = p;
@@ -666,7 +667,7 @@ int64_t png_decoder::fetch_next_chunk_dword()
 		return status;
 
 	if (status != 4)
-		terminate(PNG_BAD_CHUNK_SIZE);
+		return terminate(PNG_BAD_CHUNK_SIZE);
 
 	uint32_t v = buf[3] + ((uint32_t)buf[2] << 8) + ((uint32_t)buf[1] << 16) + ((uint32_t)buf[0] << 24);
 	return (int64_t)v;
