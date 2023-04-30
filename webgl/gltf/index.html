@@ -1,11 +1,6 @@
 <!DOCTYPE html>
 
 <head>
-  <!-- <script src="https://cdn.jsdelivr.net/npm/three@v0.108.0"></script> -->
-  <script src="three.min.js"></script>
-  <script src="GLTFLoader.js"></script>
-  <script src="BasisTextureLoader.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@v0.104.0/examples/js/controls/OrbitControls.js"></script>
   <style>
     html, body { width:100%; height:100%; margin:0; padding:0; }
     canvas { display:block; }
@@ -19,11 +14,15 @@
       <div id="log"></div>
   
     </div>
-  <script>
+  <script type="module">
+    import * as THREE from 'https://cdn.skypack.dev/three@0.135.0';
+    import { GLTFLoader } from 'https://cdn.skypack.dev/three@0.135.0/examples/jsm/loaders/GLTFLoader.js';
+    import { KTX2Loader } from 'https://cdn.skypack.dev/three@0.135.0/examples/jsm/loaders/KTX2Loader.js';
+    import { OrbitControls } from 'https://cdn.skypack.dev/three@0.135.0/examples/jsm/controls/OrbitControls.js';
+
     const renderer = new THREE.WebGLRenderer( { antialias: true } );
     renderer.setSize( window.innerWidth, window.innerHeight );
-    renderer.gammaOutput = true;
-    renderer.gammaFactor = 2.2;
+    renderer.outputEncoding = THREE.sRGBEncoding;
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color( 0xf0f0f0 );
@@ -38,56 +37,26 @@
     camera.position.set( 8, 6, 5 );
     camera.lookAt( new THREE.Vector3( 0, -2, 0 ) );
 
-    const controls = new THREE.OrbitControls( camera, renderer.domElement );
+    const controls = new OrbitControls( camera, renderer.domElement );
     controls.autoRotate = true;
 
-    // Create BasisTextureLoader and detect supported target formats.
+    // Create KTX2Loader and detect supported target formats.
 
-    const basisLoader = new THREE.BasisTextureLoader();
-    basisLoader.setTranscoderPath( '../transcoder/build/' );
-    basisLoader.useAlpha = false;
-    basisLoader.detectSupport( renderer );
-
-    let formatName = 'Unknown format';
-    switch(basisLoader.workerConfig.format)
-    {
-      case THREE.BasisTextureLoader.BASIS_FORMAT.cTFASTC_4x4:
-        formatName = 'ASTC';
-        break;
-      case THREE.BasisTextureLoader.BASIS_FORMAT.cTFBC1:
-        formatName = 'BC1';
-        break;
-      case THREE.BasisTextureLoader.BASIS_FORMAT.cTFBC3:
-        formatName = 'BC3';
-        break;
-      case THREE.BasisTextureLoader.BASIS_FORMAT.cTFBC7_M6_OPAQUE_ONLY:
-        formatName = 'BC7';
-        break;
-      case THREE.BasisTextureLoader.BASIS_FORMAT.cTFPVRTC1_4_RGB:
-      case THREE.BasisTextureLoader.BASIS_FORMAT.cTFPVRTC1_4_RGBA:
-        formatName = 'PVRTC';
-        break;
-      case THREE.BasisTextureLoader.BASIS_FORMAT.cTFETC1:
-        formatName = 'ETC1';
-        break;
-      default:
-        break;
-    }
-    log(`Transcode to: <strong>${formatName}</strong>`);
-
-    // Register BasisTextureLoader for .basis extension.
-
-    let loadingManager = new THREE.LoadingManager();
-    loadingManager.addHandler( /\.basis$/, basisLoader );
+    const ktx2Loader = new KTX2Loader()
+      .setTranscoderPath( '../transcoder/build/' )
+      .detectSupport( renderer );
 
     // Create GLTFLoader, load model, and render.
 
-    const loader = new THREE.GLTFLoader(loadingManager);
+    const loader = new GLTFLoader()
+      .setKTX2Loader( ktx2Loader );
 
     loader.load( 'assets/AgiHqSmall.gltf', ( gltf ) => {
 
       const model = gltf.scene;
       model.scale.set( 0.01, 0.01, 0.01 );
+
+      detectFormat( model );
 
       scene.add( model );
 
@@ -122,6 +91,37 @@
       const div = document.createElement('div');
       div.innerHTML = s;
       document.getElementById('log').appendChild(div);
+
+    }
+
+    function detectFormat( scene ) {
+
+      const formatStrings = {
+        [ THREE.RGBAFormat ]: "RGBA32",
+        [ THREE.RGBA_BPTC_Format ]: "RGBA_BPTC",
+        [ THREE.RGBA_ASTC_4x4_Format ]: "RGBA_ASTC_4x4",
+        [ THREE.RGB_S3TC_DXT1_Format ]: "RGB_S3TC_DXT1",
+        [ THREE.RGBA_S3TC_DXT5_Format ]: "RGBA_S3TC_DXT5",
+        [ THREE.RGB_PVRTC_4BPPV1_Format ]: "RGB_PVRTC_4BPPV1",
+        [ THREE.RGBA_PVRTC_4BPPV1_Format ]: "RGBA_PVRTC_4BPPV1",
+        [ THREE.RGB_ETC1_Format ]: "RGB_ETC1",
+        [ THREE.RGB_ETC2_Format ]: "RGB_ETC2",
+        [ THREE.RGBA_ETC2_EAC_Format ]: "RGB_ETC2_EAC",
+      };
+
+      let formatName = 'Unknown format';
+
+      scene.traverse( ( object ) => {
+
+        if ( object.material && object.material.map ) {
+
+          formatName = formatStrings[ object.material.map.format ];
+
+        }
+
+      } );
+
+      log(`Transcode to: <strong>${formatName}</strong>`);
 
     }
   </script>
