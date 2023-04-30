@@ -184,7 +184,7 @@ static void print_usage()
 		" basisu -unpack -file x.basis : Validates, transcodes and unpacks x.basis to mipmapped .KTX and RGB/A .PNG files (transcodes to all supported GPU texture formats)\n"
 		" basisu -q 255 -file x.png -mipmap -debug -stats : Compress sRGB x.png to x.basis at quality level 255 with compressor debug output/statistics\n"
 		" basisu -linear -max_endpoints 16128 -max_selectors 16128 -file x.png : Compress non-sRGB x.png to x.basis using the largest supported manually specified codebook sizes\n"
-		" basisu -comp_level 2 -max_selectors 8192 -max_endpoints 8192 -tex_type video -framerate 20 -multifile_printf \"x%02u.png\" -multifile_first 1 -multifile_count 20 : Compress a 20 sRGB source image video sequence (x01.png, x02.png, x03.png, etc.) to x01.basis\n"
+		" basisu -comp_level 2 -max_selectors 8192 -max_endpoints 8192 -tex_type video -framerate 20 -multifile_printf \"x%02u.png\" -multifile_first 1 -multifile_num 20 : Compress a 20 sRGB source image video sequence (x01.png, x02.png, x03.png, etc.) to x01.basis\n"
 		"\n"
 		"Note: For video use, it's recommended you use a very powerful machine with many cores. Use -comp_level 2 or higher for better codebook\n"
 		"generation, specify very large codebooks using -max_endpoints and -max_selectors, and reduce the default endpoint RDO threshold\n"
