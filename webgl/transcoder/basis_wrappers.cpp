@@ -1252,6 +1252,95 @@ public:
 	}
 };
 
+bool transcode_uastc_slice(
+	const emscripten::val& dst_blocks,
+	uint32_t num_blocks_x, uint32_t num_blocks_y,
+	const emscripten::val& image_data,
+	int fmt_int,
+	uint32_t output_block_or_pixel_stride_in_bytes,
+	bool bc1_allow_threecolor_blocks,
+	bool has_alpha,
+	uint32_t orig_width,
+	uint32_t orig_height,
+	uint32_t output_row_pitch_in_blocks_or_pixels,
+	uint32_t output_rows_in_pixels,
+	int channel0,
+	int channel1,
+	uint32_t decode_flags
+) {
+	block_format fmt = static_cast<block_format>(fmt_int);
+
+	if (!g_basis_initialized_flag)
+	{
+#if BASISU_DEBUG_PRINTF
+		printf("transcode_uastc_slice: basis_init() must be called first\n");
+#endif
+		assert(0);
+		return false;
+	}
+
+	// FIXME: Access the JavaScript buffer directly vs. copying it.
+	basisu::vector<uint8_t> temp_image_data;
+	copy_from_jsbuffer(image_data, temp_image_data);
+
+	if (!temp_image_data.size())
+	{
+#if BASISU_DEBUG_PRINTF
+		printf("transcode_uastc_slice: image_data is empty\n");
+#endif
+		assert(0);
+		return false;
+	}
+
+	uint32_t dst_blocks_len = dst_blocks["byteLength"].as<uint32_t>();
+	if (!dst_blocks_len)
+	{
+#if BASISU_DEBUG_PRINTF
+		printf("transcode_uastc_slice: dst_blocks is empty\n");
+#endif
+		assert(0);
+		return false;
+	}
+
+	basisu::vector<uint8_t> temp_dst_blocks(dst_blocks_len);
+
+	basisu_lowlevel_uastc_transcoder transcoder;
+
+	bool status = transcoder.transcode_slice(
+		&temp_dst_blocks[0],
+		num_blocks_x,
+		num_blocks_y,
+		&temp_image_data[0],
+		temp_image_data.size(),
+		fmt,
+		output_block_or_pixel_stride_in_bytes,
+		bc1_allow_threecolor_blocks,
+		has_alpha,
+		orig_width,
+		orig_height,
+		output_row_pitch_in_blocks_or_pixels,
+		nullptr,
+		output_rows_in_pixels,
+		channel0,
+		channel1,
+		decode_flags
+	);
+
+	if (!status)
+	{
+#if BASISU_DEBUG_PRINTF
+		printf("transcode_uastc_slice: basisu_lowlevel_uastc_transcoder::transcode_slice failed\n");
+#endif
+		assert(0);
+		return false;
+	}
+
+	if (!copy_to_jsbuffer(dst_blocks, temp_dst_blocks))
+		return false;
+
+	return true;
+}
+
 bool transcode_uastc_image(
 	uint32_t target_format_int, // see transcoder_texture_format
 	const emscripten::val& output_blocks, uint32_t output_blocks_buf_size_in_blocks_or_pixels,
@@ -1535,6 +1624,8 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
 
   // The low-level UASTC transcoder is a single function.   
   function("transcodeUASTCImage", &transcode_uastc_image);
+
+  function("transcodeUASTCSlice", &transcode_uastc_slice);
 
   function("transcoderSupportsKTX2", &basisu_transcoder_supports_ktx2);
   function("transcoderSupportsKTX2Zstd", &basisu_transcoder_supports_ktx2_zstd);
