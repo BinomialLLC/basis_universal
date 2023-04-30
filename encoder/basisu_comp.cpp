@@ -295,6 +295,8 @@ namespace basisu
 			std::atomic<uint32_t> total_blocks_processed;
 			total_blocks_processed = 0;
 
+			job_pool::token token{0};
+
 			const uint32_t N = 256;
 			for (uint32_t block_index_iter = 0; block_index_iter < total_blocks; block_index_iter += N)
 			{
@@ -336,13 +338,13 @@ namespace basisu
 						}
 
 #ifndef __EMSCRIPTEN__
-					});
+					}, &token);
 #endif
 
 			} // block_index_iter
 
 #ifndef __EMSCRIPTEN__
-			m_params.m_pJob_pool->wait_for_all();
+			m_params.m_pJob_pool->wait_for_all(&token);
 #endif
 
 			if (m_params.m_rdo_uastc)
@@ -2191,7 +2193,7 @@ namespace basisu
 
 		for (uint32_t pindex = 0; pindex < params_vec.size(); pindex++)
 		{
-			jpool.add_job([pindex, &params_vec, &results_vec, &result, &opencl_failed] {
+			jpool.add_job([pindex, &params_vec, &results_vec, &result, &opencl_failed, &jpool] {
 
 				basis_compressor_params params = params_vec[pindex];
 				parallel_results& results = results_vec[pindex];
@@ -2201,9 +2203,7 @@ namespace basisu
 
 				basis_compressor c;
 				
-				// Dummy job pool
-				job_pool task_jpool(1);
-				params.m_pJob_pool = &task_jpool;
+				params.m_pJob_pool = &jpool;
 				// TODO: Remove this flag entirely
 				params.m_multithreading = true; 
 				
