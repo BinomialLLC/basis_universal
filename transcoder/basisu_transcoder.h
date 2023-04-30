@@ -222,7 +222,7 @@ namespace basist
 			void* pOutput_blocks, uint32_t output_blocks_buf_size_in_blocks_or_pixels,
 			const uint8_t* pCompressed_data, uint32_t compressed_data_length,
 			uint32_t num_blocks_x, uint32_t num_blocks_y, uint32_t orig_width, uint32_t orig_height, uint32_t level_index,
-			uint32_t rgb_offset, uint32_t rgb_length, uint32_t alpha_offset, uint32_t alpha_length,
+			uint64_t rgb_offset, uint32_t rgb_length, uint64_t alpha_offset, uint32_t alpha_length,
 			uint32_t decode_flags = 0,
 			bool basis_file_has_alpha_slices = false,
 			bool is_video = false,
@@ -573,15 +573,15 @@ namespace basist
 		basisu::packed_uint<4> m_dfd_byte_length;
 		basisu::packed_uint<4> m_kvd_byte_offset;
 		basisu::packed_uint<4> m_kvd_byte_length;
-		basisu::packed_uint<8> m_sgd_byte_offset;
-		basisu::packed_uint<8> m_sgd_byte_length;
+		basisu::packed_ull<8> m_sgd_byte_offset;
+		basisu::packed_ull<8> m_sgd_byte_length;
 	};
 
 	struct ktx2_level_index
 	{
-		basisu::packed_uint<8> m_byte_offset;
-		basisu::packed_uint<8> m_byte_length;
-		basisu::packed_uint<8> m_uncompressed_byte_length;
+		basisu::packed_ull<8> m_byte_offset;
+		basisu::packed_ull<8> m_byte_length;
+		basisu::packed_ull<8> m_uncompressed_byte_length;
 	};
 
 	struct ktx2_etc1s_global_data_header

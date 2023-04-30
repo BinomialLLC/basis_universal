@@ -8652,7 +8652,7 @@ namespace basist
 			void* pOutput_blocks, uint32_t output_blocks_buf_size_in_blocks_or_pixels,
 			const uint8_t* pCompressed_data, uint32_t compressed_data_length,
 			uint32_t num_blocks_x, uint32_t num_blocks_y, uint32_t orig_width, uint32_t orig_height, uint32_t level_index,
-			uint32_t rgb_offset, uint32_t rgb_length, uint32_t alpha_offset, uint32_t alpha_length,
+			uint64_t rgb_offset, uint32_t rgb_length, uint64_t alpha_offset, uint32_t alpha_length,
 			uint32_t decode_flags,
 			bool basis_file_has_alpha_slices,
 			bool is_video,
@@ -8660,7 +8660,7 @@ namespace basist
 			basisu_transcoder_state* pState,
 			uint32_t output_rows_in_pixels)
 	{
-		if (((uint64_t)rgb_offset + rgb_length) > (uint64_t)compressed_data_length)
+		if ((rgb_offset + rgb_length) > (uint64_t)compressed_data_length)
 		{
 			BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: source data buffer too small (color)\n");
 			return false;
@@ -8668,7 +8668,7 @@ namespace basist
 
 		if (alpha_length)
 		{
-			if (((uint64_t)alpha_offset + alpha_length) > (uint64_t)compressed_data_length)
+			if ((alpha_offset + alpha_length) > (uint64_t)compressed_data_length)
 			{
 				BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: source data buffer too small (alpha)\n");
 				return false;
