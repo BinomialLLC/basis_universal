@@ -1,8 +1,26 @@
-project(basisu)
+cmake_minimum_required(VERSION 3.9...3.22 FATAL_ERROR)
 
-cmake_minimum_required(VERSION 3.0)
-option(STATIC "static linking" FALSE)
+project(basisu
+        VERSION 1.16.3
+        LANGUAGES C CXX)
+
+if (NOT CMAKE_CXX_STANDARD)
+    set(CMAKE_CXX_STANDARD 11)
+    set(CMAKE_CXX_STANDARD_REQUIRED ON)
+endif()
+
 option(SAN "sanitize" FALSE)
+option(BUILD_SHARED_LIBS "Build Shared Libraries" OFF)
+
+option(BUILD_APPS "Build the tool" ON)
+
+# GNU filesystem conventions
+include(GNUInstallDirs)
+
+set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
+
+# Windows build shared libraries
+set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
 
 # For MSVC builds default to SSE enabled, and determine if it's a 64-bit (-A x64) vs. 32-bit (-A Win32) build.
 if (MSVC)
@@ -72,8 +90,7 @@ if (NOT MSVC)
       set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -fsanitize=address -fno-omit-frame-pointer -fsanitize=undefined")
    endif()
 
-   set(CMAKE_CXX_FLAGS -std=c++11)
-   set(GCC_COMPILE_FLAGS "-fvisibility=hidden -fPIC -fno-strict-aliasing -D_LARGEFILE64_SOURCE=1 -D_FILE_OFFSET_BITS=64 -Wall -Wextra -Wno-unused-local-typedefs -Wno-unused-value -Wno-unused-parameter -Wno-unused-variable")
+   set(GCC_COMPILE_FLAGS "-fPIC -fno-strict-aliasing -D_LARGEFILE64_SOURCE=1 -D_FILE_OFFSET_BITS=64 -Wall -Wextra -Wno-unused-local-typedefs -Wno-unused-value -Wno-unused-parameter -Wno-unused-variable")
 
    if (NOT BUILD_X64)
 	  set(GCC_COMPILE_FLAGS "${GCC_COMPILE_FLAGS} -m32")
@@ -84,16 +101,6 @@ if (NOT MSVC)
 	  set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -s ALLOW_MEMORY_GROWTH=1 -DBASISU_SUPPORT_SSE=0")
 
 	  set(CMAKE_EXE_LINKER_FLAGS  "${CMAKE_EXE_LINKER_FLAGS} ${GCC_LINK_FLAGS}")
-   elseif (STATIC)
-      if (SSE)
-		set(CMAKE_C_FLAGS  "${CMAKE_C_FLAGS} -DBASISU_SUPPORT_SSE=1 -msse4.1")
-		set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -DBASISU_SUPPORT_SSE=1 -msse4.1")
-	  else()
-	  	set(CMAKE_C_FLAGS  "${CMAKE_C_FLAGS} -DBASISU_SUPPORT_SSE=0")
-		set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -DBASISU_SUPPORT_SSE=0")
-	  endif()
-	  
-	  set(CMAKE_EXE_LINKER_FLAGS  "${CMAKE_EXE_LINKER_FLAGS} ${GCC_LINK_FLAGS} -static-libgcc -static-libstdc++ -static")
    else()
    	  if (SSE)
 		set(CMAKE_C_FLAGS  "${CMAKE_C_FLAGS} -DBASISU_SUPPORT_SSE=1 -msse4.1")
@@ -103,7 +110,7 @@ if (NOT MSVC)
 		set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -DBASISU_SUPPORT_SSE=0")
 	  endif()
 	  
-	  set(CMAKE_EXE_LINKER_FLAGS  "${CMAKE_EXE_LINKER_FLAGS} ${GCC_LINK_FLAGS} -Wl,-rpath .")
+	  set(CMAKE_EXE_LINKER_FLAGS  "${CMAKE_EXE_LINKER_FLAGS} ${GCC_LINK_FLAGS}")
    endif()
 
    set(CMAKE_C_FLAGS  "${CMAKE_C_FLAGS} ${GCC_COMPILE_FLAGS}")
@@ -124,7 +131,6 @@ else()
 endif()
 
 set(BASISU_SRC_LIST ${COMMON_SRC_LIST} 
-	basisu_tool.cpp
 	encoder/basisu_backend.cpp
 	encoder/basisu_basis_file.cpp
 	encoder/basisu_comp.cpp
@@ -145,24 +151,30 @@ set(BASISU_SRC_LIST ${COMMON_SRC_LIST}
 	transcoder/basisu_transcoder.cpp
 	)
 
-if (ZSTD)
-	set(BASISU_SRC_LIST ${BASISU_SRC_LIST} zstd/zstd.c)
-endif()
-
-if (APPLE)
-   set(BIN_DIRECTORY "bin_osx")
-else()
-   set(BIN_DIRECTORY "bin")
-endif()
-
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/${BIN_DIRECTORY})
-
-add_executable(basisu ${BASISU_SRC_LIST})
+set(BASISU_LIB_TARGET "basisu_lib")
+add_library(${BASISU_LIB_TARGET} ${BASISU_SRC_LIST})
+set_target_properties(${BASISU_LIB_TARGET} PROPERTIES OUTPUT_NAME "basisu")
+target_include_directories(${BASISU_LIB_TARGET} PUBLIC
+                           $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/transcoder>
+                           $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/encoder>
+                           $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 
 if (ZSTD)
-	target_compile_definitions(basisu PRIVATE BASISD_SUPPORT_KTX2_ZSTD=1)
+    option(USE_EXTERNAL_ZSTD "Use external ZSTD library when found" ON)
+    find_package(ZSTD)
+    if (ZSTD_FOUND AND USE_EXTERNAL_ZSTD)
+        message("Using external ZSTD library")
+        target_link_libraries(${BASISU_LIB_TARGET} PRIVATE ZSTD::zstd)
+    else()
+        target_sources(${BASISU_LIB_TARGET} PRIVATE zstd/zstd.c)
+        target_include_directories(${BASISU_LIB_TARGET} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/zstd")
+    endif()
+endif()
+
+if (ZSTD)
+	target_compile_definitions(${BASISU_LIB_TARGET} PRIVATE BASISD_SUPPORT_KTX2_ZSTD=1)
 else()
-	target_compile_definitions(basisu PRIVATE BASISD_SUPPORT_KTX2_ZSTD=0)
+	target_compile_definitions(${BASISU_LIB_TARGET} PRIVATE BASISD_SUPPORT_KTX2_ZSTD=0)
 endif()
 
 if (NOT MSVC)
@@ -171,8 +183,8 @@ if (NOT MSVC)
 		set(CMAKE_C_FLAGS  "${CMAKE_C_FLAGS} -DBASISU_SUPPORT_OPENCL=1")
 		set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -DBASISU_SUPPORT_OPENCL=1")	
 		
-		target_include_directories( basisu PRIVATE ${OpenCL_INCLUDE_DIRS} )
-		set(BASISU_EXTRA_LIBS ${OpenCL_LIBRARIES})
+		target_include_directories( ${BASISU_LIB_TARGET} PRIVATE ${OpenCL_INCLUDE_DIRS} )
+		target_link_libraries(${BASISU_LIB_TARGET} PRIVATE ${OpenCL_LIBRARIES})
 	endif()
 
 else()
@@ -181,30 +193,93 @@ else()
 		set(CMAKE_C_FLAGS  "${CMAKE_C_FLAGS} -DBASISU_SUPPORT_OPENCL=1")
 		set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -DBASISU_SUPPORT_OPENCL=1")	
 		
-		target_include_directories( basisu PRIVATE "OpenCL" )
+		target_include_directories( ${BASISU_LIB_TARGET} PRIVATE "OpenCL" )
 
 		if ( BUILD_X64 )
-			target_link_libraries( basisu PRIVATE "OpenCL/lib/OpenCL64" )
+			target_link_libraries( ${BASISU_LIB_TARGET} PRIVATE "OpenCL/lib/OpenCL64" )
 		else()
-			target_link_libraries( basisu PRIVATE "OpenCL/lib/OpenCL" )
+			target_link_libraries( ${BASISU_LIB_TARGET} PRIVATE "OpenCL/lib/OpenCL" )
 		endif()
 
 	endif()
 endif()	
 
 if (NOT MSVC)
-   target_link_libraries(basisu m pthread ${BASISU_EXTRA_LIBS})
+    include(CheckLibraryExists)
+    check_library_exists(m sin "" HAVE_LIB_M)
+    if (HAVE_LIB_M)
+        target_link_libraries(${BASISU_LIB_TARGET} PRIVATE m)
+    endif (HAVE_LIB_M)
+
+    find_package(Threads REQUIRED)
+    target_link_libraries(${BASISU_LIB_TARGET} PRIVATE Threads::Threads)
 endif()
 
-if (NOT EMSCRIPTEN)
-	install(TARGETS basisu DESTINATION bin)
+option(INSTALL_LIB "Whether to install the library and its include files" ON)
+if (INSTALL_LIB )
+
+    file(GLOB BASISU_LIB_ENCODER_PUBLIC_HEADERS RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} "encoder/basisu*.h*")
+    file(GLOB BASISU_LIB_TRANSCODER_PUBLIC_HEADERS RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} "transcoder/basisu*.h*")
+    set_target_properties(${BASISU_LIB_TARGET} PROPERTIES PUBLIC_HEADER
+                          "${BASISU_LIB_ENCODER_PUBLIC_HEADERS};${BASISU_LIB_TRANSCODER_PUBLIC_HEADERS}")
+
+    include(CMakePackageConfigHelpers)
+
+    install(TARGETS ${BASISU_LIB_TARGET}
+            EXPORT basisu_lib_export
+            PUBLIC_HEADER DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/basisu")
+
+    set(namespace "basisu")
+    set(install_cmake_config "${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}")
+
+    install(EXPORT basisu_lib_export
+        FILE "${PROJECT_NAME}Targets.cmake"
+        NAMESPACE ${namespace}::
+        DESTINATION "${install_cmake_config}"
+    )
+
+    # generate the version file for the config file
+    write_basic_package_version_file(
+        "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}ConfigVersion.cmake"
+        VERSION "${version}"
+        COMPATIBILITY ExactVersion
+    )
+
+    # create config file
+    configure_package_config_file(${CMAKE_CURRENT_SOURCE_DIR}/cmake/Config.cmake.in
+        "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}Config.cmake"
+        INSTALL_DESTINATION "${install_cmake_config}"
+    )
+
+    # install config files
+    install(FILES
+        "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}Config.cmake"
+        "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}ConfigVersion.cmake"
+        DESTINATION "${install_cmake_config}"
+    )
+
+    # generate the export targets for the build tree
+    export(EXPORT basisu_lib_export
+        FILE "${CMAKE_CURRENT_BINARY_DIR}/cmake/${PROJECT_NAME}Targets.cmake"
+        NAMESPACE ${namespace}::
+    )
+endif()
+
+if (BUILD_APPS)
+    set(BASISU_TOOL_TARGET "basisu")
+    add_executable(${BASISU_TOOL_TARGET} basisu_tool.cpp)
+    target_link_libraries(${BASISU_TOOL_TARGET} PRIVATE ${BASISU_LIB_TARGET})
+endif()
+
+if (BUILD_APPS AND NOT EMSCRIPTEN)
+	install(TARGETS ${BASISU_TOOL_TARGET} DESTINATION ${CMAKE_INSTALL_BINDIR})
 	
 	if (UNIX)
 		if (CMAKE_BUILD_TYPE STREQUAL Release)
 			if (APPLE)
-				add_custom_command(TARGET basisu POST_BUILD COMMAND strip -X -x ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/basisu)
+				add_custom_command(TARGET ${BASISU_TOOL_TARGET} POST_BUILD COMMAND strip -X -x $<TARGET_FILE:${BASISU_TOOL_TARGET}>)
 			else()
-				add_custom_command(TARGET basisu POST_BUILD COMMAND strip -g -X -x ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/basisu)
+				add_custom_command(TARGET ${BASISU_TOOL_TARGET} POST_BUILD COMMAND strip -g -X -x $<TARGET_FILE:${BASISU_TOOL_TARGET}>)
 			endif()
 		endif()
 	endif()

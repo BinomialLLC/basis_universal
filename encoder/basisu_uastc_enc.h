@@ -15,7 +15,7 @@
 #pragma once
 #include "basisu_etc.h"
 
-#include "../transcoder/basisu_transcoder_uastc.h"
+#include "basisu_transcoder_uastc.h"
 
 namespace basisu
 {
