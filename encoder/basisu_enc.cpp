@@ -420,6 +420,26 @@ namespace basisu
 		return true;
 	}
 
+	bool load_jpg(const uint8_t *pBuf, size_t buf_size, image& img)
+	{
+		int width = 0, height = 0, actual_comps = 0;
+
+		jpgd::jpeg_decoder_mem_stream file_stream;
+		if (!file_stream.open(pBuf, buf_size))
+			return false;
+
+		uint8_t *pImage_data = jpgd::decompress_jpeg_image_from_stream(&file_stream, &width, &height, &actual_comps, 4, jpgd::jpeg_decoder::cFlagLinearChromaFiltering);
+
+		if (!pImage_data)
+			return false;
+		
+		img.init(pImage_data, width, height, 4);
+		
+		free(pImage_data);
+
+		return true;
+	}
+
 	bool load_image(const char* pFilename, image& img)
 	{
 		std::string ext(string_get_extension(std::string(pFilename)));

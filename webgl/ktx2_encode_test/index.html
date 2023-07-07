@@ -68,13 +68,17 @@ formatTable = function(rows) {
 
 
 function loadArrayBuffer(uri, callback) {
+  var type = 2;
+  if(uri.endsWith(".png")) type = 0;
+  if(uri.endsWith(".jpg") || uri.endsWith(".jpeg")) type = 1;
+
   log('Loading ' + uri + '...');
   var xhr = new XMLHttpRequest();
   xhr.responseType = "arraybuffer";
   xhr.open('GET', uri, true);
   xhr.onreadystatechange = function(e) {
     if (xhr.readyState == 4 && xhr.status == 200) {
-      callback(xhr.response);
+      callback(xhr.response, type);
     }
   }
   xhr.send(null);
@@ -485,7 +489,7 @@ function download_file(filename, body)
 
 var encodedKTX2File;
 
-function PNGDataLoaded(data)
+function ImageDataLoaded(data, type)
 {
 	const { BasisFile, BasisEncoder, initializeBasis, encodeBasisTexture } = Module;
 	
@@ -508,7 +512,7 @@ function PNGDataLoaded(data)
 	basisEncoder.setKTX2UASTCSupercompression(true);
 	basisEncoder.setKTX2SRGBTransferFunc(true);
 	
-	basisEncoder.setSliceSourceImage(0, new Uint8Array(data), 0, 0, true);
+	basisEncoder.setSliceSourceImage(0, new Uint8Array(data), 0, 0, type);
 	basisEncoder.setDebug(elem('Debug').checked);
 	basisEncoder.setComputeStats(elem('ComputeStats').checked);
 	basisEncoder.setPerceptual(elem('SRGB').checked);
@@ -558,7 +562,7 @@ function runLoadFile() {
 
 function runEncodePNGFile() {
   elem('logger').innerHTML = '';
-  loadArrayBuffer(elem('pngfile').value, PNGDataLoaded);
+  loadArrayBuffer(elem('pngfile').value, ImageDataLoaded);
 }
 
 function alphaBlend() { drawMode = 0; redraw(); }

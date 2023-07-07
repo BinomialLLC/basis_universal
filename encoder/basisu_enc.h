@@ -3256,6 +3256,7 @@ namespace basisu
 	bool load_tga(const char* pFilename, image& img);
 	inline bool load_tga(const std::string &filename, image &img) { return load_tga(filename.c_str(), img); }
 
+	bool load_jpg(const uint8_t* pBuf, size_t buf_size, image& img);
 	bool load_jpg(const char *pFilename, image& img);
 	inline bool load_jpg(const std::string &filename, image &img) { return load_jpg(filename.c_str(), img); }
 	
