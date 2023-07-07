@@ -68,9 +68,9 @@ formatTable = function(rows) {
 
 
 function loadArrayBuffer(uri, callback) {
-  var type = 2;
-  if(uri.endsWith(".png")) type = 0;
-  if(uri.endsWith(".jpg") || uri.endsWith(".jpeg")) type = 1;
+  var type = 0;
+  if(uri.endsWith(".png")) type = 1;
+  if(uri.endsWith(".jpg") || uri.endsWith(".jpeg")) type = 2;
 
   log('Loading ' + uri + '...');
   var xhr = new XMLHttpRequest();

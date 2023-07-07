@@ -1001,7 +1001,7 @@ public:
 	{
 	}
 
-	bool set_slice_source_image(uint32_t slice_index, const emscripten::val& src_image_js_val, uint32_t src_image_width, uint32_t src_image_height, bool src_image_is_png)
+	bool set_slice_source_image(uint32_t slice_index, const emscripten::val& src_image_js_val, uint32_t src_image_width, uint32_t src_image_height, uint8_t src_image_type)
 	{
 		// Resize the source_images array if necessary
 		if (slice_index >= m_params.m_source_images.size())
@@ -1013,13 +1013,26 @@ public:
 
 		// Now extract the source image.
 		image& src_img = m_params.m_source_images[slice_index];
-		if (src_image_is_png)
+		if (src_image_type == 1)
 		{
 			// It's a PNG file, so try and parse it.
 			if (!load_png(src_image_buf.data(), src_image_buf.size(), src_img, nullptr))
 			{
 #if BASISU_DEBUG_PRINTF
 				printf("basis_encoder::set_slice_source_image: Failed parsing provided PNG file!\n");
+#endif   
+				return false;
+			}
+
+			src_image_width = src_img.get_width();
+			src_image_height = src_img.get_height();
+		} 
+		else if(src_image_type == 2) 
+		{
+			if (!load_jpg(src_image_buf.data(), src_image_buf.size(), src_img))
+			{
+#if BASISU_DEBUG_PRINTF
+				printf("basis_encoder::set_slice_source_image: Failed parsing provided JPG file!\n");
 #endif   
 				return false;
 			}
@@ -1716,8 +1729,8 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
 	// If the input is a raster image, the buffer must be width*height*4 bytes in size. The raster image is stored in top down scanline order.
 	// The first texel is the top-left texel. The texel byte order in memory is R,G,B,A (R first at offset 0, A last at offset 3).
 	// slice_index is the slice to change. Valid range is [0,BASISU_MAX_SLICES-1].
-	.function("setSliceSourceImage", optional_override([](basis_encoder& self, uint32_t slice_index, const emscripten::val& src_image_js_val, uint32_t width, uint32_t height, bool src_image_is_png) {
-		return self.set_slice_source_image(slice_index, src_image_js_val, width, height, src_image_is_png);
+	.function("setSliceSourceImage", optional_override([](basis_encoder& self, uint32_t slice_index, const emscripten::val& src_image_js_val, uint32_t width, uint32_t height, uint8_t src_image_type) {
+		return self.set_slice_source_image(slice_index, src_image_js_val, width, height, src_image_type);
 	}))
 
 	// If true, the encoder will output a UASTC texture, otherwise a ETC1S texture.
