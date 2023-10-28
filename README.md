@@ -7,13 +7,6 @@ file all issues on, and make all contributions to, the upstream repo.
 # basis_universal
 Basis Universal Supercompressed GPU Texture Codec
 
-<sub>(This software is available under a free and permissive license (Apache 2.0), but like many other large open source projects it needs financial support to sustain its continued security, bug fixes and improvements. In addition to maintenance and stability there are many desirable features and new interchange formats we would like to add. If your company is using Basis Universal in a product, please consider reaching out.)</sub>
-
-Businesses: support continued development and maintenance via invoiced technical support, maintenance, or sponsoring contracts:
-<br>&nbsp;&nbsp;_E-mail: info @ binomial dot info_ or contact us on [Twitter](https://twitter.com/_binomial)
-
-Also see the [Sponsors](https://github.com/BinomialLLC/basis_universal/wiki/Sponsors-and-Supporters) wiki page.
-
 ----
 
 [![Build status](https://ci.appveyor.com/api/projects/status/87eb0o96pjho4sh0?svg=true)](https://ci.appveyor.com/project/BinomialLLC/basis-universal)
@@ -82,6 +75,14 @@ make
 ```
 
 For Visual Studio 2019, you can now either use the CMakeLists.txt file or the included `basisu.sln` file. Earlier versions of Visual Studio (particularly 2017) should work but aren't actively tested. We develop with the most up to date version of 2019.
+
+To test the codec:
+
+`basisu -test`
+
+To test the codec in OpenCL mode (must have OpenCL libs/headers/drivers installed, and have compiled OpenCL support in by specifying cmake -D OPENCL=TRUE):
+
+`basisu -test -opencl`
 
 To compress a sRGB PNG/BMP/TGA/JPEG image to an ETC1S .KTX2 file:
 
@@ -321,3 +322,9 @@ licensing to ensure the entire repository has explicit licensing information.
 To ensure continued REUSE compliance, run `reuse lint` at the root of
 a clean, checked-out repository periodically, or run it during CI tests
 before any build artifacts have been created.
+
+----
+
+E-mail: info @ binomial dot info, or contact us on [Twitter](https://twitter.com/_binomial)
+
+Here's the [Sponsors](https://github.com/BinomialLLC/basis_universal/wiki/Sponsors-and-Supporters) wiki page.

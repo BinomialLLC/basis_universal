@@ -198,4 +198,7 @@
       <UniqueIdentifier>{ab12ac82-9c39-494d-a36b-129dd1b2dec5}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
+  <ItemGroup>
+    <Manifest Include="basisu.manifest" />
+  </ItemGroup>
 </Project>
