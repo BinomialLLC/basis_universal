@@ -162,7 +162,7 @@ namespace basist
 				next_code[i + 1] = (total = ((total + syms_using_codesize[i]) << 1));
 			}
 
-			if (((1U << basisu::cHuffmanMaxSupportedInternalCodeSize) != total) && (used_syms > 1U))
+			if (((1U << basisu::cHuffmanMaxSupportedInternalCodeSize) != total) && (used_syms != 1U))
 				return false;
 
 			for (int tree_next = -1, sym_index = 0; sym_index < (int)total_syms; ++sym_index)
@@ -264,8 +264,8 @@ namespace basist
 		}
 
 		const basisu::uint8_vec &get_code_sizes() const { return m_code_sizes; }
-		const basisu::int_vec get_lookup() const { return m_lookup; }
-		const basisu::int16_vec get_tree() const { return m_tree; }
+		const basisu::int_vec &get_lookup() const { return m_lookup; }
+		const basisu::int16_vec &get_tree() const { return m_tree; }
 
 		bool is_valid() const { return m_code_sizes.size() > 0; }
 

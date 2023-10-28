@@ -32,6 +32,10 @@
 #define MINIZ_NO_ZLIB_COMPATIBLE_NAMES
 #include "encoder/basisu_miniz.h"
 
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#endif
 // Set BASISU_CATCH_EXCEPTIONS if you want exceptions to crash the app, otherwise main() catches them.
 #ifndef BASISU_CATCH_EXCEPTIONS
 	#define BASISU_CATCH_EXCEPTIONS 0
@@ -40,7 +44,7 @@
 using namespace basisu;
 using namespace buminiz;
 
-#define BASISU_TOOL_VERSION "1.16.3"
+#define BASISU_TOOL_VERSION "1.16.4"
 
 enum tool_mode
 {
@@ -141,6 +145,7 @@ static void print_usage()
 		" -etc1_only: Only unpack to ETC1, skipping the other texture formats during -unpack\n"
 		" -disable_hierarchical_endpoint_codebooks: Disable hierarchical endpoint codebook usage, slower but higher quality on some compression levels\n"
 		" -compare_ssim: Compute and display SSIM of image comparison (slow)\n"
+		" -compare_plot: Display histogram plots in -compare mode\n"
 		" -bench: UASTC benchmark mode, for development only\n"
 		" -resample X Y: Resample all input textures to XxY pixels using a box filter\n"
 		" -resample_factor X: Resample all input textures by scale factor X using a box filter\n"
@@ -292,6 +297,7 @@ public:
 		m_etc1_only(false),
 		m_fuzz_testing(false),
 		m_compare_ssim(false),
+		m_compare_plot(false),
 		m_bench(false),
 		m_parallel_compression(false)
 	{
@@ -360,6 +366,8 @@ public:
 				m_mode = cVersion;
 			else if (strcasecmp(pArg, "-compare_ssim") == 0)
 				m_compare_ssim = true;
+			else if (strcasecmp(pArg, "-compare_plot") == 0)
+				m_compare_plot = true;
 			else if (strcasecmp(pArg, "-bench") == 0)
 				m_mode = cBench;
 			else if (strcasecmp(pArg, "-comp_size") == 0)
@@ -864,6 +872,7 @@ public:
 	bool m_etc1_only;
 	bool m_fuzz_testing;
 	bool m_compare_ssim;
+	bool m_compare_plot;
 	bool m_bench;
 	bool m_parallel_compression;
 };
@@ -2745,180 +2754,184 @@ static bool compare_mode(command_line_params &opts)
 	save_png("delta_img_a.png", delta_img, cImageSaveGrayscale, 3);
 	printf("Wrote delta_img_a.png\n");
 
-	uint32_t bins[5][512];
-	clear_obj(bins);
-
-	running_stat delta_stats[5];
-	basisu::rand rm;
-
-	double avg[5];
-	clear_obj(avg);
-
-	for (uint32_t y = 0; y < a.get_height(); y++)
+	if (opts.m_compare_plot)
 	{
-		for (uint32_t x = 0; x < a.get_width(); x++)
+		uint32_t bins[5][512];
+		clear_obj(bins);
+
+		running_stat delta_stats[5];
+		basisu::rand rm;
+
+		double avg[5];
+		clear_obj(avg);
+
+		for (uint32_t y = 0; y < a.get_height(); y++)
 		{
-			//color_rgba& d = delta_img(x, y);
-
-			for (int c = 0; c < 4; c++)
+			for (uint32_t x = 0; x < a.get_width(); x++)
 			{
-				int delta = a(x, y)[c] - b(x, y)[c];
-				
-				//delta = clamp<int>((int)std::round(rm.gaussian(70.0f, 10.0f)), -255, 255);
-				
-				bins[c][delta + 256]++;
-				delta_stats[c].push(delta);
+				//color_rgba& d = delta_img(x, y);
 
-				avg[c] += delta;
-			}
-			
-			int y_delta = a(x, y).get_709_luma() - b(x, y).get_709_luma();
-			bins[4][y_delta + 256]++;
-			delta_stats[4].push(y_delta);
-			
-			avg[4] += y_delta;
+				for (int c = 0; c < 4; c++)
+				{
+					int delta = a(x, y)[c] - b(x, y)[c];
 
-		} // x
-	} // y
+					//delta = clamp<int>((int)std::round(rm.gaussian(70.0f, 10.0f)), -255, 255);
 
-	for (uint32_t i = 0; i <= 4; i++)
-		avg[i] /= a.get_total_pixels();
+					bins[c][delta + 256]++;
+					delta_stats[c].push(delta);
 
-	printf("\n");
+					avg[c] += delta;
+				}
 
-	//bins[2][256+-255] = 100000;
-	//bins[2][256-56] = 50000;
+				int y_delta = a(x, y).get_709_luma() - b(x, y).get_709_luma();
+				bins[4][y_delta + 256]++;
+				delta_stats[4].push(y_delta);
 
-	const uint32_t X_SIZE = 128, Y_SIZE = 40;
+				avg[4] += y_delta;
 
-	for (uint32_t c = 0; c <= 4; c++)
-	{
-		std::vector<uint8_t> plot[Y_SIZE + 1];
-		for (uint32_t i = 0; i < Y_SIZE; i++)
-		{
-			plot[i].resize(X_SIZE + 2);
-			memset(plot[i].data(), ' ', X_SIZE + 1);
-		}
+			} // x
+		} // y
 
-		uint32_t max_val = 0;
-		int max_val_bin_index = 0;
-		int lowest_bin_index = INT_MAX, highest_bin_index = INT_MIN;
-		double avg_val = 0;
-		double total_val = 0;
-		running_stat bin_stats;
+		for (uint32_t i = 0; i <= 4; i++)
+			avg[i] /= a.get_total_pixels();
 
-		for (int y = -255; y <= 255; y++)
-		{
-			uint32_t val = bins[c][256 + y];
-			if (!val)
-				continue;
-
-			bin_stats.push(y);
-			
-			total_val += (double)val;
-
-			lowest_bin_index = minimum(lowest_bin_index, y);
-			highest_bin_index = maximum(highest_bin_index, y);
-
-			if (val > max_val)
-			{
-				max_val = val;
-				max_val_bin_index = y;
-			}
-			avg_val += y * (double)val;
-		}
-		avg_val /= total_val;
-
-		int lo_limit = -(int)X_SIZE / 2;
-		int hi_limit = X_SIZE / 2;
-		for (int x = lo_limit; x <= hi_limit; x++)
-		{
-			uint32_t total = 0;
-			if (x == lo_limit)
-			{
-				for (int i = -255; i <= lo_limit; i++)
-					total += bins[c][256 + i];
-			}
-			else if (x == hi_limit)
-			{
-				for (int i = hi_limit; i <= 255; i++)
-					total += bins[c][256 + i];
-			}
-			else
-			{
-				total = bins[c][256 + x];
-			}
-
-			uint32_t height = max_val ? (total * Y_SIZE + max_val - 1) / max_val : 0;
-			
-			if (height)
-			{
-				for (uint32_t y = (Y_SIZE - 1) - (height - 1); y <= (Y_SIZE - 1); y++)
-					plot[y][x + X_SIZE / 2] = '*';
-			}
-		}
-
-		printf("%c delta histogram: total samples: %5.0f, max bin value: %u index: %i (%3.3f%% of total), range %i [%i,%i], weighted mean: %f\n", "RGBAY"[c], total_val, max_val, max_val_bin_index, max_val * 100.0f / total_val, highest_bin_index - lowest_bin_index + 1, lowest_bin_index, highest_bin_index, avg_val);
-		printf("bin mean: %f, bin std deviation: %f, non-zero bins: %u\n", bin_stats.get_mean(), bin_stats.get_std_dev(), bin_stats.get_num());
-		printf("delta mean: %f, delta std deviation: %f\n", delta_stats[c].get_mean(), delta_stats[c].get_std_dev());
 		printf("\n");
 
-		for (uint32_t y = 0; y < Y_SIZE; y++)
-			printf("%s\n", (char*)plot[y].data());
+		//bins[2][256+-255] = 100000;
+		//bins[2][256-56] = 50000;
 
-		char tics[1024];
-		tics[0] = '\0';
-		char tics2[1024];
-		tics2[0] = '\0';
+		const uint32_t X_SIZE = 128, Y_SIZE = 40;
 
-		for (int x = 0; x <= (int)X_SIZE; x++)
+		for (uint32_t c = 0; c <= 4; c++)
 		{
-			char buf[64];
-			if (x == X_SIZE / 2)
+			std::vector<uint8_t> plot[Y_SIZE + 1];
+			for (uint32_t i = 0; i < Y_SIZE; i++)
 			{
-				while ((int)strlen(tics) < x)
-					strcat(tics, ".");
-				
-				while ((int)strlen(tics2) < x)
-					strcat(tics2, " ");
-
-				sprintf(buf, "0");
-				strcat(tics, buf);
+				plot[i].resize(X_SIZE + 2);
+				memset(plot[i].data(), ' ', X_SIZE + 1);
 			}
-			else if (((x & 7) == 0) || (x == X_SIZE))
-			{
-				while ((int)strlen(tics) < x)
-					strcat(tics, ".");
-				
-				while ((int)strlen(tics2) < x)
-					strcat(tics2, " ");
 
-				int v = (x - (int)X_SIZE / 2);
-				sprintf(buf, "%i", v / 10);
-				strcat(tics, buf);
-				
-				if (v < 0)
+			uint32_t max_val = 0;
+			int max_val_bin_index = 0;
+			int lowest_bin_index = INT_MAX, highest_bin_index = INT_MIN;
+			double avg_val = 0;
+			double total_val = 0;
+			running_stat bin_stats;
+
+			for (int y = -255; y <= 255; y++)
+			{
+				uint32_t val = bins[c][256 + y];
+				if (!val)
+					continue;
+
+				bin_stats.push(y);
+
+				total_val += (double)val;
+
+				lowest_bin_index = minimum(lowest_bin_index, y);
+				highest_bin_index = maximum(highest_bin_index, y);
+
+				if (val > max_val)
 				{
-					if (-v < 10)
-						sprintf(buf, "%i", v % 10);
-					else
-						sprintf(buf, " %i", -v % 10);
+					max_val = val;
+					max_val_bin_index = y;
+				}
+				avg_val += y * (double)val;
+			}
+			avg_val /= total_val;
+
+			int lo_limit = -(int)X_SIZE / 2;
+			int hi_limit = X_SIZE / 2;
+			for (int x = lo_limit; x <= hi_limit; x++)
+			{
+				uint32_t total = 0;
+				if (x == lo_limit)
+				{
+					for (int i = -255; i <= lo_limit; i++)
+						total += bins[c][256 + i];
+				}
+				else if (x == hi_limit)
+				{
+					for (int i = hi_limit; i <= 255; i++)
+						total += bins[c][256 + i];
 				}
 				else
-					sprintf(buf, "%i", v % 10);
-				strcat(tics2, buf);
-			}
-			else
-			{
-				while ((int)strlen(tics) < x)
-					strcat(tics, ".");
-			}
-		}
-		printf("%s\n", tics);
-		printf("%s\n", tics2);
+				{
+					total = bins[c][256 + x];
+				}
 
-		printf("\n");
-	}
+				uint32_t height = max_val ? (total * Y_SIZE + max_val - 1) / max_val : 0;
+
+				if (height)
+				{
+					for (uint32_t y = (Y_SIZE - 1) - (height - 1); y <= (Y_SIZE - 1); y++)
+						plot[y][x + X_SIZE / 2] = '*';
+				}
+			}
+
+			printf("%c delta histogram: total samples: %5.0f, max bin value: %u index: %i (%3.3f%% of total), range %i [%i,%i], weighted mean: %f\n", "RGBAY"[c], total_val, max_val, max_val_bin_index, max_val * 100.0f / total_val, highest_bin_index - lowest_bin_index + 1, lowest_bin_index, highest_bin_index, avg_val);
+			printf("bin mean: %f, bin std deviation: %f, non-zero bins: %u\n", bin_stats.get_mean(), bin_stats.get_std_dev(), bin_stats.get_num());
+			printf("delta mean: %f, delta std deviation: %f\n", delta_stats[c].get_mean(), delta_stats[c].get_std_dev());
+			printf("\n");
+
+			for (uint32_t y = 0; y < Y_SIZE; y++)
+				printf("%s\n", (char*)plot[y].data());
+
+			char tics[1024];
+			tics[0] = '\0';
+			char tics2[1024];
+			tics2[0] = '\0';
+
+			for (int x = 0; x <= (int)X_SIZE; x++)
+			{
+				char buf[64];
+				if (x == X_SIZE / 2)
+				{
+					while ((int)strlen(tics) < x)
+						strcat(tics, ".");
+
+					while ((int)strlen(tics2) < x)
+						strcat(tics2, " ");
+
+					sprintf(buf, "0");
+					strcat(tics, buf);
+				}
+				else if (((x & 7) == 0) || (x == X_SIZE))
+				{
+					while ((int)strlen(tics) < x)
+						strcat(tics, ".");
+
+					while ((int)strlen(tics2) < x)
+						strcat(tics2, " ");
+
+					int v = (x - (int)X_SIZE / 2);
+					sprintf(buf, "%i", v / 10);
+					strcat(tics, buf);
+
+					if (v < 0)
+					{
+						if (-v < 10)
+							sprintf(buf, "%i", v % 10);
+						else
+							sprintf(buf, " %i", -v % 10);
+					}
+					else
+						sprintf(buf, "%i", v % 10);
+					strcat(tics2, buf);
+				}
+				else
+				{
+					while ((int)strlen(tics) < x)
+						strcat(tics, ".");
+				}
+			}
+			printf("%s\n", tics);
+			printf("%s\n", tics2);
+
+			printf("\n");
+		}
+
+	} // display_plot
 	
 	return true;
 }
@@ -4202,36 +4215,39 @@ const struct test_file
 	uint32_t m_etc1s_size;
 	float m_etc1s_psnr;
 	float m_uastc_psnr;
+	
+	uint32_t m_etc1s_128_size;
+    float m_etc1s_128_psnr;
 } g_test_files[] = 
 {
-	{ "black_1x1.png", 189, 100.0f, 100.0f },
-	{ "kodim01.png", 30993, 27.40f, 44.14f },
-	{ "kodim02.png", 28529, 32.20f, 41.06f },
-	{ "kodim03.png", 23411, 32.57f, 44.87f },
-	{ "kodim04.png", 28256, 31.76f, 43.02f },
-	{ "kodim05.png", 32646, 25.94f, 40.28f },
-	{ "kodim06.png", 27336, 28.66f, 44.57f },
-	{ "kodim07.png", 26618, 31.51f, 43.94f },
-	{ "kodim08.png", 31133, 25.28f, 41.15f },
-	{ "kodim09.png", 24777, 32.05f, 45.85f },
-	{ "kodim10.png", 27247, 32.20f, 45.77f },
-	{ "kodim11.png", 26579, 29.22f, 43.68f },
-	{ "kodim12.png", 25102, 32.96f, 46.77f },
-	{ "kodim13.png", 31604, 24.25f, 41.25f },
-	{ "kodim14.png", 31162, 27.81f, 39.65f },
-	{ "kodim15.png", 25528, 31.26f, 42.87f },
-	{ "kodim16.png", 26894, 32.21f, 47.78f },
-	{ "kodim17.png", 29334, 31.40f, 45.66f },
-	{ "kodim18.png", 30929, 27.46f, 41.54f },
-	{ "kodim19.png", 27889, 29.69f, 44.95f },
-	{ "kodim20.png", 21104, 31.30f, 45.31f },
-	{ "kodim21.png", 25943, 28.53f, 44.45f },
-	{ "kodim22.png", 29277, 29.85f, 42.63f },
-	{ "kodim23.png", 23550, 31.69f, 45.11f },
-	{ "kodim24.png", 29613, 26.75f, 40.61f },
-	{ "white_1x1.png", 189, 100.0f, 100.0f },
-	{ "wikipedia.png", 38961, 24.10f, 30.47f },
-	{ "alpha0.png", 766, 100.0f, 56.16f }
+	{ "black_1x1.png", 189, 100.0f, 100.0f, 189, 100.0f },
+	{ "kodim01.png", 30993, 27.40f, 44.14f, 58354, 30.356064f },
+	{ "kodim02.png", 28529, 32.20f, 41.06f, 51411, 34.713940f },
+	{ "kodim03.png", 23411, 32.57f, 44.87f, 49282, 36.709675f },
+	{ "kodim04.png", 28256, 31.76f, 43.02f, 57003, 34.864861f },
+	{ "kodim05.png", 32646, 25.94f, 40.28f, 65731, 29.935091f },
+	{ "kodim06.png", 27336, 28.66f, 44.57f, 54963, 32.294220f },
+	{ "kodim07.png", 26618, 31.51f, 43.94f, 53352, 35.576595f },
+	{ "kodim08.png", 31133, 25.28f, 41.15f, 63347, 29.509914f },
+	{ "kodim09.png", 24777, 32.05f, 45.85f, 51355, 35.985966f },
+	{ "kodim10.png", 27247, 32.20f, 45.77f, 54291, 36.395000f },
+	{ "kodim11.png", 26579, 29.22f, 43.68f, 55491, 33.468971f },
+	{ "kodim12.png", 25102, 32.96f, 46.77f, 51465, 36.722233f },
+	{ "kodim13.png", 31604, 24.25f, 41.25f, 62629, 27.588623f },
+	{ "kodim14.png", 31162, 27.81f, 39.65f, 62866, 31.206463f },
+	{ "kodim15.png", 25528, 31.26f, 42.87f, 53343, 35.026314f },
+	{ "kodim16.png", 26894, 32.21f, 47.78f, 51325, 35.555458f },
+	{ "kodim17.png", 29334, 31.40f, 45.66f, 55630, 35.909283f },
+	{ "kodim18.png", 30929, 27.46f, 41.54f, 62421, 31.348171f },
+	{ "kodim19.png", 27889, 29.69f, 44.95f, 55055, 33.613987f },
+	{ "kodim20.png", 21104, 31.30f, 45.31f, 47136, 35.759407f },
+	{ "kodim21.png", 25943, 28.53f, 44.45f, 54768, 32.415817f },
+	{ "kodim22.png", 29277, 29.85f, 42.63f, 60889, 33.495415f },
+	{ "kodim23.png", 23550, 31.69f, 45.11f, 53774, 36.223492f },
+	{ "kodim24.png", 29613, 26.75f, 40.61f, 59014, 31.522869f },
+	{ "white_1x1.png", 189, 100.0f, 100.0f, 189, 100.000000f },
+	{ "wikipedia.png", 38961, 24.10f, 30.47f, 69558, 27.630802f },
+	{ "alpha0.png", 766, 100.0f, 56.16f, 747, 100.000000f }
 };
 const uint32_t TOTAL_TEST_FILES = sizeof(g_test_files) / sizeof(g_test_files[0]);
 
@@ -4241,6 +4257,10 @@ static bool test_mode(command_line_params& opts)
 
 	// TODO: Record min/max/avgs
 	// TODO: Add another ETC1S quality level
+
+	// Minor differences in how floating point code is optimized can result in slightly different generated files.
+	const float ETC1S_PSNR_THRESHOLD = .03f;
+	const float ETC1S_FILESIZE_THRESHOLD = .045f;
 
 	for (uint32_t i = 0; i < TOTAL_TEST_FILES; i++)
 	{
@@ -4270,35 +4290,73 @@ static bool test_mode(command_line_params& opts)
 
 		// Test ETC1S
 		flags_and_quality = (opts.m_comp_params.m_multithreading ? cFlagThreaded : 0) | cFlagPrintStats | cFlagPrintStatus;
-
-		void* pData = basis_compress(source_images, flags_and_quality, uastc_rdo_quality, &data_size, &stats);
-		if (!pData)
+		
 		{
-			error_printf("basis_compress() failed!\n");
-			return false;
+			printf("**** Testing ETC1S non-OpenCL level 1\n");
+
+			// Level 1
+			void* pData = basis_compress(source_images, flags_and_quality, uastc_rdo_quality, &data_size, &stats);
+			if (!pData)
+			{
+				error_printf("basis_compress() failed!\n");
+				return false;
+			}
+			basis_free_data(pData);
+
+			printf("ETC1S level 1 Size: %u, PSNR: %f\n", (uint32_t)data_size, stats.m_basis_rgba_avg_psnr);
+
+			float file_size_ratio = fabs((data_size / (float)g_test_files[i].m_etc1s_size) - 1.0f);
+			if (file_size_ratio > ETC1S_FILESIZE_THRESHOLD)
+			{
+				error_printf("Expected ETC1S file size was %u, but got %u instead!\n", g_test_files[i].m_etc1s_size, (uint32_t)data_size);
+				total_mismatches++;
+			}
+
+			if (fabs(stats.m_basis_rgba_avg_psnr - g_test_files[i].m_etc1s_psnr) > ETC1S_PSNR_THRESHOLD)
+			{
+				error_printf("Expected ETC1S RGBA Avg PSNR was %f, but got %f instead!\n", g_test_files[i].m_etc1s_psnr, stats.m_basis_rgba_avg_psnr);
+				total_mismatches++;
+			}
 		}
-		basis_free_data(pData);
 
-		printf("ETC1S Size: %u, PSNR: %f\n", (uint32_t)data_size, stats.m_basis_rgba_avg_psnr);
-
-		float file_size_ratio = fabs((data_size / (float)g_test_files[i].m_etc1s_size) - 1.0f);
-		if (file_size_ratio > .015f)
 		{
-			error_printf("Expected ETC1S file size was %u, but got %u instead!\n", g_test_files[i].m_etc1s_size, (uint32_t)data_size);
-			total_mismatches++;
-		}
+			printf("**** Testing ETC1S non-OpenCL level 128\n");
 
-		if (fabs(stats.m_basis_rgba_avg_psnr - g_test_files[i].m_etc1s_psnr) > .02f)
-		{
-			error_printf("Expected ETC1S RGBA Avg PSNR was %f, but got %f instead!\n", g_test_files[i].m_etc1s_psnr, stats.m_basis_rgba_avg_psnr);
-			total_mismatches++;
+			// Test ETC1S level 128
+			flags_and_quality |= 128;
+
+			void* pData = basis_compress(source_images, flags_and_quality, uastc_rdo_quality, &data_size, &stats);
+			if (!pData)
+			{
+				error_printf("basis_compress() failed!\n");
+				return false;
+			}
+			basis_free_data(pData);
+
+			printf("ETC1S level 128 Size: %u, PSNR: %f\n", (uint32_t)data_size, stats.m_basis_rgba_avg_psnr);
+
+			float file_size_ratio = fabs((data_size / (float)g_test_files[i].m_etc1s_128_size) - 1.0f);
+			if (file_size_ratio > ETC1S_FILESIZE_THRESHOLD)
+			{
+				error_printf("Expected ETC1S file size was %u, but got %u instead!\n", g_test_files[i].m_etc1s_128_size, (uint32_t)data_size);
+				total_mismatches++;
+			}
+
+			if (fabs(stats.m_basis_rgba_avg_psnr - g_test_files[i].m_etc1s_128_psnr) > ETC1S_PSNR_THRESHOLD)
+			{
+				error_printf("Expected ETC1S RGBA Avg PSNR was %f, but got %f instead!\n", g_test_files[i].m_etc1s_128_psnr, stats.m_basis_rgba_avg_psnr);
+				total_mismatches++;
+			}
 		}
 
 		if (opencl_is_available())
 		{
+			printf("**** Testing ETC1S OpenCL level 1\n");
+
+			// Test ETC1S OpenCL level 1
 			flags_and_quality = (opts.m_comp_params.m_multithreading ? cFlagThreaded : 0) | cFlagUseOpenCL | cFlagPrintStats | cFlagPrintStatus;
 
-			pData = basis_compress(source_images, flags_and_quality, uastc_rdo_quality, &data_size, &stats);
+			void *pData = basis_compress(source_images, flags_and_quality, uastc_rdo_quality, &data_size, &stats);
 			if (!pData)
 			{
 				error_printf("basis_compress() failed!\n");
@@ -4308,7 +4366,7 @@ static bool test_mode(command_line_params& opts)
 
 			printf("ETC1S+OpenCL Size: %u, PSNR: %f\n", (uint32_t)data_size, stats.m_basis_rgba_avg_psnr);
 
-			file_size_ratio = fabs((data_size / (float)g_test_files[i].m_etc1s_size) - 1.0f);
+			float file_size_ratio = fabs((data_size / (float)g_test_files[i].m_etc1s_size) - 1.0f);
 			if (file_size_ratio > .04f)
 			{
 				error_printf("Expected ETC1S+OpenCL file size was %u, but got %u instead!\n", g_test_files[i].m_etc1s_size, (uint32_t)data_size);
@@ -4332,22 +4390,26 @@ static bool test_mode(command_line_params& opts)
 		}
 
 		// Test UASTC
-		flags_and_quality = (opts.m_comp_params.m_multithreading ? cFlagThreaded : 0) | cFlagUASTC | cFlagPrintStats | cFlagPrintStatus;
-
-		pData = basis_compress(source_images, flags_and_quality, uastc_rdo_quality, &data_size, &stats);
-		if (!pData)
 		{
-			error_printf("basis_compress() failed!\n");
-			return false;
-		}
-		basis_free_data(pData);
+			printf("**** Testing UASTC\n");
 
-		printf("UASTC Size: %u, PSNR: %f\n", (uint32_t)data_size, stats.m_basis_rgba_avg_psnr);
+			flags_and_quality = (opts.m_comp_params.m_multithreading ? cFlagThreaded : 0) | cFlagUASTC | cFlagPrintStats | cFlagPrintStatus;
 
-		if (fabs(stats.m_basis_rgba_avg_psnr - g_test_files[i].m_uastc_psnr) > .005f)
-		{
-			error_printf("Expected UASTC RGBA Avg PSNR was %f, but got %f instead!\n", g_test_files[i].m_etc1s_psnr, stats.m_basis_rgba_avg_psnr);
-			total_mismatches++;
+			void* pData = basis_compress(source_images, flags_and_quality, uastc_rdo_quality, &data_size, &stats);
+			if (!pData)
+			{
+				error_printf("basis_compress() failed!\n");
+				return false;
+			}
+			basis_free_data(pData);
+
+			printf("UASTC Size: %u, PSNR: %f\n", (uint32_t)data_size, stats.m_basis_rgba_avg_psnr);
+
+			if (fabs(stats.m_basis_rgba_avg_psnr - g_test_files[i].m_uastc_psnr) > .005f)
+			{
+				error_printf("Expected UASTC RGBA Avg PSNR was %f, but got %f instead!\n", g_test_files[i].m_etc1s_psnr, stats.m_basis_rgba_avg_psnr);
+				total_mismatches++;
+			}
 		}
 	}
 
@@ -4499,6 +4561,9 @@ static int main_internal(int argc, const char **argv)
 
 int main(int argc, const char** argv)
 {
+#ifdef _WIN32
+	SetConsoleOutputCP(CP_UTF8);
+#endif
 #ifdef _DEBUG
 	printf("DEBUG\n");
 #endif
