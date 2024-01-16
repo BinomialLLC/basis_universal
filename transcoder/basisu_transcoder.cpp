@@ -12170,6 +12170,7 @@ namespace basist
 			return false;
 
 		unpacked.m_mode = mode;
+		unpacked.m_common_pattern = 0;
 
 		uint32_t bit_ofs = g_uastc_mode_huff_codes[mode][1];
 
