@@ -2552,6 +2552,14 @@ static bool unpack_and_validate_mode(command_line_params &opts)
 		std::string base_filename;
 		string_split_path(pInput_filename, nullptr, nullptr, &base_filename, nullptr);
 
+		if (opts.m_output_path.size()) {
+			if (!create_directory_if_not_exists(opts.m_output_path)) {
+				return false;
+			}
+
+			string_combine_path(base_filename, opts.m_output_path.c_str(), base_filename.c_str());
+		}
+
 		uint8_vec file_data;
 		if (!basisu::read_file_to_vec(pInput_filename, file_data))
 		{
