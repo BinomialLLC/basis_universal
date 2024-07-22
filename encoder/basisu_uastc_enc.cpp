@@ -3789,8 +3789,9 @@ namespace basisu
 	{
 		uint64_t m_sel;
 		uint32_t m_ofs;
+		uint32_t m_pad; // avoid implicit padding for selector_bitsequence_hash
 		selector_bitsequence() { }
-		selector_bitsequence(uint32_t bit_ofs, uint64_t sel) : m_sel(sel), m_ofs(bit_ofs) { }
+		selector_bitsequence(uint32_t bit_ofs, uint64_t sel) : m_sel(sel), m_ofs(bit_ofs), m_pad(0) { }
 		bool operator== (const selector_bitsequence& other) const
 		{
 			return (m_ofs == other.m_ofs) && (m_sel == other.m_sel);
@@ -3811,7 +3812,7 @@ namespace basisu
 	{
 		std::size_t operator()(selector_bitsequence const& s) const noexcept
 		{
-			return static_cast<std::size_t>(hash_hsieh((uint8_t *)&s, sizeof(s)) ^ s.m_sel);
+			return hash_hsieh((const uint8_t *)&s, sizeof(s));
 		}
 	};
 
