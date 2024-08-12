@@ -124,8 +124,8 @@ BASIS_FORMAT = {
   cTFFXT1_RGB: 17,
   cTFPVRTC2_4_RGB: 18,
   cTFPVRTC2_4_RGBA: 19,
-  cTFETC2_EAC_R11: 20,				
-  cTFETC2_EAC_RG11: 21	
+  cTFETC2_EAC_R11: 20,
+  cTFETC2_EAC_RG11: 21
 };
 
 BASIS_FORMAT_NAMES = {};
@@ -136,7 +136,7 @@ for (var name in BASIS_FORMAT) {
 DXT_FORMAT_MAP = {};
 DXT_FORMAT_MAP[BASIS_FORMAT.cTFBC1] = COMPRESSED_RGB_S3TC_DXT1_EXT;
 DXT_FORMAT_MAP[BASIS_FORMAT.cTFBC3] = COMPRESSED_RGBA_S3TC_DXT5_EXT;
-DXT_FORMAT_MAP[BASIS_FORMAT.cTFBC7] = COMPRESSED_RGBA_BPTC_UNORM; 
+DXT_FORMAT_MAP[BASIS_FORMAT.cTFBC7] = COMPRESSED_RGBA_BPTC_UNORM;
 
 var astcSupported = false;
 var etcSupported = false;
@@ -159,7 +159,7 @@ function dumpBasisFileDesc(basisFile)
 {
   var basisFileDesc = basisFile.getFileDesc();
 
-  log('------');  
+  log('------');
   log('getFileDesc():');
   log('version: ' + basisFileDesc.version);
   log('us per frame: ' + basisFileDesc.usPerFrame);
@@ -167,7 +167,7 @@ function dumpBasisFileDesc(basisFile)
   log('userdata0: ' + basisFileDesc.userdata0 + ' userdata1: ' + basisFileDesc.userdata1);
   log('texFormat: ' + basisFileDesc.texFormat);
   log('yFlipped: ' + basisFileDesc.yFlipped + ' hasAlphaSlices: ' + basisFileDesc.hasAlphaSlices);
-  
+
   if (basisFileDesc.texFormat == Module.basis_tex_format.cETC1S.value)
   {
 	  log('numEndpoints: ' + basisFileDesc.numEndpoints);
@@ -185,9 +185,9 @@ function dumpBasisFileDesc(basisFile)
   for (image_index = 0; image_index < basisFileDesc.totalImages; image_index++)
   {
      log('image: ' + image_index);
-	 
+
 	 var basisImageDesc = basisFile.getImageDesc(image_index);
-	 
+
 	 log('origWidth: ' + basisImageDesc.origWidth + ' origWidth: ' + basisImageDesc.origHeight);
 	 log('numBlocksX: ' + basisImageDesc.numBlocksX + ' origWidth: ' + basisImageDesc.numBlocksY);
 	 log('numLevels: ' + basisImageDesc.numLevels);
@@ -198,15 +198,15 @@ function dumpBasisFileDesc(basisFile)
 	 for (level_index = 0; level_index < basisImageDesc.numLevels; level_index++)
 	 {
 	 	var basisImageLevelDesc = basisFile.getImageLevelDesc(image_index, level_index);
-		
-		log('level: ' + level_index + 
+
+		log('level: ' + level_index +
 		    ' rgb_file_offset: ' + basisImageLevelDesc.rgbFileOfs + ' rgb_file_len: ' + basisImageLevelDesc.rgbFileLen);
 
-		if (basisFileDesc.hasAlphaSlices)			
+		if (basisFileDesc.hasAlphaSlices)
 			log('alpha_file_offset: ' + basisImageLevelDesc.alphaFileOfs + ' alpha_file_len: ' + basisImageLevelDesc.alphaFileLen);
 	 }
   }
-  
+
   log('------');
 }
 
@@ -226,7 +226,7 @@ function dataLoaded(data)
   images = basisFile.getNumImages();
   levels = basisFile.getNumLevels(0);
   has_alpha = basisFile.getHasAlpha();
-  
+
   dumpBasisFileDesc(basisFile);
 
   if (!width || !height || !images || !levels) {
@@ -235,9 +235,9 @@ function dataLoaded(data)
     basisFile.delete();
     return;
   }
-  
+
   // Note: If the file is UASTC, the preferred formats are ASTC/BC7.
-  // If the file is ETC1S and doesn't have alpha, the preferred formats are ETC1 and BC1. For alpha, the preferred formats are ETC2, BC3 or BC7. 
+  // If the file is ETC1S and doesn't have alpha, the preferred formats are ETC1 and BC1. For alpha, the preferred formats are ETC2, BC3 or BC7.
 
   var formatString = 'UNKNOWN';
   if (astcSupported)
@@ -275,7 +275,7 @@ function dataLoaded(data)
       formatString = 'PVRTC1_RGB';
       format = BASIS_FORMAT.cTFPVRTC1_4_RGB;
     }
-    
+
     if (
          ((width & (width - 1)) != 0) || ((height & (height - 1)) != 0)
         )
@@ -284,7 +284,7 @@ function dataLoaded(data)
     }
     if (width != height)
     {
-      log('ERROR: PVRTC1 requires square power of 2 textures');    
+      log('ERROR: PVRTC1 requires square power of 2 textures');
     }
   }
   else if (etcSupported)
@@ -311,7 +311,7 @@ function dataLoaded(data)
 
   const dstSize = basisFile.getImageTranscodedSizeInBytes(0, 0, format);
   const dst = new Uint8Array(dstSize);
-  
+
   //log(dstSize);
 
 //  if (!basisFile.transcodeImage(dst, 0, 0, format, 1, 0)) {
@@ -320,7 +320,7 @@ function dataLoaded(data)
     console.warn('transcodeImage failed');
     basisFile.close();
     basisFile.delete();
-       
+
     return;
   }
 
@@ -338,7 +338,7 @@ function dataLoaded(data)
 
   alignedWidth = (width + 3) & ~3;
   alignedHeight = (height + 3) & ~3;
-  
+
   displayWidth = alignedWidth;
   displayHeight = alignedHeight;
 
@@ -373,9 +373,9 @@ function dataLoaded(data)
    displayWidth = width;
    displayHeight = height;
 
-   // Create 565 texture. 
+   // Create 565 texture.
    var dstTex = new Uint16Array(width * height);
-   
+
    // Convert the array of bytes to an array of uint16's.
    var pix = 0;
    for (var y = 0; y < height; y++)
@@ -388,16 +388,16 @@ function dataLoaded(data)
   redraw();
 }
 
-function download_file(filename, body) 
+function download_file(filename, body)
 {
   var element = document.createElement('a');
-  
+
   //element.setAttribute('href', 'data:text/plain;charset=utf-8,' + encodeURIComponent(text));
 
-  const blob = new Blob([body]);  
+  const blob = new Blob([body]);
   const url = URL.createObjectURL(blob);
   element.setAttribute('href', url);
-  
+
   element.setAttribute('download', filename);
 
   element.style.display = 'none';
@@ -413,14 +413,14 @@ var encodedBasisFile;
 function PNGDataLoaded(data)
 {
 	const { BasisFile, BasisEncoder, initializeBasis, encodeBasisTexture } = Module;
-	
+
 	initializeBasis();
-	
+
 	// Create a destination buffer to hold the compressed .basis file data. If this buffer isn't large enough compression will fail.
 	var basisFileData = new Uint8Array(1024*1024*10);
-			
+
 	var num_output_bytes;
-	
+
 	// Compress using the BasisEncoder class.
 	log('BasisEncoder::encode() started:');
 
@@ -437,22 +437,22 @@ function PNGDataLoaded(data)
 	basisEncoder.setQualityLevel(qualityLevel);
 	basisEncoder.setUASTC(uastcFlag);
 	basisEncoder.setMipGen(elem('Mipmaps').checked);
-	
+
 	if (!uastcFlag)
 		log('Encoding at ETC1S quality level ' + qualityLevel);
-		
+
 	const startTime = performance.now();
-	
+
 	num_output_bytes = basisEncoder.encode(basisFileData);
-	
+
 	const elapsed = performance.now() - startTime;
-	
+
 	logTime('encoding time', elapsed.toFixed(2));
-	
+
 	var actualBasisFileData = new Uint8Array(basisFileData.buffer, 0, num_output_bytes);
 
 	basisEncoder.delete();
-	   
+
 	if (num_output_bytes == 0)
 	{
 		log('encodeBasisTexture() failed!');
@@ -460,12 +460,12 @@ function PNGDataLoaded(data)
 	else
 	{
 		log('encodeBasisTexture() succeeded, output size ' + num_output_bytes);
-		
+
 		encodedBasisFile = actualBasisFileData;
-		
+
 		//download("test.basis", actualBasisFileData);
 	}
-	  
+
 	if (num_output_bytes != 0)
 	{
 		dataLoaded(actualBasisFileData);
@@ -486,10 +486,10 @@ function alphaBlend() { drawMode = 0; redraw(); }
 function viewRGB() { drawMode = 1; redraw(); }
 function viewAlpha() { drawMode = 2; redraw(); }
 
-function downloadEncodedFile() 
+function downloadEncodedFile()
 {
 	if (encodedBasisFile)
-	{	
+	{
 		if (encodedBasisFile.length)
 			download_file("encoded_file.basis", encodedBasisFile);
 	}
@@ -511,7 +511,7 @@ function downloadEncodedFile()
       <input id="file" type="text" size=30 value="assets/kodim26_uastc_1024.basis"></input>
       <input type="button" value="Transcode!" onclick="runLoadFile()"></input>
   <br>
-  
+
   <br>
       .png file:
       <input id="pngfile" type="text" size=30 value="assets/kodim18_64x64.png"></input>
@@ -533,15 +533,15 @@ function downloadEncodedFile()
   <br>
   	  UASTC:
 	  <input type="checkbox" id="EncodeUASTC">
-   
+
 
   <br>
-   	  
+
       ETC1S Quality:
-      <input type="range" min="1" max="255" value="10" class="slider" id="EncodeQuality"> 
-	  
+      <input type="range" min="1" max="255" value="10" class="slider" id="EncodeQuality">
+
   <br>
-      
+
   <br>
       <input type="button" value="Alpha blend" onclick="alphaBlend()"></input>
       <input type="button" value="View RGB" onclick="viewRGB()"></input>
@@ -558,17 +558,17 @@ function downloadEncodedFile()
 </body>
 <script>
   BASIS({onRuntimeInitialized : () => {
-  
+
   	elem('SRGB').checked = true;
-	
+
     var gl = elem('canvas').getContext('webgl');
-    
+
     astcSupported = !!gl.getExtension('WEBGL_compressed_texture_astc');
     etcSupported = !!gl.getExtension('WEBGL_compressed_texture_etc1');
     dxtSupported = !!gl.getExtension('WEBGL_compressed_texture_s3tc');
     pvrtcSupported = !!(gl.getExtension('WEBGL_compressed_texture_pvrtc')) || !!(gl.getExtension('WEBKIT_WEBGL_compressed_texture_pvrtc'));
     bc7Supported = !!gl.getExtension('EXT_texture_compression_bptc');
-    
+
    // HACK HACK - for testing uncompressed
    //astcSupported = false;
    //etcSupported = false;

@@ -62,7 +62,7 @@ namespace basisu
 
 	void error_vprintf(const char* pFmt, va_list args);
 	void error_printf(const char *pFmt, ...);
-	
+
 	// Helpers
 
 	inline uint8_t clamp255(int32_t i)
@@ -70,18 +70,18 @@ namespace basisu
 		return (uint8_t)((i & 0xFFFFFF00U) ? (~(i >> 31)) : i);
 	}
 
-	inline int32_t clampi(int32_t value, int32_t low, int32_t high) 
-	{ 
-		if (value < low) 
-			value = low; 
-		else if (value > high) 
-			value = high; 
-		return value; 
+	inline int32_t clampi(int32_t value, int32_t low, int32_t high)
+	{
+		if (value < low)
+			value = low;
+		else if (value > high)
+			value = high;
+		return value;
 	}
 
 	inline uint8_t mul_8(uint32_t v, uint32_t a)
 	{
-		v = v * a + 128; 
+		v = v * a + 128;
 		return (uint8_t)((v + (v >> 8)) >> 8);
 	}
 
@@ -130,10 +130,10 @@ namespace basisu
 
 		return bits;
 	}
-				
+
 	// Hashing
-	
-	inline uint32_t bitmix32c(uint32_t v) 
+
+	inline uint32_t bitmix32c(uint32_t v)
 	{
 		v = (v + 0x7ed55d16) + (v << 12);
 		v = (v ^ 0xc761c23c) ^ (v >> 19);
@@ -144,7 +144,7 @@ namespace basisu
 		return v;
 	}
 
-	inline uint32_t bitmix32(uint32_t v) 
+	inline uint32_t bitmix32(uint32_t v)
 	{
 		v -= (v << 6);
 		v ^= (v >> 17);
@@ -361,7 +361,7 @@ namespace basisu
 
 		inline const T *get_ptr() const { return reinterpret_cast<const T *>(&m_v[0]); }
 		inline T *get_ptr() { return reinterpret_cast<T *>(&m_v[0]); }
-		
+
 		inline vec operator- () const { vec res; for (uint32_t i = 0; i < N; i++) res.m_v[i] = -m_v[i]; return res; }
 		inline vec operator+ () const { return *this; }
 		inline vec &operator+= (const vec &other) { for (uint32_t i = 0; i < N; i++) m_v[i] += other.m_v[i]; return *this; }
@@ -370,14 +370,14 @@ namespace basisu
 		inline vec &operator*=(const vec &other) { for (uint32_t i = 0; i < N; i++) m_v[i] *= other.m_v[i]; return *this; }
 		inline vec &operator/= (T s) { for (uint32_t i = 0; i < N; i++) m_v[i] /= s; return *this; }
 		inline vec &operator*= (T s) { for (uint32_t i = 0; i < N; i++) m_v[i] *= s; return *this; }
-		
+
 		friend inline vec operator+(const vec &lhs, const vec &rhs) { vec res; for (uint32_t i = 0; i < N; i++) res.m_v[i] = lhs.m_v[i] + rhs.m_v[i]; return res; }
 		friend inline vec operator-(const vec &lhs, const vec &rhs) { vec res; for (uint32_t i = 0; i < N; i++) res.m_v[i] = lhs.m_v[i] - rhs.m_v[i]; return res; }
 		friend inline vec operator*(const vec &lhs, T val) { vec res; for (uint32_t i = 0; i < N; i++) res.m_v[i] = lhs.m_v[i] * val; return res; }
 		friend inline vec operator*(T val, const vec &rhs) { vec res; for (uint32_t i = 0; i < N; i++) res.m_v[i] = val * rhs.m_v[i]; return res; }
 		friend inline vec operator/(const vec &lhs, T val) { vec res; for (uint32_t i = 0; i < N; i++) res.m_v[i] = lhs.m_v[i] / val; return res; }
 		friend inline vec operator/(const vec &lhs, const vec &rhs) { vec res; for (uint32_t i = 0; i < N; i++) res.m_v[i] = lhs.m_v[i] / rhs.m_v[i]; return res; }
-		
+
 		static inline T dot_product(const vec &lhs, const vec &rhs) { T res = lhs.m_v[0] * rhs.m_v[0]; for (uint32_t i = 1; i < N; i++) res += lhs.m_v[i] * rhs.m_v[i]; return res; }
 
 		inline T dot(const vec &rhs) const { return dot_product(*this, rhs); }
@@ -428,7 +428,7 @@ namespace basisu
 	typedef vec<1, float> vec1F;
 
 	typedef vec<16, float> vec16F;
-		
+
 	template <uint32_t Rows, uint32_t Cols, typename T>
 	class matrix
 	{
@@ -689,7 +689,7 @@ namespace basisu
 	}
 
 #undef BASISU_GET_KEY
-	
+
 	// Very simple job pool with no dependencies.
 	class job_pool
 	{
@@ -699,24 +699,24 @@ namespace basisu
 		// num_threads is the TOTAL number of job pool threads, including the calling thread! So 2=1 new thread, 3=2 new threads, etc.
 		job_pool(uint32_t num_threads);
 		~job_pool();
-				
+
 		void add_job(const std::function<void()>& job);
 		void add_job(std::function<void()>&& job);
 
 		void wait_for_all();
 
 		size_t get_total_threads() const { return 1 + m_threads.size(); }
-		
+
 	private:
 		std::vector<std::thread> m_threads;
 		std::vector<std::function<void()> > m_queue;
-		
+
 		std::mutex m_mutex;
 		std::condition_variable m_has_work;
 		std::condition_variable m_no_more_jobs;
-		
+
 		uint32_t m_num_active_jobs;
-		
+
 		std::atomic<bool> m_kill_flag;
 
 		void job_thread(uint32_t index);
@@ -759,7 +759,7 @@ namespace basisu
 			return *this;
 		}
 	};
-				
+
 	class color_rgba
 	{
 	public:
@@ -883,7 +883,7 @@ namespace basisu
 
 		inline const uint8_t &operator[] (uint32_t index) const { assert(index < 4); return m_comps[index]; }
 		inline uint8_t &operator[] (uint32_t index) { assert(index < 4); return m_comps[index]; }
-		
+
 		inline void clear()
 		{
 			m_comps[0] = 0;
@@ -919,7 +919,7 @@ namespace basisu
 		}
 
 		inline int get_601_luma() const { return (19595U * m_comps[0] + 38470U * m_comps[1] + 7471U * m_comps[2] + 32768U) >> 16U; }
-		inline int get_709_luma() const { return (13938U * m_comps[0] + 46869U * m_comps[1] + 4729U * m_comps[2] + 32768U) >> 16U; } 
+		inline int get_709_luma() const { return (13938U * m_comps[0] + 46869U * m_comps[1] + 4729U * m_comps[2] + 32768U) >> 16U; }
 		inline int get_luma(bool luma_601) const { return luma_601 ? get_601_luma() : get_709_luma(); }
 
 		inline basist::color32 get_color32() const
@@ -956,7 +956,7 @@ namespace basisu
 		else
 			return color_distance(c0.r, c0.g, c0.b, c1.r, c1.g, c1.b);
 	}
-		
+
 	// TODO: Allow user to control channel weightings.
 	inline uint32_t color_distance(bool perceptual, const color_rgba &e1, const color_rgba &e2, bool alpha)
 	{
@@ -977,7 +977,7 @@ namespace basisu
 			const float dcb = cb1 - cb2;
 
 			uint32_t d = static_cast<uint32_t>(32.0f*4.0f*dl*dl + 32.0f*2.0f*(.5f / (1.0f - .2126f))*(.5f / (1.0f - .2126f))*dcr*dcr + 32.0f*.25f*(.5f / (1.0f - .0722f))*(.5f / (1.0f - .0722f))*dcb*dcb);
-			
+
 			if (alpha)
 			{
 				int da = static_cast<int>(e1.a) - static_cast<int>(e2.a);
@@ -994,7 +994,7 @@ namespace basisu
 			int delta_l = dr * 27 + dg * 92 + db * 9;
 			int delta_cr = dr * 128 - delta_l;
 			int delta_cb = db * 128 - delta_l;
-															
+
 			uint32_t id = ((uint32_t)(delta_l * delta_l) >> 7U) +
 				((((uint32_t)(delta_cr * delta_cr) >> 7U) * 26U) >> 7U) +
 				((((uint32_t)(delta_cb * delta_cb) >> 7U) * 3U) >> 7U);
@@ -1102,11 +1102,11 @@ namespace basisu
 
 		va_list args;
 		va_start(args, pFmt);
-#ifdef _WIN32		
+#ifdef _WIN32
 		vsprintf_s(buf, sizeof(buf), pFmt, args);
 #else
 		vsnprintf(buf, sizeof(buf), pFmt, args);
-#endif		
+#endif
 		va_end(args);
 
 		return std::string(buf);
@@ -1154,7 +1154,7 @@ namespace basisu
 		char fname_buf[_MAX_FNAME] = { 0 };
 		char ext_buf[_MAX_EXT] = { 0 };
 
-		errno_t error = _splitpath_s(p, 
+		errno_t error = _splitpath_s(p,
 			pDrive ? drive_buf : NULL, pDrive ? _MAX_DRIVE : 0,
 			pDir ? dir_buf : NULL, pDir ? _MAX_DIR : 0,
 			pFilename ? fname_buf : NULL, pFilename ? _MAX_FNAME : 0,
@@ -1186,7 +1186,7 @@ namespace basisu
 			if ((pDir->size()) && (pDir->back() != '/'))
 				*pDir += "/";
 		}
-				
+
 		if (pFilename)
 		{
 			*pFilename = pBaseName;
@@ -1213,7 +1213,7 @@ namespace basisu
 		return (c == '/');
 #endif
 	}
-		
+
 	inline bool is_drive_separator(char c)
 	{
 #ifdef _WIN32
@@ -1241,7 +1241,7 @@ namespace basisu
 		string_combine_path(dst, p, q);
 		string_combine_path(dst, dst.c_str(), r);
 	}
-		
+
 	inline void string_combine_path_and_extension(std::string &dst, const char *p, const char *q, const char *r, const char *pExt)
 	{
 		string_combine_path(dst, p, q, r);
@@ -1443,7 +1443,7 @@ namespace basisu
 
          codebook.resize(0);
          codebook.reserve(max_clusters);
-			         
+
          uint32_t node_index = 0;
 
          while (true)
@@ -1454,7 +1454,7 @@ namespace basisu
             {
                codebook.resize(codebook.size() + 1);
                codebook.back() = cur.m_training_vecs;
-										
+
                if (node_stack.empty())
                   break;
 
@@ -1462,7 +1462,7 @@ namespace basisu
                node_stack.pop_back();
                continue;
             }
-				            
+
             node_stack.push_back(cur.m_right_index);
 				node_index = cur.m_left_index;
          }
@@ -1503,7 +1503,7 @@ namespace basisu
 				assert(node.is_leaf());
 
 				var_heap.delete_top();
-								
+
 				if (node.m_training_vecs.size() > 1)
 				{
 					if (split_node(node_index, var_heap, l_children, r_children))
@@ -1592,7 +1592,7 @@ namespace basisu
 
 			m_nodes[node_index].m_left_index = l_child_index;
 			m_nodes[node_index].m_right_index = r_child_index;
-			
+
 			m_nodes[node_index].m_codebook_index = m_next_codebook_index;
 			m_next_codebook_index++;
 
@@ -1606,7 +1606,7 @@ namespace basisu
 			if ((l_child.m_var <= 0.0f) && (l_child.m_training_vecs.size() > 1))
 			{
 				TrainingVectorType v(m_training_vecs[l_child.m_training_vecs[0]].first);
-				
+
 				for (uint32_t i = 1; i < l_child.m_training_vecs.size(); i++)
 				{
 					if (!(v == m_training_vecs[l_child.m_training_vecs[i]].first))
@@ -1633,10 +1633,10 @@ namespace basisu
 
 			if ((l_child.m_var > 0.0f) && (l_child.m_training_vecs.size() > 1))
 				var_heap.add_heap(l_child_index, l_child.m_var);
-						
+
 			if ((r_child.m_var > 0.0f) && (r_child.m_training_vecs.size() > 1))
 				var_heap.add_heap(r_child_index, r_child.m_var);
-						
+
 			return true;
 		}
 
@@ -1732,7 +1732,7 @@ namespace basisu
 				for (uint32_t i = 0; i < node.m_training_vecs.size(); i++)
 				{
 					const TrainingVectorType& v = m_training_vecs[node.m_training_vecs[i]].first;
-					
+
 					l = TrainingVectorType::component_min(l, v);
 					h = TrainingVectorType::component_max(h, v);
 				}
@@ -1813,8 +1813,8 @@ namespace basisu
 			const uint32_t cMaxIters = 6;
 			for (uint32_t iter = 0; iter < cMaxIters; iter++)
 			{
-				l_children.resize(0); 
-				r_children.resize(0); 
+				l_children.resize(0);
+				r_children.resize(0);
 
 				TrainingVectorType new_l_child(cZero), new_r_child(cZero);
 
@@ -1866,7 +1866,7 @@ namespace basisu
 					{
 						const TrainingVectorType& v = m_training_vecs[node.m_training_vecs[i]].first;
 						const uint64_t weight = m_training_vecs[node.m_training_vecs[i]].second;
-					
+
 						if ((!i) || (v == firstVec))
 						{
 							firstVec = v;
@@ -1968,7 +1968,7 @@ namespace basisu
 		}
 
 		Quantizer quantizers[cMaxThreads];
-		
+
 		bool success_flags[cMaxThreads];
 		clear_obj(success_flags);
 
@@ -2070,10 +2070,10 @@ namespace basisu
 		bool even_odd_input_pairs_equal)
 	{
 		typedef bit_hasher<typename Quantizer::training_vec_type> training_vec_bit_hasher;
-		
-		typedef std::unordered_map < typename Quantizer::training_vec_type, weighted_block_group, 
+
+		typedef std::unordered_map < typename Quantizer::training_vec_type, weighted_block_group,
 			training_vec_bit_hasher> group_hash;
-		
+
 		//interval_timer tm;
 		//tm.start();
 
@@ -2082,7 +2082,7 @@ namespace basisu
 		unique_vecs.reserve(20000);
 
 		weighted_block_group g;
-		
+
 		if (even_odd_input_pairs_equal)
 		{
 			g.m_indices.resize(2);
@@ -2167,7 +2167,7 @@ namespace basisu
 
 				typename group_hash::const_iterator group_iter = unique_vec_iters[group_index];
 				const uint_vec& training_vec_indices = group_iter->second.m_indices;
-				
+
 				append_vector(codebook.back(), training_vec_indices);
 			}
 		}
@@ -2244,7 +2244,7 @@ namespace basisu
 
 			const double inv_total = 1.0f / total;
 			const double neg_inv_log2 = -1.0f / log(2.0f);
-			
+
 			double e = 0.0f;
 			for (uint32_t i = 0; i < m_hist.size(); i++)
 				if (m_hist[i])
@@ -2253,7 +2253,7 @@ namespace basisu
 			return e;
 		}
 	};
-		
+
 	struct sym_freq
 	{
 		uint32_t m_key;
@@ -2263,7 +2263,7 @@ namespace basisu
 	sym_freq *canonical_huffman_radix_sort_syms(uint32_t num_syms, sym_freq *pSyms0, sym_freq *pSyms1);
 	void canonical_huffman_calculate_minimum_redundancy(sym_freq *A, int num_syms);
 	void canonical_huffman_enforce_max_code_size(int *pNum_codes, int code_list_len, int max_code_size);
-	
+
 	class huffman_encoding_table
 	{
 	public:
@@ -2284,7 +2284,7 @@ namespace basisu
 
 		bool init(uint32_t num_syms, const uint16_t *pFreq, uint32_t max_code_size);
 		bool init(uint32_t num_syms, const uint32_t *pSym_freq, uint32_t max_code_size);
-		
+
 		inline const uint16_vec &get_codes() const { return m_codes; }
 		inline const uint8_vec &get_code_sizes() const { return m_code_sizes; }
 
@@ -2343,7 +2343,7 @@ namespace basisu
 
 				m_bit_buffer = 0;
 				m_bit_buffer_size = 0;
-				
+
 				return 8;
 			}
 
@@ -2392,7 +2392,7 @@ namespace basisu
 
 			if (v < u)
 				return put_bits(v, k);
-			
+
 			uint32_t x = v + u;
 			assert((x >> 1) >= u);
 
@@ -2404,20 +2404,20 @@ namespace basisu
 		inline uint32_t put_rice(uint32_t v, uint32_t m)
 		{
 			assert(m);
-			
+
 			const uint64_t start_bits = m_total_bits;
 
 			uint32_t q = v >> m, r = v & ((1 << m) - 1);
 
 			// rice coding sanity check
 			assert(q <= 64);
-			
+
 			for (; q > 16; q -= 16)
 				put_bits(0xFFFF, 16);
 
 			put_bits((1 << q) - 1, q);
 			put_bits(r << 1, m + 1);
-			
+
 			return (uint32_t)(m_total_bits - start_bits);
 		}
 
@@ -2427,13 +2427,13 @@ namespace basisu
 
 			const uint32_t chunk_size = 1 << chunk_bits;
 			const uint32_t chunk_mask = chunk_size - 1;
-					
+
 			uint32_t total_bits = 0;
 
 			for ( ; ; )
 			{
 				uint32_t next_v = v >> chunk_bits;
-								
+
 				total_bits += put_bits((v & chunk_mask) | (next_v ? chunk_size : 0), chunk_bits + 1);
 				if (!next_v)
 					break;
@@ -2445,7 +2445,7 @@ namespace basisu
 		}
 
 		uint32_t emit_huffman_table(const huffman_encoding_table &tab);
-		
+
 	private:
 		uint8_vec m_bytes;
 		uint32_t m_bit_buffer, m_bit_buffer_size;
@@ -2473,7 +2473,7 @@ namespace basisu
 		inline void init(uint32_t bits_per_sym, uint32_t total_syms_per_group)
 		{
 			assert((bits_per_sym * total_syms_per_group) <= 16 && total_syms_per_group >= 1 && bits_per_sym >= 1);
-						
+
 			m_bits_per_sym = bits_per_sym;
 			m_total_syms_per_group = total_syms_per_group;
 			m_cur_sym_bits = 0;
@@ -2527,7 +2527,7 @@ namespace basisu
 
 			return true;
 		}
-				
+
 		inline uint32_t emit_next_sym(bitwise_coder &c)
 		{
 			uint32_t bits = 0;
@@ -2557,7 +2557,7 @@ namespace basisu
 	bool huffman_test(int rand_seed);
 
 	// VQ index reordering
-	
+
 	class palette_index_reorderer
 	{
 	public:
@@ -2578,7 +2578,7 @@ namespace basisu
 		typedef float(*pEntry_dist_func)(uint32_t i, uint32_t j, void *pCtx);
 
 		void init(uint32_t num_indices, const uint32_t *pIndices, uint32_t num_syms, pEntry_dist_func pDist_func, void *pCtx, float dist_func_weight);
-		
+
 		// Table remaps old to new symbol indices
 		inline const uint_vec &get_remap_table() const { return m_remap_table; }
 
@@ -2599,12 +2599,12 @@ namespace basisu
 	class image
 	{
 	public:
-		image() : 
+		image() :
 			m_width(0), m_height(0), m_pitch(0)
 		{
 		}
 
-		image(uint32_t w, uint32_t h, uint32_t p = UINT32_MAX) : 
+		image(uint32_t w, uint32_t h, uint32_t p = UINT32_MAX) :
 			m_width(0), m_height(0), m_pitch(0)
 		{
 			resize(w, h, p);
@@ -2645,7 +2645,7 @@ namespace basisu
 
 		image &clear()
 		{
-			m_width = 0; 
+			m_width = 0;
 			m_height = 0;
 			m_pitch = 0;
 			clear_vector(m_pixels);
@@ -2667,7 +2667,7 @@ namespace basisu
 		void init(const uint8_t *pImage, uint32_t width, uint32_t height, uint32_t comps)
 		{
 			assert(comps >= 1 && comps <= 4);
-			
+
 			resize(width, height);
 
 			for (uint32_t y = 0; y < height; y++)
@@ -2753,7 +2753,7 @@ namespace basisu
 				p = w;
 
 			clear();
-			
+
 			if ((!p) || (!w) || (!h))
 				return *this;
 
@@ -2832,8 +2832,8 @@ namespace basisu
 			y = wrap_v ? posmod(y, m_height) : clamp<int>(y, 0, m_height - 1);
 			return m_pixels[x + y * m_pitch];
 		}
-		
-		inline image &set_clipped(int x, int y, const color_rgba &c) 
+
+		inline image &set_clipped(int x, int y, const color_rgba &c)
 		{
 			if ((static_cast<uint32_t>(x) < m_width) && (static_cast<uint32_t>(y) < m_height))
 				(*this)(x, y) = c;
@@ -2989,7 +2989,7 @@ namespace basisu
 		}
 
 		void debug_text(uint32_t x_ofs, uint32_t y_ofs, uint32_t x_scale, uint32_t y_scale, const color_rgba &fg, const color_rgba *pBG, bool alpha_only, const char* p, ...);
-				
+
 	private:
 		uint32_t m_width, m_height, m_pitch;  // all in pixels
 		color_rgba_vec m_pixels;
@@ -3002,12 +3002,12 @@ namespace basisu
 	class imagef
 	{
 	public:
-		imagef() : 
+		imagef() :
 			m_width(0), m_height(0), m_pitch(0)
 		{
 		}
 
-		imagef(uint32_t w, uint32_t h, uint32_t p = UINT32_MAX) : 
+		imagef(uint32_t w, uint32_t h, uint32_t p = UINT32_MAX) :
 			m_width(0), m_height(0), m_pitch(0)
 		{
 			resize(w, h, p);
@@ -3042,7 +3042,7 @@ namespace basisu
 
 		imagef &clear()
 		{
-			m_width = 0; 
+			m_width = 0;
 			m_height = 0;
 			m_pitch = 0;
 			clear_vector(m_pixels);
@@ -3092,7 +3092,7 @@ namespace basisu
 					set_clipped(x + ix, y + iy, c);
 			return *this;
 		}
-				
+
 		imagef &crop(uint32_t w, uint32_t h, uint32_t p = UINT32_MAX, const vec4F &background = vec4F(0,0,0,1))
 		{
 			if (p == UINT32_MAX)
@@ -3111,7 +3111,7 @@ namespace basisu
 			cur_state.swap(m_pixels);
 
 			m_pixels.resize(p * h);
-			
+
 			for (uint32_t y = 0; y < h; y++)
 			{
 				for (uint32_t x = 0; x < w; x++)
@@ -3149,8 +3149,8 @@ namespace basisu
 			y = wrap_v ? posmod(y, m_height) : clamp<int>(y, 0, m_height - 1);
 			return m_pixels[x + y * m_pitch];
 		}
-		
-		inline imagef &set_clipped(int x, int y, const vec4F &c) 
+
+		inline imagef &set_clipped(int x, int y, const vec4F &c)
 		{
 			if ((static_cast<uint32_t>(x) < m_width) && (static_cast<uint32_t>(y) < m_height))
 				(*this)(x, y) = c;
@@ -3213,14 +3213,14 @@ namespace basisu
 
 		inline const vec4F *get_ptr() const { return &m_pixels[0]; }
 		inline vec4F *get_ptr() { return &m_pixels[0]; }
-						
+
 	private:
 		uint32_t m_width, m_height, m_pitch;  // all in pixels
 		vec4F_vec m_pixels;
 	};
 
 	// Image metrics
-		
+
 	class image_metrics
 	{
 	public:
@@ -3258,14 +3258,14 @@ namespace basisu
 
 	bool load_jpg(const char *pFilename, image& img);
 	inline bool load_jpg(const std::string &filename, image &img) { return load_jpg(filename.c_str(), img); }
-	
+
 	// Currently loads .PNG, .TGA, or .JPG
 	bool load_image(const char* pFilename, image& img);
 	inline bool load_image(const std::string &filename, image &img) { return load_image(filename.c_str(), img); }
 
 	uint8_t *read_tga(const uint8_t *pBuf, uint32_t buf_size, int &width, int &height, int &n_chans);
 	uint8_t *read_tga(const char *pFilename, int &width, int &height, int &n_chans);
-		
+
 	enum
 	{
 		cImageSaveGrayscale = 1,
@@ -3274,23 +3274,23 @@ namespace basisu
 
 	bool save_png(const char* pFilename, const image& img, uint32_t image_save_flags = 0, uint32_t grayscale_comp = 0);
 	inline bool save_png(const std::string &filename, const image &img, uint32_t image_save_flags = 0, uint32_t grayscale_comp = 0) { return save_png(filename.c_str(), img, image_save_flags, grayscale_comp); }
-	
+
 	bool read_file_to_vec(const char* pFilename, uint8_vec& data);
-	
+
 	bool write_data_to_file(const char* pFilename, const void* pData, size_t len);
-	
+
 	inline bool write_vec_to_file(const char* pFilename, const uint8_vec& v) {	return v.size() ? write_data_to_file(pFilename, &v[0], v.size()) : write_data_to_file(pFilename, "", 0); }
 
 	float linear_to_srgb(float l);
 	float srgb_to_linear(float s);
 
 	bool image_resample(const image &src, image &dst, bool srgb = false,
-		const char *pFilter = "lanczos4", float filter_scale = 1.0f, 
+		const char *pFilter = "lanczos4", float filter_scale = 1.0f,
 		bool wrapping = false,
 		uint32_t first_comp = 0, uint32_t num_comps = 4);
 
 	// Timing
-			
+
 	typedef uint64_t timer_ticks;
 
 	class interval_timer
@@ -3303,7 +3303,7 @@ namespace basisu
 
 		double get_elapsed_secs() const;
 		inline double get_elapsed_ms() const { return 1000.0f* get_elapsed_secs(); }
-		
+
 		static void init();
 		static inline timer_ticks get_ticks_per_sec() { return g_freq; }
 		static timer_ticks get_ticks();
@@ -3371,8 +3371,8 @@ namespace basisu
 
 		inline const T &operator[] (uint32_t i) const { return m_values[i]; }
 		inline T &operator[] (uint32_t i) { return m_values[i]; }
-				
-		inline const T &at_clamped(int x, int y) const { return (*this)(clamp<int>(x, 0, m_width), clamp<int>(y, 0, m_height)); }		
+
+		inline const T &at_clamped(int x, int y) const { return (*this)(clamp<int>(x, 0, m_width), clamp<int>(y, 0, m_height)); }
 		inline T &at_clamped(int x, int y) { return (*this)(clamp<int>(x, 0, m_width), clamp<int>(y, 0, m_height)); }
 
 		void clear()
@@ -3450,7 +3450,7 @@ namespace basisu
 		}
 	};
 	typedef basisu::vector<pixel_block> pixel_block_vec;
-		
+
 } // namespace basisu
 
 

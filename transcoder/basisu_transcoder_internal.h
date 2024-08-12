@@ -44,9 +44,9 @@ namespace basist
 	// You probably don't care about these enum's unless you are going pretty low-level and calling the transcoder to decode individual slices.
 	enum class block_format
 	{
-		cETC1,								// ETC1S RGB 
+		cETC1,								// ETC1S RGB
 		cETC2_RGBA,							// full ETC2 EAC RGBA8 block
-		cBC1,								// DXT1 RGB 
+		cBC1,								// DXT1 RGB
 		cBC3,								// BC4 block followed by a four color BC1 block
 		cBC4,								// DXT5A (alpha block only)
 		cBC5,								// two BC4 blocks
@@ -56,9 +56,9 @@ namespace basist
 		cBC7_M5_COLOR,						// RGB BC7 mode 5 color (writes an opaque mode 5 block)
 		cBC7_M5_ALPHA,						// alpha portion of BC7 mode 5 (cBC7_M5_COLOR output data must have been written to the output buffer first to set the mode/rot fields etc.)
 		cETC2_EAC_A8,						// alpha block of ETC2 EAC (first 8 bytes of the 16-bit ETC2 EAC RGBA format)
-		cASTC_4x4,							// ASTC 4x4 (either color-only or color+alpha). Note that the transcoder always currently assumes sRGB is not enabled when outputting ASTC 
+		cASTC_4x4,							// ASTC 4x4 (either color-only or color+alpha). Note that the transcoder always currently assumes sRGB is not enabled when outputting ASTC
 											// data. If you use a sRGB ASTC format you'll get ~1 LSB of additional error, because of the different way ASTC decoders scale 8-bit endpoints to 16-bits during unpacking.
-		
+
 		cATC_RGB,
 		cATC_RGBA_INTERPOLATED_ALPHA,
 		cFXT1_RGB,							// Opaque-only, has oddball 8x4 pixel block size
@@ -68,23 +68,23 @@ namespace basist
 
 		cETC2_EAC_R11,
 		cETC2_EAC_RG11,
-												
+
 		cIndices,							// Used internally: Write 16-bit endpoint and selector indices directly to output (output block must be at least 32-bits)
 
 		cRGB32,								// Writes RGB components to 32bpp output pixels
 		cRGBA32,							// Writes RGB255 components to 32bpp output pixels
 		cA32,								// Writes alpha component to 32bpp output pixels
-				
+
 		cRGB565,
 		cBGR565,
-		
+
 		cRGBA4444_COLOR,
 		cRGBA4444_ALPHA,
 		cRGBA4444_COLOR_OPAQUE,
 		cRGBA4444,
 
 		cUASTC_4x4,
-						
+
 		cTotalBlockFormats
 	};
 
@@ -105,9 +105,9 @@ namespace basist
 	const uint32_t SELECTOR_HISTORY_BUF_RLE_COUNT_THRESH = 3;
 	const uint32_t SELECTOR_HISTORY_BUF_RLE_COUNT_BITS = 6;
 	const uint32_t SELECTOR_HISTORY_BUF_RLE_COUNT_TOTAL = (1 << SELECTOR_HISTORY_BUF_RLE_COUNT_BITS);
-		
+
 	uint16_t crc16(const void *r, size_t size, uint16_t crc);
-		
+
 	class huffman_decoding_table
 	{
 		friend class bitwise_decoder;
@@ -225,7 +225,7 @@ namespace basist
 						return false;
 					else if (idx >= (int)m_tree.size())
 						m_tree.resize(idx + 1);
-										
+
 					if (!m_tree[idx])
 					{
 						m_tree[idx] = (int16_t)tree_next;
@@ -394,14 +394,14 @@ namespace basist
 			for (;;)
 			{
 				uint32_t k = peek_bits(16);
-				
+
 				uint32_t l = 0;
 				while (k & 1)
 				{
 					l++;
 					k >>= 1;
 				}
-				
+
 				q += l;
 
 				remove_bits(l);
@@ -419,7 +419,7 @@ namespace basist
 
 			const uint32_t chunk_size = 1 << chunk_bits;
 			const uint32_t chunk_mask = chunk_size - 1;
-					
+
 			uint32_t v = 0;
 			uint32_t ofs = 0;
 
@@ -431,7 +431,7 @@ namespace basist
 
 				if ((s & chunk_size) == 0)
 					break;
-				
+
 				if (ofs >= 32)
 				{
 					assert(0);
@@ -447,7 +447,7 @@ namespace basist
 			assert(ct.m_code_sizes.size());
 
 			const uint32_t huffman_fast_lookup_size = 1 << fast_lookup_bits;
-						
+
 			while (m_bit_buf_size < 16)
 			{
 				uint32_t c = 0;
@@ -458,7 +458,7 @@ namespace basist
 				m_bit_buf_size += 8;
 				assert(m_bit_buf_size <= 32);
 			}
-						
+
 			int code_len;
 
 			int sym;
@@ -643,7 +643,7 @@ namespace basist
 	};
 
 	struct decoder_etc_block;
-	
+
 	inline uint8_t clamp255(int32_t i)
 	{
 		return (uint8_t)((i & 0xFFFFFF00U) ? (~(i >> 31)) : i);
@@ -667,7 +667,7 @@ namespace basist
 			};
 
 			uint8_t c[4];
-			
+
 			uint32_t m;
 		};
 
@@ -789,7 +789,7 @@ namespace basist
 	};
 
 	bool basis_block_format_is_uncompressed(block_format tex_type);
-	
+
 } // namespace basist
 
 

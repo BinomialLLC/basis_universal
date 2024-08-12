@@ -360,28 +360,28 @@ namespace basisu
       // operator[] will assert on out of range indices, but in final builds there is (and will never be) any range checking on this method.
       //BASISU_FORCE_INLINE const T& operator[] (uint32_t i) const { assert(i < m_size); return m_p[i]; }
       //BASISU_FORCE_INLINE T& operator[] (uint32_t i) { assert(i < m_size); return m_p[i]; }
-            
+
 #if !BASISU_VECTOR_FORCE_CHECKING
       BASISU_FORCE_INLINE const T& operator[] (size_t i) const { assert(i < m_size); return m_p[i]; }
       BASISU_FORCE_INLINE T& operator[] (size_t i) { assert(i < m_size); return m_p[i]; }
 #else
-      BASISU_FORCE_INLINE const T& operator[] (size_t i) const 
-      { 
+      BASISU_FORCE_INLINE const T& operator[] (size_t i) const
+      {
           if (i >= m_size)
           {
               fprintf(stderr, "operator[] invalid index: %u, max entries %u, type size %u\n", (uint32_t)i, m_size, (uint32_t)sizeof(T));
               abort();
           }
-          return m_p[i]; 
+          return m_p[i];
       }
-      BASISU_FORCE_INLINE T& operator[] (size_t i) 
-      { 
+      BASISU_FORCE_INLINE T& operator[] (size_t i)
+      {
           if (i >= m_size)
           {
               fprintf(stderr, "operator[] invalid index: %u, max entries %u, type size %u\n", (uint32_t)i, m_size, (uint32_t)sizeof(T));
               abort();
           }
-          return m_p[i]; 
+          return m_p[i];
       }
 #endif
 
@@ -389,7 +389,7 @@ namespace basisu
       // The first element is returned if the index is out of range.
       BASISU_FORCE_INLINE const T& at(size_t i) const { assert(i < m_size); return (i >= m_size) ? m_p[0] : m_p[i]; }
       BASISU_FORCE_INLINE T& at(size_t i) { assert(i < m_size); return (i >= m_size) ? m_p[0] : m_p[i]; }
-            
+
 #if !BASISU_VECTOR_FORCE_CHECKING
       BASISU_FORCE_INLINE const T& front() const { assert(m_size); return m_p[0]; }
       BASISU_FORCE_INLINE T& front() { assert(m_size); return m_p[0]; }
@@ -397,42 +397,42 @@ namespace basisu
       BASISU_FORCE_INLINE const T& back() const { assert(m_size); return m_p[m_size - 1]; }
       BASISU_FORCE_INLINE T& back() { assert(m_size); return m_p[m_size - 1]; }
 #else
-      BASISU_FORCE_INLINE const T& front() const 
-      { 
+      BASISU_FORCE_INLINE const T& front() const
+      {
           if (!m_size)
           {
               fprintf(stderr, "front: vector is empty, type size %u\n", (uint32_t)sizeof(T));
               abort();
           }
-          return m_p[0]; 
+          return m_p[0];
       }
-      BASISU_FORCE_INLINE T& front() 
-      { 
+      BASISU_FORCE_INLINE T& front()
+      {
           if (!m_size)
           {
               fprintf(stderr, "front: vector is empty, type size %u\n", (uint32_t)sizeof(T));
               abort();
           }
-          return m_p[0]; 
+          return m_p[0];
       }
 
-      BASISU_FORCE_INLINE const T& back() const 
-      { 
+      BASISU_FORCE_INLINE const T& back() const
+      {
           if(!m_size)
           {
               fprintf(stderr, "back: vector is empty, type size %u\n", (uint32_t)sizeof(T));
               abort();
           }
-          return m_p[m_size - 1]; 
+          return m_p[m_size - 1];
       }
-      BASISU_FORCE_INLINE T& back() 
-      { 
+      BASISU_FORCE_INLINE T& back()
+      {
           if (!m_size)
           {
               fprintf(stderr, "back: vector is empty, type size %u\n", (uint32_t)sizeof(T));
               abort();
           }
-          return m_p[m_size - 1]; 
+          return m_p[m_size - 1];
       }
 #endif
 
@@ -723,7 +723,7 @@ namespace basisu
             insert(m_size, p, n);
          return *this;
       }
-            
+
       inline void erase(uint32_t start, uint32_t n)
       {
          assert((start + n) <= m_size);
@@ -754,7 +754,7 @@ namespace basisu
          }
          else
          {
-            // Type is not bitwise copyable or movable. 
+            // Type is not bitwise copyable or movable.
             // Move them down one at a time by using the equals operator, and destroying anything that's left over at the end.
             T* pDst_end = pDst + num_to_move;
             while (pDst != pDst_end)
@@ -974,7 +974,7 @@ namespace basisu
                if (!m) break;
                cmp = -cmp;
                i += (((m + 1) >> 1) ^ cmp) - cmp;
-               if (i < 0) 
+               if (i < 0)
                   break;
             }
          }
@@ -1119,7 +1119,7 @@ namespace basisu
    public:
       class iterator;
       class const_iterator;
-   
+
    private:
       friend class iterator;
       friend class const_iterator;
@@ -1307,7 +1307,7 @@ namespace basisu
          if (new_hash_size > m_values.size())
             rehash((uint32_t)new_hash_size);
       }
-            
+
       class iterator
       {
          friend class hash_map<Key, Value, Hasher, Equals>;
@@ -1742,7 +1742,7 @@ namespace basisu
       inline void grow()
       {
          uint64_t n = m_values.size() * 3ULL; // was * 2
-         
+
          if (!helpers::is_power_of_2(n))
             n = helpers::next_pow2(n);
 
@@ -1959,11 +1959,11 @@ namespace basisu
 
    template<typename Key, typename Value, typename Hasher, typename Equals>
    struct bitwise_movable< hash_map<Key, Value, Hasher, Equals> > { enum { cFlag = true }; };
-   
+
 #if BASISU_HASHMAP_TEST
    extern void hash_map_test();
 #endif
-      
+
 } // namespace basisu
 
 namespace std

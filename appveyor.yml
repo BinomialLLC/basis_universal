@@ -1,6 +1,6 @@
 ---
 
-image: 
+image:
   - macos
   - Ubuntu2004
   - Visual Studio 2019
@@ -16,7 +16,7 @@ install:
       sudo apt-get update -y
       sudo apt-get install -y dos2unix recode
     fi
-    
+
 build_script:
   - ps: |
       New-Item -Path . -Name "build" -ItemType "directory"
