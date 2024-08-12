@@ -18,9 +18,9 @@ while IFS= read -rd '' f; do
         continue
     fi
     # Ensures that files are UTF-8 formatted.
-    recode UTF-8 $f 2> /dev/null
+    recode UTF-8 "$f" 2> /dev/null
     # Ensures that files have LF line endings.
-    dos2unix $f 2> /dev/null
+    dos2unix "$f" 2> /dev/null
     # Ensures that files do not contain a BOM.
     sed -i '1s/^\xEF\xBB\xBF//' "$f"
     # Ensures that files end with newline characters.
