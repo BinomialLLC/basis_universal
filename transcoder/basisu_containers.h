@@ -1,8 +1,10 @@
 // basisu_containers.h
 #pragma once
+#include <limits.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdint.h>
+#include <string.h>
 #include <assert.h>
 #include <algorithm>
 
