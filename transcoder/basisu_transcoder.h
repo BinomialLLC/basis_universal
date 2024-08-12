@@ -22,7 +22,7 @@
 	#define BASISD_SUPPORT_KTX2 1
 #endif
 
-// Set BASISD_SUPPORT_KTX2_ZSTD to 0 to disable Zstd usage and KTX2 UASTC Zstd supercompression support 
+// Set BASISD_SUPPORT_KTX2_ZSTD to 0 to disable Zstd usage and KTX2 UASTC Zstd supercompression support
 #ifndef BASISD_SUPPORT_KTX2_ZSTD
 	#define BASISD_SUPPORT_KTX2_ZSTD 1
 #endif
@@ -41,7 +41,7 @@ namespace basist
 	// High-level composite texture formats supported by the transcoder.
 	// Each of these texture formats directly correspond to OpenGL/D3D/Vulkan etc. texture formats.
 	// Notes:
-	// - If you specify a texture format that supports alpha, but the .basis file doesn't have alpha, the transcoder will automatically output a 
+	// - If you specify a texture format that supports alpha, but the .basis file doesn't have alpha, the transcoder will automatically output a
 	// fully opaque (255) alpha channel.
 	// - The PVRTC1 texture formats only support power of 2 dimension .basis files, but this may be relaxed in a future version.
 	// - The PVRTC1 transcoders are real-time encoders, so don't expect the highest quality. We may add a slower encoder with improved quality.
@@ -70,7 +70,7 @@ namespace basist
 
 		// ATC (mobile, Adreno devices, this is a niche format)
 		cTFATC_RGB = 11,							// Opaque, RGB or alpha if cDecodeFlagsTranscodeAlphaDataToOpaqueFormats flag is specified. ATI ATC (GL_ATC_RGB_AMD)
-		cTFATC_RGBA = 12,							// Opaque+alpha, alpha channel will be opaque for opaque .basis files. ATI ATC (GL_ATC_RGBA_INTERPOLATED_ALPHA_AMD) 
+		cTFATC_RGBA = 12,							// Opaque+alpha, alpha channel will be opaque for opaque .basis files. ATI ATC (GL_ATC_RGBA_INTERPOLATED_ALPHA_AMD)
 
 		// FXT1 (desktop, Intel devices, this is a super obscure format)
 		cTFFXT1_RGB = 17,							// Opaque only, uses exclusively CC_MIXED blocks. Notable for having a 8x4 block size. GL_3DFX_texture_compression_FXT1 is supported on Intel integrated GPU's (such as HD 630).
@@ -169,7 +169,7 @@ namespace basist
 		basisu::vector<block_preds> m_block_endpoint_preds[2];
 
 		enum { cMaxPrevFrameLevels = 16 };
-		basisu::vector<uint32_t> m_prev_frame_indices[2][cMaxPrevFrameLevels]; // [alpha_flag][level_index] 
+		basisu::vector<uint32_t> m_prev_frame_indices[2][cMaxPrevFrameLevels]; // [alpha_flag][level_index]
 
 		void clear()
 		{
@@ -247,13 +247,13 @@ namespace basist
 
 		typedef basisu::vector<selector> selector_vec;
 		const selector_vec& get_selectors() const { return m_local_selectors; }
-				
+
 	private:
 		const basisu_lowlevel_etc1s_transcoder* m_pGlobal_codebook;
 
 		endpoint_vec m_local_endpoints;
 		selector_vec m_local_selectors;
-				
+
 		huffman_decoding_table m_endpoint_pred_model, m_delta_endpoint_model, m_selector_model, m_selector_history_buf_rle_model;
 
 		uint32_t m_selector_history_buf_size;
@@ -274,7 +274,7 @@ namespace basist
 		// This flag is used internally when decoding to BC3.
 		cDecodeFlagsBC1ForbidThreeColorBlocks = 8,
 
-		// The output buffer contains alpha endpoint/selector indices. 
+		// The output buffer contains alpha endpoint/selector indices.
 		// Used internally when decoding formats like ASTC that require both color and alpha data to be available when transcoding to the output format.
 		cDecodeFlagsOutputHasAlphaIndices = 16,
 
@@ -481,11 +481,11 @@ namespace basist
 		// transcode_image_level() decodes a single mipmap level from the .basis file to any of the supported output texture formats.
 		// It'll first find the slice(s) to transcode, then call transcode_slice() one or two times to decode both the color and alpha texture data (or RG texture data from two slices for BC5).
 		// If the .basis file doesn't have alpha slices, the output alpha blocks will be set to fully opaque (all 255's).
-		// Currently, to decode to PVRTC1 the basis texture's dimensions in pixels must be a power of 2, due to PVRTC1 format requirements. 
+		// Currently, to decode to PVRTC1 the basis texture's dimensions in pixels must be a power of 2, due to PVRTC1 format requirements.
 		// output_blocks_buf_size_in_blocks_or_pixels should be at least the image level's total_blocks (num_blocks_x * num_blocks_y), or the total number of output pixels if fmt==cTFRGBA32.
 		// output_row_pitch_in_blocks_or_pixels: Number of blocks or pixels per row. If 0, the transcoder uses the slice's num_blocks_x or orig_width (NOT num_blocks_x * 4). Ignored for PVRTC1 (due to texture swizzling).
 		// output_rows_in_pixels: Ignored unless fmt is uncompressed (cRGBA32, etc.). The total number of output rows in the output buffer. If 0, the transcoder assumes the slice's orig_height (NOT num_blocks_y * 4).
-		// Notes: 
+		// Notes:
 		// - basisu_transcoder_init() must have been called first to initialize the transcoder lookup tables before calling this function.
 		// - This method assumes the output texture buffer is readable. In some cases to handle alpha, the transcoder will write temporary data to the output texture in
 		// a first pass, which will be read in a second pass.
@@ -540,7 +540,7 @@ namespace basist
 
 	// basisu_transcoder_init() MUST be called before a .basis file can be transcoded.
 	void basisu_transcoder_init();
-		
+
 	enum debug_flags_t
 	{
 		cDebugFlagVisCRs = 1,
@@ -550,10 +550,10 @@ namespace basist
 	uint32_t get_debug_flags();
 	void set_debug_flags(uint32_t f);
 
-	// ------------------------------------------------------------------------------------------------------ 
+	// ------------------------------------------------------------------------------------------------------
 	// Optional .KTX2 file format support
 	// KTX2 reading optionally requires miniz or Zstd decompressors for supercompressed UASTC files.
-	// ------------------------------------------------------------------------------------------------------ 
+	// ------------------------------------------------------------------------------------------------------
 #if BASISD_SUPPORT_KTX2
 #pragma pack(push)
 #pragma pack(1)
@@ -696,12 +696,12 @@ namespace basist
 		{
 		case KTX2_DF_PRIMARIES_UNSPECIFIED: return "UNSPECIFIED";
 		case KTX2_DF_PRIMARIES_BT709: return "BT709";
-		case KTX2_DF_PRIMARIES_BT601_EBU: return "EBU"; 
+		case KTX2_DF_PRIMARIES_BT601_EBU: return "EBU";
 		case KTX2_DF_PRIMARIES_BT601_SMPTE: return "SMPTE";
 		case KTX2_DF_PRIMARIES_BT2020: return "BT2020";
 		case KTX2_DF_PRIMARIES_CIEXYZ: return "CIEXYZ";
 		case KTX2_DF_PRIMARIES_ACES: return "ACES";
-		case KTX2_DF_PRIMARIES_ACESCC: return "ACESCC"; 
+		case KTX2_DF_PRIMARIES_ACESCC: return "ACESCC";
 		case KTX2_DF_PRIMARIES_NTSC1953: return "NTSC1953";
 		case KTX2_DF_PRIMARIES_PAL525: return "PAL525";
 		case KTX2_DF_PRIMARIES_DISPLAYP3: return "DISPLAYP3";
@@ -709,7 +709,7 @@ namespace basist
 		default: break;
 		}
 		return "?";
-	}	
+	}
 
 	// Information about a single 2D texture "image" in a KTX2 file.
 	struct ktx2_image_level_info
@@ -740,7 +740,7 @@ namespace basist
 		// true if the image is an I-Frame. Currently, for ETC1S textures, the first frame will always be an I-Frame, and subsequent frames will always be P-Frames.
 		bool m_iframe_flag;
 	};
-		
+
 	// Thread-specific ETC1S/supercompressed UASTC transcoder state. (If you're not doing multithreading transcoding you can ignore this.)
 	struct ktx2_transcoder_state
 	{
@@ -758,9 +758,9 @@ namespace basist
 
 	// This class is quite similar to basisu_transcoder. It treats KTX2 files as a simple container for ETC1S/UASTC texture data.
 	// It does not support 1D or 3D textures.
-	// It only supports 2D and cubemap textures, with or without mipmaps, texture arrays of 2D/cubemap textures, and texture video files. 
+	// It only supports 2D and cubemap textures, with or without mipmaps, texture arrays of 2D/cubemap textures, and texture video files.
 	// It only supports raw non-supercompressed UASTC, ETC1S, UASTC+Zstd, or UASTC+zlib compressed files.
-	// DFD (Data Format Descriptor) parsing is purposely as simple as possible. 
+	// DFD (Data Format Descriptor) parsing is purposely as simple as possible.
 	// If you need to know how to interpret the texture channels you'll need to parse the DFD yourself after calling get_dfd().
 	class ktx2_transcoder
 	{
@@ -801,7 +801,7 @@ namespace basist
 		uint32_t get_layers() const { return m_header.m_layer_count; }
 
 		// Returns cETC1S or cUASTC4x4. Valid after init().
-		basist::basis_tex_format get_format() const { return m_format; } 
+		basist::basis_tex_format get_format() const { return m_format; }
 
 		bool is_etc1s() const { return get_format() == basist::basis_tex_format::cETC1S; }
 
@@ -820,7 +820,7 @@ namespace basist
 		// Returns the DFD color primary.
 		// We do not validate the color primaries, so the returned value may not be in the ktx2_df_color_primaries enum.
 		ktx2_df_color_primaries get_dfd_color_primaries() const { return m_dfd_color_prims; }
-		
+
 		// Returns KTX2_KHR_DF_TRANSFER_LINEAR or KTX2_KHR_DF_TRANSFER_SRGB.
 		uint32_t get_dfd_transfer_func() const { return m_dfd_transfer_func; }
 
@@ -828,9 +828,9 @@ namespace basist
 
 		// Returns 1 (ETC1S/UASTC) or 2 (ETC1S with an internal alpha channel).
 		uint32_t get_dfd_total_samples() const { return m_dfd_samples;	}
-		
-		// Returns the channel mapping for each DFD "sample". UASTC always has 1 sample, ETC1S can have one or two. 
-		// Note the returned value SHOULD be one of the ktx2_df_channel_id enums, but we don't validate that. 
+
+		// Returns the channel mapping for each DFD "sample". UASTC always has 1 sample, ETC1S can have one or two.
+		// Note the returned value SHOULD be one of the ktx2_df_channel_id enums, but we don't validate that.
 		// It's up to the caller to decide what to do if the value isn't in the enum.
 		ktx2_df_channel_id get_dfd_channel_id0() const { return m_dfd_chan0; }
 		ktx2_df_channel_id get_dfd_channel_id1() const { return m_dfd_chan1; }
@@ -868,18 +868,18 @@ namespace basist
 		// is_video() is only valid after start_transcoding() is called.
 		// For ETC1S data, if this returns true you must currently transcode the file from first to last frame, in order, without skipping any frames.
 		bool is_video() const { return m_is_video; }
-				
+
 		// start_transcoding() MUST be called before calling transcode_image().
 		// This method decompresses the ETC1S global endpoint/selector codebooks, which is not free, so try to avoid calling it excessively.
 		bool start_transcoding();
-								
+
 		// get_image_level_info() be called after init(), but the m_iframe_flag's won't be valid until start_transcoding() is called.
 		// You can call this method before calling transcode_image_level() to retrieve basic information about the mipmap level's dimensions, etc.
 		bool get_image_level_info(ktx2_image_level_info& level_info, uint32_t level_index, uint32_t layer_index, uint32_t face_index) const;
 
 		// transcode_image_level() transcodes a single 2D texture or cubemap face from the KTX2 file.
 		// Internally it uses the same low-level transcode API's as basisu_transcoder::transcode_image_level().
-		// If the file is UASTC and is supercompressed with Zstandard, and the file is a texture array or cubemap, it's highly recommended that each mipmap level is 
+		// If the file is UASTC and is supercompressed with Zstandard, and the file is a texture array or cubemap, it's highly recommended that each mipmap level is
 		// completely transcoded before switching to another level. Every time the mipmap level is changed all supercompressed level data must be decompressed using Zstandard as a single unit.
 		// Currently ETC1S videos must always be transcoded from first to last frame (or KTX2 "layer"), in order, with no skipping of frames.
 		// By default this method is not thread safe unless you specify a pointer to a user allocated thread-specific transcoder_state struct.
@@ -889,7 +889,7 @@ namespace basist
 			basist::transcoder_texture_format fmt,
 			uint32_t decode_flags = 0, uint32_t output_row_pitch_in_blocks_or_pixels = 0, uint32_t output_rows_in_pixels = 0, int channel0 = -1, int channel1 = -1,
 			ktx2_transcoder_state *pState = nullptr);
-				
+
 	private:
 		const uint8_t* m_pData;
 		uint32_t m_data_size;
@@ -898,22 +898,22 @@ namespace basist
 		basisu::vector<ktx2_level_index> m_levels;
 		basisu::uint8_vec m_dfd;
 		key_value_vec m_key_values;
-		
+
 		ktx2_etc1s_global_data_header m_etc1s_header;
 		basisu::vector<ktx2_etc1s_image_desc> m_etc1s_image_descs;
 
 		basist::basis_tex_format m_format;
-					
+
 		uint32_t m_dfd_color_model;
 		ktx2_df_color_primaries m_dfd_color_prims;
 		uint32_t m_dfd_transfer_func;
 		uint32_t m_dfd_flags;
 		uint32_t m_dfd_samples;
 		ktx2_df_channel_id m_dfd_chan0, m_dfd_chan1;
-								
+
 		basist::basisu_lowlevel_etc1s_transcoder m_etc1s_transcoder;
 		basist::basisu_lowlevel_uastc_transcoder m_uastc_transcoder;
-				
+
 		ktx2_transcoder_state m_def_transcoder_state;
 
 		bool m_has_alpha;

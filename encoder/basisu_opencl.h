@@ -59,7 +59,7 @@ namespace basisu
 
 	bool opencl_encode_etc1s_pixel_clusters(
 		opencl_context_ptr pContext,
-		etc_block* pOutput_blocks, 
+		etc_block* pOutput_blocks,
 		uint32_t total_clusters,
 		const cl_pixel_cluster *pClusters,
 		uint64_t total_pixels,
@@ -92,7 +92,7 @@ namespace basisu
 		uint32_t total_clusters,
 		const cl_endpoint_cluster_struct *pCluster_info,
 		const uint32_t *pSorted_block_indices,
-		uint32_t* pOutput_cluster_indices, 
+		uint32_t* pOutput_cluster_indices,
 		bool perceptual);
 
 	// opencl_find_optimal_selector_clusters_for_each_block

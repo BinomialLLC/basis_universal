@@ -7,7 +7,7 @@ option(SAN "sanitize" FALSE)
 # For MSVC builds default to SSE enabled, and determine if it's a 64-bit (-A x64) vs. 32-bit (-A Win32) build.
 if (MSVC)
 	option(SSE "SSE 4.1 support" TRUE)
-	if ( CMAKE_GENERATOR_PLATFORM STREQUAL Win32 )	
+	if ( CMAKE_GENERATOR_PLATFORM STREQUAL Win32 )
 		set(BUILD_X64 0)
 	else()
 		set(BUILD_X64 1)
@@ -63,7 +63,7 @@ endif()
 if (NOT MSVC)
    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -g")
    set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -g")
-   
+
    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
    set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE}")
 
@@ -73,7 +73,7 @@ if (NOT MSVC)
    endif()
 
    set(CMAKE_CXX_FLAGS -std=c++11)
-   set(GCC_COMPILE_FLAGS "-fvisibility=hidden -fPIC -fno-strict-aliasing -D_LARGEFILE64_SOURCE=1 -D_FILE_OFFSET_BITS=64 -Wall -Wextra -Wno-unused-local-typedefs -Wno-unused-value -Wno-unused-parameter -Wno-unused-variable")
+   set(GCC_COMPILE_FLAGS "-fvisibility=hidden -fPIC -fno-strict-aliasing -D_LARGEFILE64_SOURCE=1 -D_FILE_OFFSET_BITS=64 -Wall -Wextra -Wno-unused-local-typedefs -Wno-unused-parameter -Wno-unused-variable")
 
    if (NOT BUILD_X64)
 	  set(GCC_COMPILE_FLAGS "${GCC_COMPILE_FLAGS} -m32")
@@ -92,7 +92,7 @@ if (NOT MSVC)
 	  	set(CMAKE_C_FLAGS  "${CMAKE_C_FLAGS} -DBASISU_SUPPORT_SSE=0")
 		set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -DBASISU_SUPPORT_SSE=0")
 	  endif()
-	  
+
 	  set(CMAKE_EXE_LINKER_FLAGS  "${CMAKE_EXE_LINKER_FLAGS} ${GCC_LINK_FLAGS} -static-libgcc -static-libstdc++ -static")
    else()
    	  if (SSE)
@@ -102,7 +102,7 @@ if (NOT MSVC)
 	  	set(CMAKE_C_FLAGS  "${CMAKE_C_FLAGS} -DBASISU_SUPPORT_SSE=0")
 		set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -DBASISU_SUPPORT_SSE=0")
 	  endif()
-	  
+
 	  set(CMAKE_EXE_LINKER_FLAGS  "${CMAKE_EXE_LINKER_FLAGS} ${GCC_LINK_FLAGS} -Wl,-rpath .")
    endif()
 
@@ -123,7 +123,7 @@ else()
 	endif()
 endif()
 
-set(BASISU_SRC_LIST ${COMMON_SRC_LIST} 
+set(BASISU_SRC_LIST ${COMMON_SRC_LIST}
 	basisu_tool.cpp
 	encoder/basisu_backend.cpp
 	encoder/basisu_basis_file.cpp
@@ -169,8 +169,8 @@ if (NOT MSVC)
 	# For Non-Windows builds, let cmake try and find the system OpenCL headers/libs for us.
 	if (OPENCL_FOUND)
 		set(CMAKE_C_FLAGS  "${CMAKE_C_FLAGS} -DBASISU_SUPPORT_OPENCL=1")
-		set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -DBASISU_SUPPORT_OPENCL=1")	
-		
+		set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -DBASISU_SUPPORT_OPENCL=1")
+
 		target_include_directories( basisu PRIVATE ${OpenCL_INCLUDE_DIRS} )
 		set(BASISU_EXTRA_LIBS ${OpenCL_LIBRARIES})
 	endif()
@@ -179,8 +179,8 @@ else()
 	# For Windows builds, we use our local copies of the OpenCL import lib and Khronos headers.
 	if (OPENCL)
 		set(CMAKE_C_FLAGS  "${CMAKE_C_FLAGS} -DBASISU_SUPPORT_OPENCL=1")
-		set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -DBASISU_SUPPORT_OPENCL=1")	
-		
+		set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -DBASISU_SUPPORT_OPENCL=1")
+
 		target_include_directories( basisu PRIVATE "OpenCL" )
 
 		if ( BUILD_X64 )
@@ -190,7 +190,7 @@ else()
 		endif()
 
 	endif()
-endif()	
+endif()
 
 if (NOT MSVC)
    target_link_libraries(basisu m pthread ${BASISU_EXTRA_LIBS})
@@ -198,7 +198,7 @@ endif()
 
 if (NOT EMSCRIPTEN)
 	install(TARGETS basisu DESTINATION bin)
-	
+
 	if (UNIX)
 		if (CMAKE_BUILD_TYPE STREQUAL Release)
 			if (APPLE)

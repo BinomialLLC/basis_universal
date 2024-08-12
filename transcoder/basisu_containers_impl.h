@@ -34,7 +34,7 @@ namespace basisu
             abort();
          }
       }
-            
+
       const size_t desired_size = element_size * new_capacity;
       size_t actual_size = 0;
       if (!pMover)
@@ -98,7 +98,7 @@ namespace basisu
 
          if (m_p)
             free(m_p);
-         
+
          m_p = new_p;
       }
 

@@ -37,7 +37,7 @@ function dxtToRgb565(src, src16Offset, width, height) {
       i = src16Offset + 4 * (blockY * blockWidth + blockX);
       c[0] = src[i];
       c[1] = src[i + 1];
-	  
+
       r0 = c[0] & 0x1f;
       g0 = c[0] & 0x7e0;
       b0 = c[0] & 0xf800;
@@ -50,7 +50,7 @@ function dxtToRgb565(src, src16Offset, width, height) {
       // decoder in many GPUs does :)
 
 	  // rg FIXME: This is most likely leading to wrong results vs. a GPU
-	  
+
       c[2] = ((5 * r0 + 3 * r1) >> 3)
              | (((5 * g0 + 3 * g1) >> 3) & 0x7e0)
              | (((5 * b0 + 3 * b1) >> 3) & 0xf800);
