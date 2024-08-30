@@ -210,7 +210,7 @@ Compress a non-sRGB image, use virtual selector codebooks for improved compressi
 `basisu -linear -global_sel_pal -file x.png`\
 Compress a non-sRGB image, use hybrid selector codebooks for slightly improved compression (but slower encoding)
 
-`basisu -tex_type video -comp_level 2 -framerate 20 -multifile_printf "x%02u.png" -multifile_first 1 -multifile_count 20 -selector_rdo_thresh 1.05 -endpoint_rdo_thresh 1.05`\
+`basisu -tex_type video -comp_level 2 -framerate 20 -multifile_printf "x%02u.png" -multifile_first 1 -multifile_num 20 -selector_rdo_thresh 1.05 -endpoint_rdo_thresh 1.05`\
 Compress a 20 sRGB source image video sequence (x01.png, x02.png, x03.png, etc.) to x01.basis
 
 `basisu -comp_level 2 -q 255 -file x.png -mipmap -y_flip`\
