@@ -402,13 +402,15 @@ namespace basisu
 		cBC3,				// DXT5 (BC4/DXT5A block followed by a BC1/DXT1 block)
 		cBC4,				// DXT5A
 		cBC5,				// 3DC/DXN (two BC4/DXT5A blocks)
-		cBC7,
+		cBC7_ALT,
+		cBC7_RGBA,
 		cASTC4x4,		// LDR only
 		cPVRTC1_4_RGB,
 		cPVRTC1_4_RGBA,
 		cATC_RGB,
 		cATC_RGBA_INTERPOLATED_ALPHA,
 		cFXT1_RGB,
+		cPVRTC2_4_RGB,
 		cPVRTC2_4_RGBA,
 		cETC2_R11_EAC,
 		cETC2_RG11_EAC,

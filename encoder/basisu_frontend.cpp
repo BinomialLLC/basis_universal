@@ -2240,7 +2240,8 @@ namespace basisu
 		} // block_index_iter
 
 #ifndef __EMSCRIPTEN__
-		m_params.m_pJob_pool->wait_for_all();
+		if (m_params.m_pJob_pool)
+			m_params.m_pJob_pool->wait_for_all();
 #endif
 
 		vec16F_clusterizer selector_clusterizer;
@@ -2861,7 +2862,6 @@ namespace basisu
 				total_subblocks_examined += total_pixels / 8;
 
 				etc1_optimizer optimizer;
-				etc1_solution_coordinates solutions[2];
 
 				etc1_optimizer::params cluster_optimizer_params;
 				cluster_optimizer_params.m_num_src_pixels = total_pixels;
@@ -3242,8 +3242,8 @@ namespace basisu
 
 			debug_printf("basisu_frontend::reoptimize_remapped_endpoints: stage 2\n");
 		
-			m_endpoint_clusters = new_endpoint_clusters;
-			m_endpoint_cluster_etc_params = new_endpoint_cluster_etc_params;
+			m_endpoint_clusters = std::move(new_endpoint_clusters);
+			m_endpoint_cluster_etc_params = std::move(new_endpoint_cluster_etc_params);
 
 			eliminate_redundant_or_empty_endpoint_clusters();
 

@@ -113,9 +113,7 @@ namespace basist
 		friend class bitwise_decoder;
 
 	public:
-		huffman_decoding_table()
-		{
-		}
+		huffman_decoding_table() = default;
 
 		void clear()
 		{
