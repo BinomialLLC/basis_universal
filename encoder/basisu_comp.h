@@ -16,7 +16,7 @@
 #include "basisu_frontend.h"
 #include "basisu_backend.h"
 #include "basisu_basis_file.h"
-#include "../transcoder/basisu_transcoder.h"
+#include "basisu_transcoder.h"
 #include "basisu_uastc_enc.h"
 
 #define BASISU_LIB_VERSION 116
