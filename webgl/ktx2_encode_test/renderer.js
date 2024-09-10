@@ -106,11 +106,10 @@ Renderer.prototype.createDxtTexture = function(dxtData, width, height, format) {
       height,
       0,
       dxtData);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-  //gl.generateMipmap(gl.TEXTURE_2D)
   gl.bindTexture(gl.TEXTURE_2D, null);
   return tex;
 };
@@ -127,15 +126,35 @@ Renderer.prototype.createCompressedTexture = function(data, width, height, forma
       height,
       0,
       data);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-  //gl.generateMipmap(gl.TEXTURE_2D)
   gl.bindTexture(gl.TEXTURE_2D, null);
   return tex;
 };
 
+Renderer.prototype.createHalfRGBATexture = function(data, width, height, format) {
+  var gl = this.gl_;
+  var tex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texImage2D(
+      gl.TEXTURE_2D,
+      0,
+      gl.RGBA,
+      width,
+      height,
+      0,
+	  gl.RGBA,
+	  format,
+      data);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.bindTexture(gl.TEXTURE_2D, null);
+  return tex;
+};
 
 Renderer.prototype.createRgb565Texture = function(rgb565Data, width, height) {
   var gl = this.gl_;
@@ -151,17 +170,38 @@ Renderer.prototype.createRgb565Texture = function(rgb565Data, width, height) {
     gl.RGB,
     gl.UNSIGNED_SHORT_5_6_5,
     rgb565Data);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-  //gl.generateMipmap(gl.TEXTURE_2D)
+  gl.bindTexture(gl.TEXTURE_2D, null);
+  return tex;
+};
+
+Renderer.prototype.createRgbaTexture = function(rgbaData, width, height) {
+  var gl = this.gl_;
+  var tex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texImage2D(
+    gl.TEXTURE_2D,
+    0,
+    gl.RGBA,
+    width,
+    height,
+    0,
+    gl.RGBA,
+    gl.UNSIGNED_BYTE,
+    rgbaData);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
   gl.bindTexture(gl.TEXTURE_2D, null);
   return tex;
 };
 
 
-Renderer.prototype.drawTexture = function(texture, width, height, mode) {
+Renderer.prototype.drawTexture = function(texture, width, height, mode, scale, linearToSRGBFlag) {
   var gl = this.gl_;
   // draw scene
   gl.clearColor(0, 0, 0, 1);
@@ -179,8 +219,8 @@ Renderer.prototype.drawTexture = function(texture, width, height, mode) {
   	x = 1.0;
   else if (mode == 2)
     y = 1.0;
-	
-  gl.uniform4f(this.uniformLocations_.control, x, y, 0.0, 0.0);
+			
+  gl.uniform4f(this.uniformLocations_.control, x, y, scale, linearToSRGBFlag ? 1.0 : 0.0);
 
   gl.enableVertexAttribArray(this.attribLocations_.vert);
   gl.bindBuffer(gl.ARRAY_BUFFER, this.quadVertexBuffer_);
@@ -229,9 +269,18 @@ Renderer.fragmentShaderSource_ = [
   'uniform sampler2D texSampler;',
   'uniform vec4 control;',
   'varying vec2 v_texCoord;',
+  
+  // Function to convert linear RGB to sRGB
+  'vec3 linearToSrgb(vec3 linearRGB) {',
+  '  vec3 srgbLow = linearRGB * 12.92;',
+  '  vec3 srgbHigh = 1.055 * pow(linearRGB, vec3(1.0/2.4)) - 0.055;',
+  '  return clamp(mix(srgbLow, srgbHigh, step(0.0031308, linearRGB)), 0.0, 1.0);',
+  '}',
+  
   'void main() {',
   '  vec4 c;',
   '  c = texture2D(texSampler, v_texCoord);',
+  '  c.rgb *= control.z;',
   '  if (control.x > 0.0)',
   '  {',
   '   	c.w = 1.0;',
@@ -240,6 +289,8 @@ Renderer.fragmentShaderSource_ = [
   '	 {',
   '   	c.rgb = c.aaa; c.w = 1.0;',
   '  }',
+  '  if (control.w > 0.0)',
+  '     c.rgb = linearToSrgb(c.rgb);',
   '  gl_FragColor = c;',
   '}'
   ].join('\n');

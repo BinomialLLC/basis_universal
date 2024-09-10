@@ -1,7 +1,13 @@
+<!-- 
+   Simple .KTX2 encode/transcode tester. 
+   Supports numerous texture formats: ETC1, PVRTC1, BC1-BC7, BC6H, ASTC LDR/HDR, and various uncompressed fallbacks.
+   Supports loading .PNG, .EXR and .HDR files.
+-->
+
+<!doctype html>
 <html>
 <head>
 <script src="renderer.js"></script>
-<script src="dxt-to-rgb565.js"></script>
 <script src="../encoder/build/basis_encoder.js"></script>
 <script type="text/javascript">
 
@@ -72,9 +78,11 @@ function loadArrayBuffer(uri, callback) {
   var xhr = new XMLHttpRequest();
   xhr.responseType = "arraybuffer";
   xhr.open('GET', uri, true);
-  xhr.onreadystatechange = function(e) {
-    if (xhr.readyState == 4 && xhr.status == 200) {
-      callback(xhr.response);
+  xhr.onreadystatechange = function(e) 
+  {
+    if (xhr.readyState == 4 && xhr.status == 200) 
+	{
+      callback(xhr.response, uri);
     }
   }
   xhr.send(null);
@@ -91,9 +99,10 @@ COMPRESSED_RGBA_S3TC_DXT1_EXT = 0x83F1;
 COMPRESSED_RGBA_S3TC_DXT3_EXT = 0x83F2;
 COMPRESSED_RGBA_S3TC_DXT5_EXT = 0x83F3;
 
-// BC7 format, from:
+// BC6H/BC7 formats, from:
 // https://www.khronos.org/registry/webgl/extensions/EXT_texture_compression_bptc/
 COMPRESSED_RGBA_BPTC_UNORM = 0x8E8C;
+COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT_EXT = 0x8E8F;
 
 // ETC format, from:
 // https://www.khronos.org/registry/webgl/extensions/WEBGL_compressed_texture_etc1/
@@ -103,6 +112,10 @@ COMPRESSED_RGB_ETC1_WEBGL = 0x8D64;
 // https://www.khronos.org/registry/webgl/extensions/WEBGL_compressed_texture_pvrtc/
 COMPRESSED_RGB_PVRTC_4BPPV1_IMG = 0x8C00;
 COMPRESSED_RGBA_PVRTC_4BPPV1_IMG = 0x8C02;
+
+// Half float RGBA, from:
+// https://registry.khronos.org/webgl/extensions/OES_texture_half_float/
+HALF_FLOAT_OES = 0x8D61;
 
 // Same as the Module.transcoder_texture_format enum
 BASIS_FORMAT = {
@@ -125,8 +138,13 @@ BASIS_FORMAT = {
   cTFFXT1_RGB: 17,
   cTFPVRTC2_4_RGB: 18,
   cTFPVRTC2_4_RGBA: 19,
-  cTFETC2_EAC_R11: 20,				
-  cTFETC2_EAC_RG11: 21	
+  cTFETC2_EAC_R11: 20,              
+  cTFETC2_EAC_RG11: 21,
+  cTFBC6H: 22,
+  cTFASTC_HDR_4x4_RGBA: 23,
+  cTFRGB_HALF: 24,
+  cTFRGBA_HALF: 25,
+  cTFRGB_9E5: 26
 };
 
 BASIS_FORMAT_NAMES = {};
@@ -143,25 +161,34 @@ var astcSupported = false;
 var etcSupported = false;
 var dxtSupported = false;
 var bc7Supported = false;
+var bc6hSupported = false;
+var astcHDRSupported = false;
+var rgbaHalfSupported = false;
+var halfFloatWebGLFormat = 0;
 var pvrtcSupported = false;
-var drawMode = 0;
 
-var tex, width, height, images, levels, have_alpha, alignedWidth, alignedHeight, format, displayWidth, displayHeight;
+var drawMode = 0;
+var drawScale = 1.0;
+var linearToSRGBFlag = false;
+
+var tex, width, height, is_hdr, layers, levels, faces, has_alpha;
+var alignedWidth, alignedHeight, format, displayWidth, displayHeight;
 
 function redraw()
 {
   if (!width)
    return;
 
-  renderer.drawTexture(tex, displayWidth, displayHeight, drawMode);
+  renderer.drawTexture(tex, displayWidth, displayHeight, drawMode, drawScale, linearToSRGBFlag);
 }
 
 function dumpKTX2FileDesc(ktx2File)
 {
   log('------');  
-  
+    
   log('Width: ' + ktx2File.getWidth());
   log('Height: ' + ktx2File.getHeight());
+  log('IsHDR: ' + ktx2File.isHDR());
   log('Faces: ' + ktx2File.getFaces());
   log('Layers: ' + ktx2File.getLayers());
   log('Levels: ' + ktx2File.getLevels());
@@ -276,11 +303,14 @@ function dumpKTX2FileDesc(ktx2File)
   log('------');
 }
 
-function dataLoaded(data)
+function dataLoaded(data, uri)
 {
   log('Done loading .ktx2 file, decoded header:');
 
   const { KTX2File, initializeBasis, encodeBasisTexture } = Module;
+  
+  resetDrawSettings();
+  
   initializeBasis();
 
   const startTime = performance.now();
@@ -297,23 +327,51 @@ function dataLoaded(data)
 
   width = ktx2File.getWidth();
   height = ktx2File.getHeight();
+  is_hdr = ktx2File.isHDR();
   layers = ktx2File.getLayers();
   levels = ktx2File.getLevels();
   faces = ktx2File.getFaces();
   has_alpha = ktx2File.getHasAlpha();
     
-  if (!width || !height || !levels) {
+  if (!width || !height || !levels) 
+  {
     console.warn('Invalid .ktx2 file');
     ktx2File.close();
     ktx2File.delete();
     return;
   }
   
-  // Note: If the file is UASTC, the preferred formats are ASTC/BC7.
+  // Decide which texture format to transcode to.
+  // Note: If the file is UASTC LDR, the preferred formats are ASTC/BC7. For UASTC HDR, ASTC/BC6H.
   // If the file is ETC1S and doesn't have alpha, the preferred formats are ETC1 and BC1. For alpha, the preferred formats are ETC2, BC3 or BC7. 
 
   var formatString = 'UNKNOWN';
-  if (astcSupported)
+  if (is_hdr)
+  {
+  	if (bc6hSupported)
+	{
+		formatString = 'BC6H';
+		format = BASIS_FORMAT.cTFBC6H;
+	}
+	else if (astcHDRSupported)
+	{
+		formatString = 'ASTC HDR';
+		format = BASIS_FORMAT.cTFASTC_HDR_4x4_RGBA;
+	}
+	else if (rgbaHalfSupported)
+	{
+		formatString = 'RGBA_HALF';
+		format = BASIS_FORMAT.cTFRGBA_HALF;
+	}
+	else
+	{
+		formatString = '32-bit RGBA';
+		format = BASIS_FORMAT.cTFRGBA_HALF;
+		
+		log('Decoding .basis data to 32-bit RGBA');
+	}
+  }
+  else if (astcSupported)
   {
     formatString = 'ASTC';
     format = BASIS_FORMAT.cTFASTC_4x4;
@@ -405,6 +463,7 @@ function dataLoaded(data)
 
   log('width: ' + width);
   log('height: ' + height);
+  log('isHDR: ' + is_hdr);
   log('levels: ' + levels);
   log('layers: ' + layers);
   log('faces: ' + faces);
@@ -420,8 +479,10 @@ function dataLoaded(data)
   var canvas = elem('canvas');
   canvas.width = alignedWidth;
   canvas.height = alignedHeight;
+  
+  // Now create the WebGL texture object.
 
-  if (format === BASIS_FORMAT.cTFASTC_4x4)
+  if ((format === BASIS_FORMAT.cTFASTC_4x4) || (format === BASIS_FORMAT.cTFASTC_HDR_4x4_RGBA))
   {
     tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_4x4_KHR);
   }
@@ -441,23 +502,74 @@ function dataLoaded(data)
   {
     tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_PVRTC_4BPPV1_IMG);
   }
+  else if (format === BASIS_FORMAT.cTFBC6H)
+  {
+    tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT_EXT);
+  }
+  else if (format == BASIS_FORMAT.cTFRGBA_HALF)
+  {
+    canvas.width = width;
+    canvas.height = height;
+    displayWidth = width;
+    displayHeight = height;  
+			
+	if (rgbaHalfSupported)
+	{
+		var numHalfs = dstSize / 2;
+		
+    	// Create uint16 data from the uint8 data.
+		var dstHalfs = new Uint16Array(numHalfs);
+   	
+    	// Convert the array of bytes to an array of uint16's.
+    	for (var i = 0; i < numHalfs; i++)
+    		dstHalfs[i] = dst[2 * i + 0] | (dst[2 * i + 1] << 8);
+  	
+    	tex = renderer.createHalfRGBATexture(dstHalfs, width, height, halfFloatWebGLFormat);
+	}
+	else
+	{
+		// No HDR texture formats are supported (TODO: 9e5?) Fall back to plain 32bpp RGBA, just to do *something*. (Could also convert to RGBM.)
+		const dstRGBA = new Uint8Array(width * height * 4);		
+
+		// Convert the array of half floats to uint8_t's, clamping as needed.
+		var srcOfs = 0, dstOfs = 0;
+		for (var y = 0; y < height; y++)
+		{
+      	   	for (var x = 0; x < width; x++)
+		   	{
+				for (var c = 0; c < 4; c++)
+				{
+					var h = dst[srcOfs] | (dst[srcOfs + 1] << 8);
+					var f = Module.convertHalfToFloat(h);
+									
+					dstRGBA[dstOfs] = Math.min(255, Math.max(0, Math.round(f * 255.0)));
+
+					srcOfs += 2;
+					dstOfs++;
+				}
+			}
+		}
+		
+		tex = renderer.createRgbaTexture(dstRGBA, width, height);				
+	}
+  }
   else
   {
-   canvas.width = width;
-   canvas.height = height;
-   displayWidth = width;
-   displayHeight = height;
+   	canvas.width = width;
+   	canvas.height = height;
+   	displayWidth = width;
+   	displayHeight = height;
 
-   // Create 565 texture. 
-   var dstTex = new Uint16Array(width * height);
-   
-   // Convert the array of bytes to an array of uint16's.
-   var pix = 0;
-   for (var y = 0; y < height; y++)
-      for (var x = 0; x < width; x++, pix++)
-         dstTex[pix] = dst[2 * pix + 0] | (dst[2 * pix + 1] << 8);
+   	// Create 565 texture. 
+   	var dstTex = new Uint16Array(width * height);
+   	
+   	// Convert the array of bytes to an array of uint16's.
+   	var pix = 0;
+   	for (var y = 0; y < height; y++)
+      	for (var x = 0; x < width; x++, pix++)
+         	dstTex[pix] = dst[2 * pix + 0] | (dst[2 * pix + 1] << 8);
 
-   tex = renderer.createRgb565Texture(dstTex, width, height);
+   	tex = renderer.createRgb565Texture(dstTex, width, height);
   }
 
   redraw();
@@ -485,36 +597,153 @@ function download_file(filename, body)
 
 var encodedKTX2File;
 
-function PNGDataLoaded(data)
+function resetDrawSettings()
+{
+	drawMode = 0;
+	drawScale = 1.0;
+	linearToSRGBFlag = false;
+	elem('scale-slider').value = 1.0;
+	elem('scale-value').textContent = 1;
+}
+
+function getFileExtension(url) {
+  const lastDotIndex = url.lastIndexOf('.');
+  if (lastDotIndex === -1) 
+  	return null; // No extension found
+  const extension = url.substring(lastDotIndex + 1);
+  
+  // Remove any query parameters or fragments from the extension and convert to lowercase
+  const cleanExtension = extension.split(/[\?#]/)[0].toLowerCase();
+  
+  return cleanExtension;
+}
+
+function imageFileDataLoaded(data, uri)
 {
 	const { BasisFile, BasisEncoder, initializeBasis, encodeBasisTexture } = Module;
 	
+	var extension = getFileExtension(uri);
+	
+	resetDrawSettings();
+			
 	initializeBasis();
 	
 	// Create a destination buffer to hold the compressed .basis file data. If this buffer isn't large enough compression will fail.
-	var ktx2FileData = new Uint8Array(1024*1024*10);
+	var ktx2FileData = new Uint8Array(1024*1024*24);
 			
 	var num_output_bytes;
 	
 	// Compress using the BasisEncoder class.
 	log('BasisEncoder::encode() started:');
-
+	
 	const basisEncoder = new BasisEncoder();
 
 	const qualityLevel = parseInt(elem('EncodeQuality').value, 10);
 	const uastcFlag = elem('EncodeUASTC').checked;
+	
+	var uastcHDRFlag = elem('CompAsHDR').checked;
+	if (extension != null) 
+	{
+		if ((extension == "exr") || (extension == "hdr"))
+			uastcHDRFlag = true;
+	}
 
 	basisEncoder.setCreateKTX2File(true);
 	basisEncoder.setKTX2UASTCSupercompression(true);
 	basisEncoder.setKTX2SRGBTransferFunc(true);
+
+	if (uastcHDRFlag)
+	{
+		var img_type = Module.hdr_image_type.cHITPNGImage.value;
+		
+		if (extension === "exr")
+			img_type = Module.hdr_image_type.cHITEXRImage.value;
+		else if (extension === "hdr")
+			img_type = Module.hdr_image_type.cHITHDRImage.value;
+		
+		basisEncoder.setSliceSourceImageHDR(0, new Uint8Array(data), 0, 0, img_type, elem('ConvertLDRToLinear').checked);
+
+/*
+		// Float image data test
+		const checkerboard = new Float32Array(64);
+
+		// Fill the checkerboard array as before
+		for (let y = 0; y < 4; y++) {
+    		for (let x = 0; x < 4; x++) {
+        		const index = (y * 4 + x) * 4;
+        		const isWhite = (x + y) % 2 === 0;
+
+        		if (isWhite) {
+            		checkerboard[index] = 1.0;
+            		checkerboard[index + 1] = 0.0;
+            		checkerboard[index + 2] = 1.0;
+            		checkerboard[index + 3] = 1.0;
+        		} else {
+            		checkerboard[index] = 0.0;
+            		checkerboard[index + 1] = 0.0;
+            		checkerboard[index + 2] = 0.0;
+            		checkerboard[index + 3] = 1.0;
+        		}
+    		}
+		}
+
+		// Convert Float32Array to Uint8Array by sharing the same buffer
+		const byteArray = new Uint8Array(checkerboard.buffer);
+		
+		basisEncoder.setSliceSourceImageHDR(0, byteArray, 4, 4, Module.hdr_image_type.cHITRGBAFloat.value, elem('ConvertLDRToLinear').checked);
+*/
+
+/*
+		// Half float image data test
+		var W = 16;
+		var H = 16;
+		const checkerboard = new Uint16Array(W*H*4);
+
+		// Values to represent 1.0 and 0 in 16-bit integers
+		const VALUE_ONE = 0x3C00; // FP16 representation of 1.0
+		const VALUE_ZERO = 0x0000; // FP16 representation of 0.0
+
+		// Fill the checkerboard array
+		for (let y = 0; y < H; y++) {
+    		for (let x = 0; x < W; x++) {
+        		const index = (y * W + x) * 4;
+        		const isWhite = (x + y) % 2 === 0;
+
+        		if (isWhite) {
+            		checkerboard[index] = VALUE_ONE;       // R
+            		checkerboard[index + 1] = VALUE_ONE;   // G
+            		checkerboard[index + 2] = VALUE_ONE;   // B
+            		checkerboard[index + 3] = VALUE_ONE;   // A
+        		} else {
+            		checkerboard[index] = VALUE_ZERO;      // R
+            		checkerboard[index + 1] = VALUE_ZERO;  // G
+            		checkerboard[index + 2] = VALUE_ZERO;  // B
+            		checkerboard[index + 3] = VALUE_ONE;   // A (1.0)
+        		}
+    		}
+		}
+
+		// Convert Uint16Array to Uint8Array by sharing the same buffer
+		const byteArray = new Uint8Array(checkerboard.buffer);
+
+		basisEncoder.setSliceSourceImageHDR(0, byteArray, W, H, Module.hdr_image_type.cHITRGBAHalfFloat.value, elem('ConvertLDRToLinear').checked);		
+*/		
+	}
+	else
+	{
+		basisEncoder.setSliceSourceImage(0, new Uint8Array(data), 0, 0, true);
+	}
+
+	// Use UASTC HDR quality level 0 (fastest - TODO)
+	basisEncoder.setUASTCHDRQualityLevel(0);
 	
-	basisEncoder.setSliceSourceImage(0, new Uint8Array(data), 0, 0, true);
 	basisEncoder.setDebug(elem('Debug').checked);
 	basisEncoder.setComputeStats(elem('ComputeStats').checked);
 	basisEncoder.setPerceptual(elem('SRGB').checked);
 	basisEncoder.setMipSRGB(elem('SRGB').checked);
 	basisEncoder.setQualityLevel(qualityLevel);
 	basisEncoder.setUASTC(uastcFlag);
+	basisEncoder.setHDR(uastcHDRFlag);
 	basisEncoder.setMipGen(elem('Mipmaps').checked);
 	
 	if (!uastcFlag)
@@ -556,14 +785,22 @@ function runLoadFile() {
   loadArrayBuffer(elem('file').value, dataLoaded);
 }
 
-function runEncodePNGFile() {
+function runEncodeImageFile() {
   elem('logger').innerHTML = '';
-  loadArrayBuffer(elem('pngfile').value, PNGDataLoaded);
+  loadArrayBuffer(elem('imagefile').value, imageFileDataLoaded);
 }
 
 function alphaBlend() { drawMode = 0; redraw(); }
 function viewRGB() { drawMode = 1; redraw(); }
 function viewAlpha() { drawMode = 2; redraw(); }
+function linearToSRGB() { linearToSRGBFlag = !linearToSRGBFlag; redraw(); }
+
+function updateScale(value) 
+{
+	document.getElementById('scale-value').textContent = value;
+    drawScale = value;
+	redraw();
+}
 
 function downloadEncodedFile() 
 {
@@ -574,17 +811,78 @@ function downloadEncodedFile()
 	}
 }
 
+function checkForGPUFormatSupport(gl)
+{
+    astcSupported = !!gl.getExtension('WEBGL_compressed_texture_astc');
+    etcSupported = !!gl.getExtension('WEBGL_compressed_texture_etc1');
+    dxtSupported = !!gl.getExtension('WEBGL_compressed_texture_s3tc');
+    pvrtcSupported = !!(gl.getExtension('WEBGL_compressed_texture_pvrtc')) || !!(gl.getExtension('WEBKIT_WEBGL_compressed_texture_pvrtc'));
+    bc7Supported = !!gl.getExtension('EXT_texture_compression_bptc');
+	
+	// Check for BC6H support
+	{
+		var ext = gl.getExtension('EXT_texture_compression_bptc');
+		if (ext) {
+    		bc6hSupported = !!ext.COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT_EXT;
+		}
+	}
+
+	// Check for ASTC HDR support	
+	{
+		var ext = gl.getExtension('WEBGL_compressed_texture_astc');
+
+		if (ext) {
+		    var supportedProfiles = ext.getSupportedProfiles();
+
+		    var hdrProfiles = supportedProfiles.filter(profile => profile.includes('hdr'));
+
+		    if (hdrProfiles.length > 0) {
+			    astcHDRSupported = true;
+			}
+		}
+	}
+
+	// Check for half-float texture support.	
+	{
+		var ext = gl.getExtension('OES_texture_half_float');
+		if (ext)
+		{
+			rgbaHalfSupported = true;
+			halfFloatWebGLFormat = ext.HALF_FLOAT_OES;
+		}
+	}
+    
+   	// HACK HACK - for testing uncompressed fallbacks.
+   	//astcSupported = false;
+   	//etcSupported = false;
+   	//dxtSupported = false;
+   	//bc7Supported = false;
+   	//pvrtcSupported = false;
+    //bc6hSupported = false;
+   	//astcHDRSupported = false;
+   	//rgbaHalfSupported = false;
+   
+    console.log('astcSupported: ' + astcSupported);
+	console.log('etcSupported: ' + etcSupported);
+	console.log('dxtSupported: ' + dxtSupported);
+	console.log('bc7Supported: ' + bc7Supported);
+	console.log('pvrtcSupported: ' + pvrtcSupported);
+	console.log('bc6hSupported: ' + bc6hSupported);
+	console.log('astcHDRSupported: ' + astcHDRSupported);
+    console.log('rgbaHalfSupported: ' + rgbaHalfSupported);
+}
+
 </script>
 </head>
 <body>
   <br>
   <div style="font-size: 24pt; font-weight: bold">
-    Basis Universal KTX2 encoding and transcoding test
+    Basis Universal .KTX2 GPU Texture Encoding and Transcoding Test
   </div>
 
-  <br>This demo uses the Basis C++ transcoder (compiled to Javascript using Emscripten) to transcode a .ktx2 file to <b id='format'>FORMAT</b>
-  <br>It also supports encoding .PNG files to .KTX2.
-  <br>Thanks to Evan Parker for providing <a href="https://github.com/toji/webgl-texture-utils">webgl-texture-utils</a> and this test bed.
+  <br>This demo uses the Basis Universal C++ transcoder (compiled to WebAssembly using Emscripten) to transcode a .ktx2 file to <b id='format'>FORMAT</b>
+  <br>It also supports encoding .PNG, .EXR or .HDR files to LDR or HDR .KTX2 files.
+  <br>Thanks to Evan Parker for providing <a href="https://github.com/toji/webgl-texture-utils">webgl-texture-utils</a> and this test bed. <a href="../index.html">Go back.</a>
   <br>
   <br>
       .ktx2 file:
@@ -593,47 +891,57 @@ function downloadEncodedFile()
   <br>
   
   <br>
-      .png file:
-      <input id="pngfile" type="text" size=30 value="assets/kodim18_64x64.png"></input>
-      <input type="button" value="Encode!" onclick="runEncodePNGFile()"></input>
+      .png/.exr/.hdr file:
+      <input id="imagefile" type="text" size=30 value="assets/desk.exr"></input>
+      <input type="button" value="Encode!" onclick="runEncodeImageFile()"></input>
   <br>
       <input type="button" value="Download Encoded File" onclick="downloadEncodedFile()">
+  	  
   <br>
-      Debug:
-      <input type="checkbox" id="Debug">
+ 	  Use UASTC HDR:	  
+	  <input type="checkbox" id="CompAsHDR">
+  
+  <br>
+  	  Use UASTC LDR:
+	  <input type="checkbox" id="EncodeUASTC">
+	  
+  <br>
+  	  Convert LDR images to linear light (UASTC HDR mode):
+	  <input type="checkbox" id="ConvertLDRToLinear">
+  <br>
+      Debug output:
+      <input type="checkbox" id="Debug">          	  
   <br>
       Compute Stats:
       <input type="checkbox" id="ComputeStats">
   <br>
-      sRGB:
+      Use sRGB/perceptual metrics:
       <input type="checkbox" id="SRGB">
   <br>
-  	  Mipmaps:
+  	  Generate Mipmaps:
 	  <input type="checkbox" id="Mipmaps">
   <br>
-  	  UASTC:
-	  <input type="checkbox" id="EncodeUASTC">
-   
-
-  <br>
-   	  
       ETC1S Quality:
-      <input type="range" min="1" max="255" value="10" class="slider" id="EncodeQuality"> 
-	  
+      <input type="range" min="1" max="255" value="255" class="slider" id="EncodeQuality"> 
   <br>
-      
   <br>
       <input type="button" value="Alpha blend" onclick="alphaBlend()"></input>
       <input type="button" value="View RGB" onclick="viewRGB()"></input>
-     <input type="button" value="View Alpha" onclick="viewAlpha()"></input>
+      <input type="button" value="View Alpha" onclick="viewAlpha()"></input>
+ 	  <input type="button" value="LinearToSRGB" onclick="linearToSRGB()"></input>
+	  
+	  <br>
+	  
+	  <label for="scale-slider">Scale:</label>
+	  <input type="range" id="scale-slider" min="0" max="16" step=".05" value="1" style="width: 300px;" oninput="updateScale(this.value)">
+	  <span id="scale-value">1</span>
 
-  <div style="position:absolute; left: 525px; top:130px; font-size: 20pt; font-weight: bold; color: red">
-    <div id="no-compressed-tex" style="display: none; width: 768px; font-size: 20pt; font-weight: bold; color: red">
-      NOTE: Your browser does not support several compressed texture format, so using RGB565.
-    </div>
-    <canvas id='canvas'></canvas>
-  </div>
+      <div style="position:absolute; left: 560px; top:130px; font-size: 20pt; font-weight: bold; color: red">
+    	  <canvas id='canvas'></canvas>
+	  </div>
+  
   <br><br>
+  
   <div id='logger'></div>
 </body>
 <script>
@@ -642,20 +950,9 @@ function downloadEncodedFile()
   	elem('SRGB').checked = true;
 	
     var gl = elem('canvas').getContext('webgl');
-    
-    astcSupported = !!gl.getExtension('WEBGL_compressed_texture_astc');
-    etcSupported = !!gl.getExtension('WEBGL_compressed_texture_etc1');
-    dxtSupported = !!gl.getExtension('WEBGL_compressed_texture_s3tc');
-    pvrtcSupported = !!(gl.getExtension('WEBGL_compressed_texture_pvrtc')) || !!(gl.getExtension('WEBKIT_WEBGL_compressed_texture_pvrtc'));
-    bc7Supported = !!gl.getExtension('EXT_texture_compression_bptc');
-    
-   // HACK HACK - for testing uncompressed
-   //astcSupported = false;
-   //etcSupported = false;
-   //dxtSupported = false;
-   //bc7Supported = false;
-   //pvrtcSupported = false;
 
+	checkForGPUFormatSupport(gl);
+	
     window.renderer = new Renderer(gl);
 
     elem('file').addEventListener('keydown', function(e) {
@@ -663,11 +960,6 @@ function downloadEncodedFile()
         runLoadFile();
       }
     }, false);
-
-    if (!(astcSupported || etcSupported || dxtSupported || pvrtcSupported))
-    {
-//      elem('nodxt').style.display = 'block';
-    }
 
     runLoadFile();
   }}).then(module => window.Module = module);
