@@ -1,8 +1,6 @@
 # basis_universal_uastc_hdr
 Basis Universal Supercompressed LDR/HDR GPU Texture Transcoding System 
 
-**PRIVATE DEVELOPMENT REPO**
-
 [![Build status](https://ci.appveyor.com/api/projects/status/87eb0o96pjho4sh0?svg=true)](https://ci.appveyor.com/project/BinomialLLC/basis-universal)
 
 ----
@@ -19,11 +17,7 @@ Links
 
 - [Release Notes](https://github.com/BinomialLLC/basis_universal/wiki/Release-Notes)
 
-- [Online WebGL Examples](http://subquantumtech.com/uastchdr/) 
-
-- ["Khan" ETC1S texture video test](http://subquantumtech.com/uastchdr/video_test)
-
-- ["Castle" ETC1S texture video test](http://subquantumtech.com/uastchdr/video_test2)
+- [Online WebGL Examples](https://subquantumtech.com/uastchdr2/) 
 
 - [UASTC HDR Example Images](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-HDR-Examples)
 
