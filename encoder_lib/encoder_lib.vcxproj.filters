@@ -1,0 +1,245 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
+      <Extensions>cpp;c;cc;cxx;c++;cppm;ixx;def;odl;idl;hpj;bat;asm;asmx</Extensions>
+    </Filter>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{93995380-89BD-4b04-88EB-625FBE52EBFB}</UniqueIdentifier>
+      <Extensions>h;hh;hpp;hxx;h++;hm;inl;inc;ipp;xsd</Extensions>
+    </Filter>
+    <Filter Include="Resource Files">
+      <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
+      <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
+    </Filter>
+    <Filter Include="Source Files\encoder">
+      <UniqueIdentifier>{98b8a44b-ab9c-46ad-a59a-a4a11b9a1ab8}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\encoder\cppspmd">
+      <UniqueIdentifier>{24d78a58-259b-4b9d-8e74-08567b58c1c7}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\encoder\3rdparty">
+      <UniqueIdentifier>{d36148f2-f766-423e-a390-31798ed72495}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\transcoder">
+      <UniqueIdentifier>{b8a5fb24-9003-45bd-8d8b-dbd0a00ee10c}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\transcoder\basisu_transcoder.cpp">
+      <Filter>Source Files\transcoder</Filter>
+    </ClCompile>
+    <ClCompile Include="..\encoder\basisu_astc_hdr_enc.cpp">
+      <Filter>Source Files\encoder</Filter>
+    </ClCompile>
+    <ClCompile Include="..\encoder\basisu_backend.cpp">
+      <Filter>Source Files\encoder</Filter>
+    </ClCompile>
+    <ClCompile Include="..\encoder\basisu_basis_file.cpp">
+      <Filter>Source Files\encoder</Filter>
+    </ClCompile>
+    <ClCompile Include="..\encoder\basisu_bc7enc.cpp">
+      <Filter>Source Files\encoder</Filter>
+    </ClCompile>
+    <ClCompile Include="..\encoder\basisu_comp.cpp">
+      <Filter>Source Files\encoder</Filter>
+    </ClCompile>
+    <ClCompile Include="..\encoder\basisu_enc.cpp">
+      <Filter>Source Files\encoder</Filter>
+    </ClCompile>
+    <ClCompile Include="..\encoder\basisu_etc.cpp">
+      <Filter>Source Files\encoder</Filter>
+    </ClCompile>
+    <ClCompile Include="..\encoder\basisu_frontend.cpp">
+      <Filter>Source Files\encoder</Filter>
+    </ClCompile>
+    <ClCompile Include="..\encoder\basisu_gpu_texture.cpp">
+      <Filter>Source Files\encoder</Filter>
+    </ClCompile>
+    <ClCompile Include="..\encoder\basisu_kernels_sse.cpp">
+      <Filter>Source Files\encoder</Filter>
+    </ClCompile>
+    <ClCompile Include="..\encoder\basisu_opencl.cpp">
+      <Filter>Source Files\encoder</Filter>
+    </ClCompile>
+    <ClCompile Include="..\encoder\basisu_pvrtc1_4.cpp">
+      <Filter>Source Files\encoder</Filter>
+    </ClCompile>
+    <ClCompile Include="..\encoder\basisu_resample_filters.cpp">
+      <Filter>Source Files\encoder</Filter>
+    </ClCompile>
+    <ClCompile Include="..\encoder\basisu_resampler.cpp">
+      <Filter>Source Files\encoder</Filter>
+    </ClCompile>
+    <ClCompile Include="..\encoder\basisu_ssim.cpp">
+      <Filter>Source Files\encoder</Filter>
+    </ClCompile>
+    <ClCompile Include="..\encoder\basisu_uastc_enc.cpp">
+      <Filter>Source Files\encoder</Filter>
+    </ClCompile>
+    <ClCompile Include="..\encoder\jpgd.cpp">
+      <Filter>Source Files\encoder</Filter>
+    </ClCompile>
+    <ClCompile Include="..\encoder\pvpngreader.cpp">
+      <Filter>Source Files\encoder</Filter>
+    </ClCompile>
+    <ClCompile Include="..\encoder\3rdparty\tinyexr.cpp">
+      <Filter>Source Files\encoder\3rdparty</Filter>
+    </ClCompile>
+    <ClCompile Include="..\zstd\zstd.c">
+      <Filter>Source Files\encoder\3rdparty</Filter>
+    </ClCompile>
+    <ClCompile Include="..\encoder\3rdparty\android_astc_decomp.cpp">
+      <Filter>Source Files\encoder\3rdparty</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\transcoder\basisu_astc_helpers.h">
+      <Filter>Source Files\transcoder</Filter>
+    </ClInclude>
+    <ClInclude Include="..\transcoder\basisu.h">
+      <Filter>Source Files\transcoder</Filter>
+    </ClInclude>
+    <ClInclude Include="..\transcoder\basisu_astc_hdr_core.h">
+      <Filter>Source Files\transcoder</Filter>
+    </ClInclude>
+    <ClInclude Include="..\transcoder\basisu_containers.h">
+      <Filter>Source Files\transcoder</Filter>
+    </ClInclude>
+    <ClInclude Include="..\transcoder\basisu_containers_impl.h">
+      <Filter>Source Files\transcoder</Filter>
+    </ClInclude>
+    <ClInclude Include="..\transcoder\basisu_file_headers.h">
+      <Filter>Source Files\transcoder</Filter>
+    </ClInclude>
+    <ClInclude Include="..\transcoder\basisu_transcoder.h">
+      <Filter>Source Files\transcoder</Filter>
+    </ClInclude>
+    <ClInclude Include="..\transcoder\basisu_transcoder_internal.h">
+      <Filter>Source Files\transcoder</Filter>
+    </ClInclude>
+    <ClInclude Include="..\transcoder\basisu_transcoder_uastc.h">
+      <Filter>Source Files\transcoder</Filter>
+    </ClInclude>
+    <ClInclude Include="..\encoder\cppspmd_flow.h">
+      <Filter>Source Files\encoder\cppspmd</Filter>
+    </ClInclude>
+    <ClInclude Include="..\encoder\cppspmd_math.h">
+      <Filter>Source Files\encoder\cppspmd</Filter>
+    </ClInclude>
+    <ClInclude Include="..\encoder\cppspmd_math_declares.h">
+      <Filter>Source Files\encoder\cppspmd</Filter>
+    </ClInclude>
+    <ClInclude Include="..\encoder\cppspmd_sse.h">
+      <Filter>Source Files\encoder\cppspmd</Filter>
+    </ClInclude>
+    <ClInclude Include="..\encoder\cppspmd_type_aliases.h">
+      <Filter>Source Files\encoder\cppspmd</Filter>
+    </ClInclude>
+    <ClInclude Include="..\encoder\basisu_astc_hdr_enc.h">
+      <Filter>Source Files\encoder</Filter>
+    </ClInclude>
+    <ClInclude Include="..\encoder\basisu_backend.h">
+      <Filter>Source Files\encoder</Filter>
+    </ClInclude>
+    <ClInclude Include="..\encoder\basisu_basis_file.h">
+      <Filter>Source Files\encoder</Filter>
+    </ClInclude>
+    <ClInclude Include="..\encoder\basisu_bc7enc.h">
+      <Filter>Source Files\encoder</Filter>
+    </ClInclude>
+    <ClInclude Include="..\encoder\basisu_comp.h">
+      <Filter>Source Files\encoder</Filter>
+    </ClInclude>
+    <ClInclude Include="..\encoder\basisu_enc.h">
+      <Filter>Source Files\encoder</Filter>
+    </ClInclude>
+    <ClInclude Include="..\encoder\basisu_etc.h">
+      <Filter>Source Files\encoder</Filter>
+    </ClInclude>
+    <ClInclude Include="..\encoder\basisu_frontend.h">
+      <Filter>Source Files\encoder</Filter>
+    </ClInclude>
+    <ClInclude Include="..\encoder\basisu_gpu_texture.h">
+      <Filter>Source Files\encoder</Filter>
+    </ClInclude>
+    <ClInclude Include="..\encoder\basisu_kernels_declares.h">
+      <Filter>Source Files\encoder</Filter>
+    </ClInclude>
+    <ClInclude Include="..\encoder\basisu_kernels_imp.h">
+      <Filter>Source Files\encoder</Filter>
+    </ClInclude>
+    <ClInclude Include="..\encoder\basisu_miniz.h">
+      <Filter>Source Files\encoder</Filter>
+    </ClInclude>
+    <ClInclude Include="..\encoder\basisu_ocl_kernels.h">
+      <Filter>Source Files\encoder</Filter>
+    </ClInclude>
+    <ClInclude Include="..\encoder\basisu_opencl.h">
+      <Filter>Source Files\encoder</Filter>
+    </ClInclude>
+    <ClInclude Include="..\encoder\basisu_pvrtc1_4.h">
+      <Filter>Source Files\encoder</Filter>
+    </ClInclude>
+    <ClInclude Include="..\encoder\basisu_resampler.h">
+      <Filter>Source Files\encoder</Filter>
+    </ClInclude>
+    <ClInclude Include="..\encoder\basisu_resampler_filters.h">
+      <Filter>Source Files\encoder</Filter>
+    </ClInclude>
+    <ClInclude Include="..\encoder\basisu_ssim.h">
+      <Filter>Source Files\encoder</Filter>
+    </ClInclude>
+    <ClInclude Include="..\encoder\basisu_uastc_enc.h">
+      <Filter>Source Files\encoder</Filter>
+    </ClInclude>
+    <ClInclude Include="..\encoder\jpgd.h">
+      <Filter>Source Files\encoder</Filter>
+    </ClInclude>
+    <ClInclude Include="..\encoder\pvpngreader.h">
+      <Filter>Source Files\encoder</Filter>
+    </ClInclude>
+    <ClInclude Include="..\encoder\3rdparty\qoi.h">
+      <Filter>Source Files\encoder\3rdparty</Filter>
+    </ClInclude>
+    <ClInclude Include="..\encoder\3rdparty\tinydds.h">
+      <Filter>Source Files\encoder\3rdparty</Filter>
+    </ClInclude>
+    <ClInclude Include="..\encoder\3rdparty\tinyexr.h">
+      <Filter>Source Files\encoder\3rdparty</Filter>
+    </ClInclude>
+    <ClInclude Include="..\encoder\3rdparty\android_astc_decomp.h">
+      <Filter>Source Files\encoder\3rdparty</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="..\transcoder\basisu_transcoder_tables_astc.inc">
+      <Filter>Source Files\transcoder</Filter>
+    </None>
+    <None Include="..\transcoder\basisu_transcoder_tables_astc_0_255.inc">
+      <Filter>Source Files\transcoder</Filter>
+    </None>
+    <None Include="..\transcoder\basisu_transcoder_tables_atc_55.inc">
+      <Filter>Source Files\transcoder</Filter>
+    </None>
+    <None Include="..\transcoder\basisu_transcoder_tables_atc_56.inc">
+      <Filter>Source Files\transcoder</Filter>
+    </None>
+    <None Include="..\transcoder\basisu_transcoder_tables_bc7_m5_alpha.inc">
+      <Filter>Source Files\transcoder</Filter>
+    </None>
+    <None Include="..\transcoder\basisu_transcoder_tables_bc7_m5_color.inc">
+      <Filter>Source Files\transcoder</Filter>
+    </None>
+    <None Include="..\transcoder\basisu_transcoder_tables_dxt1_5.inc">
+      <Filter>Source Files\transcoder</Filter>
+    </None>
+    <None Include="..\transcoder\basisu_transcoder_tables_dxt1_6.inc">
+      <Filter>Source Files\transcoder</Filter>
+    </None>
+    <None Include="..\bin\ocl_kernels.cl">
+      <Filter>Source Files\encoder</Filter>
+    </None>
+  </ItemGroup>
+</Project>
