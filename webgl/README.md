@@ -4,9 +4,7 @@ Requires WebAssembly and WebGL support.
 
 ## Texture
 
-[Live demo: `texture/index.html`](https://basis-universal-webgl.now.sh/texture/)
-
-(Note the Live texture demo hasn't been updated to the latest release yet.)
+Live demo: https://subquantumtech.com/uastchdr2/
 
 Renders a single texture, using the transcoder (compiled to WASM with emscripten) to generate one of the following compressed texture formats:
 
