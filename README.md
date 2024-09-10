@@ -236,7 +236,7 @@ There are two simple encoding/transcoding web demos, located in `webgl/ktx2_enco
 Low-level C++ Encoder/Transcoder API Examples
 ---------------------------------------------
 
-Some simple examples showing how to directly call the C++ encoder and transcoder library API's are in `example/examples.cpp`.
+Some simple examples showing how to directly call the C++ encoder and transcoder library API's are in [`example/examples.cpp`](https://github.com/BinomialLLC/basis_universal/blob/master/example/example.cpp).
 
 ETC1S Texture Video Tips
 ------------------------
