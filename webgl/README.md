@@ -2,9 +2,9 @@
 
 Requires WebAssembly and WebGL support. The WebGL demos are hosted live [here](https://subquantumtech.com/uastchdr2/).
 
-To build the encoder and transcoder WASM libraries using Emscripten, see the various README.md files in the 'webgl/transcoder' and 'webgl/encoder' folders.
+To build the encoder and transcoder WASM libraries using Emscripten, see the various README.md files in the 'webgl/transcoder' and 'webgl/encoder' folders. The Javascript API wrappers to the C/C++ library are located in [`webgl/transcoder/basis_wrappers.cpp`](https://github.com/BinomialLLC/basis_universal/blob/master/webgl/transcoder/basis_wrappers.cpp).
 
-## texture_test
+## Transcoder (texture_test)
 
 Live demo: [webgl/texture_test/index.html](https://subquantumtech.com/uastchdr2/texture_test/)
 
