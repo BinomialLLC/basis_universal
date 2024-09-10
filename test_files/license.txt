@@ -1,0 +1,2 @@
+The test images in the "test_files" directory are not required to build or use the Basis Universal codec. They are not copyrighted or owned by Binomial LLC.
+
