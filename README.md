@@ -204,9 +204,7 @@ The written mipmapped, cubemap, or texture array .KTX/.DDS files will be in a wi
 WebGL Examples
 --------------
 
-The "WebGL" directory contains three simple WebGL demos that use the transcoder and compressor compiled to [WASM](https://webassembly.org/) with [emscripten](https://emscripten.org/). See more details [here](webgl/README.md).
-
-These demos are also online [here](https://subquantumtech.com/uastchdr2/).
+The "WebGL" directory contains three simple WebGL demos that use the transcoder and compressor compiled to [WASM](https://webassembly.org/) with [emscripten](https://emscripten.org/). These demos are online [here](https://subquantumtech.com/uastchdr2/). See more details [here](webgl/README.md).
 
 ![Screenshot of 'texture' example running in a browser.](webgl/texture_test/preview.png)
 ![Screenshot of 'gltf' example running in a browser.](webgl/gltf/preview.png)
