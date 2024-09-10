@@ -1,5 +1,5 @@
 // basisu_tool.cpp
-// Copyright (C) 2019-2022 Binomial LLC. All Rights Reserved.
+// Copyright (C) 2019-2024 Binomial LLC. All Rights Reserved.
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -44,7 +44,13 @@
 using namespace basisu;
 using namespace buminiz;
 
-#define BASISU_TOOL_VERSION "1.16.4"
+#define BASISU_TOOL_VERSION "1.50.0"
+
+// Define to lower the -test and -test_hdr tolerances
+//#define USE_TIGHTER_TEST_TOLERANCES
+
+// Only enable to verify SAN is working.
+//#define FORCE_SAN_FAILURE
 
 enum tool_mode
 {
@@ -54,13 +60,16 @@ enum tool_mode
 	cInfo,
 	cUnpack,
 	cCompare,
+	cHDRCompare,
 	cVersion,
 	cBench,
 	cCompSize,
-	cTest,
+	cTestLDR,
+	cTestHDR,
 	cCLBench,
 	cSplitImage,
-	cCombineImages
+	cCombineImages,
+	cTonemapImage
 };
 
 static void print_usage()
@@ -68,64 +77,78 @@ static void print_usage()
 	printf("\nUsage: basisu filename [filename ...] <options>\n");
 	
 	puts("\n"
-		"The default mode is compression of one or more PNG/BMP/TGA/JPG files to a .basis file. Alternate modes:\n"
-		" -unpack: Use transcoder to unpack .basis file to one or more .ktx/.png files\n"
-		" -validate: Validate and display information about a .basis file\n"
-		" -info: Display high-level information about a .basis file\n"
-		" -compare: Compare two PNG/BMP/TGA/JPG images specified with -file, output PSNR and SSIM statistics and RGB/A delta images\n"
-		" -version: Print basisu version and exit\n"
-		"Unless an explicit mode is specified, if one or more files have the .basis extension this tool defaults to unpack mode.\n"
+		"The default mode is compression of one or more .PNG/.BMP/.TGA/.JPG/.QOI/.DDS/.EXR/.HDR files to a LDR or HDR .KTX2 file. Alternate modes:\n"
+		" -unpack: Use transcoder to unpack a .basis/.KTX2 file to one or more .KTX/.PNG files\n"
+		" -validate: Validate and display information about a .basis/.KTX2 file\n"
+		" -info: Display high-level information about a .basis/.KTX2 file\n"
+		" -compare: Compare two LDR PNG/BMP/TGA/JPG/QOI images specified with -file, output PSNR and SSIM statistics and RGB/A delta images\n"
+		" -compare_hdr: Compare two HDR .EXR/.HDR images specified with -file, output PSNR statistics and RGB delta images\n"
+		" -tonemap: Tonemap an HDR or EXR image to PNG at multiple exposures, use -file to specify filename\n"
+		" -version: Print version and exit\n"
 		"\n"
-		"Important: By default, the compressor assumes the input is in the sRGB colorspace (like photos/albedo textures).\n"
+		"Notes:\n"
+		"\nUnless an explicit mode is specified, if one or more files have the .basis or .KTX2 extension this tool defaults to unpack mode.\n"
+		"\nBy default, the compressor assumes the input is in the sRGB colorspace (like photos/albedo textures).\n"
 		"If the input is NOT sRGB (like a normal map), be sure to specify -linear for less artifacts. Depending on the content type, some experimentation may be needed.\n"
+		"\n"
+		"The TinyEXR library is used to read .EXR images. This library does not support all .EXR compression methods. For unsupported images, you can use ImageMagick to convert them to uncompressed .EXR.\n"
+		"\n"
+		"For .DDS source files: Mipmapped or not mipmapped 2D textures (but not cubemaps) are supported. Only uncompressed 32-bit RGBA/BGRA, half float RGBA, or float RGBA .DDS files are supported. In -tex_array mode, if a .DDS file is specified, all source files must be in .DDS format.\n"
 		"\n"
 		"Filenames prefixed with a @ symbol are read as filename listing files. Listing text files specify which actual filenames to process (one filename per line).\n"
 		"\n"
 		"Options:\n"
-		" -opencl: Enable OpenCL usage\n"
+		" -hdr: Encode input as UASTC HDR (automatic if any input file has the .EXR or .HDR extension, or if any .DDS file is HDR).\n"
+		" -fastest: Set UASTC LDR and HDR to fastest but lowest quality encoding mode (same as -uastc_level 0)\n"
+		" -slower: Set UASTC LDR and HDR to slower but a higher quality encoding mode (same as -uastc_level 3)\n"
+		" -opencl: Enable OpenCL usage (currently only accelerates ETC1S encoding)\n"
 		" -opencl_serialize: Serialize all calls to the OpenCL driver (to work around buggy drivers, only useful with -parallel)\n"
 		" -parallel: Compress multiple textures simumtanously (one per thread), instead of one at a time. Compatible with OpenCL mode. This is much faster, but in OpenCL mode the driver is pushed harder, and the CLI output will be jumbled.\n"
-		" -ktx2: Write .KTX2 ETC1S/UASTC files instead of .basis files. By default, UASTC files will be compressed using Zstandard unless -ktx2_no_zstandard is specified.\n"
-		" -ktx2_no_zstandard: Don't compress UASTC texture data using Zstandard, store it uncompressed instead.\n"
-		" -ktx2_zstandard_level X: Set ZStandard compression level to X (see Zstandard documentation, default level is 6)\n"
-		" -ktx2_animdata_duration X: Set KTX2animData duration field to integer value X (only valid/useful for -tex_type video, default is 1)\n"
-		" -ktx2_animdata_timescale X: Set KTX2animData timescale field to integer value X (only valid/useful for -tex_type video, default is 15)\n"
-		" -ktx2_animdata_loopcount X: Set KTX2animData loopcount field to integer value X (only valid/useful for -tex_type video, default is 0)\n"
+		" -ktx2: Write .KTX2 files (the default). By default, UASTC LDR/HDR files will be compressed using Zstandard unless -ktx2_no_zstandard is specified.\n"
+		" -basis: Write .basis files instead of .KTX2 files (the previous default).\n"
 		" -file filename.png/bmp/tga/jpg/qoi: Input image filename, multiple images are OK, use -file X for each input filename (prefixing input filenames with -file is optional)\n"
 		" -alpha_file filename.png/bmp/tga/jpg/qoi: Input alpha image filename, multiple images are OK, use -file X for each input filename (must be paired with -file), images converted to REC709 grayscale and used as input alpha\n"
 		" -multifile_printf: printf() format strint to use to compose multiple filenames\n"
 		" -multifile_first: The index of the first file to process, default is 0 (must specify -multifile_printf and -multifile_num)\n"
 		" -multifile_num: The total number of files to process.\n"
 		" -q X: Set ETC1S quality level, 1-255, default is 128, lower=better compression/lower quality/faster, higher=less compression/higher quality/slower, default is 128. For even higher quality, use -max_endpoints/-max_selectors.\n"
-		" -linear: Use linear colorspace metrics (instead of the default sRGB), and by default linear (not sRGB) mipmap filtering.\n"
-		" -output_file filename: Output .basis/.ktx filename\n"
-		" -output_path: Output .basis/.ktx files to specified directory.\n"
-		" -debug: Enable codec debug print to stdout (slightly slower).\n"
-		" -verbose: Same as -debug (debug output to stdout).\n"
+		" -linear: Use linear colorspace metrics (instead of the default sRGB or scaled RGB for HDR), and by default linear (not sRGB) mipmap filtering.\n"
+		" -output_file filename: Output .basis/.KTX2 filename\n"
+		" -output_path: Output .basis/.KTX2 files to specified directory.\n"
+		" -debug or -verbose: Enable codec debug print to stdout (slightly slower).\n"
 		" -debug_images: Enable codec debug images (much slower).\n"
-		" -stats: Compute and display image quality metrics (slightly slower).\n"
+		" -stats: Compute and display image quality metrics (slightly to much slower).\n"
 		" -tex_type <2d, 2darray, 3d, video, cubemap>: Set Basis file header's texture type field. Cubemap arrays require multiples of 6 images, in X+, X-, Y+, Y-, Z+, Z- order, each image must be the same resolutions.\n"
 		"  2d=arbitrary 2D images, 2darray=2D array, 3D=volume texture slices, video=video frames, cubemap=array of faces. For 2darray/3d/cubemaps/video, each source image's dimensions and # of mipmap levels must be the same.\n"
 		" For video, the .basis file will be written with the first frame being an I-Frame, and subsequent frames being P-Frames (using conditional replenishment). Playback must always occur in order from first to last image.\n"
-		" -framerate X: Set framerate in .basis header to X/frames sec.\n"
-		" -individual: Process input images individually and output multiple .basis/.ktx2 files (not as a texture array - this is now the default as of v1.16)\n"
-		" -tex_array: Process input images as a single texture array and write a single .basis/.ktx2 file (the former default before v1.16)\n"
+		" -cubemap: same as -tex_type cubemap\n"
+		" -individual: Process input images individually and output multiple .basis/.KTX2 files (not as a texture array - this is now the default as of v1.16)\n"
+		" -tex_array: Process input images as a single texture array and write a single .basis/.KTX2 file (the former default before v1.16)\n"
 		" -comp_level X: Set ETC1S encoding speed vs. quality tradeoff. Range is 0-6, default is 1. Higher values=MUCH slower, but slightly higher quality. Higher levels intended for videos. Use -q first!\n"
 		" -fuzz_testing: Use with -validate: Disables CRC16 validation of file contents before transcoding\n"
 		"\nUASTC options:\n"
-		" -uastc: Enable UASTC texture mode, instead of the default ETC1S mode. Significantly higher texture quality, but larger files. (Note that UASTC .basis files must be losslessly compressed by the user.)\n"
-		" -uastc_level: Set UASTC encoding level. Range is [0,4], default is 2, higher=slower but higher quality. 0=fastest/lowest quality, 3=slowest practical option, 4=impractically slow/highest achievable quality\n"
-		" -uastc_rdo_l X: Enable UASTC RDO post-processing and set UASTC RDO quality scalar (lambda) to X. Lower values=higher quality/larger LZ\n"
+		" -uastc: Enable UASTC LDR texture mode, instead of the default ETC1S mode. Significantly higher texture quality, but larger files. (Note that UASTC .basis files must be losslessly compressed by the user.)\n"
+		" -uastc_level: Set UASTC LDR/HDR encoding level. LDR Range is [0,4], default is 2, higher=slower but higher quality. 0=fastest/lowest quality, 3=slowest practical option, 4=impractically slow/highest achievable quality\n"
+		"				UASTC HDR range is [0,4] - higher=slower but higher quality. HDR default=1.\n"
+		" -uastc_rdo_l X: Enable UASTC LDR RDO post-processing and set UASTC RDO quality scalar (lambda) to X. Lower values=higher quality/larger LZ\n"
 		"                 compressed files, higher values=lower quality/smaller LZ compressed files. Good range to try is [.25-10].\n"
 		"                 Note: Previous versons used the -uastc_rdo_q option, which was removed because the RDO algorithm was changed.\n"
-		" -uastc_rdo_d X: Set UASTC RDO dictionary size in bytes. Default is 4096, max is 65536. Lower values=faster, but less compression.\n"
-		" -uastc_rdo_b X: Set UASTC RDO max smooth block error scale. Range is [1,300]. Default is 10.0, 1.0=disabled. Larger values suppress more artifacts (and allocate more bits) on smooth blocks.\n"
-		" -uastc_rdo_s X: Set UASTC RDO max smooth block standard deviation. Range is [.01,65536]. Default is 18.0. Larger values expand the range of blocks considered smooth.\n"
-		" -uastc_rdo_f: Don't favor simpler UASTC modes in RDO mode.\n"
+		" -uastc_rdo_d X: Set UASTC LDR RDO dictionary size in bytes. Default is 4096, max is 65536. Lower values=faster, but less compression.\n"
+		" -uastc_rdo_b X: Set UASTC LDR RDO max smooth block error scale. Range is [1,300]. Default is 10.0, 1.0=disabled. Larger values suppress more artifacts (and allocate more bits) on smooth blocks.\n"
+		" -uastc_rdo_s X: Set UASTC LDR RDO max smooth block standard deviation. Range is [.01,65536]. Default is 18.0. Larger values expand the range of blocks considered smooth.\n"
+		" -uastc_rdo_f: Don't favor simpler UASTC LDR modes in RDO mode.\n"
 		" -uastc_rdo_m: Disable RDO multithreading (slightly higher compression, deterministic).\n"
 		"\n"
+		"HDR specific options:\n"
+		" -uastc_level X: Sets the UASTC HDR compressor's level. Valid range is [0,4] - higher=slower but higher quality. HDR default=1.\n"
+		"                 Level 0=fastest/lowest quality, 3=highest practical setting, 4=exhaustive\n"
+		" -hdr_ldr_no_srgb_to_linear: If specified, LDR images will NOT be converted to normalized linear light (via a sRGB->Linear conversion) before compressing as HDR.\n"
+		" -hdr_uber_mode: Allow the encoder to try varying the selectors more for slightly higher quality. This may negatively impact BC6H quality, however.\n"
+		" -hdr_favor_astc: By default the HDR encoder tries to strike a balance or even slightly favor BC6H quality. If this option is specified, ASTC HDR quality is favored instead.\n"
+		"\n"
 		"More options:\n"
-		" -test: Run an automated ETC1S/UASTC encoding and transcoding test. Returns EXIT_FAILURE if any failures\n"
+		" -test: Run an automated LDR ETC1S/UASTC encoding and transcoding test. Returns EXIT_FAILURE if any failures\n"
+		" -test_hdr: Run an automated UASTC HDR encoding and transcoding test. Returns EXIT_FAILURE if any failures\n"
 		" -test_dir: Optional directory of test files. Defaults to \"../test_files\".\n"
 		" -max_endpoints X: Manually set the max number of color endpoint clusters from 1-16128, use instead of -q\n"
 		" -max_selectors X: Manually set the max number of color selector clusters from 1-16128, use instead of -q\n"
@@ -151,6 +174,12 @@ static void print_usage()
 		" -resample_factor X: Resample all input textures by scale factor X using a box filter\n"
 		" -no_sse: Forbid all SSE instruction set usage\n"
 		" -validate_etc1s: Validate internal ETC1S compressor's data structures during compression (slower, intended for development).\n"
+		" -ktx2_animdata_duration X: Set KTX2animData duration field to integer value X (only valid/useful for -tex_type video, default is 1)\n"
+		" -ktx2_animdata_timescale X: Set KTX2animData timescale field to integer value X (only valid/useful for -tex_type video, default is 15)\n"
+		" -ktx2_animdata_loopcount X: Set KTX2animData loopcount field to integer value X (only valid/useful for -tex_type video, default is 0)\n"
+		" -framerate X: Set framerate in .basis header to X/frames sec.\n"
+		" -ktx2_no_zstandard: Don't compress UASTC texture data using Zstandard -- store it uncompressed instead.\n"
+		" -ktx2_zstandard_level X: Set ZStandard compression level to X (see Zstandard documentation, default level is 6)\n"
 		"\n"
 		"Mipmap generation options:\n"
 		" -mipmap: Generate mipmaps for each source image\n"
@@ -176,28 +205,39 @@ static void print_usage()
 		" -userdata0 X: Set 32-bit userdata0 field in Basis file header to X (X is a signed 32-bit int)\n"
 		" -userdata1 X: Set 32-bit userdata1 field in Basis file header to X (X is a signed 32-bit int)\n"
 		"\n"
-		"Various command line examples:\n"
-		" basisu x.png : Compress sRGB image x.png to x.basis using default settings (multiple filenames OK, use -tex_array if you want a tex array vs. multiple output files)\n"
+		"Example LDR command lines:\n"
+		" basisu x.png : Compress sRGB image x.png to x.ktx2 using default settings (multiple filenames OK, use -tex_array if you want a tex array vs. multiple output files)\n"
+		" basisu -basis x.qoi : Compress sRGB image x.qoi to x.basis (supports 24-bit or 32-bit .QOI files)\n"
+		" basisu x.ktx2 : Unpack x.basis to PNG/KTX files (multiple filenames OK)\n"
 		" basisu x.basis : Unpack x.basis to PNG/KTX files (multiple filenames OK)\n"
-		" basisu -file x.png -mipmap -y_flip : Compress a mipmapped x.basis file from an sRGB image named x.png, Y flip each source image\n"
+		" basisu -uastc x.png -uastc_rdo_l 2.0 -ktx2 -stats : Compress to a UASTC .KTX2 file with RDO (rate distortion optimization) to reduce .KTX2 compressed file size\n"
+		" basisu -file x.png -mipmap -y_flip : Compress a mipmapped x.ktx2 file from an sRGB image named x.png, Y flip each source image\n"
 		" basisu -validate -file x.basis : Validate x.basis (check header, check file CRC's, attempt to transcode all slices)\n"
 		" basisu -unpack -file x.basis : Validates, transcodes and unpacks x.basis to mipmapped .KTX and RGB/A .PNG files (transcodes to all supported GPU texture formats)\n"
-		" basisu -q 255 -file x.png -mipmap -debug -stats : Compress sRGB x.png to x.basis at quality level 255 with compressor debug output/statistics\n"
-		" basisu -linear -max_endpoints 16128 -max_selectors 16128 -file x.png : Compress non-sRGB x.png to x.basis using the largest supported manually specified codebook sizes\n"
-		" basisu -comp_level 2 -max_selectors 8192 -max_endpoints 8192 -tex_type video -framerate 20 -multifile_printf \"x%02u.png\" -multifile_first 1 -multifile_count 20 : Compress a 20 sRGB source image video sequence (x01.png, x02.png, x03.png, etc.) to x01.basis\n"
+		" basisu -q 255 -file x.png -mipmap -debug -stats : Compress sRGB x.png to x.ktx2 at quality level 255 with compressor debug output/statistics\n"
+		" basisu -linear -max_endpoints 16128 -max_selectors 16128 -file x.png : Compress non-sRGB x.png to x.ktx2 using the largest supported manually specified codebook sizes\n"
+		" basisu -basis -comp_level 2 -max_selectors 8192 -max_endpoints 8192 -tex_type video -framerate 20 -multifile_printf \"x%02u.png\" -multifile_first 1 -multifile_count 20 : Compress a 20 sRGB source image video sequence (x01.png, x02.png, x03.png, etc.) to x01.basis\n"
 		"\n"
-		"Note: For video use, it's recommended you use a very powerful machine with many cores. Use -comp_level 2 or higher for better codebook\n"
+		"Example HDR command lines:\n"
+		" basisu x.exr : Compress a HDR .EXR image to a UASTC HDR .KTX2 file.\n"
+		" basisu x.hdr -uastc_level 0 : Compress a HDR .hdr image to a UASTC HDR .KTX2 file, fastest encoding but lowest quality\n"
+		" basisu -hdr x.png : Compress a LDR .PNG image to UASTC HDR (image is converted from sRGB to linear light first, use -hdr_ldr_no_srgb_to_linear to disable)\n"
+		" basisu x.hdr -uastc_level 3 : Compress a HDR .hdr image to UASTC HDR at higher quality (-uastc_level 4 is highest quality, but very slow encoding)\n"
+		" basisu x.hdr -uastc_level 3 -mipmap -basis -stats -debug -debug_images : Compress a HDR .hdr image to a UASTC HDR, .basis output file, at higher quality, generate mipmaps, output statistics and debug information, and write tone mapped debug images\n"
+		" basisu x.hdr -stats -hdr_favor_astc -hdr_uber_mode -uastc_level 4 : Highest achievable ASTC HDR quality (very slow encoding, BC6H quality is traded off)\n"
+		"\n"
+		"Video notes: For video use, it's recommended to encode on a machine with many cores. Use -comp_level 2 or higher for better codebook\n"
 		"generation, specify very large codebooks using -max_endpoints and -max_selectors, and reduce the default endpoint RDO threshold\n"
 		"(-endpoint_rdo_thresh) to around 1.25. Videos may have mipmaps and alpha channels. Videos must always be played back by the transcoder\n"
 		"in first to last image order.\n"
 		"Video files currently use I-Frames on the first image, and P-Frames using conditional replenishment on subsequent frames.\n"
-		"\nCompression level (-comp_level X) details:\n"
+		"\nETC1S Compression level (-comp_level X) details. This controls the ETC1S speed vs. quality trandeoff. (Use -q to control the quality vs. compressed size tradeoff.):\n"
 		" Level 0: Fastest, but has marginal quality and can be brittle on complex images. Avg. Y dB: 35.45\n"
 		" Level 1: Hierarchical codebook searching, faster ETC1S encoding. 36.87 dB, ~1.4x slower vs. level 0. (This is the default setting.)\n"
 		" Level 2: Use this or higher for video. Hierarchical codebook searching. 36.87 dB, ~1.4x slower vs. level 0. (This is the v1.12's default setting.)\n"
 		" Level 3: Full codebook searching. 37.13 dB, ~1.8x slower vs. level 0. (Equivalent the the initial release's default settings.)\n"
 		" Level 4: Hierarchical codebook searching, codebook k-means iterations. 37.15 dB, ~4x slower vs. level 0\n"
-		" Level 5: Full codebook searching, codebook k-means iterations. 37.41 dB, ~5.5x slower vs. level 0. (Equivalent to the initial release's -slower setting.)\n"
+		" Level 5: Full codebook searching, codebook k-means iterations. 37.41 dB, ~5.5x slower vs. level 0.\n"
 		" Level 6: Full codebook searching, twice as many codebook k-means iterations, best ETC1 endpoint opt. 37.43 dB, ~12x slower vs. level 0\n"
 	);
 }
@@ -280,12 +320,13 @@ class command_line_params
 public:
 	command_line_params() :
 		m_mode(cDefault),
-		m_ktx2_mode(false),
+		m_ktx2_mode(true),
 		m_ktx2_zstandard(true),
 		m_ktx2_zstandard_level(6),
 		m_ktx2_animdata_duration(1),
 		m_ktx2_animdata_timescale(15),
 		m_ktx2_animdata_loopcount(0),
+		m_format_only(-1),
 		m_multifile_first(0),
 		m_multifile_num(0),
 		m_max_threads(1024), // surely this is high enough
@@ -293,15 +334,16 @@ public:
 		m_no_ktx(false),
 		m_ktx_only(false),
 		m_write_out(false),
-		m_format_only(-1),
 		m_etc1_only(false),
 		m_fuzz_testing(false),
 		m_compare_ssim(false),
 		m_compare_plot(false),
-		m_bench(false),
 		m_parallel_compression(false)
 	{
 		m_comp_params.m_compression_level = basisu::maximum<int>(0, BASISU_DEFAULT_COMPRESSION_LEVEL - 1);
+		
+		m_comp_params.m_uastc_hdr_options.set_quality_level(astc_hdr_codec_options::cDefaultLevel);
+
 		m_test_file_dir = "../test_files";
 	}
 
@@ -316,9 +358,18 @@ public:
 
 #define REMAINING_ARGS_CHECK(n) if (num_remaining_args < (n)) { error_printf("Error: Expected %u values to follow %s!\n", n, pArg); return false; }
 
-			if (strcasecmp(pArg, "-ktx2") == 0)
+			if ((strcasecmp(pArg, "-help") == 0) || (strcasecmp(pArg, "--help") == 0))
+			{
+				print_usage();
+				exit(EXIT_SUCCESS);
+			}
+			else if (strcasecmp(pArg, "-ktx2") == 0)
 			{
 				m_ktx2_mode = true;
+			}
+			else if (strcasecmp(pArg, "-basis") == 0)
+			{
+				m_ktx2_mode = false;
 			}
 			else if (strcasecmp(pArg, "-ktx2_no_zstandard") == 0)
 			{
@@ -348,21 +399,28 @@ public:
 				m_ktx2_animdata_loopcount = atoi(arg_v[arg_index + 1]);
 				arg_count++;
 			}
+			else if (strcasecmp(pArg, "-ldr") == 0)
+			{
+			}
 			else if (strcasecmp(pArg, "-compress") == 0)
 				m_mode = cCompress;
 			else if (strcasecmp(pArg, "-compare") == 0)
 				m_mode = cCompare;
+			else if ((strcasecmp(pArg, "-hdr_compare") == 0) || (strcasecmp(pArg, "-compare_hdr") == 0))
+				m_mode = cHDRCompare;
 			else if (strcasecmp(pArg, "-split") == 0)
 				m_mode = cSplitImage;
 			else if (strcasecmp(pArg, "-combine") == 0)
 				m_mode = cCombineImages;
+			else if (strcasecmp(pArg, "-tonemap") == 0)
+				m_mode = cTonemapImage;
 			else if (strcasecmp(pArg, "-unpack") == 0)
 				m_mode = cUnpack;
 			else if (strcasecmp(pArg, "-validate") == 0)
 				m_mode = cValidate;
 			else if (strcasecmp(pArg, "-info") == 0)
 				m_mode = cInfo;
-			else if (strcasecmp(pArg, "-version") == 0)
+			else if ((strcasecmp(pArg, "-version") == 0) || (strcasecmp(pArg, "--version") == 0))
 				m_mode = cVersion;
 			else if (strcasecmp(pArg, "-compare_ssim") == 0)
 				m_compare_ssim = true;
@@ -372,8 +430,16 @@ public:
 				m_mode = cBench;
 			else if (strcasecmp(pArg, "-comp_size") == 0)
 				m_mode = cCompSize;
-			else if (strcasecmp(pArg, "-test") == 0)
-				m_mode = cTest;
+			else if (strcasecmp(pArg, "-hdr_ldr_no_srgb_to_linear") == 0)
+				m_comp_params.m_hdr_ldr_srgb_to_linear_conversion = false;
+			else if (strcasecmp(pArg, "-hdr_uber_mode") == 0)
+				m_comp_params.m_uastc_hdr_options.m_allow_uber_mode = true;
+			else if (strcasecmp(pArg, "-hdr_favor_astc") == 0)
+				m_comp_params.m_hdr_favor_astc = true;
+			else if ((strcasecmp(pArg, "-test") == 0) || (strcasecmp(pArg, "-test_ldr") == 0))
+				m_mode = cTestLDR;
+			else if (strcasecmp(pArg, "-test_hdr") == 0)
+				m_mode = cTestHDR;
 			else if (strcasecmp(pArg, "-clbench") == 0)
 				m_mode = cCLBench;
 			else if (strcasecmp(pArg, "-test_dir") == 0)
@@ -424,6 +490,20 @@ public:
 			}
 			else if (strcasecmp(pArg, "-uastc") == 0)
 				m_comp_params.m_uastc = true;
+			else if (strcasecmp(pArg, "-fastest") == 0)
+			{
+				m_comp_params.m_pack_uastc_flags &= ~cPackUASTCLevelMask;
+				m_comp_params.m_pack_uastc_flags |= cPackUASTCLevelFastest;
+
+				m_comp_params.m_uastc_hdr_options.set_quality_level(0);
+			}
+			else if (strcasecmp(pArg, "-slower") == 0)
+			{
+				m_comp_params.m_pack_uastc_flags &= ~cPackUASTCLevelMask;
+				m_comp_params.m_pack_uastc_flags |= cPackUASTCLevelSlower;
+
+				m_comp_params.m_uastc_hdr_options.set_quality_level(3);
+			}
 			else if (strcasecmp(pArg, "-uastc_level") == 0)
 			{
 				REMAINING_ARGS_CHECK(1);
@@ -437,6 +517,8 @@ public:
 				
 				m_comp_params.m_pack_uastc_flags &= ~cPackUASTCLevelMask;
 				m_comp_params.m_pack_uastc_flags |= s_level_flags[uastc_level];
+
+				m_comp_params.m_uastc_hdr_options.set_quality_level(uastc_level);
 				
 				arg_count++;
 			}
@@ -537,11 +619,6 @@ public:
 				m_comp_params.m_compression_level = atoi(arg_v[arg_index + 1]);
 				arg_count++;
 			}
-			else if (strcasecmp(pArg, "-slower") == 0)
-			{
-				// This option is gone, but we'll do something reasonable with it anyway. Level 4 is equivalent to the original release's -slower, but let's just go to level 2.
-				m_comp_params.m_compression_level = BASISU_DEFAULT_COMPRESSION_LEVEL + 1;
-			}
 			else if (strcasecmp(pArg, "-max_endpoints") == 0)
 			{
 				REMAINING_ARGS_CHECK(1);
@@ -604,7 +681,7 @@ public:
 			}
 			else if (strcasecmp(pArg, "-renorm") == 0)
 				m_comp_params.m_renormalize = true;
-			else if (strcasecmp(pArg, "-no_multithreading") == 0)
+			else if ((strcasecmp(pArg, "-no_multithreading") == 0) || (strcasecmp(pArg, "-no_threading") == 0))
 			{
 				m_comp_params.m_multithreading = false;
 			}
@@ -639,6 +716,11 @@ public:
 			}
 			else if (strcasecmp(pArg, "-disable_hierarchical_endpoint_codebooks") == 0)
 				m_comp_params.m_disable_hierarchical_endpoint_codebooks = true;
+			else if (strcasecmp(pArg, "-hdr") == 0)
+			{
+				m_comp_params.m_hdr = true;
+				m_comp_params.m_uastc = true;
+			}
 			else if (strcasecmp(pArg, "-opencl") == 0)
 			{
 				m_comp_params.m_use_opencl = true;
@@ -716,10 +798,16 @@ public:
 				m_comp_params.m_us_per_frame = clamp<int>(static_cast<int>(us_per_frame + .5f), 0, basist::cBASISMaxUSPerFrame);
 				arg_count++;
 			}
+			else if (strcasecmp(pArg, "-cubemap") == 0)
+			{
+				m_comp_params.m_tex_type = basist::cBASISTexTypeCubemapArray;
+				m_individual = false;
+			}
 			else if (strcasecmp(pArg, "-tex_type") == 0)
 			{
 				REMAINING_ARGS_CHECK(1);
 				const char* pType = arg_v[arg_index + 1];
+
 				if (strcasecmp(pType, "2d") == 0)
 					m_comp_params.m_tex_type = basist::cBASISTexType2D;
 				else if (strcasecmp(pType, "2darray") == 0)
@@ -751,7 +839,7 @@ public:
 			}
 			else if (strcasecmp(pArg, "-individual") == 0)
 				m_individual = true;
-			else if (strcasecmp(pArg, "-tex_array") == 0)
+			else if ((strcasecmp(pArg, "-tex_array") == 0) || (strcasecmp(pArg, "-texarray") == 0))
 				m_individual = false;
 			else if (strcasecmp(pArg, "-fuzz_testing") == 0)
 				m_fuzz_testing = true;
@@ -873,7 +961,6 @@ public:
 	bool m_fuzz_testing;
 	bool m_compare_ssim;
 	bool m_compare_plot;
-	bool m_bench;
 	bool m_parallel_compression;
 };
 
@@ -1005,40 +1092,6 @@ static bool compress_mode(command_line_params &opts)
 			return false;
 
 		printf("Loaded global codebooks from .basis file \"%s\"\n", opts.m_etc1s_use_global_codebooks_file.c_str());
-
-#if 0
-		// Development/test code. TODO: Remove.
-		basis_data* pGlobal_codebook_data2 = load_basis_file("xmen_1024.basis", sel_codebook, true);
-		const basist::basisu_lowlevel_etc1s_transcoder &ta = pGlobal_codebook_data->m_transcoder.get_lowlevel_etc1s_decoder();
-		const basist::basisu_lowlevel_etc1s_transcoder &tb = pGlobal_codebook_data2->m_transcoder.get_lowlevel_etc1s_decoder();
-		if (ta.get_endpoints().size() != tb.get_endpoints().size())
-		{
-			printf("Endpoint CB's don't match\n");
-		}
-		else if (ta.get_selectors().size() != tb.get_selectors().size())
-		{
-			printf("Selector CB's don't match\n");
-		}
-		else
-		{
-			for (uint32_t i = 0; i < ta.get_endpoints().size(); i++)
-			{
-				if (ta.get_endpoints()[i] != tb.get_endpoints()[i])
-				{
-					printf("Endoint CB mismatch entry %u\n", i);
-				}
-			}
-			for (uint32_t i = 0; i < ta.get_selectors().size(); i++)
-			{
-				if (ta.get_selectors()[i] != tb.get_selectors()[i])
-				{
-					printf("Selector CB mismatch entry %u\n", i);
-				}
-			}
-		}
-		delete pGlobal_codebook_data2;
-		pGlobal_codebook_data2 = nullptr;
-#endif
 	}
 						
 	basis_compressor_params &params = opts.m_comp_params;
@@ -1079,8 +1132,9 @@ static bool compress_mode(command_line_params &opts)
 	}
 
 	params.m_read_source_images = true;
-	params.m_write_output_basis_files = true;
+	params.m_write_output_basis_or_ktx2_files = true;
 	params.m_pGlobal_codebooks = pGlobal_codebook_data ? &pGlobal_codebook_data->m_transcoder.get_lowlevel_etc1s_decoder() : nullptr; 
+	
 	FILE *pCSV_file = nullptr;
 	if (opts.m_csv_file.size())
 	{
@@ -1115,6 +1169,8 @@ static bool compress_mode(command_line_params &opts)
 		}
 	}
 
+	uint32_t total_successes = 0, total_failures = 0;
+
 	for (size_t file_index = 0; file_index < total_files; file_index++)
 	{
 		if (opts.m_individual)
@@ -1143,7 +1199,7 @@ static bool compress_mode(command_line_params &opts)
 			params.m_source_filenames = opts.m_input_filenames;
 			params.m_source_alpha_filenames = opts.m_input_alpha_filenames;
 		}
-				
+								
 		if (opts.m_output_filename.size())
 			params.m_out_filename = opts.m_output_filename;
 		else
@@ -1195,6 +1251,8 @@ static bool compress_mode(command_line_params &opts)
 
 			if (ec == basis_compressor::cECSuccess)
 			{
+				total_successes++;
+
 				if (params.m_status_output)
 				{
 					printf("Compression succeeded to file \"%s\" size %u bytes in %3.3f secs\n", params.m_out_filename.c_str(),
@@ -1204,6 +1262,8 @@ static bool compress_mode(command_line_params &opts)
 			}
 			else
 			{
+				total_failures++;
+
 				result = false;
 
 				if (!params.m_status_output)
@@ -1327,8 +1387,7 @@ static bool compress_mode(command_line_params &opts)
 			comp_params_vec,
 			results);
 		BASISU_NOTE_UNUSED(any_failed);
-
-		uint32_t total_successes = 0, total_failures = 0;
+				
 		for (uint32_t i = 0; i < comp_params_vec.size(); i++)
 		{
 			if (results[i].m_error_code != basis_compressor::cECSuccess)
@@ -1347,10 +1406,10 @@ static bool compress_mode(command_line_params &opts)
 				total_successes++;
 			}
 		}
-
-		printf("Total successes: %u failures: %u\n", total_successes, total_failures);
-
+				
 	} // if (opts.m_parallel_compression)
+
+	printf("Total successes: %u failures: %u\n", total_successes, total_failures);
 		
 	all_tm.stop();
 
@@ -1364,7 +1423,7 @@ static bool compress_mode(command_line_params &opts)
 	}
 	delete pGlobal_codebook_data; 
 	pGlobal_codebook_data = nullptr;
-		
+
 	return result;
 }
 
@@ -1404,8 +1463,15 @@ static bool unpack_and_validate_ktx2_file(
 	printf("Total Faces: %u (%s)\n", dec.get_faces(), (dec.get_faces() == 6) ? "CUBEMAP" : "2D");
 	printf("Is Texture Video: %u\n", dec.is_video());
 	
-	const bool is_etc1s = dec.get_format() == basist::basis_tex_format::cETC1S;
-	printf("Supercompression Format: %s\n", is_etc1s ? "ETC1S" : "UASTC");
+	const bool is_etc1s = (dec.get_format() == basist::basis_tex_format::cETC1S);
+	
+	const char* pFmt_str = "ETC1S";
+	if (dec.get_format() == basist::basis_tex_format::cUASTC4x4)
+		pFmt_str = "UASTC";
+	else if (dec.get_format() == basist::basis_tex_format::cUASTC_HDR_4x4)
+		pFmt_str = "UASTC_HDR";
+
+	printf("Supercompression Format: %s\n", pFmt_str);
 	
 	printf("Supercompression Scheme: ");
 	switch (dec.get_header().m_supercompression_scheme)
@@ -1419,7 +1485,9 @@ static bool unpack_and_validate_ktx2_file(
 	}
 
 	printf("Has Alpha: %u\n", (uint32_t)dec.get_has_alpha());
-
+	
+	printf("\nKTX2 header vk_format: 0x%X (decimal %u)\n", (uint32_t)dec.get_header().m_vk_format, (uint32_t)dec.get_header().m_vk_format);
+	
 	printf("\nData Format Descriptor (DFD):\n");
 	printf("DFD length in bytes: %u\n", dec.get_dfd().size());
 	printf("DFD color model: %u\n", dec.get_dfd_color_model());
@@ -1558,7 +1626,7 @@ static bool unpack_and_validate_ktx2_file(
 		}
 	}
 
-	// Now transcode the file to all supported texture formats and save mipmapped KTX files
+	// Now transcode the file to all supported texture formats and save mipmapped KTX/DDS files
 	for (int format_iter = first_format; format_iter < last_format; format_iter++)
 	{
 		const basist::transcoder_texture_format transcoder_tex_fmt = static_cast<basist::transcoder_texture_format>(format_iter);
@@ -1622,63 +1690,121 @@ static bool unpack_and_validate_ktx2_file(
 
 	} // image_info
 
-	if (!validate_flag)
+	// Return if we're just validating that transcoding succeeds
+	if (validate_flag)
+		return true;
+
+	// Now write KTX/DDS files and unpack them to individual PNG's/EXR's
+	const bool is_cubemap = (dec.get_faces() > 1);
+	const bool is_array = (total_layers > 1);
+	const bool is_cubemap_array = is_cubemap && is_array;
+	const bool is_mipmapped = dec.get_levels() > 1;
+	BASISU_NOTE_UNUSED(is_cubemap_array);
+	BASISU_NOTE_UNUSED(is_mipmapped);
+	
+	// The maximum Direct3D array size is 2048.
+	const uint32_t MAX_DDS_TEXARRAY_SIZE = 2048;
+
+	for (int format_iter = first_format; format_iter < last_format; format_iter++)
 	{
-		// Now write KTX files and unpack them to individual PNG's
-		const bool is_cubemap_array = (dec.get_faces() > 1) && (total_layers > 1);
+		const basist::transcoder_texture_format transcoder_tex_fmt = static_cast<basist::transcoder_texture_format>(format_iter);
+		const basisu::texture_format tex_fmt = basis_get_basisu_texture_format(transcoder_tex_fmt);
+				
+		if (basist::basis_transcoder_format_is_uncompressed(transcoder_tex_fmt))
+			continue;
+		if (!basis_is_format_supported(transcoder_tex_fmt, dec.get_format()))
+			continue;
+		if (transcoder_tex_fmt == basist::transcoder_texture_format::cTFBC7_ALT)
+			continue;
 
-		for (int format_iter = first_format; format_iter < last_format; format_iter++)
+		// TODO: Could write DDS texture arrays.
+		
+		// No KTX tool that we know of supports cubemap arrays, so write individual cubemap files for each layer.
+		if ((!opts.m_no_ktx) && (is_cubemap))
 		{
-			const basist::transcoder_texture_format transcoder_tex_fmt = static_cast<basist::transcoder_texture_format>(format_iter);
-
-			if (basist::basis_transcoder_format_is_uncompressed(transcoder_tex_fmt))
-				continue;
-			if (!basis_is_format_supported(transcoder_tex_fmt, dec.get_format()))
-				continue;
-			if (transcoder_tex_fmt == basist::transcoder_texture_format::cTFBC7_ALT)
-				continue;
-
-			if ((!opts.m_no_ktx) && (is_cubemap_array))
+			// Write a separate compressed texture file for each layer in a texarray.
+			for (uint32_t layer_index = 0; layer_index < total_layers; layer_index++)
 			{
-				// No KTX tool that we know of supports cubemap arrays, so write individual cubemap files.
-				for (uint32_t layer_index = 0; layer_index < total_layers; layer_index++)
+				basisu::vector<gpu_image_vec> cubemap;
+				for (uint32_t face_index = 0; face_index < 6; face_index++)
+					cubemap.push_back(gpu_images[format_iter][face_index][layer_index]);
+
 				{
-					basisu::vector<gpu_image_vec> cubemap;
-					for (uint32_t face_index = 0; face_index < 6; face_index++)
-						cubemap.push_back(gpu_images[format_iter][face_index][layer_index]);
+					std::string ktx_filename(base_filename + string_format("_transcoded_cubemap_%s_layer_%u.ktx", basist::basis_get_format_name(transcoder_tex_fmt), layer_index));
 
-					std::string ktx_filename(base_filename + string_format("_transcoded_cubemap_%s_%u.ktx", basist::basis_get_format_name(transcoder_tex_fmt), layer_index));
-
-					if (!write_compressed_texture_file(ktx_filename.c_str(), cubemap, true))
+					if (!write_compressed_texture_file(ktx_filename.c_str(), cubemap, true, true))
 					{
 						error_printf("Failed writing KTX file \"%s\"!\n", ktx_filename.c_str());
 						return false;
 					}
-					printf("Wrote KTX file \"%s\"\n", ktx_filename.c_str());
+					printf("Wrote KTX cubemap file \"%s\"\n", ktx_filename.c_str());
 				}
-			}
-
-			for (uint32_t layer_index = 0; layer_index < total_layers; layer_index++)
-			{
-				for (uint32_t face_index = 0; face_index < dec.get_faces(); face_index++)
+								
+				if (does_dds_support_format(cubemap[0][0].get_format()))
 				{
-					gpu_image_vec& gi = gpu_images[format_iter][face_index][layer_index];
+					std::string dds_filename(base_filename + string_format("_transcoded_cubemap_%s_layer_%u.dds", basist::basis_get_format_name(transcoder_tex_fmt), layer_index));
 
-					if (!gi.size())
-						continue;
-
-					uint32_t level;
-					for (level = 0; level < gi.size(); level++)
-						if (!gi[level].get_total_blocks())
-							break;
-
-					if (level < gi.size())
-						continue;
-
-					if ((!opts.m_no_ktx) && (!is_cubemap_array))
+					if (!write_compressed_texture_file(dds_filename.c_str(), cubemap, true, true))
 					{
-						std::string ktx_filename(base_filename + string_format("_transcoded_%s_%04u.ktx", basist::basis_get_format_name(transcoder_tex_fmt), layer_index));
-						if (!write_compressed_texture_file(ktx_filename.c_str(), gi))
+						error_printf("Failed writing DDS file \"%s\"!\n", dds_filename.c_str());
+						return false;
+					}
+					printf("Wrote DDS cubemap file \"%s\"\n", dds_filename.c_str());
+				}
+			} // layer_index
+		}
+
+		// For texture arrays, let's be adventurous and write a DDS texture array file. RenderDoc and DDSView (DirectXTex) can view them. (Only RenderDoc allows viewing them entirely.)
+		if ((!opts.m_no_ktx) && (is_array) && (total_layers <= MAX_DDS_TEXARRAY_SIZE))
+		{
+			if (does_dds_support_format(tex_fmt))
+			{
+				basisu::vector<gpu_image_vec> tex_array;
+				for (uint32_t layer_index = 0; layer_index < total_layers; layer_index++)
+					for (uint32_t face_index = 0; face_index < dec.get_faces(); face_index++)
+						tex_array.push_back(gpu_images[format_iter][face_index][layer_index]);
+
+				std::string dds_filename(base_filename + string_format("_transcoded_array_%s.dds", basist::basis_get_format_name(transcoder_tex_fmt)));
+
+				if (!write_compressed_texture_file(dds_filename.c_str(), tex_array, is_cubemap, true))
+				{
+					error_printf("Failed writing DDS file \"%s\"!\n", dds_filename.c_str());
+					return false;
+				}
+				printf("Wrote DDS texture array file \"%s\"\n", dds_filename.c_str());
+			}
+		}
+
+		// Now unpack each layer and face individually and write KTX/DDS/PNG/EXR files for each
+		for (uint32_t layer_index = 0; layer_index < total_layers; layer_index++)
+		{
+			for (uint32_t face_index = 0; face_index < dec.get_faces(); face_index++)
+			{
+				gpu_image_vec& gi = gpu_images[format_iter][face_index][layer_index];
+
+				if (!gi.size())
+					continue;
+
+				uint32_t level;
+				for (level = 0; level < gi.size(); level++)
+					if (!gi[level].get_total_blocks())
+						break;
+
+				if (level < gi.size())
+					continue;
+
+				// Write separate compressed KTX/DDS textures with mipmap levels for each individual texarray layer and face.
+				if (!opts.m_no_ktx)
+				{
+					// Write KTX
+					{
+						std::string ktx_filename;
+						if (is_cubemap)
+							ktx_filename = base_filename + string_format("_transcoded_%s_face_%u_layer_%04u.ktx", basist::basis_get_format_name(transcoder_tex_fmt), face_index, layer_index);
+						else
+							ktx_filename = base_filename + string_format("_transcoded_%s_layer_%04u.ktx", basist::basis_get_format_name(transcoder_tex_fmt), layer_index);
+
+						if (!write_compressed_texture_file(ktx_filename.c_str(), gi, true))
 						{
 							error_printf("Failed writing KTX file \"%s\"!\n", ktx_filename.c_str());
 							return false;
@@ -1686,16 +1812,64 @@ static bool unpack_and_validate_ktx2_file(
 						printf("Wrote KTX file \"%s\"\n", ktx_filename.c_str());
 					}
 
-					for (uint32_t level_index = 0; level_index < gi.size(); level_index++)
+					// Write DDS if it supports this texture format
+					if (does_dds_support_format(gi[0].get_format()))
 					{
-						basist::ktx2_image_level_info level_info;
+						std::string dds_filename;
+						if (is_cubemap)
+							dds_filename = base_filename + string_format("_transcoded_%s_face_%u_layer_%04u.dds", basist::basis_get_format_name(transcoder_tex_fmt), face_index, layer_index);
+						else
+							dds_filename = base_filename + string_format("_transcoded_%s_layer_%04u.dds", basist::basis_get_format_name(transcoder_tex_fmt), layer_index);
 
-						if (!dec.get_image_level_info(level_info, level_index, layer_index, face_index))
+						if (!write_compressed_texture_file(dds_filename.c_str(), gi, true))
 						{
-							error_printf("Failed retrieving image level information (%u %u %u)!\n", layer_index, level_index, face_index);
+							error_printf("Failed writing DDS file \"%s\"!\n", dds_filename.c_str());
 							return false;
 						}
+						printf("Wrote DDS file \"%s\"\n", dds_filename.c_str());
+					}
+				}
 
+				// Now unpack and save PNG/EXR files
+				for (uint32_t level_index = 0; level_index < gi.size(); level_index++)
+				{
+					basist::ktx2_image_level_info level_info;
+
+					if (!dec.get_image_level_info(level_info, level_index, layer_index, face_index))
+					{
+						error_printf("Failed retrieving image level information (%u %u %u)!\n", layer_index, level_index, face_index);
+						return false;
+					}
+
+					if (basist::basis_transcoder_format_is_hdr(transcoder_tex_fmt))
+					{
+						imagef u;
+
+						if (!gi[level_index].unpack_hdr(u))
+						{
+							printf("Warning: Failed unpacking HDR GPU texture data (%u %u %u %u). Unpacking as much as possible.\n", format_iter, layer_index, level_index, face_index);
+							total_unpack_warnings++;
+						}
+
+						if (!opts.m_ktx_only)
+						{
+							std::string rgb_filename;
+							if (gi.size() > 1)
+								rgb_filename = base_filename + string_format("_hdr_unpacked_rgb_%s_level_%u_face_%u_layer_%04u.exr", basist::basis_get_format_name(transcoder_tex_fmt), level_index, face_index, layer_index);
+							else
+								rgb_filename = base_filename + string_format("_hdr_unpacked_rgb_%s_face_%u_layer_%04u.exr", basist::basis_get_format_name(transcoder_tex_fmt), face_index, layer_index);
+
+							if (!write_exr(rgb_filename.c_str(), u, 3, 0))
+							{
+								error_printf("Failed writing to EXR file \"%s\"\n", rgb_filename.c_str());
+								delete pGlobal_codebook_data; pGlobal_codebook_data = nullptr;
+								return false;
+							}
+							printf("Wrote EXR file \"%s\"\n", rgb_filename.c_str());
+						}
+					}
+					else
+					{
 						image u;
 						if (!gi[level_index].unpack(u))
 						{
@@ -1704,20 +1878,16 @@ static bool unpack_and_validate_ktx2_file(
 						}
 						//u.crop(level_info.m_orig_width, level_info.m_orig_height);
 
-						bool is_astc = (transcoder_tex_fmt == basist::transcoder_texture_format::cTFASTC_4x4_RGBA);
 						bool write_png = true;
-#if !BASISU_USE_ASTC_DECOMPRESS
-						if (is_astc)
-							write_png = false;
-#endif
 
+						// Save PNG (ignoring alpha)
 						if ((!opts.m_ktx_only) && (write_png))
 						{
 							std::string rgb_filename;
 							if (gi.size() > 1)
-								rgb_filename = base_filename + string_format("_unpacked_rgb_%s_%u_%u_%04u.png", basist::basis_get_format_name(transcoder_tex_fmt), level_index, face_index, layer_index);
+								rgb_filename = base_filename + string_format("_unpacked_rgb_%s_level_%u_face_%u_layer_%04u.png", basist::basis_get_format_name(transcoder_tex_fmt), level_index, face_index, layer_index);
 							else
-								rgb_filename = base_filename + string_format("_unpacked_rgb_%s_%u_%04u.png", basist::basis_get_format_name(transcoder_tex_fmt), face_index, layer_index);
+								rgb_filename = base_filename + string_format("_unpacked_rgb_%s_face_%u_layer_%04u.png", basist::basis_get_format_name(transcoder_tex_fmt), face_index, layer_index);
 							if (!save_png(rgb_filename, u, cImageSaveIgnoreAlpha))
 							{
 								error_printf("Failed writing to PNG file \"%s\"\n", rgb_filename.c_str());
@@ -1727,13 +1897,14 @@ static bool unpack_and_validate_ktx2_file(
 							printf("Wrote PNG file \"%s\"\n", rgb_filename.c_str());
 						}
 
+						// Save .OUT
 						if ((transcoder_tex_fmt == basist::transcoder_texture_format::cTFFXT1_RGB) && (opts.m_write_out))
 						{
 							std::string out_filename;
 							if (gi.size() > 1)
-								out_filename = base_filename + string_format("_unpacked_rgb_%s_%u_%u_%04u.out", basist::basis_get_format_name(transcoder_tex_fmt), level_index, face_index, layer_index);
+								out_filename = base_filename + string_format("_unpacked_rgb_%s_level_%u_face_%u_layer_%04u.out", basist::basis_get_format_name(transcoder_tex_fmt), level_index, face_index, layer_index);
 							else
-								out_filename = base_filename + string_format("_unpacked_rgb_%s_%u_%04u.out", basist::basis_get_format_name(transcoder_tex_fmt), face_index, layer_index);
+								out_filename = base_filename + string_format("_unpacked_rgb_%s_face_%u_layer_%04u.out", basist::basis_get_format_name(transcoder_tex_fmt), face_index, layer_index);
 							if (!write_3dfx_out_file(out_filename.c_str(), gi[level_index]))
 							{
 								error_printf("Failed writing to OUT file \"%s\"\n", out_filename.c_str());
@@ -1742,13 +1913,14 @@ static bool unpack_and_validate_ktx2_file(
 							printf("Wrote .OUT file \"%s\"\n", out_filename.c_str());
 						}
 
+						// Save alpha
 						if (basis_transcoder_format_has_alpha(transcoder_tex_fmt) && (!opts.m_ktx_only) && (write_png))
 						{
 							std::string a_filename;
 							if (gi.size() > 1)
-								a_filename = base_filename + string_format("_unpacked_a_%s_%u_%u_%04u.png", basist::basis_get_format_name(transcoder_tex_fmt), level_index, face_index, layer_index);
+								a_filename = base_filename + string_format("_unpacked_a_%s_level_%u_face_%u_layer_%04u.png", basist::basis_get_format_name(transcoder_tex_fmt), level_index, face_index, layer_index);
 							else
-								a_filename = base_filename + string_format("_unpacked_a_%s_%u_%04u.png", basist::basis_get_format_name(transcoder_tex_fmt), face_index, layer_index);
+								a_filename = base_filename + string_format("_unpacked_a_%s_face_%u_layer_%04u.png", basist::basis_get_format_name(transcoder_tex_fmt), face_index, layer_index);
 							if (!save_png(a_filename, u, cImageSaveGrayscale, 3))
 							{
 								error_printf("Failed writing to PNG file \"%s\"\n", a_filename.c_str());
@@ -1758,9 +1930,9 @@ static bool unpack_and_validate_ktx2_file(
 
 							std::string rgba_filename;
 							if (gi.size() > 1)
-								rgba_filename = base_filename + string_format("_unpacked_rgba_%s_%u_%04u.png", basist::basis_get_format_name(transcoder_tex_fmt), level_index, face_index, layer_index);
+								rgba_filename = base_filename + string_format("_unpacked_rgba_%s_level_%u_face_%u_layer_%04u.png", basist::basis_get_format_name(transcoder_tex_fmt), level_index, face_index, layer_index);
 							else
-								rgba_filename = base_filename + string_format("_unpacked_rgba_%s_%u_%04u.png", basist::basis_get_format_name(transcoder_tex_fmt), face_index, layer_index);
+								rgba_filename = base_filename + string_format("_unpacked_rgba_%s_face_%u_layer_%04u.png", basist::basis_get_format_name(transcoder_tex_fmt), face_index, layer_index);
 							if (!save_png(rgba_filename, u))
 							{
 								error_printf("Failed writing to PNG file \"%s\"\n", rgba_filename.c_str());
@@ -1768,16 +1940,18 @@ static bool unpack_and_validate_ktx2_file(
 							}
 							printf("Wrote PNG file \"%s\"\n", rgba_filename.c_str());
 						}
+						
+					} // is_hdr
 
-					} // level_index
+				} // level_index
 
-				} // face_index
+			} // face_index
 
-			} // layer_index
+		} // layer_index
 
-		} // format_iter
+	} // format_iter
 
-	} // if (!validate_flag)
+	// TODO: transcode to unpacked texture formats, like we do for .basis. As this is mostly a transcode test, supporting this with .basis seems fine.
 
 	return true;
 }
@@ -1835,7 +2009,11 @@ static bool unpack_and_validate_basis_file(
 	printf("  Endpoint codebook size: %u\n", fileinfo.m_endpoint_codebook_size);
 	printf("  Tables size: %u\n", fileinfo.m_tables_size);
 	printf("  Slices size: %u\n", fileinfo.m_slices_size);
-	printf("  Texture format: %s\n", (fileinfo.m_tex_format == basist::basis_tex_format::cUASTC4x4) ? "UASTC" : "ETC1S");
+
+	const bool is_hdr = (fileinfo.m_tex_format == basist::basis_tex_format::cUASTC_HDR_4x4);
+	
+	printf("  Texture format: %s\n", is_hdr ? "UASTC_HDR" : ((fileinfo.m_tex_format == basist::basis_tex_format::cUASTC4x4) ? "UASTC" : "ETC1S"));
+
 	printf("  Texture type: %s\n", basist::basis_get_texture_type_name(fileinfo.m_tex_type));
 	printf("  us per frame: %u (%f fps)\n", fileinfo.m_us_per_frame, fileinfo.m_us_per_frame ? (1.0f / ((float)fileinfo.m_us_per_frame / 1000000.0f)) : 0.0f);
 	printf("  Total slices: %u\n", (uint32_t)fileinfo.m_slice_info.size());
@@ -2047,7 +2225,7 @@ static bool unpack_and_validate_basis_file(
 
 	} // image_info
 
-	// Upack UASTC files separarely, to validate we can transcode slices to UASTC and unpack them to pixels.
+	// Upack UASTC files seperately, to validate we can transcode slices to UASTC and unpack them to pixels.
 	// This is a special path because UASTC is not yet a valid transcoder_texture_format, but a lower-level block_format.
 	if (fileinfo.m_tex_format == basist::basis_tex_format::cUASTC4x4)
 	{
@@ -2129,7 +2307,7 @@ static bool unpack_and_validate_basis_file(
 
 	if (!validate_flag)
 	{
-		// Now write KTX files and unpack them to individual PNG's
+		// Now write KTX files and unpack them to individual PNG's/EXR's
 
 		for (int format_iter = first_format; format_iter < last_format; format_iter++)
 		{
@@ -2151,13 +2329,26 @@ static bool unpack_and_validate_basis_file(
 					for (uint32_t i = 0; i < 6; i++)
 						cubemap.push_back(gpu_images[format_iter][image_index + i]);
 
-					std::string ktx_filename(base_filename + string_format("_transcoded_cubemap_%s_%u.ktx", basist::basis_get_format_name(transcoder_tex_fmt), image_index / 6));
-					if (!write_compressed_texture_file(ktx_filename.c_str(), cubemap, true))
 					{
-						error_printf("Failed writing KTX file \"%s\"!\n", ktx_filename.c_str());
-						return false;
+						std::string ktx_filename(base_filename + string_format("_transcoded_cubemap_%s_%u.ktx", basist::basis_get_format_name(transcoder_tex_fmt), image_index / 6));
+						if (!write_compressed_texture_file(ktx_filename.c_str(), cubemap, true, true))
+						{
+							error_printf("Failed writing KTX file \"%s\"!\n", ktx_filename.c_str());
+							return false;
+						}
+						printf("Wrote KTX file \"%s\"\n", ktx_filename.c_str());
 					}
-					printf("Wrote KTX file \"%s\"\n", ktx_filename.c_str());
+
+					if (does_dds_support_format(cubemap[0][0].get_format()))
+					{
+						std::string dds_filename(base_filename + string_format("_transcoded_cubemap_%s_%u.dds", basist::basis_get_format_name(transcoder_tex_fmt), image_index / 6));
+						if (!write_compressed_texture_file(dds_filename.c_str(), cubemap, true, true))
+						{
+							error_printf("Failed writing DDS file \"%s\"!\n", dds_filename.c_str());
+							return false;
+						}
+						printf("Wrote DDS file \"%s\"\n", dds_filename.c_str());
+					}
 				}
 			}
 
@@ -2178,13 +2369,26 @@ static bool unpack_and_validate_basis_file(
 
 				if ((!opts.m_no_ktx) && (fileinfo.m_tex_type != basist::cBASISTexTypeCubemapArray))
 				{
-					std::string ktx_filename(base_filename + string_format("_transcoded_%s_%04u.ktx", basist::basis_get_format_name(transcoder_tex_fmt), image_index));
-					if (!write_compressed_texture_file(ktx_filename.c_str(), gi))
 					{
-						error_printf("Failed writing KTX file \"%s\"!\n", ktx_filename.c_str());
-						return false;
+						std::string ktx_filename(base_filename + string_format("_transcoded_%s_%04u.ktx", basist::basis_get_format_name(transcoder_tex_fmt), image_index));
+						if (!write_compressed_texture_file(ktx_filename.c_str(), gi, true))
+						{
+							error_printf("Failed writing KTX file \"%s\"!\n", ktx_filename.c_str());
+							return false;
+						}
+						printf("Wrote KTX file \"%s\"\n", ktx_filename.c_str());
 					}
-					printf("Wrote KTX file \"%s\"\n", ktx_filename.c_str());
+
+					if (does_dds_support_format(gi[0].get_format()))
+					{
+						std::string dds_filename(base_filename + string_format("_transcoded_%s_%04u.dds", basist::basis_get_format_name(transcoder_tex_fmt), image_index));
+						if (!write_compressed_texture_file(dds_filename.c_str(), gi, true))
+						{
+							error_printf("Failed writing DDS file \"%s\"!\n", dds_filename.c_str());
+							return false;
+						}
+						printf("Wrote DDS file \"%s\"\n", dds_filename.c_str());
+					}
 				}
 
 				for (uint32_t level_index = 0; level_index < gi.size(); level_index++)
@@ -2197,78 +2401,104 @@ static bool unpack_and_validate_basis_file(
 						return false;
 					}
 
-					image u;
-					if (!gi[level_index].unpack(u))
+					if (basist::basis_transcoder_format_is_hdr(transcoder_tex_fmt))
 					{
-						printf("Warning: Failed unpacking GPU texture data (%u %u %u). Unpacking as much as possible.\n", format_iter, image_index, level_index);
-						total_unpack_warnings++;
+						imagef u;
+
+						if (!gi[level_index].unpack_hdr(u))
+						{
+							printf("Warning: Failed unpacking GPU texture data (%u %u %u). Unpacking as much as possible.\n", format_iter, image_index, level_index);
+							total_unpack_warnings++;
+						}
+
+						if (!opts.m_ktx_only)
+						{
+							std::string rgb_filename;
+							if (gi.size() > 1)
+								rgb_filename = base_filename + string_format("_hdr_unpacked_rgb_%s_%u_%04u.exr", basist::basis_get_format_name(transcoder_tex_fmt), level_index, image_index);
+							else
+								rgb_filename = base_filename + string_format("_hdr_unpacked_rgb_%s_%04u.exr", basist::basis_get_format_name(transcoder_tex_fmt), image_index);
+
+							if (!write_exr(rgb_filename.c_str(), u, 3, 0))
+							{
+								error_printf("Failed writing to EXR file \"%s\"\n", rgb_filename.c_str());
+								delete pGlobal_codebook_data; pGlobal_codebook_data = nullptr;
+								return false;
+							}
+							printf("Wrote EXR file \"%s\"\n", rgb_filename.c_str());
+						}
 					}
-					//u.crop(level_info.m_orig_width, level_info.m_orig_height);
-
-					bool is_astc = (transcoder_tex_fmt == basist::transcoder_texture_format::cTFASTC_4x4_RGBA);
-					bool write_png = true;
-#if !BASISU_USE_ASTC_DECOMPRESS
-					if (is_astc)
-						write_png = false;
-#endif
-
-					if ((!opts.m_ktx_only) && (write_png))
+					else
 					{
-						std::string rgb_filename;
-						if (gi.size() > 1)
-							rgb_filename = base_filename + string_format("_unpacked_rgb_%s_%u_%04u.png", basist::basis_get_format_name(transcoder_tex_fmt), level_index, image_index);
-						else
-							rgb_filename = base_filename + string_format("_unpacked_rgb_%s_%04u.png", basist::basis_get_format_name(transcoder_tex_fmt), image_index);
-						if (!save_png(rgb_filename, u, cImageSaveIgnoreAlpha))
+						image u;
+						if (!gi[level_index].unpack(u))
 						{
-							error_printf("Failed writing to PNG file \"%s\"\n", rgb_filename.c_str());
-							delete pGlobal_codebook_data; pGlobal_codebook_data = nullptr;
-							return false;
+							printf("Warning: Failed unpacking GPU texture data (%u %u %u). Unpacking as much as possible.\n", format_iter, image_index, level_index);
+							total_unpack_warnings++;
 						}
-						printf("Wrote PNG file \"%s\"\n", rgb_filename.c_str());
-					}
+						//u.crop(level_info.m_orig_width, level_info.m_orig_height);
 
-					if ((transcoder_tex_fmt == basist::transcoder_texture_format::cTFFXT1_RGB) && (opts.m_write_out))
-					{
-						std::string out_filename;
-						if (gi.size() > 1)
-							out_filename = base_filename + string_format("_unpacked_rgb_%s_%u_%04u.out", basist::basis_get_format_name(transcoder_tex_fmt), level_index, image_index);
-						else
-							out_filename = base_filename + string_format("_unpacked_rgb_%s_%04u.out", basist::basis_get_format_name(transcoder_tex_fmt), image_index);
-						if (!write_3dfx_out_file(out_filename.c_str(), gi[level_index]))
-						{
-							error_printf("Failed writing to OUT file \"%s\"\n", out_filename.c_str());
-							return false;
-						}
-						printf("Wrote .OUT file \"%s\"\n", out_filename.c_str());
-					}
+						bool write_png = true;
 
-					if (basis_transcoder_format_has_alpha(transcoder_tex_fmt) && (!opts.m_ktx_only) && (write_png))
-					{
-						std::string a_filename;
-						if (gi.size() > 1)
-							a_filename = base_filename + string_format("_unpacked_a_%s_%u_%04u.png", basist::basis_get_format_name(transcoder_tex_fmt), level_index, image_index);
-						else
-							a_filename = base_filename + string_format("_unpacked_a_%s_%04u.png", basist::basis_get_format_name(transcoder_tex_fmt), image_index);
-						if (!save_png(a_filename, u, cImageSaveGrayscale, 3))
+						if ((!opts.m_ktx_only) && (write_png))
 						{
-							error_printf("Failed writing to PNG file \"%s\"\n", a_filename.c_str());
-							return false;
+							std::string rgb_filename;
+							if (gi.size() > 1)
+								rgb_filename = base_filename + string_format("_unpacked_rgb_%s_%u_%04u.png", basist::basis_get_format_name(transcoder_tex_fmt), level_index, image_index);
+							else
+								rgb_filename = base_filename + string_format("_unpacked_rgb_%s_%04u.png", basist::basis_get_format_name(transcoder_tex_fmt), image_index);
+							if (!save_png(rgb_filename, u, cImageSaveIgnoreAlpha))
+							{
+								error_printf("Failed writing to PNG file \"%s\"\n", rgb_filename.c_str());
+								delete pGlobal_codebook_data; pGlobal_codebook_data = nullptr;
+								return false;
+							}
+							printf("Wrote PNG file \"%s\"\n", rgb_filename.c_str());
 						}
-						printf("Wrote PNG file \"%s\"\n", a_filename.c_str());
 
-						std::string rgba_filename;
-						if (gi.size() > 1)
-							rgba_filename = base_filename + string_format("_unpacked_rgba_%s_%u_%04u.png", basist::basis_get_format_name(transcoder_tex_fmt), level_index, image_index);
-						else
-							rgba_filename = base_filename + string_format("_unpacked_rgba_%s_%04u.png", basist::basis_get_format_name(transcoder_tex_fmt), image_index);
-						if (!save_png(rgba_filename, u))
+						if ((transcoder_tex_fmt == basist::transcoder_texture_format::cTFFXT1_RGB) && (opts.m_write_out))
 						{
-							error_printf("Failed writing to PNG file \"%s\"\n", rgba_filename.c_str());
-							return false;
+							std::string out_filename;
+							if (gi.size() > 1)
+								out_filename = base_filename + string_format("_unpacked_rgb_%s_%u_%04u.out", basist::basis_get_format_name(transcoder_tex_fmt), level_index, image_index);
+							else
+								out_filename = base_filename + string_format("_unpacked_rgb_%s_%04u.out", basist::basis_get_format_name(transcoder_tex_fmt), image_index);
+							if (!write_3dfx_out_file(out_filename.c_str(), gi[level_index]))
+							{
+								error_printf("Failed writing to OUT file \"%s\"\n", out_filename.c_str());
+								return false;
+							}
+							printf("Wrote .OUT file \"%s\"\n", out_filename.c_str());
 						}
-						printf("Wrote PNG file \"%s\"\n", rgba_filename.c_str());
-					}
+
+						if (basis_transcoder_format_has_alpha(transcoder_tex_fmt) && (!opts.m_ktx_only) && (write_png))
+						{
+							std::string a_filename;
+							if (gi.size() > 1)
+								a_filename = base_filename + string_format("_unpacked_a_%s_%u_%04u.png", basist::basis_get_format_name(transcoder_tex_fmt), level_index, image_index);
+							else
+								a_filename = base_filename + string_format("_unpacked_a_%s_%04u.png", basist::basis_get_format_name(transcoder_tex_fmt), image_index);
+							if (!save_png(a_filename, u, cImageSaveGrayscale, 3))
+							{
+								error_printf("Failed writing to PNG file \"%s\"\n", a_filename.c_str());
+								return false;
+							}
+							printf("Wrote PNG file \"%s\"\n", a_filename.c_str());
+
+							std::string rgba_filename;
+							if (gi.size() > 1)
+								rgba_filename = base_filename + string_format("_unpacked_rgba_%s_%u_%04u.png", basist::basis_get_format_name(transcoder_tex_fmt), level_index, image_index);
+							else
+								rgba_filename = base_filename + string_format("_unpacked_rgba_%s_%04u.png", basist::basis_get_format_name(transcoder_tex_fmt), image_index);
+							if (!save_png(rgba_filename, u))
+							{
+								error_printf("Failed writing to PNG file \"%s\"\n", rgba_filename.c_str());
+								return false;
+							}
+							printf("Wrote PNG file \"%s\"\n", rgba_filename.c_str());
+						}
+					
+					} // is_hdr
 
 				} // level_index
 
@@ -2281,197 +2511,375 @@ static bool unpack_and_validate_basis_file(
 	uint32_t max_mipmap_levels = 0;
 
 	//if (!opts.m_etc1_only)
-	if (opts.m_format_only == -1)
+	if ((opts.m_format_only == -1) && (!validate_flag))
 	{
-		// Now unpack to RGBA using the transcoder itself to do the unpacking to raster images
-		for (uint32_t image_index = 0; image_index < fileinfo.m_total_images; image_index++)
+		if (is_hdr)
 		{
-			for (uint32_t level_index = 0; level_index < fileinfo.m_image_mipmap_levels[image_index]; level_index++)
+			// Now unpack to RGBA_HALF using the transcoder itself to do the unpacking to raster images
+			for (uint32_t image_index = 0; image_index < fileinfo.m_total_images; image_index++)
 			{
-				const basist::transcoder_texture_format transcoder_tex_fmt = basist::transcoder_texture_format::cTFRGBA32;
-
-				basist::basisu_image_level_info level_info;
-
-				if (!dec.get_image_level_info(&basis_file_data[0], (uint32_t)basis_file_data.size(), level_info, image_index, level_index))
+				for (uint32_t level_index = 0; level_index < fileinfo.m_image_mipmap_levels[image_index]; level_index++)
 				{
-					error_printf("Failed retrieving image level information (%u %u)!\n", image_index, level_index);
-					return false;
-				}
+					const basist::transcoder_texture_format transcoder_tex_fmt = basist::transcoder_texture_format::cTFRGBA_HALF;
 
-				image img(level_info.m_orig_width, level_info.m_orig_height);
+					basist::basisu_image_level_info level_info;
 
-				fill_buffer_with_random_bytes(&img(0, 0), img.get_total_pixels() * sizeof(uint32_t));
-
-				tm.start();
-
-				if (!dec.transcode_image_level(&basis_file_data[0], (uint32_t)basis_file_data.size(), image_index, level_index, &img(0, 0).r, img.get_total_pixels(), transcoder_tex_fmt, 0, img.get_pitch(), nullptr, img.get_height()))
-				{
-					error_printf("Failed transcoding image level (%u %u %u)!\n", image_index, level_index, transcoder_tex_fmt);
-					return false;
-				}
-
-				double total_transcode_time = tm.get_elapsed_ms();
-
-				total_format_transcoding_time_ms[(int)transcoder_tex_fmt] += total_transcode_time;
-
-				printf("Transcode of image %u level %u res %ux%u format %s succeeded in %3.3f ms\n", image_index, level_index, level_info.m_orig_width, level_info.m_orig_height, basist::basis_get_format_name(transcoder_tex_fmt), total_transcode_time);
-
-				if ((!validate_flag) && (!opts.m_ktx_only))
-				{
-					std::string rgb_filename(base_filename + string_format("_unpacked_rgb_%s_%u_%04u.png", basist::basis_get_format_name(transcoder_tex_fmt), level_index, image_index));
-					if (!save_png(rgb_filename, img, cImageSaveIgnoreAlpha))
+					if (!dec.get_image_level_info(&basis_file_data[0], (uint32_t)basis_file_data.size(), level_info, image_index, level_index))
 					{
-						error_printf("Failed writing to PNG file \"%s\"\n", rgb_filename.c_str());
+						error_printf("Failed retrieving image level information (%u %u)!\n", image_index, level_index);
 						return false;
 					}
-					printf("Wrote PNG file \"%s\"\n", rgb_filename.c_str());
 
-					std::string a_filename(base_filename + string_format("_unpacked_a_%s_%u_%04u.png", basist::basis_get_format_name(transcoder_tex_fmt), level_index, image_index));
-					if (!save_png(a_filename, img, cImageSaveGrayscale, 3))
+					const uint32_t total_pixels = level_info.m_orig_width * level_info.m_orig_height;
+					basisu::vector<basist::half_float> half_img(total_pixels * 4);
+
+					fill_buffer_with_random_bytes(&half_img[0], half_img.size_in_bytes());
+
+					tm.start();
+
+					if (!dec.transcode_image_level(&basis_file_data[0], (uint32_t)basis_file_data.size(), image_index, level_index, 
+						half_img.get_ptr(), total_pixels, transcoder_tex_fmt, 0, level_info.m_orig_width, nullptr, level_info.m_orig_height))
 					{
-						error_printf("Failed writing to PNG file \"%s\"\n", a_filename.c_str());
+						error_printf("Failed transcoding image level (%u %u %u)!\n", image_index, level_index, transcoder_tex_fmt);
 						return false;
 					}
-					printf("Wrote PNG file \"%s\"\n", a_filename.c_str());
-				}
 
-			} // level_index
-		} // image_index
+					double total_transcode_time = tm.get_elapsed_ms();
 
-		// Now unpack to RGB565 using the transcoder itself to do the unpacking to raster images
-		for (uint32_t image_index = 0; image_index < fileinfo.m_total_images; image_index++)
+					total_format_transcoding_time_ms[(int)transcoder_tex_fmt] += total_transcode_time;
+
+					printf("Transcode of image %u level %u res %ux%u format %s succeeded in %3.3f ms\n", image_index, level_index, level_info.m_orig_width, level_info.m_orig_height, basist::basis_get_format_name(transcoder_tex_fmt), total_transcode_time);
+
+					if ((!validate_flag) && (!opts.m_ktx_only))
+					{
+						// TODO: HDR alpha support
+						imagef float_img(level_info.m_orig_width, level_info.m_orig_height);
+
+						for (uint32_t y = 0; y < level_info.m_orig_height; y++)
+							for (uint32_t x = 0; x < level_info.m_orig_width; x++)
+								for (uint32_t c = 0; c < 4; c++)
+									float_img(x, y)[c] = basist::half_to_float(half_img[(x + y * level_info.m_orig_width) * 4 + c]);
+
+						std::string rgb_filename(base_filename + string_format("_hdr_unpacked_rgba_%s_%u_%04u.exr", basist::basis_get_format_name(transcoder_tex_fmt), level_index, image_index));
+						if (!write_exr(rgb_filename.c_str(), float_img, 3, 0))
+						{
+							error_printf("Failed writing to EXR file \"%s\"\n", rgb_filename.c_str());
+							return false;
+						}
+						printf("Wrote EXR file \"%s\"\n", rgb_filename.c_str());
+					}
+
+				} // level_index
+			} // image_index
+
+			// Now unpack to RGB_HALF using the transcoder itself to do the unpacking to raster images
+			for (uint32_t image_index = 0; image_index < fileinfo.m_total_images; image_index++)
+			{
+				for (uint32_t level_index = 0; level_index < fileinfo.m_image_mipmap_levels[image_index]; level_index++)
+				{
+					const basist::transcoder_texture_format transcoder_tex_fmt = basist::transcoder_texture_format::cTFRGB_HALF;
+
+					basist::basisu_image_level_info level_info;
+
+					if (!dec.get_image_level_info(&basis_file_data[0], (uint32_t)basis_file_data.size(), level_info, image_index, level_index))
+					{
+						error_printf("Failed retrieving image level information (%u %u)!\n", image_index, level_index);
+						return false;
+					}
+
+					const uint32_t total_pixels = level_info.m_orig_width * level_info.m_orig_height;
+					basisu::vector<basist::half_float> half_img(total_pixels * 3);
+
+					fill_buffer_with_random_bytes(&half_img[0], half_img.size_in_bytes());
+
+					tm.start();
+
+					if (!dec.transcode_image_level(&basis_file_data[0], (uint32_t)basis_file_data.size(), image_index, level_index,
+						half_img.get_ptr(), total_pixels, transcoder_tex_fmt, 0, level_info.m_orig_width, nullptr, level_info.m_orig_height))
+					{
+						error_printf("Failed transcoding image level (%u %u %u)!\n", image_index, level_index, transcoder_tex_fmt);
+						return false;
+					}
+
+					double total_transcode_time = tm.get_elapsed_ms();
+
+					total_format_transcoding_time_ms[(int)transcoder_tex_fmt] += total_transcode_time;
+
+					printf("Transcode of image %u level %u res %ux%u format %s succeeded in %3.3f ms\n", image_index, level_index, level_info.m_orig_width, level_info.m_orig_height, basist::basis_get_format_name(transcoder_tex_fmt), total_transcode_time);
+
+					if ((!validate_flag) && (!opts.m_ktx_only))
+					{
+						// TODO: HDR alpha support
+						imagef float_img(level_info.m_orig_width, level_info.m_orig_height);
+
+						for (uint32_t y = 0; y < level_info.m_orig_height; y++)
+							for (uint32_t x = 0; x < level_info.m_orig_width; x++)
+								for (uint32_t c = 0; c < 3; c++)
+									float_img(x, y)[c] = basist::half_to_float(half_img[(x + y * level_info.m_orig_width) * 3 + c]);
+
+						std::string rgb_filename(base_filename + string_format("_hdr_unpacked_rgb_%s_%u_%04u.exr", basist::basis_get_format_name(transcoder_tex_fmt), level_index, image_index));
+						if (!write_exr(rgb_filename.c_str(), float_img, 3, 0))
+						{
+							error_printf("Failed writing to EXR file \"%s\"\n", rgb_filename.c_str());
+							return false;
+						}
+						printf("Wrote EXR file \"%s\"\n", rgb_filename.c_str());
+					}
+
+				} // level_index
+			} // image_index
+
+			// Now unpack to RGB_9E5 using the transcoder itself to do the unpacking to raster images
+			for (uint32_t image_index = 0; image_index < fileinfo.m_total_images; image_index++)
+			{
+				for (uint32_t level_index = 0; level_index < fileinfo.m_image_mipmap_levels[image_index]; level_index++)
+				{
+					const basist::transcoder_texture_format transcoder_tex_fmt = basist::transcoder_texture_format::cTFRGB_9E5;
+
+					basist::basisu_image_level_info level_info;
+
+					if (!dec.get_image_level_info(&basis_file_data[0], (uint32_t)basis_file_data.size(), level_info, image_index, level_index))
+					{
+						error_printf("Failed retrieving image level information (%u %u)!\n", image_index, level_index);
+						return false;
+					}
+
+					const uint32_t total_pixels = level_info.m_orig_width * level_info.m_orig_height;
+					basisu::vector<uint32_t> rgb9e5_img(total_pixels);
+
+					fill_buffer_with_random_bytes(&rgb9e5_img[0], rgb9e5_img.size_in_bytes());
+
+					tm.start();
+
+					if (!dec.transcode_image_level(&basis_file_data[0], (uint32_t)basis_file_data.size(), image_index, level_index,
+						rgb9e5_img.get_ptr(), total_pixels, transcoder_tex_fmt, 0, level_info.m_orig_width, nullptr, level_info.m_orig_height))
+					{
+						error_printf("Failed transcoding image level (%u %u %u)!\n", image_index, level_index, transcoder_tex_fmt);
+						return false;
+					}
+
+					double total_transcode_time = tm.get_elapsed_ms();
+
+					total_format_transcoding_time_ms[(int)transcoder_tex_fmt] += total_transcode_time;
+
+					printf("Transcode of image %u level %u res %ux%u format %s succeeded in %3.3f ms\n", image_index, level_index, level_info.m_orig_width, level_info.m_orig_height, basist::basis_get_format_name(transcoder_tex_fmt), total_transcode_time);
+
+					if ((!validate_flag) && (!opts.m_ktx_only))
+					{
+						// TODO: Write KTX or DDS
+						imagef float_img(level_info.m_orig_width, level_info.m_orig_height);
+
+						for (uint32_t y = 0; y < level_info.m_orig_height; y++)
+							for (uint32_t x = 0; x < level_info.m_orig_width; x++)
+								astc_helpers::unpack_rgb9e5(rgb9e5_img[x + y * level_info.m_orig_width], float_img(x, y)[0], float_img(x, y)[1], float_img(x, y)[2]);
+
+						std::string rgb_filename(base_filename + string_format("_hdr_unpacked_rgb_%s_%u_%04u.exr", basist::basis_get_format_name(transcoder_tex_fmt), level_index, image_index));
+						if (!write_exr(rgb_filename.c_str(), float_img, 3, 0))
+						{
+							error_printf("Failed writing to EXR file \"%s\"\n", rgb_filename.c_str());
+							return false;
+						}
+						printf("Wrote EXR file \"%s\"\n", rgb_filename.c_str());
+					}
+
+				} // level_index
+			} // image_index
+
+
+		}
+		else
 		{
-			for (uint32_t level_index = 0; level_index < fileinfo.m_image_mipmap_levels[image_index]; level_index++)
+			// Now unpack to RGBA using the transcoder itself to do the unpacking to raster images
+			for (uint32_t image_index = 0; image_index < fileinfo.m_total_images; image_index++)
 			{
-				const basist::transcoder_texture_format transcoder_tex_fmt = basist::transcoder_texture_format::cTFRGB565;
-
-				basist::basisu_image_level_info level_info;
-
-				if (!dec.get_image_level_info(&basis_file_data[0], (uint32_t)basis_file_data.size(), level_info, image_index, level_index))
+				for (uint32_t level_index = 0; level_index < fileinfo.m_image_mipmap_levels[image_index]; level_index++)
 				{
-					error_printf("Failed retrieving image level information (%u %u)!\n", image_index, level_index);
-					return false;
-				}
+					const basist::transcoder_texture_format transcoder_tex_fmt = basist::transcoder_texture_format::cTFRGBA32;
 
-				basisu::vector<uint16_t> packed_img(level_info.m_orig_width * level_info.m_orig_height);
+					basist::basisu_image_level_info level_info;
 
-				fill_buffer_with_random_bytes(&packed_img[0], packed_img.size() * sizeof(uint16_t));
-
-				tm.start();
-
-				if (!dec.transcode_image_level(&basis_file_data[0], (uint32_t)basis_file_data.size(), image_index, level_index, &packed_img[0], (uint32_t)packed_img.size(), transcoder_tex_fmt, 0, level_info.m_orig_width, nullptr, level_info.m_orig_height))
-				{
-					error_printf("Failed transcoding image level (%u %u %u)!\n", image_index, level_index, transcoder_tex_fmt);
-					return false;
-				}
-
-				double total_transcode_time = tm.get_elapsed_ms();
-
-				total_format_transcoding_time_ms[(int)transcoder_tex_fmt] += total_transcode_time;
-
-				image img(level_info.m_orig_width, level_info.m_orig_height);
-				for (uint32_t y = 0; y < level_info.m_orig_height; y++)
-				{
-					for (uint32_t x = 0; x < level_info.m_orig_width; x++)
+					if (!dec.get_image_level_info(&basis_file_data[0], (uint32_t)basis_file_data.size(), level_info, image_index, level_index))
 					{
-						const uint16_t p = packed_img[x + y * level_info.m_orig_width];
-						uint32_t r = p >> 11, g = (p >> 5) & 63, b = p & 31;
-						r = (r << 3) | (r >> 2);
-						g = (g << 2) | (g >> 4);
-						b = (b << 3) | (b >> 2);
-						img(x, y).set(r, g, b, 255);
-					}
-				}
-
-				printf("Transcode of image %u level %u res %ux%u format %s succeeded in %3.3f ms\n", image_index, level_index, level_info.m_orig_width, level_info.m_orig_height, basist::basis_get_format_name(transcoder_tex_fmt), total_transcode_time);
-
-				if ((!validate_flag) && (!opts.m_ktx_only))
-				{
-					std::string rgb_filename(base_filename + string_format("_unpacked_rgb_%s_%u_%04u.png", basist::basis_get_format_name(transcoder_tex_fmt), level_index, image_index));
-					if (!save_png(rgb_filename, img, cImageSaveIgnoreAlpha))
-					{
-						error_printf("Failed writing to PNG file \"%s\"\n", rgb_filename.c_str());
+						error_printf("Failed retrieving image level information (%u %u)!\n", image_index, level_index);
 						return false;
 					}
-					printf("Wrote PNG file \"%s\"\n", rgb_filename.c_str());
-				}
 
-			} // level_index
-		} // image_index
+					image img(level_info.m_orig_width, level_info.m_orig_height);
 
-		// Now unpack to RGBA4444 using the transcoder itself to do the unpacking to raster images
-		for (uint32_t image_index = 0; image_index < fileinfo.m_total_images; image_index++)
-		{
-			for (uint32_t level_index = 0; level_index < fileinfo.m_image_mipmap_levels[image_index]; level_index++)
+					fill_buffer_with_random_bytes(&img(0, 0), img.get_total_pixels() * sizeof(uint32_t));
+
+					tm.start();
+
+					if (!dec.transcode_image_level(&basis_file_data[0], (uint32_t)basis_file_data.size(), image_index, level_index, &img(0, 0).r, img.get_total_pixels(), transcoder_tex_fmt, 0, img.get_pitch(), nullptr, img.get_height()))
+					{
+						error_printf("Failed transcoding image level (%u %u %u)!\n", image_index, level_index, transcoder_tex_fmt);
+						return false;
+					}
+
+					double total_transcode_time = tm.get_elapsed_ms();
+
+					total_format_transcoding_time_ms[(int)transcoder_tex_fmt] += total_transcode_time;
+
+					printf("Transcode of image %u level %u res %ux%u format %s succeeded in %3.3f ms\n", image_index, level_index, level_info.m_orig_width, level_info.m_orig_height, basist::basis_get_format_name(transcoder_tex_fmt), total_transcode_time);
+
+					if ((!validate_flag) && (!opts.m_ktx_only))
+					{
+						std::string rgb_filename(base_filename + string_format("_unpacked_rgb_%s_%u_%04u.png", basist::basis_get_format_name(transcoder_tex_fmt), level_index, image_index));
+						if (!save_png(rgb_filename, img, cImageSaveIgnoreAlpha))
+						{
+							error_printf("Failed writing to PNG file \"%s\"\n", rgb_filename.c_str());
+							return false;
+						}
+						printf("Wrote PNG file \"%s\"\n", rgb_filename.c_str());
+
+						std::string a_filename(base_filename + string_format("_unpacked_a_%s_%u_%04u.png", basist::basis_get_format_name(transcoder_tex_fmt), level_index, image_index));
+						if (!save_png(a_filename, img, cImageSaveGrayscale, 3))
+						{
+							error_printf("Failed writing to PNG file \"%s\"\n", a_filename.c_str());
+							return false;
+						}
+						printf("Wrote PNG file \"%s\"\n", a_filename.c_str());
+					}
+
+				} // level_index
+			} // image_index
+
+			// Now unpack to RGB565 using the transcoder itself to do the unpacking to raster images
+			for (uint32_t image_index = 0; image_index < fileinfo.m_total_images; image_index++)
 			{
-				max_mipmap_levels = basisu::maximum(max_mipmap_levels, fileinfo.m_image_mipmap_levels[image_index]);
-
-				const basist::transcoder_texture_format transcoder_tex_fmt = basist::transcoder_texture_format::cTFRGBA4444;
-
-				basist::basisu_image_level_info level_info;
-
-				if (!dec.get_image_level_info(&basis_file_data[0], (uint32_t)basis_file_data.size(), level_info, image_index, level_index))
+				for (uint32_t level_index = 0; level_index < fileinfo.m_image_mipmap_levels[image_index]; level_index++)
 				{
-					error_printf("Failed retrieving image level information (%u %u)!\n", image_index, level_index);
-					return false;
-				}
+					const basist::transcoder_texture_format transcoder_tex_fmt = basist::transcoder_texture_format::cTFRGB565;
 
-				basisu::vector<uint16_t> packed_img(level_info.m_orig_width * level_info.m_orig_height);
+					basist::basisu_image_level_info level_info;
 
-				fill_buffer_with_random_bytes(&packed_img[0], packed_img.size() * sizeof(uint16_t));
-
-				tm.start();
-
-				if (!dec.transcode_image_level(&basis_file_data[0], (uint32_t)basis_file_data.size(), image_index, level_index, &packed_img[0], (uint32_t)packed_img.size(), transcoder_tex_fmt, 0, level_info.m_orig_width, nullptr, level_info.m_orig_height))
-				{
-					error_printf("Failed transcoding image level (%u %u %u)!\n", image_index, level_index, transcoder_tex_fmt);
-					return false;
-				}
-
-				double total_transcode_time = tm.get_elapsed_ms();
-
-				total_format_transcoding_time_ms[(int)transcoder_tex_fmt] += total_transcode_time;
-
-				image img(level_info.m_orig_width, level_info.m_orig_height);
-				for (uint32_t y = 0; y < level_info.m_orig_height; y++)
-				{
-					for (uint32_t x = 0; x < level_info.m_orig_width; x++)
+					if (!dec.get_image_level_info(&basis_file_data[0], (uint32_t)basis_file_data.size(), level_info, image_index, level_index))
 					{
-						const uint16_t p = packed_img[x + y * level_info.m_orig_width];
-						uint32_t r = p >> 12, g = (p >> 8) & 15, b = (p >> 4) & 15, a = p & 15;
-						r = (r << 4) | r;
-						g = (g << 4) | g;
-						b = (b << 4) | b;
-						a = (a << 4) | a;
-						img(x, y).set(r, g, b, a);
-					}
-				}
-
-				printf("Transcode of image %u level %u res %ux%u format %s succeeded in %3.3f ms\n", image_index, level_index, level_info.m_orig_width, level_info.m_orig_height, basist::basis_get_format_name(transcoder_tex_fmt), total_transcode_time);
-
-				if ((!validate_flag) && (!opts.m_ktx_only))
-				{
-					std::string rgb_filename(base_filename + string_format("_unpacked_rgb_%s_%u_%04u.png", basist::basis_get_format_name(transcoder_tex_fmt), level_index, image_index));
-					if (!save_png(rgb_filename, img, cImageSaveIgnoreAlpha))
-					{
-						error_printf("Failed writing to PNG file \"%s\"\n", rgb_filename.c_str());
+						error_printf("Failed retrieving image level information (%u %u)!\n", image_index, level_index);
 						return false;
 					}
-					printf("Wrote PNG file \"%s\"\n", rgb_filename.c_str());
 
-					std::string a_filename(base_filename + string_format("_unpacked_a_%s_%u_%04u.png", basist::basis_get_format_name(transcoder_tex_fmt), level_index, image_index));
-					if (!save_png(a_filename, img, cImageSaveGrayscale, 3))
+					basisu::vector<uint16_t> packed_img(level_info.m_orig_width * level_info.m_orig_height);
+
+					fill_buffer_with_random_bytes(&packed_img[0], packed_img.size() * sizeof(uint16_t));
+
+					tm.start();
+
+					if (!dec.transcode_image_level(&basis_file_data[0], (uint32_t)basis_file_data.size(), image_index, level_index, &packed_img[0], (uint32_t)packed_img.size(), transcoder_tex_fmt, 0, level_info.m_orig_width, nullptr, level_info.m_orig_height))
 					{
-						error_printf("Failed writing to PNG file \"%s\"\n", a_filename.c_str());
+						error_printf("Failed transcoding image level (%u %u %u)!\n", image_index, level_index, transcoder_tex_fmt);
 						return false;
 					}
-					printf("Wrote PNG file \"%s\"\n", a_filename.c_str());
-				}
 
-			} // level_index
-		} // image_index
+					double total_transcode_time = tm.get_elapsed_ms();
 
-	} // if (!m_etc1_only)
+					total_format_transcoding_time_ms[(int)transcoder_tex_fmt] += total_transcode_time;
+
+					image img(level_info.m_orig_width, level_info.m_orig_height);
+					for (uint32_t y = 0; y < level_info.m_orig_height; y++)
+					{
+						for (uint32_t x = 0; x < level_info.m_orig_width; x++)
+						{
+							const uint16_t p = packed_img[x + y * level_info.m_orig_width];
+							uint32_t r = p >> 11, g = (p >> 5) & 63, b = p & 31;
+							r = (r << 3) | (r >> 2);
+							g = (g << 2) | (g >> 4);
+							b = (b << 3) | (b >> 2);
+							img(x, y).set(r, g, b, 255);
+						}
+					}
+
+					printf("Transcode of image %u level %u res %ux%u format %s succeeded in %3.3f ms\n", image_index, level_index, level_info.m_orig_width, level_info.m_orig_height, basist::basis_get_format_name(transcoder_tex_fmt), total_transcode_time);
+
+					if ((!validate_flag) && (!opts.m_ktx_only))
+					{
+						std::string rgb_filename(base_filename + string_format("_unpacked_rgb_%s_%u_%04u.png", basist::basis_get_format_name(transcoder_tex_fmt), level_index, image_index));
+						if (!save_png(rgb_filename, img, cImageSaveIgnoreAlpha))
+						{
+							error_printf("Failed writing to PNG file \"%s\"\n", rgb_filename.c_str());
+							return false;
+						}
+						printf("Wrote PNG file \"%s\"\n", rgb_filename.c_str());
+					}
+
+				} // level_index
+			} // image_index
+
+			// Now unpack to RGBA4444 using the transcoder itself to do the unpacking to raster images
+			for (uint32_t image_index = 0; image_index < fileinfo.m_total_images; image_index++)
+			{
+				for (uint32_t level_index = 0; level_index < fileinfo.m_image_mipmap_levels[image_index]; level_index++)
+				{
+					max_mipmap_levels = basisu::maximum(max_mipmap_levels, fileinfo.m_image_mipmap_levels[image_index]);
+
+					const basist::transcoder_texture_format transcoder_tex_fmt = basist::transcoder_texture_format::cTFRGBA4444;
+
+					basist::basisu_image_level_info level_info;
+
+					if (!dec.get_image_level_info(&basis_file_data[0], (uint32_t)basis_file_data.size(), level_info, image_index, level_index))
+					{
+						error_printf("Failed retrieving image level information (%u %u)!\n", image_index, level_index);
+						return false;
+					}
+
+					basisu::vector<uint16_t> packed_img(level_info.m_orig_width * level_info.m_orig_height);
+
+					fill_buffer_with_random_bytes(&packed_img[0], packed_img.size() * sizeof(uint16_t));
+
+					tm.start();
+
+					if (!dec.transcode_image_level(&basis_file_data[0], (uint32_t)basis_file_data.size(), image_index, level_index, &packed_img[0], (uint32_t)packed_img.size(), transcoder_tex_fmt, 0, level_info.m_orig_width, nullptr, level_info.m_orig_height))
+					{
+						error_printf("Failed transcoding image level (%u %u %u)!\n", image_index, level_index, transcoder_tex_fmt);
+						return false;
+					}
+
+					double total_transcode_time = tm.get_elapsed_ms();
+
+					total_format_transcoding_time_ms[(int)transcoder_tex_fmt] += total_transcode_time;
+
+					image img(level_info.m_orig_width, level_info.m_orig_height);
+					for (uint32_t y = 0; y < level_info.m_orig_height; y++)
+					{
+						for (uint32_t x = 0; x < level_info.m_orig_width; x++)
+						{
+							const uint16_t p = packed_img[x + y * level_info.m_orig_width];
+							uint32_t r = p >> 12, g = (p >> 8) & 15, b = (p >> 4) & 15, a = p & 15;
+							r = (r << 4) | r;
+							g = (g << 4) | g;
+							b = (b << 4) | b;
+							a = (a << 4) | a;
+							img(x, y).set(r, g, b, a);
+						}
+					}
+
+					printf("Transcode of image %u level %u res %ux%u format %s succeeded in %3.3f ms\n", image_index, level_index, level_info.m_orig_width, level_info.m_orig_height, basist::basis_get_format_name(transcoder_tex_fmt), total_transcode_time);
+
+					if ((!validate_flag) && (!opts.m_ktx_only))
+					{
+						std::string rgb_filename(base_filename + string_format("_unpacked_rgb_%s_%u_%04u.png", basist::basis_get_format_name(transcoder_tex_fmt), level_index, image_index));
+						if (!save_png(rgb_filename, img, cImageSaveIgnoreAlpha))
+						{
+							error_printf("Failed writing to PNG file \"%s\"\n", rgb_filename.c_str());
+							return false;
+						}
+						printf("Wrote PNG file \"%s\"\n", rgb_filename.c_str());
+
+						std::string a_filename(base_filename + string_format("_unpacked_a_%s_%u_%04u.png", basist::basis_get_format_name(transcoder_tex_fmt), level_index, image_index));
+						if (!save_png(a_filename, img, cImageSaveGrayscale, 3))
+						{
+							error_printf("Failed writing to PNG file \"%s\"\n", a_filename.c_str());
+							return false;
+						}
+						printf("Wrote PNG file \"%s\"\n", a_filename.c_str());
+					}
+
+				} // level_index
+			} // image_index
+		
+		} // is_hdr
+
+	} // if ((opts.m_format_only == -1) && (!validate_flag))
 
 	if (pCSV_file)
 	{
@@ -2645,11 +3053,81 @@ static bool unpack_and_validate_mode(command_line_params &opts)
 	return true;
 }
 
+static bool hdr_compare_mode(command_line_params& opts)
+{
+	if (opts.m_input_filenames.size() != 2)
+	{
+		error_printf("Must specify two PNG filenames using -file\n");
+		return false;
+	}
+
+	imagef a, b;
+
+	if (!load_image_hdr(opts.m_input_filenames[0].c_str(), a))
+	{
+		error_printf("Failed loading image from file \"%s\"!\n", opts.m_input_filenames[0].c_str());
+		return false;
+	}
+
+	printf("Loaded \"%s\", %ux%u\n", opts.m_input_filenames[0].c_str(), a.get_width(), a.get_height());
+
+	if (!load_image_hdr(opts.m_input_filenames[1].c_str(), b))
+	{
+		error_printf("Failed loading image from file \"%s\"!\n", opts.m_input_filenames[1].c_str());
+		return false;
+	}
+
+	printf("Loaded \"%s\", %ux%u\n", opts.m_input_filenames[1].c_str(), b.get_width(), b.get_height());
+
+	if ((a.get_width() != b.get_width()) || (a.get_height() != b.get_height()))
+	{
+		printf("Images don't have the same dimensions - cropping input images to smallest common dimensions\n");
+
+		uint32_t w = minimum(a.get_width(), b.get_width());
+		uint32_t h = minimum(a.get_height(), b.get_height());
+
+		a.crop(w, h);
+		b.crop(w, h);
+	}
+
+	printf("Comparison image res: %ux%u\n", a.get_width(), a.get_height());
+
+	image_metrics im;
+		
+	im.calc_half(a, b, 0, 1, true);
+	im.print("R      ");
+
+	im.calc_half(a, b, 1, 1, true);
+	im.print("G      ");
+
+	im.calc_half(a, b, 2, 1, true);
+	im.print("B      ");
+
+	im.calc_half(a, b, 0, 3, true);
+	im.print("RGB    ");
+
+	return true;
+}
+
 static bool compare_mode(command_line_params &opts)
 {
 	if (opts.m_input_filenames.size() != 2)
 	{
 		error_printf("Must specify two PNG filenames using -file\n");
+		return false;
+	}
+
+	std::string ext0(string_get_extension(opts.m_input_filenames[0]));
+	if ((strcasecmp(ext0.c_str(), "exr") == 0) || (strcasecmp(ext0.c_str(), "hdr") == 0))
+	{
+		error_printf("Can't compare HDR image files with this option. Use -hdr_compare instead.\n");
+		return false;
+	}
+
+	std::string ext1(string_get_extension(opts.m_input_filenames[1]));
+	if ((strcasecmp(ext1.c_str(), "exr") == 0) || (strcasecmp(ext1.c_str(), "hdr") == 0))
+	{
+		error_printf("Can't compare HDR image files with this option. Use -hdr_compare instead.\n");
 		return false;
 	}
 
@@ -3027,11 +3505,107 @@ static bool combine_images_mode(command_line_params& opts)
 	return true;
 }
 
-//#include "encoder/basisu_astc_decomp.h"
-#include "encoder/basisu_pvrtc1_4.h"
+static bool tonemap_image_mode(command_line_params& opts)
+{
+	if (opts.m_input_filenames.size() != 1)
+	{
+		error_printf("Must specify one LDR image filename using -file\n");
+		return false;
+	}
+
+	imagef hdr_img;
+	if (!load_image_hdr(opts.m_input_filenames[0].c_str(), hdr_img, opts.m_comp_params.m_hdr_ldr_srgb_to_linear_conversion))
+	{
+		error_printf("Failed loading LDR image from file \"%s\"!\n", opts.m_input_filenames[0].c_str());
+		return false;
+	}
+
+	hdr_img.clean_astc_hdr_pixels(1e+30f);
+
+	const uint32_t width = hdr_img.get_width(), height = hdr_img.get_height();
+
+	printf("Loaded \"%s\", %ux%u\n", opts.m_input_filenames[0].c_str(), width, height);
+
+	std::string output_filename;
+	string_get_filename(opts.m_input_filenames[0].c_str(), output_filename);
+	string_remove_extension(output_filename);
+	if (!output_filename.size())
+		output_filename = "tonemapped";
+
+	if (opts.m_output_path.size())
+		string_combine_path(output_filename, opts.m_output_path.c_str(), output_filename.c_str());
+
+	const char* pBasename = output_filename.c_str();
+	
+	image srgb_img(width, height);
+
+	for (uint32_t y = 0; y < height; y++)
+	{
+		for (uint32_t x = 0; x < width; x++)
+		{
+			vec4F p(hdr_img(x, y));
+
+			p[0] = clamp(p[0], 0.0f, 1.0f);
+			p[1] = clamp(p[1], 0.0f, 1.0f);
+			p[2] = clamp(p[2], 0.0f, 1.0f);
+
+			int rc = (int)std::round(linear_to_srgb(p[0]) * 255.0f);
+			int gc = (int)std::round(linear_to_srgb(p[1]) * 255.0f);
+			int bc = (int)std::round(linear_to_srgb(p[2]) * 255.0f);
+
+			srgb_img.set_clipped(x, y, color_rgba(rc, gc, bc, 255));
+		}
+	}
+
+	{
+		const std::string filename(string_format("%s_linear_clamped_to_srgb.png", pBasename));
+		save_png(filename.c_str(), srgb_img);
+		printf("Wrote .PNG file %s\n", filename.c_str());
+	}
+
+	{
+		const std::string filename(string_format("%s_compressive_tonemapped.png", pBasename));
+		image compressive_tonemapped_img;
+
+		bool status = tonemap_image_compressive(compressive_tonemapped_img, hdr_img);
+		if (!status)
+		{
+			error_printf("tonemap_image_compressive() failed (invalid half-float input)\n");
+		}
+		else
+		{
+			save_png(filename.c_str(), compressive_tonemapped_img);
+			printf("Wrote .PNG file %s\n", filename.c_str());
+		}
+	}
+
+	image tonemapped_img;
+
+	for (int e = -5; e <= 5; e++)
+	{
+		const float scale = powf(2.0f, (float)e);
+
+		tonemap_image_reinhard(tonemapped_img, hdr_img, scale);
+
+		std::string filename(string_format("%s_reinhard_tonemapped_scale_%f.png", pBasename, scale));
+		save_png(filename.c_str(), tonemapped_img, cImageSaveIgnoreAlpha);
+		printf("Wrote .PNG file %s\n", filename.c_str());
+	}
+
+	return true;
+}
+
+//#include "encoder/3rdparty/android_astc_decomp.h"
+//#include "encoder/basisu_pvrtc1_4.h"
 
 static bool bench_mode(command_line_params& opts)
 {
+	BASISU_NOTE_UNUSED(opts);
+	error_printf("Unsupported\n");
+	return false;
+
+#if 0
+
 #if 0
 	ispc::bc7e_compress_block_init();
 
@@ -3535,6 +4109,7 @@ static bool bench_mode(command_line_params& opts)
 						transcode_uastc_to_astc(encoded_uastc_blk, tastc_data);
 
 						color_rgba decoded_tastc_block[4][4];
+                        clear_obj(decoded_tastc_block);
 						//basisu_astc::astc::decompress((uint8_t*)decoded_tastc_block, (uint8_t*)&tastc_data, false, 4, 4);
 
 						uastc2_img.set_block_clipped(&decoded_tastc_block[0][0], block_x * 4, block_y * 4, 4, 4);
@@ -3852,72 +4427,72 @@ static bool bench_mode(command_line_params& opts)
 		// UASTC
 		em.calc(img, uastc_img, 0, 3);
 		em.print("UASTC RGB  ");
-		total_uastc_psnr += basisu::minimum(99.0f, em.m_psnr);
+		total_uastc_psnr += (float)basisu::minimum<double>(99.0f, em.m_psnr);
 
 		em.calc(img, uastc_img, 3, 1);
 		em.print("UASTC A    ");
 		if (img_has_alpha)
-			total_uastc_a_psnr += basisu::minimum(99.0f, em.m_psnr);
+			total_uastc_a_psnr += (float)basisu::minimum<double>(99.0f, em.m_psnr);
 
 		em.calc(img, uastc_img, 0, 4);
 		em.print("UASTC RGBA ");
-		total_uastc_rgba_psnr += basisu::minimum(99.0f, em.m_psnr);
+		total_uastc_rgba_psnr += (float)basisu::minimum<double>(99.0f, em.m_psnr);
 
 		// RDO UASTC
 		em.calc(img, rdo_uastc_img, 0, 3);
 		em.print("RDOUASTC RGB ");
-		total_rdo_uastc_psnr += basisu::minimum(99.0f, em.m_psnr);
+		total_rdo_uastc_psnr += (float)basisu::minimum<double>(99.0f, em.m_psnr);
 
 		em.calc(img, rdo_uastc_img, 3, 1);
 		em.print("RDOUASTC A ");
 		if (img_has_alpha)
-			total_rdo_uastc_a_psnr += basisu::minimum(99.0f, em.m_psnr);
+			total_rdo_uastc_a_psnr += (float)basisu::minimum<double>(99.0f, em.m_psnr);
 
 		em.calc(img, rdo_uastc_img, 0, 4);
 		em.print("RDOUASTC RGBA ");
-		total_rdo_uastc_rgba_psnr += basisu::minimum(99.0f, em.m_psnr);
+		total_rdo_uastc_rgba_psnr += (float)basisu::minimum<double>(99.0f, em.m_psnr);
 
 		// UASTC2 
 		em.calc(img, uastc2_img, 0, 3);
 		em.print("UASTC2 RGB ");
-		total_uastc2_psnr += basisu::minimum(99.0f, em.m_psnr);
+		total_uastc2_psnr += (float)basisu::minimum<double>(99.0f, em.m_psnr);
 
 		em.calc(img, uastc2_img, 3, 1);
 		em.print("UASTC2 A   ");
 		if (img_has_alpha)
-			total_uastc2_a_psnr += basisu::minimum(99.0f, em.m_psnr);
+			total_uastc2_a_psnr += (float)basisu::minimum<double>(99.0f, em.m_psnr);
 
 		em.calc(img, uastc2_img, 0, 4);
 		em.print("UASTC2 RGBA ");
-		total_uastc2_rgba_psnr += basisu::minimum(99.0f, em.m_psnr);
+		total_uastc2_rgba_psnr += (float)basisu::minimum<double>(99.0f, em.m_psnr);
 
 		// BC7
 		em.calc(img, bc7_img, 0, 3);
 		em.print("BC7 RGB    ");
-		total_bc7_psnr += basisu::minimum(99.0f, em.m_psnr);
+		total_bc7_psnr += (float)basisu::minimum<double>(99.0f, em.m_psnr);
 
 		em.calc(img, bc7_img, 3, 1);
 		em.print("BC7 A      ");
 		if (img_has_alpha)
-			total_bc7_a_psnr += basisu::minimum(99.0f, em.m_psnr);
+			total_bc7_a_psnr += (float)basisu::minimum<double>(99.0f, em.m_psnr);
 
 		em.calc(img, bc7_img, 0, 4);
 		em.print("BC7 RGBA   ");
-		total_bc7_rgba_psnr += basisu::minimum(99.0f, em.m_psnr);
+		total_bc7_rgba_psnr += (float)basisu::minimum<double>(99.0f, em.m_psnr);
 
 		// RDO BC7
 		em.calc(img, rdo_bc7_img, 0, 3);
 		em.print("RDOBC7 RGB ");
-		total_rdo_bc7_psnr += basisu::minimum(99.0f, em.m_psnr);
+		total_rdo_bc7_psnr += (float)basisu::minimum<double>(99.0f, em.m_psnr);
 
 		em.calc(img, rdo_bc7_img, 3, 1);
 		em.print("RDOBC7 A   ");
 		if (img_has_alpha)
-			total_rdo_bc7_a_psnr += basisu::minimum(99.0f, em.m_psnr);
+			total_rdo_bc7_a_psnr += (float)basisu::minimum<double>(99.0f, em.m_psnr);
 
 		em.calc(img, rdo_bc7_img, 0, 4);
 		em.print("RDOBC7 RGBA ");
-		total_rdo_bc7_rgba_psnr += basisu::minimum(99.0f, em.m_psnr);
+		total_rdo_bc7_rgba_psnr += (float)basisu::minimum<double>(99.0f, em.m_psnr);
 
 #if 0
 		// OBC7
@@ -3952,86 +4527,86 @@ static bool bench_mode(command_line_params& opts)
 		// bc7enc
 		em.calc(img, bc7enc_img, 0, 3);
 		em.print("BC7ENC RGB  ");
-		total_bc7enc_psnr += basisu::minimum(99.0f, em.m_psnr);
+		total_bc7enc_psnr += (float)basisu::minimum<double>(99.0f, em.m_psnr);
 
 		em.calc(img, bc7enc_img, 3, 1);
 		em.print("BC7ENC A    ");
 		if (img_has_alpha)
-			total_bc7enc_a_psnr += basisu::minimum(99.0f, em.m_psnr);
+			total_bc7enc_a_psnr += (float)basisu::minimum<double>(99.0f, em.m_psnr);
 
 		em.calc(img, bc7enc_img, 0, 4);
 		em.print("BC7ENC RGBA ");
-		total_bc7enc_rgba_psnr += basisu::minimum(99.0f, em.m_psnr);
+		total_bc7enc_rgba_psnr += (float)basisu::minimum<double>(99.0f, em.m_psnr);
 
 #if 1
 		// OBC1
 		em.calc(img, opt_bc1_img, 0, 3);
 		em.print("OBC1 RGB   ");
-		total_obc1_psnr += basisu::minimum(99.0f, em.m_psnr);
-		total_obc1_psnr_sq += basisu::minimum(99.0f, em.m_psnr) * basisu::minimum(99.0f, em.m_psnr);
+		total_obc1_psnr += (float)basisu::minimum<double>(99.0f, em.m_psnr);
+		total_obc1_psnr_sq += (float)(basisu::minimum<double>(99.0f, em.m_psnr) * basisu::minimum<double>(99.0f, em.m_psnr));
 #endif
 				
 		em.calc(img, opt_bc1_2_img, 0, 3);
 		em.print("OBC1 2 RGB ");
-		total_obc1_2_psnr += basisu::minimum(99.0f, em.m_psnr);
-		total_obc1_2_psnr_sq += basisu::minimum(99.0f, em.m_psnr) * basisu::minimum(99.0f, em.m_psnr);
+		total_obc1_2_psnr += (float)basisu::minimum<double>(99.0f, em.m_psnr);
+		total_obc1_2_psnr_sq += (float)(basisu::minimum<double>(99.0f, em.m_psnr) * basisu::minimum<double>(99.0f, em.m_psnr));
 
 		em.calc(img, bc1_img, 0, 3);
 		em.print("BC1 RGB    ");
-		total_bc1_psnr += basisu::minimum(99.0f, em.m_psnr);
-		total_bc1_psnr_sq += basisu::minimum(99.0f, em.m_psnr) * basisu::minimum(99.0f, em.m_psnr);
+		total_bc1_psnr += (float)basisu::minimum<double>(99.0f, em.m_psnr);
+		total_bc1_psnr_sq += (float)(basisu::minimum<double>(99.0f, em.m_psnr) * basisu::minimum<double>(99.0f, em.m_psnr));
 
 		// ETC1
 		em.calc(img, etc1_img, 0, 3);
 		em.print("ETC1 RGB   ");
-		total_etc1_psnr += basisu::minimum(99.0f, em.m_psnr);
+		total_etc1_psnr += (float)basisu::minimum<double>(99.0f, em.m_psnr);
 
 		em.calc(img, etc1_img, 0, 0);
 		em.print("ETC1 Y     ");
-		total_etc1_y_psnr += basisu::minimum(99.0f, em.m_psnr);
+		total_etc1_y_psnr += (float)basisu::minimum<double>(99.0f, em.m_psnr);
 
 		// ETC1
 		em.calc(img, etc1_g_img, 1, 1);
 		em.print("ETC1 G     ");
-		total_etc1_g_psnr += basisu::minimum(99.0f, em.m_psnr);
+		total_etc1_g_psnr += (float)basisu::minimum<double>(99.0f, em.m_psnr);
 
 		// ETC2
 		em.calc(img, etc2_img, 0, 3);
 		em.print("ETC2 RGB   ");
-		total_etc2_psnr += basisu::minimum(99.0f, em.m_psnr);
+		total_etc2_psnr += (float)basisu::minimum<double>(99.0f, em.m_psnr);
 
 		em.calc(img, etc2_img, 3, 1);
 		em.print("ETC2 A     ");
 		if (img_has_alpha)
-			total_etc2_a_psnr += basisu::minimum(99.0f, em.m_psnr);
+			total_etc2_a_psnr += (float)basisu::minimum<double>(99.0f, em.m_psnr);
 
 		em.calc(img, etc2_img, 0, 4);
 		em.print("ETC2 RGBA  ");
-		total_etc2_rgba_psnr += basisu::minimum(99.0f, em.m_psnr);
+		total_etc2_rgba_psnr += (float)basisu::minimum<double>(99.0f, em.m_psnr);
 
 		// BC3
 		em.calc(img, bc3_img, 0, 3);
 		em.print("BC3 RGB    ");
-		total_bc3_psnr += basisu::minimum(99.0f, em.m_psnr);
+		total_bc3_psnr += (float)basisu::minimum<double>(99.0f, em.m_psnr);
 
 		em.calc(img, bc3_img, 3, 1);
 		em.print("BC3 A      ");
 		if (img_has_alpha)
-			total_bc3_a_psnr += basisu::minimum(99.0f, em.m_psnr);
+			total_bc3_a_psnr += (float)basisu::minimum<double>(99.0f, em.m_psnr);
 
 		em.calc(img, bc3_img, 0, 4);
 		em.print("BC3 RGBA   ");
-		total_bc3_rgba_psnr += basisu::minimum(99.0f, em.m_psnr);
+		total_bc3_rgba_psnr += (float)basisu::minimum<double>(99.0f, em.m_psnr);
 
 		// EAC R11
 		em.calc(img, eac_r11_img, 0, 1);
 		em.print("EAC R11    ");
-		total_eac_r11_psnr += basisu::minimum(99.0f, em.m_psnr);
+		total_eac_r11_psnr += (float)basisu::minimum<double>(99.0f, em.m_psnr);
 
 		// EAC RG11
 		em.calc(img, eac_rg11_img, 0, 2);
 		em.print("EAC RG11   ");
-		total_eac_rg11_psnr += basisu::minimum(99.0f, em.m_psnr);
+		total_eac_rg11_psnr += (float)basisu::minimum<double>(99.0f, em.m_psnr);
 
 		const uint32_t width = num_blocks_x * 4;
 		const uint32_t height = num_blocks_y * 4;
@@ -4079,15 +4654,15 @@ static bool bench_mode(command_line_params& opts)
 
 			em.calc(img, pi_unpacked, 0, 3);
 			em.print("PVRTC1 After RGB  ");
-			total_pvrtc1_rgb_psnr += basisu::minimum(99.0f, em.m_psnr);
+			total_pvrtc1_rgb_psnr += (float)basisu::minimum<double>(99.0f, em.m_psnr);
 
 			em.calc(img, pi_unpacked, 3, 1);
 			em.print("PVRTC1 After A    ");
-			total_pvrtc1_a_psnr += basisu::minimum(99.0f, em.m_psnr);
+			total_pvrtc1_a_psnr += (float)basisu::minimum<double>(99.0f, em.m_psnr);
 
 			em.calc(img, pi_unpacked, 0, 4);
 			em.print("PVRTC1 After RGBA ");
-			total_pvrtc1_rgba_psnr += basisu::minimum(99.0f, em.m_psnr);
+			total_pvrtc1_rgba_psnr += (float)basisu::minimum<double>(99.0f, em.m_psnr);
 
 			total_pvrtc1_images++;
 		}
@@ -4170,6 +4745,7 @@ static bool bench_mode(command_line_params& opts)
 	}
 
 	return true;
+#endif
 }
 
 static uint32_t compute_miniz_compressed_size(const char* pFilename, uint32_t &orig_size)
@@ -4251,7 +4827,7 @@ const struct test_file
 };
 const uint32_t TOTAL_TEST_FILES = sizeof(g_test_files) / sizeof(g_test_files[0]);
 
-static bool test_mode(command_line_params& opts)
+static bool test_mode_ldr(command_line_params& opts)
 {
 	uint32_t total_mismatches = 0;
 
@@ -4259,7 +4835,13 @@ static bool test_mode(command_line_params& opts)
 	// TODO: Add another ETC1S quality level
 
 	// Minor differences in how floating point code is optimized can result in slightly different generated files.
-	const float ETC1S_PSNR_THRESHOLD = .03f;
+#ifdef USE_TIGHTER_TEST_TOLERANCES
+	const float ETC1S_PSNR_THRESHOLD = .125f;
+	const float UASTC_PSNR_THRESHOLD = .125f;
+#else
+	const float ETC1S_PSNR_THRESHOLD = .3f;
+	const float UASTC_PSNR_THRESHOLD = .3f;
+#endif
 	const float ETC1S_FILESIZE_THRESHOLD = .045f;
 
 	for (uint32_t i = 0; i < TOTAL_TEST_FILES; i++)
@@ -4405,7 +4987,7 @@ static bool test_mode(command_line_params& opts)
 
 			printf("UASTC Size: %u, PSNR: %f\n", (uint32_t)data_size, stats.m_basis_rgba_avg_psnr);
 
-			if (fabs(stats.m_basis_rgba_avg_psnr - g_test_files[i].m_uastc_psnr) > .005f)
+			if (fabs(stats.m_basis_rgba_avg_psnr - g_test_files[i].m_uastc_psnr) > UASTC_PSNR_THRESHOLD)
 			{
 				error_printf("Expected UASTC RGBA Avg PSNR was %f, but got %f instead!\n", g_test_files[i].m_etc1s_psnr, stats.m_basis_rgba_avg_psnr);
 				total_mismatches++;
@@ -4413,16 +4995,135 @@ static bool test_mode(command_line_params& opts)
 		}
 	}
 
-	printf("Total mismatches: %u\n", total_mismatches);
+	printf("Total LDR mismatches: %u\n", total_mismatches);
 
 	bool result = true;
 	if (total_mismatches)
 	{
-		error_printf("Test FAILED\n");
+		error_printf("LDR test FAILED\n");
 		result = false;
 	}
 	else
-		printf("Test succeeded\n");
+	{
+		printf("LDR test succeeded\n");
+	}
+
+	return result;
+}
+
+const struct hdr_test_file
+{
+	const char* m_pFilename;
+	float m_level_psnr_astc[5];
+	float m_level_psnr_bc6h[5];
+} g_hdr_test_files[] =
+{
+	{ "black_1x1.png",		{ 1000.0f, 1000.0f, 1000.0f, 1000.0f, 1000.0f }, { 1000.0f, 1000.0f, 1000.0f, 1000.0f, 1000.0f } },
+	{ "atrium.exr",			{ 58.387924f, 58.976650f, 59.000862f, 58.951488f, 58.898571f }, { 58.103821f, 58.900017f, 58.910744f, 58.876980f, 58.810989f } },
+	{ "backyard.exr",		{ 63.704613f, 63.453190f, 63.600426f, 63.626850f, 63.938366f }, { 62.911961f, 63.353348f, 63.501392f, 63.533562f, 63.823147f } },
+	{ "Desk.exr",			{ 50.020317f, 50.580063f, 50.937798f, 51.024494f, 51.315540f }, { 49.944633f, 50.565235f, 50.914314f, 50.999512f, 51.293797f } },
+	{ "atrium.exr",			{ 58.387924f, 58.976650f, 59.000862f, 58.951488f, 58.898571f }, { 58.103821f, 58.900017f, 58.910744f, 58.876980f, 58.810989f } },
+	{ "yucca.exr",			{ 53.481602f, 53.905769f, 53.954353f, 54.074474f, 54.139977f }, { 53.437008f, 53.883400f, 53.929897f, 54.050571f, 54.117466f } },
+	{ "tough.png",			{ 39.680382f, 43.291210f, 43.637939f, 44.180916f, 46.030712f }, { 39.703949f, 43.255989f, 43.590729f, 44.132393f, 46.033344f } },
+	{ "kodim03.png",		{ 51.031773f, 51.275902f, 51.300705f, 51.338562f, 51.355114f }, { 50.982365f, 51.251923f, 51.275295f, 51.315796f, 51.332462f } },
+	{ "kodim18.png",		{ 48.362595f, 48.638092f, 48.610493f, 48.618176f, 48.520008f }, { 48.319820f, 48.635593f, 48.609116f, 48.621853f, 48.520535f } },
+	{ "kodim23.png",		{ 49.796471f, 50.144829f, 50.171085f, 50.325180f, 50.366810f }, { 49.779743f, 50.119869f, 50.147041f, 50.299568f, 50.341846f } }
+};
+const uint32_t TOTAL_HDR_TEST_FILES = sizeof(g_hdr_test_files) / sizeof(g_hdr_test_files[0]);
+
+static bool test_mode_hdr(command_line_params& opts)
+{
+	BASISU_ASSUME(astc_hdr_codec_options::cMaxLevel == 4);
+
+	uint32_t total_mismatches = 0;
+		
+#ifdef USE_TIGHTER_TEST_TOLERANCES
+	// The PSNR's above were created with a MSVC compiled executable, x64. Hopefully this is not too low a threshold.
+	const float PSNR_THRESHOLD = .125f;
+#else
+	// Minor differences in how floating point code is optimized can result in slightly different generated files.
+	const float PSNR_THRESHOLD = .3f;
+#endif
+	
+	double highest_delta = 0.0f;
+
+	for (uint32_t i = 0; i < TOTAL_HDR_TEST_FILES; i++)
+	{
+		std::string filename(opts.m_test_file_dir);
+		if (filename.size())
+		{
+			filename.push_back('/');
+		}
+		filename += std::string(g_hdr_test_files[i].m_pFilename);
+
+		basisu::vector<imagef> source_imagesf(1);
+
+		imagef& source_image = source_imagesf[0];
+		if (!load_image_hdr(filename.c_str(), source_image))
+		{
+			error_printf("Failed loading test image \"%s\"\n", filename.c_str());
+			return false;
+		}
+
+		printf("Loaded file \"%s\", dimemsions %ux%u\n", filename.c_str(), source_image.get_width(), source_image.get_height());
+				
+		for (uint32_t uastc_hdr_level = 0; uastc_hdr_level <= 4; uastc_hdr_level++)
+		{
+			image_stats stats;
+
+			uint32_t flags_and_quality;
+			size_t data_size = 0;
+
+			printf("**** Testing UASTC HDR Level %u\n", uastc_hdr_level);
+
+			flags_and_quality = (opts.m_comp_params.m_multithreading ? cFlagThreaded : 0) | cFlagUASTC;// | cFlagPrintStats | cFlagPrintStatus;
+			flags_and_quality |= cFlagHDRLDRImageSRGBToLinearConversion;
+			flags_and_quality |= uastc_hdr_level;
+
+			void* pData = basis_compress(source_imagesf, flags_and_quality, &data_size, &stats);
+			if (!pData)
+			{
+				error_printf("basis_compress() failed!\n");
+				return false;
+			}
+			basis_free_data(pData);
+
+			double delta1, delta2;
+
+			printf("ASTC PSNR: %f (expected %f, delta %f), BC6H PSNR: %f (expected %f, delta %f)\n", 
+				stats.m_basis_rgb_avg_psnr, g_hdr_test_files[i].m_level_psnr_astc[uastc_hdr_level], delta1 = fabs(stats.m_basis_rgb_avg_psnr - g_hdr_test_files[i].m_level_psnr_astc[uastc_hdr_level]),
+				stats.m_basis_rgb_avg_bc6h_psnr, g_hdr_test_files[i].m_level_psnr_bc6h[uastc_hdr_level], delta2 = fabs(stats.m_basis_rgb_avg_bc6h_psnr - g_hdr_test_files[i].m_level_psnr_bc6h[uastc_hdr_level]));
+
+			highest_delta = maximum(highest_delta, delta1);
+			highest_delta = maximum(highest_delta, delta2);
+
+			if (fabs(stats.m_basis_rgb_avg_psnr - g_hdr_test_files[i].m_level_psnr_astc[uastc_hdr_level]) > PSNR_THRESHOLD)
+			{
+				error_printf("Expected UASTC HDR RGB Avg PSNR was %f, but got %f instead!\n", g_hdr_test_files[i].m_level_psnr_astc[uastc_hdr_level], stats.m_basis_rgb_avg_psnr);
+				total_mismatches++;
+			}
+
+			if (fabs(stats.m_basis_rgb_avg_bc6h_psnr - g_hdr_test_files[i].m_level_psnr_bc6h[uastc_hdr_level]) > PSNR_THRESHOLD)
+			{
+				error_printf("Expected UASTC->BC6H HDR RGB Avg PSNR was %f, but got %f instead!\n", g_hdr_test_files[i].m_level_psnr_bc6h[uastc_hdr_level], stats.m_basis_rgb_avg_bc6h_psnr);
+				total_mismatches++;
+			}
+		}
+	}
+
+	printf("Total HDR mismatches: %u\n", total_mismatches);
+	printf("Highest delta: %f\n", highest_delta);
+
+	bool result = true;
+	if (total_mismatches)
+	{
+		error_printf("HDR test FAILED\n");
+		result = false;
+	}
+	else
+	{
+		printf("HDR test succeeded\n");
+	}
 
 	return result;
 }
@@ -4445,16 +5146,513 @@ static bool clbench_mode(command_line_params& opts)
 	return true;
 }
 
+#if 0
+#include "transcoder/basisu_astc_helpers.h"
+#include "encoder/3rdparty/android_astc_decomp.h"
+
+static void astc_decode_test()
+{
+	uint32_t block_size_index = 0;
+
+redo:
+	if (block_size_index >= astc_helpers::NUM_ASTC_BLOCK_SIZES)
+		block_size_index = 0;
+	
+	const uint32_t block_w = astc_helpers::g_astc_block_sizes[block_size_index][0], block_h = astc_helpers::g_astc_block_sizes[block_size_index][1];
+	block_size_index++;
+
+	if (!astc_helpers::is_valid_block_size(block_w, block_h))
+	{
+		printf("Bad block size\n");
+		exit(1);
+	}
+
+	bool ldr_cems_only = false;
+	bool test_srgb = ldr_cems_only && false;
+	//decomp_astc_block_init(block_w, block_h, ldr_cems_only ? (test_srgb ? ASTCENC_PRF_LDR_SRGB : ASTCENC_PRF_LDR) : ASTCENC_PRF_HDR);
+
+	uint32_t total_modes = 0;
+
+	basisu::rand rnd;
+	rnd.seed(1000 + block_w * 52772 + block_h * 10055);
+
+	for (uint32_t dp = 0; dp < 2; dp++)
+		//for (uint32_t dp = 1; dp <= 1; dp++)
+	{
+		for (uint32_t num_parts = 1; num_parts <= (dp ? 3U : 4U); num_parts++)
+			//for (uint32_t num_parts = 1; num_parts <= 1; num_parts++)
+		{
+			for (uint32_t weight_range = 0; weight_range <= 11; weight_range++)
+				//for (uint32_t weight_range = 8; weight_range <= 8; weight_range++)
+			{
+				for (uint32_t cem0 = 0; cem0 <= 15; cem0++)
+				{
+					for (uint32_t cem1 = (num_parts >= 2) ? 0 : cem0; cem1 <= ((num_parts >= 2) ? 15 : cem0); cem1++)
+					{
+						for (uint32_t cem2 = (num_parts >= 3) ? 0 : cem1; cem2 <= ((num_parts >= 3) ? 15 : cem1); cem2++)
+						{
+							for (uint32_t cem3 = (num_parts >= 4) ? 0 : cem2; cem3 <= ((num_parts == 4) ? 15 : cem2); cem3++)
+							{
+								for (uint32_t w = 2; w <= block_w; w++)
+									//for (uint32_t w = 3; w <= 3; w++)
+								{
+									for (uint32_t h = 2; h <= block_h; h++)
+										//for (uint32_t h = 3; h <= 3; h++)
+									{
+										const bool is_ldr_cem0 = astc_helpers::is_cem_ldr(cem0);
+										const bool is_ldr_cem1 = astc_helpers::is_cem_ldr(cem1);
+										const bool is_ldr_cem2 = astc_helpers::is_cem_ldr(cem2);
+										const bool is_ldr_cem3 = astc_helpers::is_cem_ldr(cem3);
+
+										if (ldr_cems_only)
+										{
+											if ((!is_ldr_cem0) || (!is_ldr_cem1) || (!is_ldr_cem2) || (!is_ldr_cem3))
+												continue;
+										}
+
+										const uint32_t MAX_TRIES = 2;
+										for (uint32_t try_index = 0; try_index < MAX_TRIES; try_index++)
+										{
+											astc_helpers::log_astc_block log_block;
+											log_block.clear();
+
+											log_block.m_grid_width = w;
+											log_block.m_grid_height = h;
+											log_block.m_dual_plane = dp != 0;
+											log_block.m_color_component_selector = 0;
+											log_block.m_endpoint_ise_range = 20;
+											log_block.m_weight_ise_range = weight_range;
+											log_block.m_num_partitions = num_parts;
+											log_block.m_partition_id = 0;
+											log_block.m_color_endpoint_modes[0] = cem0;
+											log_block.m_color_endpoint_modes[1] = (num_parts >= 2) ? cem1 : 0;
+											log_block.m_color_endpoint_modes[2] = (num_parts >= 3) ? cem2 : 0;
+											log_block.m_color_endpoint_modes[3] = (num_parts >= 4) ? cem3 : 0;
+
+											uint32_t total_endpoint_vals = 0;
+											for (uint32_t i = 0; i < num_parts; i++)
+												total_endpoint_vals += astc_helpers::get_num_cem_values(log_block.m_color_endpoint_modes[i]);
+											if (total_endpoint_vals > astc_helpers::MAX_ENDPOINTS)
+												continue;
+
+											uint32_t endpoint_levels = astc_helpers::get_ise_levels(log_block.m_endpoint_ise_range);
+											for (uint32_t j = 0; j < total_endpoint_vals; j++)
+												log_block.m_endpoints[j] = (uint8_t)rnd.irand(0, endpoint_levels - 1);
+
+											const uint32_t weight_levels = astc_helpers::get_ise_levels(log_block.m_weight_ise_range);
+											const uint32_t total_weights = (log_block.m_dual_plane ? 2 : 1) * log_block.m_grid_width * log_block.m_grid_height;
+											if (total_weights > astc_helpers::MAX_GRID_WEIGHTS)
+												continue;
+
+											for (uint32_t j = 0; j < total_weights; j++)
+												log_block.m_weights[j] = (uint8_t)rnd.irand(0, weight_levels - 1);
+
+											astc_helpers::astc_block phys_block;
+											int expected_endpoint_range = -1;
+											bool status = astc_helpers::pack_astc_block(phys_block, log_block, &expected_endpoint_range);
+
+											if (!status)
+											{
+												if (expected_endpoint_range != -1)
+												{
+													log_block.m_endpoint_ise_range = expected_endpoint_range;
+
+													endpoint_levels = astc_helpers::get_ise_levels(log_block.m_endpoint_ise_range);
+													for (uint32_t j = 0; j < total_endpoint_vals; j++)
+														log_block.m_endpoints[j] = (uint8_t)rnd.irand(0, endpoint_levels - 1);
+
+													status = astc_helpers::pack_astc_block(phys_block, log_block, &expected_endpoint_range);
+												}
+
+												if (!status)
+													continue;
+											}
+
+											astc_helpers::log_astc_block unpacked_log_blk;
+
+											{
+												bool q = unpack_block(&phys_block, unpacked_log_blk, block_w, block_h);
+												if (!q)
+												{
+													printf("Failure\n");
+													exit(1);
+												}
+
+												bool same = log_block.m_grid_width == unpacked_log_blk.m_grid_width;
+												same = same & (log_block.m_grid_height == unpacked_log_blk.m_grid_height);
+												same = same & (log_block.m_dual_plane == unpacked_log_blk.m_dual_plane);
+												same = same & (log_block.m_color_component_selector == unpacked_log_blk.m_color_component_selector);
+												same = same & (log_block.m_endpoint_ise_range == unpacked_log_blk.m_endpoint_ise_range);
+												same = same & (log_block.m_weight_ise_range == unpacked_log_blk.m_weight_ise_range);
+												same = same & (log_block.m_num_partitions == unpacked_log_blk.m_num_partitions);
+												same = same & (log_block.m_partition_id == unpacked_log_blk.m_partition_id);
+												for (uint32_t i = 0; i < log_block.m_num_partitions; i++)
+												{
+													same = same & (log_block.m_color_endpoint_modes[i] == unpacked_log_blk.m_color_endpoint_modes[i]);
+												}
+												for (uint32_t i = 0; i < 64; i++)
+												{
+													same = same & (log_block.m_weights[i] == unpacked_log_blk.m_weights[i]);
+												}
+												for (uint32_t i = 0; i < 18; i++)
+												{
+													same = same & (log_block.m_endpoints[i] == unpacked_log_blk.m_endpoints[i]);
+												}
+												if (!same)
+												{
+													printf("Failure\n");
+													exit(1);
+												}
+
+											}
+
+											if (!is_ldr_cem0 || !is_ldr_cem1 || !is_ldr_cem2 || !is_ldr_cem3)
+											{
+												// Google's decompressor
+												vec4F pixels[12 * 12];
+
+												status = basisu_astc::astc::decompress_hdr(&pixels[0][0], (uint8_t*)&phys_block, block_w, block_h);
+												if (!status)
+												{
+													assert(0);
+													continue;
+												}
+
+												// My decompressor
+												uint16_t alt_pixels[12 * 12 * 4];
+												status = astc_helpers::decode_block(unpacked_log_blk, alt_pixels, block_w, block_h, astc_helpers::cDecodeModeHDR16);
+												if (!status)
+												{
+													assert(0);
+													continue;
+												}
+
+#if 0
+												// ARM's decompressor
+												vec4F arm_pixels[12 * 12];
+												status = decomp_astc_block_f32((astc_blk&)phys_block, arm_pixels, block_w, block_h);
+												if (!status)
+												{
+													printf("decomp_astc_block() failed!\n");
+													exit(1);
+												}
+#endif
+
+												for (uint32_t y = 0; y < block_h; y++)
+												{
+													for (uint32_t x = 0; x < block_w; x++)
+													{
+														for (uint32_t c = 0; c < 4; c++)
+														{
+															float a = pixels[x + y * block_w][c];
+
+															basist::half_float hb = alt_pixels[(x + y * block_w) * 4 + c];
+															float b = basist::half_to_float(hb);
+
+															//float d = arm_pixels[x + y * block_w][c];
+															float d = b;//
+
+															if ((a != b) || (a != d))
+															{
+																printf("Failure\n");
+																exit(0);
+															}
+														}
+													}
+												}
+
+											}
+											else
+											{
+												// Google's decompressor
+												uint8_t pixels[12 * 12 * 4];
+												status = basisu_astc::astc::decompress_ldr(pixels, (uint8_t*)&phys_block, test_srgb, block_w, block_h);
+												if (!status)
+												{
+													assert(0);
+													continue;
+												}
+
+												// My decompressor
+												uint8_t alt_pixels[12 * 12 * 4];
+												status = astc_helpers::decode_block(unpacked_log_blk, alt_pixels, block_w, block_h, test_srgb ? astc_helpers::cDecodeModeSRGB8 : astc_helpers::cDecodeModeLDR8);
+												if (!status)
+												{
+													assert(0);
+													continue;
+												}
+
+#if 0
+												// ARM's decompressor
+												uint8_t arm_pixels[12 * 12 * 4];
+												status = decomp_astc_block_u8((astc_blk&)phys_block, arm_pixels, block_w, block_h);
+												if (!status)
+												{
+													printf("decomp_astc_block() failed!\n");
+													exit(1);
+												}
+#endif
+
+												for (uint32_t y = 0; y < block_h; y++)
+												{
+													for (uint32_t x = 0; x < block_w; x++)
+													{
+														for (uint32_t c = 0; c < 4; c++)
+														{
+															if ((pixels[(x + y * block_w) * 4 + c] != alt_pixels[(x + y * block_w) * 4 + c])
+																//|| (iabs(pixels[(x + y * block_w) * 4 + c] - arm_pixels[(x + y * block_w) * 4 + c]) > 1)
+																)
+															{
+																printf("Failure\n");
+																exit(0);
+															}
+														}
+													}
+												}
+											}
+
+											printf("%u: blk: %ux%u, cems: %u %u %u %u, grid: %ux%u, dp: %u, parts: %u, endpoint range: %i, endpoint levels: %i, weight range: %u, weight levels: %u\n",
+												total_modes,
+												block_w, block_h,
+												cem0, cem1, cem2, cem3, w, h, dp, num_parts,
+												log_block.m_endpoint_ise_range, astc_helpers::get_ise_levels(log_block.m_endpoint_ise_range),
+												weight_range, astc_helpers::get_ise_levels(weight_range));
+											total_modes++;
+										
+										} // try_index
+
+									} // h
+
+								} // w
+
+							} // cem 3
+						} // cem 2
+					} // cem1				
+				} // cem0
+
+			} // weight_range
+
+		} // num_parts
+	} // dp
+	printf("OK\n");
+
+	goto redo;
+
+	exit(0);
+}
+
+static bool astc_decode_test2()
+{
+	uint32_t total_valid_blocks = 0;
+
+	basisu::rand rnd;
+	rnd.seed(1000);
+
+	for (uint32_t t = 0; t < 1000000; t++)
+	{
+		astc_helpers::astc_block blk;
+		for (uint32_t i = 0; i < 16; i++)
+			((uint8_t*)&blk)[i] = rnd.byte();
+
+		const uint32_t r = rnd.irand(0, astc_helpers::NUM_ASTC_BLOCK_SIZES - 1);
+		const uint32_t W = astc_helpers::g_astc_block_sizes[r][0], H = astc_helpers::g_astc_block_sizes[r][1];
+
+		astc_helpers::log_astc_block log_blk;
+		bool status1 = astc_helpers::unpack_block(&blk, log_blk, W, H);
+		
+		basist::half_float pixels1[12 * 12 * 4];
+		if (status1)
+		{
+			status1 = astc_helpers::decode_block(log_blk, pixels1, W, H, astc_helpers::cDecodeModeHDR16);
+		}
+
+		vec4F pixels2[12 * 12];
+		bool status2 = basisu_astc::astc::decompress_hdr(&pixels2[0][0], (uint8_t*)&blk, W, H);
+		
+		if (status1 && status2)
+		{
+			total_valid_blocks++;
+			if ((total_valid_blocks & 8191) == 8191)
+				printf("%u\n", total_valid_blocks);
+
+			for (uint32_t i = 0; i < W * H; i++)
+			{
+				for (uint32_t c = 0; c < 4; c++)
+				{
+					float a = basist::half_to_float(pixels1[i * 4 + c]);
+					float b = pixels2[i][c];
+					if (a != b)
+					{
+						error_printf("ASTC decode mismatch!\n");
+						return false;
+					}
+				}
+			}
+
+		}
+	}
+
+	printf("Success\n");
+	return true;
+}
+
+static bool astc_decode_test3()
+{
+	uint32_t total_valid_blocks = 0;
+
+	basisu::rand rnd;
+	rnd.seed(1001);
+
+	for (uint32_t t = 0; t < 50000000; t++)
+	{
+		astc_helpers::astc_block blk;
+		for (uint32_t i = 0; i < 16; i++)
+			((uint8_t*)&blk)[i] = rnd.byte();
+
+		const uint32_t r = rnd.irand(0, astc_helpers::NUM_ASTC_BLOCK_SIZES - 1);
+		const uint32_t W = astc_helpers::g_astc_block_sizes[r][0], H = astc_helpers::g_astc_block_sizes[r][1];
+
+		astc_helpers::log_astc_block log_blk;
+		bool status1 = astc_helpers::unpack_block(&blk, log_blk, W, H);
+		
+		basist::half_float pixels1[12 * 12 * 4];
+		if (status1)
+		{
+			status1 = astc_helpers::decode_block(log_blk, pixels1, W, H, astc_helpers::cDecodeModeHDR16);
+		}
+				
+		vec4F pixels2[12 * 12];
+		bool status2 = basisu_astc::astc::decompress_hdr(&pixels2[0][0], (uint8_t*)&blk, W, H);
+
+		if (!status1 || !status2)
+			continue;
+				
+		{
+			total_valid_blocks++;
+			if ((total_valid_blocks & 8191) == 8191)
+				printf("%u\n", total_valid_blocks);
+
+			for (uint32_t i = 0; i < W * H; i++)
+			{
+				for (uint32_t c = 0; c < 4; c++)
+				{
+					float a = basist::half_to_float(pixels1[i * 4 + c]);
+					float b = pixels2[i][c];
+					if (a != b)
+					{
+						error_printf("ASTC decode mismatch!\n");
+						return false;
+					}
+				}
+			}
+		}
+
+		uint32_t pixels3[12 * 12];
+		if (status1)
+		{
+			bool status3 = astc_helpers::decode_block(log_blk, pixels3, W, H, astc_helpers::cDecodeModeRGB9E5);
+			assert(status1 == status3);
+			BASISU_NOTE_UNUSED(status3);
+		}
+		
+		for (uint32_t i = 0; i < W * H; i++)
+		{
+			float rc, gc, bc;
+			astc_helpers::unpack_rgb9e5(pixels3[i], rc, gc, bc);
+
+			float comp_r = clamp<float>(pixels2[i][0], 0.0f, astc_helpers::MAX_RGB9E5);
+			float comp_g = clamp<float>(pixels2[i][1], 0.0f, astc_helpers::MAX_RGB9E5);
+			float comp_b = clamp<float>(pixels2[i][2], 0.0f, astc_helpers::MAX_RGB9E5);
+
+			const float D = maximum(comp_r, comp_g, comp_b) / 256.0f;
+			if ((fabs(rc - comp_r) > D) || (fabs(gc - comp_g) > D) || (fabs(bc - comp_b) > D))
+			{
+				printf("!");
+			}
+		}
+
+		//printf(".");
+	}
+
+	printf("Success\n");
+	return true;
+}
+#endif
+
+#if 0
+#define BCDEC_IMPLEMENTATION
+#include "bcdec.h"
+
+void bc6h_decode_test()
+{
+	basisu::rand rnd;
+	rnd.seed(2000);
+
+	for (uint32_t t = 0; t < 100000000; t++)
+	{
+		basist::bc6h_block blk;
+		for (uint32_t i = 0; i < sizeof(blk); i++)
+			((uint8_t*)&blk)[i] = rnd.byte();
+
+		basist::half_float d1[16 * 3];
+		bool res0 = bcdec_bc6h_half(&blk, d1, 4 * 3, false);
+
+		basist::half_float d2[16 * 3];
+		bool res1 = unpack_bc6h(&blk, d2, false, 4 * 3);
+
+		assert(res0 == res1);
+
+		if ((!res0) || (!res1))
+		{
+			//printf("!");
+			continue;
+		}
+
+		for (uint32_t i = 0; i < 16 * 3; i++)
+		{
+			if (d1[i] != d2[i])
+			{
+				printf("failure\n");
+				exit(1);
+			}
+		}
+	}
+
+	printf("Success\n");
+}
+#endif
+
+#ifdef FORCE_SAN_FAILURE
+static void force_san_failure()
+{
+	// Purposely do things that should trigger the address sanitizer
+	int arr[5] = { 0, 1, 2, 3, 4 };
+	printf("Out of bounds element: %d\n", arr[10]);
+
+	//uint8_t* p = (uint8_t *)malloc(10);
+	//p[10] = 99;
+
+	//uint8_t* p = (uint8_t *)malloc(10);
+	//free(p);
+	//p[0] = 99;
+}
+#endif // FORCE_SAN_FAILURE
+
 static int main_internal(int argc, const char **argv)
 {
-	printf("Basis Universal GPU Texture Compressor v" BASISU_TOOL_VERSION "\nCopyright (C) 2019-2022 Binomial LLC, All rights reserved\n");
+	printf("Basis Universal LDR/HDR GPU Texture Compression and Transcoding System v" BASISU_TOOL_VERSION "\nCopyright (C) 2019-2024 Binomial LLC, All rights reserved\n");
 
+#ifdef FORCE_SAN_FAILURE
+	force_san_failure();
+#endif
+		
 	//interval_timer tm;
 	//tm.start();
 
 	// See if OpenCL support has been disabled. We don't want to parse the command line until the lib is initialized
 	bool use_opencl = false;
 	bool opencl_force_serialization = false;
+	
 	for (int i = 1; i < argc; i++)
 	{
 		if ((strcmp(argv[i], "-opencl") == 0) || (strcmp(argv[i], "-clbench") == 0))
@@ -4473,10 +5671,6 @@ static int main_internal(int argc, const char **argv)
 	basisu_encoder_init(use_opencl, opencl_force_serialization);
 		
 	//printf("Encoder and transcoder libraries initialized in %3.3f ms\n", tm.get_elapsed_ms());
-
-#if defined(DEBUG) || defined(_DEBUG)
-	printf("DEBUG build\n");
-#endif
 		
 	if (argc == 1)
 	{
@@ -4494,7 +5688,7 @@ static int main_internal(int argc, const char **argv)
 #if BASISU_SUPPORT_SSE
 	printf("Using SSE 4.1: %u, Multithreading: %u, Zstandard support: %u, OpenCL: %u\n", g_cpu_supports_sse41, (uint32_t)opts.m_comp_params.m_multithreading, basist::basisu_transcoder_supports_ktx2_zstd(), opencl_is_available());
 #else
-	printf("Multithreading: %u, Zstandard support: %u, OpenCL: %u\n", (uint32_t)opts.m_comp_params.m_multithreading, basist::basisu_transcoder_supports_ktx2_zstd(), opencl_is_available());
+	printf("No SSE, Multithreading: %u, Zstandard support: %u, OpenCL: %u\n", (uint32_t)opts.m_comp_params.m_multithreading, basist::basisu_transcoder_supports_ktx2_zstd(), opencl_is_available());
 #endif
 		
 	if (!opts.process_listing_files())
@@ -4530,6 +5724,9 @@ static int main_internal(int argc, const char **argv)
 	case cCompare:
 		status = compare_mode(opts);
 		break;
+	case cHDRCompare:
+		status = hdr_compare_mode(opts);
+		break;
 	case cVersion:
 		status = true; // We printed the version at the beginning of main_internal
 		break;
@@ -4539,8 +5736,11 @@ static int main_internal(int argc, const char **argv)
 	case cCompSize:
 		status = compsize_mode(opts);
 		break;
-	case cTest:
-		status = test_mode(opts);
+	case cTestLDR:
+		status = test_mode_ldr(opts);
+		break;
+	case cTestHDR:
+		status = test_mode_hdr(opts);
 		break;
 	case cCLBench:
 		status = clbench_mode(opts);
@@ -4550,6 +5750,9 @@ static int main_internal(int argc, const char **argv)
 		break;
 	case cCombineImages:
 		status = combine_images_mode(opts);
+		break;
+	case cTonemapImage:
+		status = tonemap_image_mode(opts);
 		break;
 	default:
 		assert(0);
@@ -4564,8 +5767,12 @@ int main(int argc, const char** argv)
 #ifdef _WIN32
 	SetConsoleOutputCP(CP_UTF8);
 #endif
-#ifdef _DEBUG
-	printf("DEBUG\n");
+
+#if defined(DEBUG) || defined(_DEBUG)
+	printf("DEBUG build\n");
+#endif
+#ifdef __SANITIZE_ADDRESS__
+	printf("Address sanitizer enabled\n");
 #endif
 		
 	int status = EXIT_FAILURE;

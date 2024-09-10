@@ -1,230 +1,284 @@
-# basis_universal
-Basis Universal Supercompressed GPU Texture Codec
+# basis_universal_uastc_hdr
+Basis Universal Supercompressed LDR/HDR GPU Texture Transcoding System 
 
-----
+**PRIVATE DEVELOPMENT REPO**
 
 [![Build status](https://ci.appveyor.com/api/projects/status/87eb0o96pjho4sh0?svg=true)](https://ci.appveyor.com/project/BinomialLLC/basis-universal)
 
-Note: UASTC HDR support (for native and WebAssembly) is coming in early September 2024. All development work is done, we're now just testing the changes. We're also adding .QOI image loading, .DDS texture file reading/writing, .EXR/.HDR image loading and saving, and simple encoding/transcoding examples.
+----
 
-Basis Universal is a ["supercompressed"](http://gamma.cs.unc.edu/GST/gst.pdf) GPU texture data interchange system that supports two highly compressed intermediate file formats (.basis or the [.KTX2 open standard from the Khronos Group](https://github.khronos.org/KTX-Specification/)) that can be quickly transcoded to a [very wide variety](https://github.com/BinomialLLC/basis_universal/wiki/OpenGL-texture-format-enums-table) of GPU compressed and uncompressed pixel formats: ASTC 4x4 L/LA/RGB/RGBA, PVRTC1 4bpp RGB/RGBA, PVRTC2 RGB/RGBA, BC7 mode 6 RGB, BC7 mode 5 RGB/RGBA, BC1-5 RGB/RGBA/X/XY, ETC1 RGB, ETC2 RGBA, ATC RGB/RGBA, ETC2 EAC R11 and RG11, FXT1 RGB, and uncompressed raster image formats 8888/565/4444. 
+Intro
+-----
 
-The system now supports two modes: a high quality mode which is internally based off the [UASTC compressed texture format](https://richg42.blogspot.com/2020/01/uastc-block-format-encoding.html), and the original lower quality mode which is based off a subset of ETC1 called "ETC1S". UASTC is for extremely high quality (similar to BC7 quality) textures, and ETC1S is for very small files. The ETC1S system includes built-in data compression, while the UASTC system includes an optional Rate Distortion Optimization (RDO) post-process stage that conditions the encoded UASTC texture data in the .basis file so it can be more effectively LZ compressed by the end user. More technical details about UASTC integration are [here](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-implementation-details).
+Basis Universal is an open source [supercompressed](http://gamma.cs.unc.edu/GST/gst.pdf) LDR/HDR GPU texture interchange system from Binomial LLC that supports two intermediate file formats: the [.KTX2 open standard from the Khronos Group](https://github.khronos.org/KTX-Specification/), and our own ".basis" file format. These file formats support rapid transcoding to virtually any [GPU texture format](https://en.wikipedia.org/wiki/Texture_compression) released in the past ~25 years. Our overall goal is to simplify the encoding and efficient distribution of LDR and HDR GPU texture, image, and texture video content in a way that works well on any GPU.
 
-Basis files support non-uniform texture arrays, so cubemaps, volume textures, texture arrays, mipmap levels, video sequences, or arbitrary texture "tiles" can be stored in a single file. The compressor is able to exploit color and pattern correlations across the entire file, so multiple images with mipmaps can be stored very efficiently in a single file.
+The current system supports three modes: ETC1S, UASTC LDR, and UASTC HDR.
 
-The system's bitrate depends on the quality setting and image content, but common usable ETC1S bitrates are .3-1.25 bits/texel. ETC1S .basis files are typically 10-25% smaller than using RDO texture compression of the internal texture data stored in the .basis file followed by LZMA. For UASTC files, the bitrate is fixed at 8bpp, but with RDO post-processing and user-provided LZ compression on the .basis file the effective bitrate can be as low as 2bpp for video or for individual textures approximately 4-6bpp.
+Links
+-----
 
-The .basis and .KTX2 transcoders have been fuzz tested using [zzuf](https://www.linux.com/news/fuzz-testing-zzuf).
+- [Release Notes](https://github.com/BinomialLLC/basis_universal/wiki/Release-Notes)
 
-So far, we've compiled the code using MSVC 2019, under Ubuntu 18.04 and 20 x64 using cmake with either clang 3.8 or gcc 5.4, and emscripten 1.35 to asm.js. (Be sure to use this version or later of emcc, as earlier versions fail with internal errors/exceptions during compilation.) 
+- [Online WebGL Examples](http://subquantumtech.com/uastchdr/) 
 
-Basis Universal supports "skip blocks" in ETC1S compressed texture arrays, which makes it useful for basic [compressed texture video](http://gamma.cs.unc.edu/MPTC/) applications. Note that Basis Universal is still at heart a GPU texture compression system, not a dedicated video codec, so bitrates will be larger than even MPEG1.
-1/10/21 release notes:
+- ["Khan" ETC1S texture video test](http://subquantumtech.com/uastchdr/video_test)
 
-For v1.13, we've added numerous ETC1S encoder optimizations designed to greatly speed up single threaded encoding time, as well as greatly reducing overall CPU utilization when multithreading is enabled. For benchmarking, we're using "-q 128 -no_multithreading -mip_fast". The encoder now uses approximately 1/3rd as much total CPU time for the same PSNR. The encoder can now optionally utilize SSE 4.1 - see the "-no_sse" command line option.
+- ["Castle" ETC1S texture video test](http://subquantumtech.com/uastchdr/video_test2)
 
-[Release Notes](https://github.com/BinomialLLC/basis_universal/wiki/Release-Notes)
+- [UASTC HDR Example Images](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-HDR-Examples)
 
-### The first texture (and possibly image/video) compression codec developed without "Lena"
+Supported LDR GPU Texture Formats
+---------------------------------
 
-We retired Lena years ago. No testing is done with this image:
+ETC1S and UASTC LDR files can be transcoded to:
 
-https://www.losinglena.com/
+- ASTC LDR 4x4 L/LA/RGB/RGBA 8bpp
+- BC1-5 RGB/RGBA/X/XY
+- BC7 RGB/RGBA
+- ETC1 RGB, ETC2 RGBA, and ETC2 EAC R11/RG11
+- PVRTC1 4bpp RGB/RGBA and PVRTC2 RGB/RGBA
+- ATC RGB/RGBA and FXT1 RGB
+- Uncompressed LDR raster image formats: 8888/565/4444
 
-### Quick Introduction
+Supported HDR GPU Texture Formats
+---------------------------------
 
-Probably the most important concept to understand about Basis Universal before using it: The system supports **two** very different universal texture modes: The original "ETC1S" mode is low/medium quality, but the resulting file sizes are very small because the system has built-in compression for ETC1S texture format files. This is the command line encoding tool's default mode. ETC1S textures work best on images, photos, map data, or albedo/specular/etc. textures, but don't work as well on normal maps. 
+UASTC HDR files can be transcoded to:
+- ASTC HDR 4x4 RGB 8bpp
+- BC6H RGB
+- Uncompressed HDR raster image formats: RGB_16F/RGBA_16F (half float/FP16 RGB, 48 or 64bpp), 32-bit shared exponent [RGB_9E5](https://registry.khronos.org/OpenGL/extensions/EXT/EXT_texture_shared_exponent.txt)
 
-There's the second "UASTC" mode, which is significantly higher quality (comparable to BC7 and highest quality LDR ASTC 4x4), and is usable on all texture types including complex normal maps. UASTC mode purposely does not have built-in file compression like ETC1S mode does, so the resulting files are quite large (8-bits/texel - same as BC7) compared to ETC1S mode. The UASTC encoder has an optional Rate Distortion Optimization (RDO) encoding mode (implemented as a post-process over the encoded UASTC texture data), which conditions the output texture data in a way that results in better lossless compression when UASTC .basis files are compressed with Deflate/Zstd, etc. In UASTC mode, you must losslessly compress .basis files yourself. .KTX2 files have built-in lossless compression support using [Zstandard](https://facebook.github.io/zstd/), which is used by default on UASTC textures.
+Supported Texture Compression Modes
+-----------------------------------
 
-Basis Universal is not an image compression codec, but a GPU texture compression codec. It can be used just like an image compression codec, but that's not the only use case. Here's a [good intro](http://renderingpipeline.com/2012/07/texture-compression/) to GPU texture compression. If you're looking to primarily use the system as an image compression codec on sRGB photographic content, use the default ETC1S mode, because it has built-in compression. 
+1. [ETC1S](https://github.com/BinomialLLC/basis_universal/wiki/.basis-File-Format-and-ETC1S-Texture-Video-Specification): A roughly .3-3bpp low to medium quality supercompressed mode based off a subset of ETC1 called "ETC1S". This mode supports variable quality vs. file size levels (like JPEG), alpha channels, built-in compression, and texture arrays optionally compressed as a video sequence using skip blocks ([Conditional Replenishment](https://en.wikipedia.org/wiki/MPEG-1)). This mode can be rapidly transcoded to all of the supported LDR texture formats.
 
-**The "-q X" option controls the output quality in ETC1S mode.** The default is quality level 128. "-q 255" will increase quality quite a bit. If you want even higher quality, try "-max_selectors 16128 -max_endpoints 16128" instead of -q. -q internally tries to set the codebook sizes (or the # of quantization intervals for endpoints/selectors) for you. You need to experiment with the quality level on your content.
+2. [UASTC LDR](https://richg42.blogspot.com/2020/01/uastc-block-format-encoding.html): An 8 bits/pixel LDR high quality mode. UASTC LDR is a 19 mode subset of the standard [ASTC LDR](https://en.wikipedia.org/wiki/Adaptive_scalable_texture_compression) 4x4 (8bpp) texture format, but with a custom block format containing transcoding hints. Transcoding UASTC LDR to ASTC LDR and BC7 are particularly fast and simple, because UASTC LDR is a common subset of both BC7 and ASTC. The transcoders for the other texture formats are accelerated by several format-specific hint bits present in each UASTC LDR block.
 
-For tangent space normal maps, you should separate X into RGB and Y into Alpha, and provide the compressor with 32-bit/pixel input images. Or use the "-separate_rg_to_color_alpha" command line option which does this for you. The internal texture format that Basis Universal uses (ETC1S) doesn't handle tangent space normal maps encoded into RGB well. You need to separate the channels and recover Z in the pixel shader using z=sqrt(1-x^2-y^2).
+This mode supports an optional [Rate-Distortion Optimizated (RDO)](https://en.wikipedia.org/wiki/Rate%E2%80%93distortion_optimization) post-process stage that conditions the encoded UASTC LDR texture data in the .KTX2/.basis file so it can be more effectively LZ compressed. More details [here](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-implementation-details).
 
-### License and 3rd party code dependencies
+Here is the [UASTC LDR specification document](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-Texture-Specification).
 
-Detailed legal, license, and IP information is [here](https://github.com/BinomialLLC/basis_universal/wiki/Legal-IP-License-Information). Basis Universal itself uses the Apache 2.0 licenses, but it also utilizes some optional BSD code (Zstandard). The supported texture formats are [open Khronos Group standards](https://www.khronos.org/registry/DataFormat/specs/1.1/dataformat.1.1.html).
+3. [UASTC HDR](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-HDR-Texture-Specification-v1.0): An 8 bits/pixel HDR high quality mode. This is a 24 mode subset of the standard [ASTC HDR](https://en.wikipedia.org/wiki/Adaptive_scalable_texture_compression) 4x4 (8bpp) texture format. It's designed to be high quality, supporting the 27 partition patterns in common between BC6H and ASTC, and fast to transcode with very little loss (typically a fraction of a dB PSNR) to the BC6H HDR texture format. Notably, **UASTC HDR data is 100% standard ASTC texture data**, so no transcoding at all is required on devices or API's supporting ASTC HDR. This mode can also be transcoded to various 32-64bpp uncompressed HDR texture/image formats.
 
-All C/C++ code dependencies are present inside the Basis Universal repo itself to simplify building.
+Here is the [UASTC HDR specification document](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-HDR-Texture-Specification-v1.0), and compressed [example images](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-HDR-Examples).
 
-The encoder optionally uses Zstandard's single source file compressor (in zstd/zstd.c) to support compressing supercompressed KTX2 files. The stand-alone transcoder (in the "transcoder" directory) is a single .cpp source file library which has no 3rd party code dependencies apart from zstd/zstddeclib.c, which is also technically optional. It's only used for decompressing UASTC KTX2 files that use Zstandard.
+### Other Features
 
-### Command Line Compression Tool
+Both .basis and .KTX2 files support mipmap levels, texture arrays, cubemaps, cubemap arrays, and texture video, in all three modes. Additionally, .basis files support non-uniform texture arrays, where each image in the file can have a different resolution or number of mipmap levels.
 
-The command line tool used to create, validate, and transcode/unpack .basis/.KTX2 files is named "basisu". Run basisu without any parameters for help. 
+In ETC1S mode, the compressor is able to exploit color and pattern correlations across all the images in the entire file using global endpoint/selector codebooks, so multiple images with mipmaps can be stored efficiently in a single file. The ETC1S mode also supports short video sequences, with skip blocks (Conditional Replenishment) used to not send blocks which haven't changed relative to the previous frame.
 
-The library and command line tool have no other 3rd party dependencies (that are not already in the repo), so it's pretty easy to build.
+The LDR image formats supported for reading are .PNG, [.DDS with mipmaps](https://learn.microsoft.com/en-us/windows/win32/direct3ddds/dx-graphics-dds-pguide), .TGA, .QOI, and .JPG. The HDR image formats supported for reading are .EXR, .HDR, and .DDS with mipmaps. It can write .basis, .KTX2, .DDS, .KTX (v1), .ASTC, .OUT, .EXR, and .PNG files.
 
-To build basisu (without SSE 4.1 support - the default):
+The system now supports loading basic 2D .DDS files with optional mipmaps, but the .DDS file must be in one of the supported uncompressed formats: 24bpp RGB, 32bpp RGBA/BGRA, half-float RGBA, or float RGBA. Using .DDS files allows the user to control exactly how the mipmaps are generated before compression.
+
+Building
+--------
+
+The encoding library and command line tool have no required 3rd party dependencies that are not already in the repo itself. The transcoder is a single .cpp source file (in `transcoder/basisu_transcoder.cpp`) which has no 3rd party dependencies.
+
+We build and test under:
+- Windows x86/x64 using Visual Studio 2019/2022, MSVC, or clang
+- Mac OSX (M1) with clang v15.0
+- Ubuntu Linux with gcc v11.4 or clang v14
+- Arch Linux ARM, on a [Pinebook Pro](https://pine64.org/devices/pinebook_pro/), with gcc v12.1.
+
+Under Windows with Visual Studio you can use the included `basisu.sln` file. Alternatively, you can use cmake to create new VS solution/project files.
+
+To build, first [install cmake](https://cmake.org/), then:
 
 ```
-cmake CMakeLists.txt
+cd build
+cmake ..
 make
 ```
-To build with SSE 4.1 support on x86/x64 systems (encoding is roughly 15-30% faster):
+
+To build with SSE 4.1 support on x86/x64 systems (encoding is roughly 15-30% faster), add `-DSSE=TRUE` to the cmake command line. Add `-DOPENCL=TRUE` to build with (optional) OpenCL support. Use `-DCMAKE_BUILD_TYPE=Debug` to build in debug. To build 32-bit executables, add `-DBUILD_X64=FALSE`.
+
+After building, the native command line tool used to create, validate, and transcode/unpack .basis/.KTX2 files is `bin/basisu`.
+
+### Testing the Codec
+
+The command line tool includes some automated LDR/HDR encoding/transcoding tests:
+
 ```
-cmake -D SSE=TRUE CMakeLists.txt
-make
+cd ../bin
+basisu -test
+basisu -test_hdr
 ```
 
-For Visual Studio 2019, you can now either use the CMakeLists.txt file or the included `basisu.sln` file. Earlier versions of Visual Studio (particularly 2017) should work but aren't actively tested. We develop with the most up to date version of 2019.
+To test the codec in OpenCL mode (must have OpenCL libs/headers/drivers installed and have compiled OpenCL support in by running cmake with `-DOPENCL=TRUE`):
 
-To test the codec:
+```
+basisu -test -opencl
+```
 
-`basisu -test`
+Compressing and Unpacking .KTX2/.basis Files
+--------------------------------------------
 
-To test the codec in OpenCL mode (must have OpenCL libs/headers/drivers installed, and have compiled OpenCL support in by specifying cmake -D OPENCL=TRUE):
+- To compress an LDR sRGB PNG/QOI/TGA/JPEG/DDS image to an ETC1S .KTX2 file, at quality level 255 (the highest):
 
-`basisu -test -opencl`
+`basisu -q 255 x.png`
 
-To compress a sRGB PNG/BMP/TGA/JPEG image to an ETC1S .KTX2 file:
+- For a linear LDR image, in ETC1S mode, at default quality (128):
 
-`basisu -ktx2 x.png`
+`basisu -linear x.png`
 
-To compress a sRGB PNG/BMP/TGA/JPEG image to an UASTC .KTX2 file:
+- To compress to UASTC LDR, which is much higher quality than ETC1S:
 
-`basisu -ktx2 -uastc x.png`
+`basisu -uastc x.png`
 
-To compress a sRGB PNG/BMP/TGA/JPEG image to an RDO UASTC .KTX2 file with mipmaps:
+- To compress an [.EXR](https://en.wikipedia.org/wiki/OpenEXR), [Radiance .HDR](https://paulbourke.net/dataformats/pic/), or .DDS HDR image to a UASTC HDR .KTX2 file:
 
-`basisu -ktx2 -uastc -uastc_rdo_l 1.0 -mipmap x.png`
+`basisu x.exr`
 
-To compress a sRGB PNG/BMP/TGA/JPEG image to an ETC1S .basis file:
+Alternatively, LDR images (such as .PNG) can be compressed to UASTC HDR by specifying `-hdr`. By default, LDR images, when compressed to UASTC HDR, are first converted from sRGB to linear light before compression. This conversion step can be disabled by specifying `-hdr_ldr_no_srgb_to_linear`. 
 
-`basisu x.png`
+Importantly, for best quality, you should **supply basisu with original uncompressed source images**. Any other type of lossy compression applied before basisu (including ETC1/BC1-5, BC7, JPEG, etc.) will cause multi-generational artifacts to appear in the final output textures. 
 
-To compress a image to a higher quality UASTC .basis file:
+### Some Useful Command Line Options
 
-`basisu -uastc -uastc_level 2 x.png`
+- `-fastest` (which is equivalent to `-uastc_level 0`) puts the UASTC LDR/HDR encoders in their fastest (but lower quality) modes. 
 
-To compress a image to a higher quality UASTC .basis file with RDO post processing, so the .basis file is more compressible:
+- `-slower` puts the UASTC LDR/HDR encoders in higher quality but slower modes (equivalent to `-uastc_level 3`). The default level is 1, and the highest is 4 (which is quite slow).
 
-`basisu -uastc -uastc_level 2 -uastc_rdo_l .75 x.png`
+- `-q X`, where X ranges from [1,255], controls the ETC1S mode's quality vs. file size tradeoff level. 255 is the highest quality, and the default is 128.
 
--uastc_level X ranges from 0-4 and controls the UASTC encoder's performance vs. quality tradeoff. Level 0 is very fast, but low quality, level 2 is the default quality, while level 3 is the highest practical quality. Level 4 is impractically slow, but highest quality.
+- `-debug` causes the encoder to print internal and developer-oriented verbose debug information.
 
--uastc_rdo_l X controls the rate distortion stage's quality setting. The lower this value, the higher the quality, but the larger the compressed file size. Good values to try are between .2-3.0. The default is 1.0. RDO post-processing is currently pretty slow, but we'll be optimizing it over time.
+- `-stats` to see various quality (PSNR) statistics. 
 
-UASTC texture video is supported and has been tested. In RDO mode with 7zip LZMA, we've seen average bitrates between 1-2 bpp. ETC1S mode is recommended for texture video, which gets bitrates around .25-.3 bpp.
+- `-linear`: ETC1S defaults to sRGB colorspace metrics, UASTC LDR currently always uses linear metrics, and UASTC HDR defaults to weighted RGB metrics (with 2,3,1 weights). If the input is a normal map, or some other type of non-sRGB (non-photographic) texture content, be sure to use `-linear` to avoid extra unnecessary artifacts. (Angular normal map metrics for UASTC LDR/HDR are definitely doable and on our TODO list.)
 
-Note that basisu defaults to sRGB colorspace metrics. If the input is a normal map, or some other type of non-sRGB (non-photographic) texture content, be sure to use -linear to avoid extra unnecessary artifacts. (Note: Currently, UASTC mode always uses linear colorspace metrics. sRGB and angulate metrics are comming soon.)
+- Specifying `-opencl` enables OpenCL mode, which currently only accelerates ETC1S encoding.
 
-To add automatically generated mipmaps to the .basis file, at a higher than default quality level (which ranges from [1,255]):
+- The compressor is multithreaded by default, which can be disabled using the `-no_multithreading` command line option. The transcoder is currently single threaded, although it is thread safe (i.e. it supports decompressing multiple texture slices in parallel).
 
-`basisu -mipmap -q 190 x.png`
+More Example Command Lines
+--------------------------
 
-There are several mipmap options that allow you to change the filter kernel, the filter colorspace for the RGB channels (linear vs. sRGB), the smallest mipmap dimension, etc. The tool also supports generating cubemap files, 2D/cubemap texture arrays, etc.
+- To compress an sRGB PNG/QOI/TGA/JPEG/DDS image to an RDO (Rate-Distortion Optimization) UASTC LDR .KTX2 file with mipmaps:
 
-To create a slightly higher quality ETC1S .basis file (one with better codebooks) at the default quality level (128) - note this is much slower to encode:
+`basisu -uastc -uastc_rdo_l 1.0 -mipmap x.png`
+
+`-uastc_rdo_l X` controls the RDO ([Rate-Distortion Optimization](https://en.wikipedia.org/wiki/Rate%E2%80%93distortion_optimization)) quality setting. The lower this value, the higher the quality, but the larger the compressed file size. Good values to try are between .2-3.0. The default is 1.0.
+
+- To add automatically generated mipmaps to a ETC1S .KTX2 file, at a higher than default quality level (which ranges from [1,255]):
+
+`basisu -mipmap -q 200 x.png`
+
+There are several mipmap options to change the filter kernel, the filter colorspace for the RGB channels (linear vs. sRGB), the smallest mipmap dimension, etc. The tool also supports generating cubemap files, 2D/cubemap texture arrays, etc. To bypass the automatic mipmap generator, you can create LDR or HDR uncompressed [.DDS texture files](https://learn.microsoft.com/en-us/windows/win32/direct3ddds/dx-graphics-dds-pguide) and feed them to the compressor.
+
+- To create a slightly higher quality ETC1S .KTX2 file (one with higher quality endpoint/selector codebooks) at the default quality level (128) - note this is much slower to encode:
 
 `basisu -comp_level 2 x.png`
 
-On some rare images (ones with blue sky gradients come to bind), you may need to increase the ETC1S `-comp_level` setting. This controls the amount of overall effort the encoder uses to optimize the ETC1S codebooks (palettes) and compressed data stream. Higher comp_level's are *significantly* slower, and shouldn't be used unless necessary:
+On some rare images (ones with blue sky gradients come to bind), you may need to increase the ETC1S `-comp_level` setting, which ranges from 1,6. This controls the amount of overall effort the encoder uses to optimize the ETC1S codebooks and the compressed data stream. Higher comp_level's are *significantly* slower. 
 
-`basisu -ktx2 x.png -comp_level 5 -q 255`
+- To manually set the ETC1S codebook sizes (instead of using -q), with a higher codebook generation level (this is useful with texture video):
 
-Or try:
-`basisu -ktx2 x.png -comp_level 5 -max_endpoints 16128 -max_selectors 16128`
+`basisu x.png -comp_level 2 -max_endpoints 16128 -max_selectors 16128`
 
-Note `-comp_level`'s 3-4 are almost as good as 5 and are a lot faster.
+- To [tonemap](https://en.wikipedia.org/wiki/Tone_mapping) an HDR .EXR or .HDR image file to multiple LDR .PNG files at different exposures, using the Reinhard tonemap operator:
 
-The compressor is multithreaded by default, but this can be disabled using the `-no_multithreading` command line option. The transcoder is currently single threaded although it supports multithreading decompression of multiple texture slices in parallel.
+`basisu -tonemap x.exr`
 
-### Unpacking .basis/.KTX2 files to .PNG/.KTX files
+- To compare two LDR images and print PSNR statistics:
 
-You can either use the command line tool or [call the transcoder directly](https://github.com/BinomialLLC/basis_universal/wiki/How-to-Use-and-Configure-the-Transcoder) from JavaScript or C/C++ code to decompress .basis/.KTX2 files to GPU texture data or uncompressed images.
+`basisu -compare a.png b.png`
 
-To use the command line tool to unpack a .basis or .KTX2 file to multiple .png/.ktx files:
+- To compare two HDR .EXR/.HDR images and print FP16 PSNR statistics:
 
-`basisu x.basis`
+`basisu -compare_hdr a.exr b.exr`
 
-Use the `-no_ktx`/`-ktx_only` and `-etc1_only`/`-format_only` options to unpack to less files. `-info` and `-validate` will just display file information and not output any files. The output .KTX1 files are currently in the KTX1 file format, not KTX2.
+See the help text for a complete listing of the tool's command line options. The command line tool is just a thin wrapper on top of the encoder library.
 
-The mipmapped or cubemap .KTX files will be in a wide variety of compressed GPU texture formats (PVRTC1 4bpp, ETC1-2, BC1-5, BC7, etc.), and to my knowledge there is no single .KTX viewer tool that correctly and reliably supports every GPU texture format that we support. BC1-5 and BC7 files are viewable using AMD's Compressonator, ETC1/2 using Mali's Texture Compression Tool, and PVRTC1 using Imagination Tech's PVRTexTool. Links:
+Unpacking .KTX2/.basis files to .PNG/.EXR/.KTX/.DDS files
+---------------------------------------------------------
 
-[Mali Texture Compression Tool](https://developer.arm.com/tools-and-software/graphics-and-gaming/graphics-development-tools/mali-texture-compression-tool)
+You can either use the command line tool or [call the transcoder directly](https://github.com/BinomialLLC/basis_universal/wiki/How-to-Use-and-Configure-the-Transcoder) from JavaScript or C/C++ code to decompress .KTX2/.basis files to GPU texture data or uncompressed image data. To unpack a .KTX2 or.basis file to multiple .png/.exr/.ktx/.dds files:
 
-[Compressonator](https://gpuopen.com/gaming-product/compressonator/)
+`basisu x.ktx2`
 
-[PVRTexTool](https://www.imgtec.com/developers/powervr-sdk-tools/pvrtextool/)
+Use the `-no_ktx` and `-etc1_only`/`-format_only` options to unpack to less files. 
 
-After compression, the compressor transcodes all slices in the output .basis file to validate that the file decompresses correctly. It also validates all header, compressed data, and slice data CRC16's.
+`-info` and `-validate` will just display file information and not output any files. 
 
-For best quality, you must **supply basisu with original uncompressed source images**. Any other type of lossy compression applied before basisu (including ETC1/BC1-5, BC7, JPEG, etc.) will cause multi-generational artifacts to appear in the final output textures. 
+The written mipmapped, cubemap, or texture array .KTX/.DDS files will be in a wide variety of compressed GPU texture formats (PVRTC1 4bpp, ETC1-2, BC1-5, BC7, etc.), and to our knowledge there is unfortunately (as of 2024) still no single .KTX or .DDS viewer tool that correctly and reliably supports every GPU texture format that we support. BC1-5 and BC7 files are viewable using AMD's Compressonator, ETC1/2 using Mali's Texture Compression Tool, and PVRTC1 using Imagination Tech's PVRTexTool. [RenderDoc](https://renderdoc.org/) has a useful texture file viewer for many formats. The Mac OSX Finder supports previewing .EXR and .KTX files in various GPU formats. The Windows 11 Explorer can preview .DDS files. The [online OpenHDR Viewer](https://viewer.openhdr.org/) is useful for viewing .EXR/.HDR image files. 
 
-For the maximum possible achievable ETC1S mode quality with the current format and encoder (completely ignoring encoding speed!), use:
+WebGL Examples
+--------------
 
-`basisu x.png -comp_level 5 -max_endpoints 16128 -max_selectors 16128 -no_selector_rdo -no_endpoint_rdo`
+The "WebGL" directory contains three simple WebGL demos that use the transcoder and compressor compiled to [WASM](https://webassembly.org/) with [emscripten](https://emscripten.org/). See more details [here](webgl/README.md).
 
-Level 5 is extremely slow, so unless you have a very powerful machine, levels 1-4 are recommended.
-
-Note that "-no_selector_rdo -no_endpoint_rdo" are optional. Using them hurts rate distortion performance, but increases quality. An alternative is to use -selector_rdo_thresh X and -endpoint_rdo_thresh, with X ranging from [1,2] (higher=lower quality/better compression - see the tool's help text).
-
-To compress small video sequences, say using tools like ffmpeg and VirtualDub:
-
-`basisu -comp_level 2 -tex_type video -stats -debug -multifile_printf "pic%04u.png" -multifile_num 200 -multifile_first 1 -max_selectors 16128 -max_endpoints 16128 -endpoint_rdo_thresh 1.05 -selector_rdo_thresh 1.05`
-
-For video, the more cores your machine has, the better. Basis is intended for smaller videos of a few dozen seconds or so. If you are very patient and have a Threadripper or Xeon workstation, you should be able to encode up to a few thousand 720P frames. The "webgl_videotest" directory contains a very simple video viewer.
-For texture video, use -comp_level 2 or 3. The default is 1, which isn't quite good enough for texture video. Higher comp_level's result in reduced ETC1S artifacts.
-
-The .basis file will contain multiple images (all using the same global codebooks), which you can retrieve using the transcoder's image API. The system now supports [conditional replenisment](https://en.wikipedia.org/wiki/MPEG-1) (CR, or "skip blocks"). CR can reduce the bitrate of some videos (highly dependent on how dynamic the content is) by over 50%. For videos using CR, the images must be requested from the transcoder in sequence from first to last, and random access is only allowed to I-Frames. 
-
-If you are doing rate distortion comparisons vs. other similar systems, be sure to experiment with increasing the endpoint RDO threshold (-endpoint_rdo_thresh X). This setting controls how aggressively the compressor's backend will combine together nearby blocks so they use the same block endpoint codebook vectors, for better coding efficiency. X defaults to a modest 1.5, which means the backend is allowed to increase the overall color distance by 1.5x while searching for merge candidates. The higher this setting, the better the compression, with the tradeoff of more block artifacts. Settings up to ~2.25 can work well, and make the codec more competitive. "-endpoint_rdo_thresh 1.75" is a good setting on many textures.
-
-For video, level 1 should result in decent results on most clips. For less banding, level 2 can make a big difference. This is still an active area of development, and quality/encoding perf. will improve over time.
-
-To control the ETC1S encoder's quality vs. encoding speed tradeoff, see [ETC1S Compression Effort Levels](https://github.com/BinomialLLC/basis_universal/wiki/ETC1S-Compression-Effort-Levels).
-
-### More Examples
-
-`basisu x.png`\
-Compress sRGB image x.png to a ETC1S format x.basis file using default settings (multiple filenames OK). ETC1S format files are typically very small on disk (around .5-1.5 bits/texel).
-
-`basisu -uastc x.png`\
-Compress image x.png to a UASTC format x.basis file using default settings (multiple filenames OK). UASTC files are the same size as BC7 on disk (8-bpp). Be sure to compress UASTC .basis files yourself using Deflate, zstd, etc. To increase .basis file compressibility (trading off quality for smaller compressed files) use the "-uastc_rdo_q X" command line parameter.
-
-`basisu -q 255 x.png`\
-Compress sRGB image x.png to x.basis at max quality level achievable without  manually setting the codebook sizes (multiple filenames OK)
-
-`basisu x.basis`\
-Unpack x.basis to PNG/KTX files (multiple filenames OK)
-
-`basisu -validate -file x.basis`\
-Validate x.basis (check header, check file CRC's, attempt to transcode all slices)
-
-`basisu -unpack -file x.basis`\
-Validates, transcodes and unpacks x.basis to mipmapped .KTX and RGB/A .PNG files (transcodes to all supported GPU texture formats)
-
-`basisu -q 255 -file x.png -mipmap -debug -stats`\
-Compress sRGB x.png to x.basis at quality level 255 with compressor debug output/statistics
-
-`basisu -linear -max_endpoints 16128 -max_selectors 16128 -file x.png`\
-Compress non-sRGB x.png to x.basis using the largest supported manually specified codebook sizes
-
-`basisu -linear -global_sel_pal -no_hybrid_sel_cb -file x.png`\
-Compress a non-sRGB image, use virtual selector codebooks for improved compression (but slower encoding)
-
-`basisu -linear -global_sel_pal -file x.png`\
-Compress a non-sRGB image, use hybrid selector codebooks for slightly improved compression (but slower encoding)
-
-`basisu -tex_type video -comp_level 2 -framerate 20 -multifile_printf "x%02u.png" -multifile_first 1 -multifile_count 20 -selector_rdo_thresh 1.05 -endpoint_rdo_thresh 1.05`\
-Compress a 20 sRGB source image video sequence (x01.png, x02.png, x03.png, etc.) to x01.basis
-
-`basisu -comp_level 2 -q 255 -file x.png -mipmap -y_flip`\
-Compress a mipmapped x.basis file from an sRGB image named x.png, Y flip each source image, set encoder to level 2 for slightly higher quality (but slower encoding).
-
-### WebGL test 
-
-The "WebGL" directory contains three simple WebGL demos that use the transcoder and compressor compiled to wasm with [emscripten](https://emscripten.org/). See more details [here](webgl/README.md).
-
-![Screenshot of 'texture' example running in a browser.](webgl/texture/preview.png)
+![Screenshot of 'texture' example running in a browser.](webgl/texture_test/preview.png)
 ![Screenshot of 'gltf' example running in a browser.](webgl/gltf/preview.png)
-![Screenshot of 'encode_test' example running in a browser.](webgl/encode_test/preview.png)
+![Screenshot of 'encode_test' example running in a browser.](webgl/ktx2_encode_test/preview.png)
 
-### Installation using the vcpkg dependency manager
+Building the WASM Modules with [Emscripten](https://emscripten.org/) 
+--------------------------------------------------------------------
+
+Both the transcoder and encoder may be compiled using emscripten to WebAssembly and used on the web. A set of JavaScript wrappers to the codec, written in C++ with emscripten extensions, is located in `webgl/transcoding/basis_wrappers.cpp`. The JavaScript wrapper supports nearly all features and modes, including texture video. See the README.md and CMakeLists.txt files in `webgl/transcoder` and `webgl/encoder`. 
+
+To build the WASM transcoder, after installing emscripten:
+
+```
+cd webgl/transcoder/build
+emcmake cmake ..
+make
+```
+
+To build the WASM encoder:
+
+```
+cd webgl/encoder/build
+emcmake cmake ..
+make
+```
+
+There are two simple encoding/transcoding web demos, located in `webgl/ktx2_encode_test` and `webgl/texture_test`, that show how to use the encoder's and transcoder's Javascript wrapper API's.
+
+Low-level C++ Encoder/Transcoder API Examples
+---------------------------------------------
+
+Some simple examples showing how to directly call the C++ encoder and transcoder library API's are in `example/examples.cpp`.
+
+ETC1S Texture Video Tips
+------------------------
+
+ETC1S texture video support was a stretch goal of ours. Videos are significantly more challenging than textures, and supporting them helped us create a better looking system overall, as well as helping us gain experience with video. The current system only supports I-frames and P-frames with skip blocks, however it does use global endpoint/selector codebooks across all frames in the texture video sequence. Currently, the first frame is always an I-frame, and all subsequent frames are P-frames, although this current limitation is not imposed by the file format itself, just the API.
+
+Mipmapping and alpha channels are also supported in ETC1S texture video mode. Internally, texture video files are treated as 2D texture arrays with an extra layer of compression: skip blocks on P-frames, and I-frames with no skip blocks. The global selector/endpoint codebooks are applied to all video frames.
+
+Texture video stresses the encoder beyond its typical use, so some extra configuration is typically necessary. For nearly maximum possible achievable ETC1S mode quality with the current format and encoder (completely ignoring encoding speed!), use:
+
+`-comp_level 5 -max_endpoints 16128 -max_selectors 16128 -no_selector_rdo -no_endpoint_rdo`
+
+Level 5 is extremely slow, so unless you have a very powerful machine, levels 1-4 are recommended. "-no_selector_rdo -no_endpoint_rdo" are optional. Using them hurts rate-distortion performance, but they increase quality. An alternative is to use -selector_rdo_thresh X and -endpoint_rdo_thresh, with X ranging from [1,2] (higher=lower quality/better compression - see the tool's help text).
+
+To compress small video sequences, using tools like ffmpeg and VirtualDub, first uncompress the video frames to multiple individual .PNG files:
+
+`ffmpeg -i input.mp4 pic%04d.png`
+
+Then, to compress the first 200 frames to a .basis file (.KTX2 works too):
+
+`basisu -basis -comp_level 2 -tex_type video -multifile_printf "pic%04u.png" -multifile_num 200 -multifile_first 1 -max_selectors 16128 -max_endpoints 16128 -endpoint_rdo_thresh 1.05 -selector_rdo_thresh 1.05`
+
+For ETC1S video encoding, the more cores and memory your machine has, the better. BasisU is intended for smaller videos of a few dozen seconds or so. On a powerful enough machine you should be able to encode up to a few thousand 720P frames using a single set of codebooks. The `webgl_videotest` directory contains a very simple (in progress) video viewer.
+
+For texture video, use `-comp_level 2` or 3. The default is 1, which isn't quite good enough for texture video. Higher comp_level's result in reduced ETC1S artifacts.
+
+The .basis file will contain multiple ETC1S image frames (or slices) in a large 2D texture array, all using the same global codebooks, which you can retrieve using the transcoder's image API. The system now supports [conditional replenishment](https://en.wikipedia.org/wiki/MPEG-1) (CR, or "skip blocks"). CR can reduce the bitrate of some videos (highly dependent on how dynamic the content is) by over 50%. In texture video mode, the images must be requested from the transcoder in sequence from first to last, and random access is only allowed to I-Frames.
+
+Be sure to experiment with increasing the endpoint RDO threshold (-endpoint_rdo_thresh X). This setting controls how aggressively the compressor's backend will combine together nearby blocks so they use the same block endpoint codebook vectors, for better coding efficiency. X defaults to a modest 1.5, which means the backend is allowed to increase the overall color distance by 1.5x while searching for merge candidates. The higher this setting, the better the compression, with the tradeoff of more block artifacts. Settings up to ~2.25 can work well, and make the codec stronger. "-endpoint_rdo_thresh 1.75" is a good setting on many textures.
+
+For video, `-comp_level 1` should result in decent results on most clips. For less banding, level 2 can make a big difference. This is still an active area of development, and quality/encoding perf. will improve over time.
+
+For more info on controlling the ETC1S encoder's quality vs. encoding speed tradeoff, see [ETC1S Compression Effort Levels](https://github.com/BinomialLLC/basis_universal/wiki/ETC1S-Compression-Effort-Levels).
+
+Installation using the vcpkg dependency manager
+-----------------------------------------------
 
 You can download and install Basis Universal using the [vcpkg](https://github.com/Microsoft/vcpkg/) dependency manager:
 
@@ -236,88 +290,30 @@ You can download and install Basis Universal using the [vcpkg](https://github.co
 
 The Basis Universal port in vcpkg is kept up to date by Microsoft team members and community contributors. If the version is out of date, please [create an issue or pull request](https://github.com/Microsoft/vcpkg) on the vcpkg repository.
 
-### WebAssembly Support Using Emscripten
+Repository Licensing with REUSE
+-------------------------------
 
-Both the transcoder and now the compressor (as of 12/17/2020) may be compiled using emscripten to WebAssembly and used on the web. Currently, multithreading is not supported by the compressor when compiled with emscripten. A simple Web compression demo is in webgl/encode_test. All compressor features, including texture video, are supported and fully exposed.
+The repository has been updated to be compliant with the REUSE license
+checking tool (https://reuse.software/). See the `.reuse` subdirectory.
 
-To enable compression support compile the JavaScript wrappers in `webgl/transcoding/basis_wrappers.cpp` with `BASISU_SUPPORT_ENCODING` set to 1. See the webgl/encoding directory. 
+External Tool Links
+-------------------
 
-### Low-level C++ encoder API
+[Online .EXR HDR Image File Viewer](https://viewer.openhdr.org/)
 
-You can call the encoder directly, instead of using the command line tool. We'll be adding documentation and some examples by the end of the year. For now, some important notes:
+[Windows HDR + WCG Image Viewer](https://13thsymphony.github.io/hdrimageviewer/) - A true HDR image viewer for Windows. Also see [the github repo](https://github.com/13thsymphony/HDRImageViewer).
 
-First, ALWAYS call ```basisu::basisu_encoder_init()``` to initialize the library. Otherwise, you'll get undefined behavior or black textures.
+[RenderDoc](https://renderdoc.org/)
 
-Create a job pool, fill in the ```basis_compress_params``` struct, then call ```basisu::basis_compressor::init()```, then ```basisu::basis_compressor::process()```. Like this for UASTC:
+[AMD Compressonator](https://gpuopen.com/gaming-product/compressonator/)
 
-```
-bool test()
-{
-	basisu_encoder_init();
+[Microsoft's DirectXTex](https://github.com/microsoft/DirectXTex)
 
-	image img;
-	if (!load_image("test.png", img))
-	{
-		printf("Can't load image\n");
-		return false;
-	}
+[PVRTexTool](https://www.imgtec.com/developers/powervr-sdk-tools/pvrtextool/)
 
-	basis_compressor_params basisCompressorParams;
+[Mali Texture Compression Tool](https://community.arm.com/support-forums/f/graphics-gaming-and-vr-forum/52390/announcement-mali-texture-compression-tool-end-of-life) - Now deprecated
 
-	basisCompressorParams.m_source_images.push_back(img);
-	basisCompressorParams.m_perceptual = false;
-	basisCompressorParams.m_mip_srgb = false;
-
-	basisCompressorParams.m_write_output_basis_files = true;
-	basisCompressorParams.m_out_filename = "test.basis";
-
-	basisCompressorParams.m_uastc = true;
-	basisCompressorParams.m_rdo_uastc_multithreading = false;
-	basisCompressorParams.m_multithreading = false;
-	basisCompressorParams.m_debug = true;
-	basisCompressorParams.m_status_output = true;
-	basisCompressorParams.m_compute_stats = true;
-	
-	basisu::job_pool jpool(1);
-	basisCompressorParams.m_pJob_pool = &jpool;
-
-	basisu::basis_compressor basisCompressor;
-	basisu::enable_debug_printf(true);
-
-	bool ok = basisCompressor.init(basisCompressorParams);
-	if (ok)
-	{
-		basisu::basis_compressor::error_code result = basisCompressor.process();
-
-		if (result == basisu::basis_compressor::cECSuccess)
-			printf("Success\n");
-		else
-		{
-			printf("Failure\n");
-			ok = false;
-		}
-	}
-	else
-		printf("Failure\n");
-	return ok;
-}
-```
-
-The command line tool uses this API too, so you can always look at that to see what it does given a set of command line options.
-
-### Repository Licensing with REUSE
-
-The repository has been updated to be compliant with the REUSE licenese
-checking tool (https://reuse.software/). This was done by adding the complete
-text of all licenses used under the LICENSES/ directory and adding the
-.reuse/dep5 file which specifies licenses for files which don't contain
-them in a form which can be automatically parse by the reuse tool. REUSE
-does not alter copyrights or licenses, simply captures information about
-licensing to ensure the entire repository has explicit licensing information.
-
-To ensure continued REUSE compliance, run `reuse lint` at the root of
-a clean, checked-out repository periodically, or run it during CI tests
-before any build artifacts have been created.
+For more useful links, papers, and tools/libraries, see the end of the [UASTC HDR texture specification](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-HDR-Texture-Specification-v1.0).
 
 ----
 
