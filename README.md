@@ -206,6 +206,8 @@ WebGL Examples
 
 The "WebGL" directory contains three simple WebGL demos that use the transcoder and compressor compiled to [WASM](https://webassembly.org/) with [emscripten](https://emscripten.org/). See more details [here](webgl/README.md).
 
+These demos are also online [here](https://subquantumtech.com/uastchdr2/).
+
 ![Screenshot of 'texture' example running in a browser.](webgl/texture_test/preview.png)
 ![Screenshot of 'gltf' example running in a browser.](webgl/gltf/preview.png)
 ![Screenshot of 'encode_test' example running in a browser.](webgl/ktx2_encode_test/preview.png)
