@@ -17,7 +17,7 @@ Links
 
 - [Release Notes](https://github.com/BinomialLLC/basis_universal/wiki/Release-Notes)
 
-- [Online WebGL Examples](https://subquantumtech.com/uastchdr2/) 
+- [Javascript API/WASM/WebGL info](https://github.com/BinomialLLC/basis_universal/tree/master/webgl), and the [live encoder/transcoder WebGL examples](https://subquantumtech.com/uastchdr2/) 
 
 - [UASTC HDR Example Images](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-HDR-Examples)
 
@@ -204,7 +204,7 @@ The written mipmapped, cubemap, or texture array .KTX/.DDS files will be in a wi
 WebGL Examples
 --------------
 
-The "WebGL" directory contains three simple WebGL demos that use the transcoder and compressor compiled to [WASM](https://webassembly.org/) with [emscripten](https://emscripten.org/). These demos are online [here](https://subquantumtech.com/uastchdr2/). See more details [here](webgl/README.md).
+The 'WebGL' directory contains four simple WebGL demos that use the transcoder and compressor compiled to [WASM](https://webassembly.org/) with [emscripten](https://emscripten.org/). These demos are online [here](https://subquantumtech.com/uastchdr2/). See more details in the readme file [here](webgl/README.md).
 
 ![Screenshot of 'texture' example running in a browser.](webgl/texture_test/preview.png)
 ![Screenshot of 'gltf' example running in a browser.](webgl/gltf/preview.png)
@@ -255,6 +255,13 @@ You can download and install Basis Universal using the [vcpkg](https://github.co
     vcpkg install basisu
 
 The Basis Universal port in vcpkg is kept up to date by Microsoft team members and community contributors. If the version is out of date, please [create an issue or pull request](https://github.com/Microsoft/vcpkg) on the vcpkg repository. (9/10/2024: UASTC HDR support is not available here yet.)
+
+License
+-------
+
+The transcoder and core encoder libraries are Apache 2.0. The transcoder utilizes no 3rd party libraries or dependencies. See [LICENSE](https://github.com/BinomialLLC/basis_universal/blob/master/LICENSE).
+
+The encoder library is Apache 2.0, but it utilizes some open source 3rd party helper modules (in 'encoder/3rdparty' and in the 'Zstd' directory) to load .QOI, .DDS, .EXR images, to handle Zstd compression, and to unpack ASTC texture blocks. See the [LICENSES](https://github.com/BinomialLLC/basis_universal/tree/master/LICENSES) folder.
 
 Repository Licensing with REUSE
 -------------------------------
