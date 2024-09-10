@@ -127,6 +127,8 @@ Compressing and Unpacking .KTX2/.basis Files
 
 `basisu x.exr`
 
+Note the .EXR reader we're using is [TinyEXR's](https://github.com/syoyo/tinyexr), which doesn't support all possible .EXR compression modes. Tools like [ImageMagick](https://imagemagick.org/) can be used to create .EXR files that TinyEXR can read.
+
 Alternatively, LDR images (such as .PNG) can be compressed to UASTC HDR by specifying `-hdr`. By default, LDR images, when compressed to UASTC HDR, are first converted from sRGB to linear light before compression. This conversion step can be disabled by specifying `-hdr_ldr_no_srgb_to_linear`. 
 
 Importantly, for best quality, you should **supply basisu with original uncompressed source images**. Any other type of lossy compression applied before basisu (including ETC1/BC1-5, BC7, JPEG, etc.) will cause multi-generational artifacts to appear in the final output textures. 
