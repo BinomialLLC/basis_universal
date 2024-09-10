@@ -254,7 +254,7 @@ You can download and install Basis Universal using the [vcpkg](https://github.co
     ./vcpkg integrate install
     vcpkg install basisu
 
-The Basis Universal port in vcpkg is kept up to date by Microsoft team members and community contributors. If the version is out of date, please [create an issue or pull request](https://github.com/Microsoft/vcpkg) on the vcpkg repository.
+The Basis Universal port in vcpkg is kept up to date by Microsoft team members and community contributors. If the version is out of date, please [create an issue or pull request](https://github.com/Microsoft/vcpkg) on the vcpkg repository. (9/10/2024: UASTC HDR support is not available here yet.)
 
 Repository Licensing with REUSE
 -------------------------------
