@@ -1,4 +1,4 @@
-# basis_universal_uastc_hdr
+# basis_universal
 Basis Universal Supercompressed LDR/HDR GPU Texture Transcoding System 
 
 [![Build status](https://ci.appveyor.com/api/projects/status/87eb0o96pjho4sh0?svg=true)](https://ci.appveyor.com/project/BinomialLLC/basis-universal)
@@ -204,7 +204,7 @@ The written mipmapped, cubemap, or texture array .KTX/.DDS files will be in a wi
 WebGL Examples
 --------------
 
-The "WebGL" directory contains three simple WebGL demos that use the transcoder and compressor compiled to [WASM](https://webassembly.org/) with [emscripten](https://emscripten.org/). See more details [here](webgl/README.md).
+The "WebGL" directory contains three simple WebGL demos that use the transcoder and compressor compiled to [WASM](https://webassembly.org/) with [emscripten](https://emscripten.org/). These demos are online [here](https://subquantumtech.com/uastchdr2/). See more details [here](webgl/README.md).
 
 ![Screenshot of 'texture' example running in a browser.](webgl/texture_test/preview.png)
 ![Screenshot of 'gltf' example running in a browser.](webgl/gltf/preview.png)
@@ -236,40 +236,12 @@ There are two simple encoding/transcoding web demos, located in `webgl/ktx2_enco
 Low-level C++ Encoder/Transcoder API Examples
 ---------------------------------------------
 
-Some simple examples showing how to directly call the C++ encoder and transcoder library API's are in `example/examples.cpp`.
+Some simple examples showing how to directly call the C++ encoder and transcoder library API's are in [`example/examples.cpp`](https://github.com/BinomialLLC/basis_universal/blob/master/example/example.cpp).
 
 ETC1S Texture Video Tips
 ------------------------
 
-ETC1S texture video support was a stretch goal of ours. Videos are significantly more challenging than textures, and supporting them helped us create a better looking system overall, as well as helping us gain experience with video. The current system only supports I-frames and P-frames with skip blocks, however it does use global endpoint/selector codebooks across all frames in the texture video sequence. Currently, the first frame is always an I-frame, and all subsequent frames are P-frames, although this current limitation is not imposed by the file format itself, just the API.
-
-Mipmapping and alpha channels are also supported in ETC1S texture video mode. Internally, texture video files are treated as 2D texture arrays with an extra layer of compression: skip blocks on P-frames, and I-frames with no skip blocks. The global selector/endpoint codebooks are applied to all video frames.
-
-Texture video stresses the encoder beyond its typical use, so some extra configuration is typically necessary. For nearly maximum possible achievable ETC1S mode quality with the current format and encoder (completely ignoring encoding speed!), use:
-
-`-comp_level 5 -max_endpoints 16128 -max_selectors 16128 -no_selector_rdo -no_endpoint_rdo`
-
-Level 5 is extremely slow, so unless you have a very powerful machine, levels 1-4 are recommended. "-no_selector_rdo -no_endpoint_rdo" are optional. Using them hurts rate-distortion performance, but they increase quality. An alternative is to use -selector_rdo_thresh X and -endpoint_rdo_thresh, with X ranging from [1,2] (higher=lower quality/better compression - see the tool's help text).
-
-To compress small video sequences, using tools like ffmpeg and VirtualDub, first uncompress the video frames to multiple individual .PNG files:
-
-`ffmpeg -i input.mp4 pic%04d.png`
-
-Then, to compress the first 200 frames to a .basis file (.KTX2 works too):
-
-`basisu -basis -comp_level 2 -tex_type video -multifile_printf "pic%04u.png" -multifile_num 200 -multifile_first 1 -max_selectors 16128 -max_endpoints 16128 -endpoint_rdo_thresh 1.05 -selector_rdo_thresh 1.05`
-
-For ETC1S video encoding, the more cores and memory your machine has, the better. BasisU is intended for smaller videos of a few dozen seconds or so. On a powerful enough machine you should be able to encode up to a few thousand 720P frames using a single set of codebooks. The `webgl_videotest` directory contains a very simple (in progress) video viewer.
-
-For texture video, use `-comp_level 2` or 3. The default is 1, which isn't quite good enough for texture video. Higher comp_level's result in reduced ETC1S artifacts.
-
-The .basis file will contain multiple ETC1S image frames (or slices) in a large 2D texture array, all using the same global codebooks, which you can retrieve using the transcoder's image API. The system now supports [conditional replenishment](https://en.wikipedia.org/wiki/MPEG-1) (CR, or "skip blocks"). CR can reduce the bitrate of some videos (highly dependent on how dynamic the content is) by over 50%. In texture video mode, the images must be requested from the transcoder in sequence from first to last, and random access is only allowed to I-Frames.
-
-Be sure to experiment with increasing the endpoint RDO threshold (-endpoint_rdo_thresh X). This setting controls how aggressively the compressor's backend will combine together nearby blocks so they use the same block endpoint codebook vectors, for better coding efficiency. X defaults to a modest 1.5, which means the backend is allowed to increase the overall color distance by 1.5x while searching for merge candidates. The higher this setting, the better the compression, with the tradeoff of more block artifacts. Settings up to ~2.25 can work well, and make the codec stronger. "-endpoint_rdo_thresh 1.75" is a good setting on many textures.
-
-For video, `-comp_level 1` should result in decent results on most clips. For less banding, level 2 can make a big difference. This is still an active area of development, and quality/encoding perf. will improve over time.
-
-For more info on controlling the ETC1S encoder's quality vs. encoding speed tradeoff, see [ETC1S Compression Effort Levels](https://github.com/BinomialLLC/basis_universal/wiki/ETC1S-Compression-Effort-Levels).
+See the wiki [here](https://github.com/BinomialLLC/basis_universal/wiki/Encoding-ETC1S-Texture-Video-Tips).
 
 Installation using the vcpkg dependency manager
 -----------------------------------------------
@@ -282,7 +254,7 @@ You can download and install Basis Universal using the [vcpkg](https://github.co
     ./vcpkg integrate install
     vcpkg install basisu
 
-The Basis Universal port in vcpkg is kept up to date by Microsoft team members and community contributors. If the version is out of date, please [create an issue or pull request](https://github.com/Microsoft/vcpkg) on the vcpkg repository.
+The Basis Universal port in vcpkg is kept up to date by Microsoft team members and community contributors. If the version is out of date, please [create an issue or pull request](https://github.com/Microsoft/vcpkg) on the vcpkg repository. (9/10/2024: UASTC HDR support is not available here yet.)
 
 Repository Licensing with REUSE
 -------------------------------
