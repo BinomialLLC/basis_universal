@@ -2980,7 +2980,7 @@ namespace basisu
 		0x0,0x0,0x7F,0x80,		// 7 bitLength/bitOffset/channelType and Qualifer flags (KHR_DF_SAMPLE_DATATYPE_FLOAT etc.)
 		0x0,0x0,0x0,0x0,		// 8 samplePosition0-samplePosition3
 		0x0,0x0,0x0,0x0,		// 9 sampleLower (0.0)
-		0x00, 0x00, 0x80, 0xF3  // 10 sampleHigher (?)
+		0x00, 0x00, 0x80, 0x3F  // 10 sampleHigher (1.0)
 	};
 			
 	void basis_compressor::get_dfd(uint8_vec &dfd, const basist::ktx2_header &header)
