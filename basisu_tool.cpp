@@ -1508,11 +1508,13 @@ static bool unpack_and_validate_ktx2_file(
 	printf("DFD hex values:\n");
 	for (uint32_t i = 0; i < dec.get_dfd().size(); i++)
 	{
-		if (i)
-			printf(",");
 		printf("0x%X", dec.get_dfd()[i]);
+		if ((i + 1) != dec.get_dfd().size())
+			printf(",");
+		if ((i & 3) == 3)
+			printf("\n");
 	}
-	printf("\n\n");
+	printf("\n");
 
 
 	printf("Total key values: %u\n", dec.get_key_values().size());
