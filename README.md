@@ -1,5 +1,5 @@
 # basis_universal
-Supercompressed LDR/HDR GPU Portable Compressed Texture Transcoding System 
+Supercompressed LDR/HDR Portable GPU Compressed Texture Transcoding System 
 
 [![Build status](https://ci.appveyor.com/api/projects/status/87eb0o96pjho4sh0?svg=true)](https://ci.appveyor.com/project/BinomialLLC/basis-universal)
 
