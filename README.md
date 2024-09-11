@@ -17,7 +17,7 @@ Links
 
 - [Release Notes](https://github.com/BinomialLLC/basis_universal/wiki/Release-Notes)
 
-- Live Encoder/Transcoder WebGL Examples](https://subquantumtech.com/uastchdr2/) 
+- [Live Encoder/Transcoder WebGL Examples](https://subquantumtech.com/uastchdr2/) 
 
 - [Javascript API/WASM/WebGL info](https://github.com/BinomialLLC/basis_universal/tree/master/webgl)
 
