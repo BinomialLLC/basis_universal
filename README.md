@@ -8,7 +8,7 @@ Basis Universal Supercompressed LDR/HDR GPU Texture Transcoding System
 Intro
 -----
 
-Basis Universal is an open source [supercompressed](http://gamma.cs.unc.edu/GST/gst.pdf) LDR/HDR GPU texture interchange system from Binomial LLC that supports two intermediate file formats: the [.KTX2 open standard from the Khronos Group](https://github.khronos.org/KTX-Specification/), and our own ".basis" file format. These file formats support rapid transcoding to virtually any [GPU texture format](https://en.wikipedia.org/wiki/Texture_compression) released in the past ~25 years. 
+Basis Universal is an open source [supercompressed](http://gamma.cs.unc.edu/GST/gst.pdf) LDR/HDR GPU texture interchange system from Binomial LLC that supports two intermediate file formats: the [.KTX2 open standard from the Khronos Group](https://github.khronos.org/KTX-Specification/), and our own ".basis" file format. These file formats support rapid transcoding to virtually any compressed [GPU texture format](https://en.wikipedia.org/wiki/Texture_compression) released in the past ~25 years. 
 
 Our overall goal with this project is to simplify the encoding and efficient distribution of LDR and HDR GPU texture, image, and texture video content in a way that is compatible with any GPU or rendering/graphics API.
 
