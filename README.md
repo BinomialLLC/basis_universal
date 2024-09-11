@@ -17,7 +17,9 @@ Links
 
 - [Release Notes](https://github.com/BinomialLLC/basis_universal/wiki/Release-Notes)
 
-- [Javascript API/WASM/WebGL info](https://github.com/BinomialLLC/basis_universal/tree/master/webgl), and the [live encoder/transcoder WebGL examples](https://subquantumtech.com/uastchdr2/) 
+- Live Encoder/Transcoder WebGL Examples](https://subquantumtech.com/uastchdr2/) 
+
+- [Javascript API/WASM/WebGL info](https://github.com/BinomialLLC/basis_universal/tree/master/webgl)
 
 - [UASTC HDR Example Images](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-HDR-Examples)
 
