@@ -53,7 +53,7 @@ To view the compressor's textual debug output, open your browser's developer deb
 
 ## Testing locally
 
-You can locally host the files under the "webgl" folder. One way is to use [Python to setup a local webserver](https://pythonbasics.org/webserver/) to setup a webserver in the 'webgl' directory.
+You can locally host the files under the "webgl" folder. One way is to use [Python to setup a local webserver](https://pythonbasics.org/webserver/) in the 'webgl' directory:
 
 ```
 cd webgl
