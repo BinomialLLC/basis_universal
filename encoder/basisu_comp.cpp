@@ -374,7 +374,8 @@ namespace basisu
 		if (m_params.m_hdr)
 		{
 			// UASTC HDR
-			printf("Mode: UASTC HDR Level %u\n", m_params.m_uastc_hdr_options.m_level);
+			if (m_params.m_status_output)
+				printf("Mode: UASTC HDR Level %u\n", m_params.m_uastc_hdr_options.m_level);
 
 			error_code ec = encode_slices_to_uastc_hdr();
 			if (ec != cECSuccess)
@@ -383,7 +384,8 @@ namespace basisu
 		else if (m_params.m_uastc)
 		{
 			// UASTC
-			printf("Mode: UASTC LDR Level %u\n", m_params.m_pack_uastc_flags & cPackUASTCLevelMask);
+			if (m_params.m_status_output)
+				printf("Mode: UASTC LDR Level %u\n", m_params.m_pack_uastc_flags & cPackUASTCLevelMask);
 
 			error_code ec = encode_slices_to_uastc();
 			if (ec != cECSuccess)
@@ -392,7 +394,8 @@ namespace basisu
 		else
 		{
 			// ETC1S
-			printf("Mode: ETC1S Quality %i, Level %i\n", m_params.m_quality_level, (int)m_params.m_compression_level);
+			if (m_params.m_status_output)
+				printf("Mode: ETC1S Quality %i, Level %i\n", m_params.m_quality_level, (int)m_params.m_compression_level);
 			
 			if (!process_frontend())
 				return cECFailedFrontEnd;
@@ -2560,7 +2563,7 @@ namespace basisu
 				return false;
 			}
 
-			//if (m_params.m_status_output)
+			if (m_params.m_status_output)
 			{
 				printf("Wrote output .basis/.ktx2 file \"%s\"\n", output_filename.c_str());
 			}
