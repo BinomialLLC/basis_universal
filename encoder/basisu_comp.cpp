@@ -515,6 +515,8 @@ namespace basisu
 
 			std::atomic<uint32_t> total_blocks_processed;
 			total_blocks_processed = 0;
+
+			job_pool::token token{0};
 						
 			const uint32_t N = 256;
 			for (uint32_t block_index_iter = 0; block_index_iter < total_blocks; block_index_iter += N)
@@ -646,13 +648,13 @@ namespace basisu
 						}
 
 #ifndef __EMSCRIPTEN__
-					});
+					}, &token);
 #endif
 			
 			} // block_index_iter
 
 #ifndef __EMSCRIPTEN__
-			m_params.m_pJob_pool->wait_for_all();
+			m_params.m_pJob_pool->wait_for_all(&token);
 #endif
 
 			if (any_failures)
