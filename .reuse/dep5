@@ -4,14 +4,27 @@ Source: https://github.com/BinomialLLC/basis_universal
 
 # We have asked Binomial about REUSE compliance for their repo, see https://github.com/BinomialLLC/basis_universal/issues/165
 Files: *
-Copyright: 2019-2021 Binomial LLC
+Copyright: 2019-2024 Binomial LLC
+           2016 The Android Open Source Project
+License: Apache-2.0
+
+Files: OpenCL/*
+Copyright: 2008-2020 The Khronos Group Inc.
 License: Apache-2.0
 
 Files: zstd/*
-Copyright: 2016-present, Facebook, Inc.
-License: BSD
+Copyright: 2016-present Facebook, Inc.
+License: BSD-3-Clause
 
-Files: OpenCL/*
-Copyright: Copyright (c) 2008-2020 The Khronos Group Inc.
-License: Apache-2.0
+Files: encoder/3rdparty/tinyexr.h
+Copyright: 2014 - 2021, Syoyo Fujita and many contributors.
+           2002 Industrial Light & Magic, a division of Lucas
+License: BSD-3-Clause
 
+Files: encoder/3rdparty/qoi.h
+Copyright: 2021 Dominic Szablewski - https://phoboslab.org
+License: MIT
+
+Files: encoder/3rdparty/tinydds.h
+Copyright: 2019 DeanoC
+License: MIT

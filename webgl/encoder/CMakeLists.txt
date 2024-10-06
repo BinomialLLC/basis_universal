@@ -31,6 +31,9 @@ if (EMSCRIPTEN)
 	../../encoder/basisu_opencl.cpp
 	../../encoder/pvpngreader.cpp
 	../../encoder/jpgd.cpp                                   
+	../../encoder/3rdparty/android_astc_decomp.cpp
+    ../../encoder/basisu_astc_hdr_enc.cpp
+	../../encoder/3rdparty/tinyexr.cpp
   )
 
   if (KTX2_ZSTANDARD)
@@ -50,8 +53,11 @@ if (EMSCRIPTEN)
   #target_compile_definitions(basis_encoder.js PRIVATE DEBUG BASISD_SUPPORT_UASTC=1 BASISD_SUPPORT_BC7=1 BASISD_SUPPORT_ATC=0 BASISD_SUPPORT_ASTC_HIGHER_OPAQUE_QUALITY=0 BASISD_SUPPORT_PVRTC2=0 BASISD_SUPPORT_FXT1=0 BASISD_SUPPORT_ETC2_EAC_RG11=0 BASISU_SUPPORT_ENCODING=1 BASISU_SUPPORT_SSE=0 ${ZSTD_DEFINITION} )
   #target_compile_options(basis_encoder.js PRIVATE -fno-strict-aliasing -g -O1 -fsanitize=undefined -fsanitize=address)
   
-  target_compile_definitions(basis_encoder.js PRIVATE NDEBUG BASISD_SUPPORT_UASTC=1 BASISD_SUPPORT_BC7=1 BASISD_SUPPORT_ATC=0 BASISD_SUPPORT_ASTC_HIGHER_OPAQUE_QUALITY=0 BASISD_SUPPORT_PVRTC2=0 BASISD_SUPPORT_FXT1=0 BASISD_SUPPORT_ETC2_EAC_RG11=0 BASISU_SUPPORT_ENCODING=1 BASISU_SUPPORT_SSE=0 ${ZSTD_DEFINITION} )
+  #target_compile_definitions(basis_encoder.js PRIVATE DEBUG BASISD_SUPPORT_UASTC=1 BASISD_SUPPORT_BC7=1 BASISD_SUPPORT_ATC=0 BASISD_SUPPORT_ASTC_HIGHER_OPAQUE_QUALITY=0 BASISD_SUPPORT_PVRTC2=0 BASISD_SUPPORT_FXT1=0 BASISD_SUPPORT_ETC2_EAC_RG11=0 BASISU_SUPPORT_ENCODING=1 BASISU_SUPPORT_SSE=0 ${ZSTD_DEFINITION} )
+  #target_compile_options(basis_encoder.js PRIVATE -fno-strict-aliasing -g -O0 -s ASSERTIONS=2)
   
+  # release options
+  target_compile_definitions(basis_encoder.js PRIVATE NDEBUG BASISD_SUPPORT_UASTC=1 BASISD_SUPPORT_BC7=1 BASISD_SUPPORT_ATC=0 BASISD_SUPPORT_ASTC_HIGHER_OPAQUE_QUALITY=0 BASISD_SUPPORT_PVRTC2=0 BASISD_SUPPORT_FXT1=0 BASISD_SUPPORT_ETC2_EAC_RG11=0 BASISU_SUPPORT_ENCODING=1 BASISU_SUPPORT_SSE=0 ${ZSTD_DEFINITION} )
   target_compile_options(basis_encoder.js PRIVATE -fno-strict-aliasing -O3)
   
   target_include_directories(basis_encoder.js PRIVATE ../../transcoder)
@@ -60,10 +66,12 @@ if (EMSCRIPTEN)
       OUTPUT_NAME "basis_encoder"
       SUFFIX ".js"
 	  
-      #LINK_FLAGS "--bind -s ALLOW_MEMORY_GROWTH=1 -O3 -s ASSERTIONS=0 -s MALLOC=emmalloc -s MODULARIZE=1 -s EXPORT_NAME=BASIS ")
+      #LINK_FLAGS "--bind -s ALLOW_MEMORY_GROWTH=1 -O3 -s STACK_SIZE=262144 -s ASSERTIONS=0 -s MALLOC=emmalloc -s MODULARIZE=1 -s EXPORT_NAME=BASIS ")
 	  
-	  #LINK_FLAGS "--bind -s INITIAL_MEMORY=299958272 -g -s DEMANGLE_SUPPORT=1 -s ALLOW_MEMORY_GROWTH=1 -O1 -s ASSERTIONS=1 -s MALLOC=emmalloc -s MODULARIZE=1 -s EXPORT_NAME=BASIS -fsanitize=undefined -fsanitize=address")
+	  #LINK_FLAGS "--bind -s INITIAL_MEMORY=299958272 -g -s STACK_SIZE=262144 -s DEMANGLE_SUPPORT=1 -s ALLOW_MEMORY_GROWTH=1 -O1 -s ASSERTIONS=1 -s MALLOC=emmalloc -s MODULARIZE=1 -s EXPORT_NAME=BASIS -fsanitize=undefined -fsanitize=address")
+	  
+	  #LINK_FLAGS "--bind -s INITIAL_MEMORY=299958272 -g -s STACK_SIZE=262144 -s DEMANGLE_SUPPORT=1 -s ALLOW_MEMORY_GROWTH=1 -O0 -s ASSERTIONS=2 -s MALLOC=emmalloc -s MODULARIZE=1 -s EXPORT_NAME=BASIS")
 	  
 	  # TODO: 300MB is really large - probably not necessary?
-  	  LINK_FLAGS "--bind -s ALLOW_MEMORY_GROWTH=1 -O3 -s ASSERTIONS=0 -s INITIAL_MEMORY=299958272 -s MALLOC=emmalloc -s MODULARIZE=1 -s EXPORT_NAME=BASIS")
+  	  LINK_FLAGS "--bind -s ALLOW_MEMORY_GROWTH=1 -O3 -s ASSERTIONS=0 -s INITIAL_MEMORY=299958272 -s STACK_SIZE=262144 -s MALLOC=emmalloc -s MODULARIZE=1 -s EXPORT_NAME=BASIS")
 endif()

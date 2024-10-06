@@ -6,7 +6,7 @@
  * \n
  * Compile using:
  * \code
- *	cc -std=c++11 -lstdc++ simple.cpp
+ *	cc -std=c++11 -lstdc++ -fno-strict-aliasing simple.cpp
  * \endcode
  * 
  * Example code released under a CC0 license.

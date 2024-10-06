@@ -1,0 +1,695 @@
+<!-- 
+   Simple .basis ETC1S texture video tester. 
+   Command lines to encode a texture video file from another video file:
+     ffmpeg -i "castle.mp4" pic%04d.png
+     basisu -basis -comp_level 2 -tex_type video -multifile_printf "pic%04u.png" -multifile_num 600 -multifile_first 1 -max_selectors 16128 -max_endpoints 16128 -endpoint_rdo_thresh 1.05 -selector_rdo_thresh 1.05 -resample_factor .5 -debug
+-->
+<!doctype html>
+<html>
+<head>
+<script src="renderer.js"></script>
+<script src="../transcoder/build/basis_transcoder.js"></script>
+
+<script type="text/javascript">
+function log(s) {
+  var div = document.createElement('div');
+  div.innerHTML = s;
+  document.getElementById('logger').appendChild(div);
+}
+
+function logTime(desc, t) 
+{
+  log(t + 'ms ' + desc);
+}
+
+function isDef(v) 
+{
+  return typeof v != 'undefined';
+}
+
+function elem(id) 
+{
+  return document.getElementById(id);
+}
+
+function setButtonState(buttonId, state) 
+{
+  document.getElementById(buttonId).disabled = !state; // If state is true, enable button; otherwise, disable it
+}
+
+function dataLoadError(msg)
+{
+    log(msg);
+}
+
+function loadArrayBuffer(uri, callback, errorCallback) 
+{
+  log('Loading ' + uri + '...');
+  
+  var xhr = new XMLHttpRequest();
+  xhr.responseType = "arraybuffer";
+  xhr.open('GET', uri, true);
+  
+  xhr.onreadystatechange = function(e) {
+    if (xhr.readyState == 4) { // Request is done
+      if (xhr.status == 200) {
+        // Success, call the callback with the response
+        callback(xhr.response);
+      } else {
+        // Error, call the errorCallback with the status
+        errorCallback('Failed to load file. Status: ' + xhr.status + ' - ' + xhr.statusText);
+      }
+    }
+  };
+  
+  xhr.onerror = function(e) {
+    // Network error or request couldn't be made
+    errorCallback('Network error or request failed.');
+  };
+  
+  xhr.send(null);
+}
+
+// ASTC format, from:
+// https://www.khronos.org/registry/webgl/extensions/WEBGL_compressed_texture_astc/
+COMPRESSED_RGBA_ASTC_4x4_KHR = 0x93B0;
+
+// DXT formats, from:
+// http://www.khronos.org/registry/webgl/extensions/WEBGL_compressed_texture_s3tc/
+COMPRESSED_RGB_S3TC_DXT1_EXT  = 0x83F0;
+COMPRESSED_RGBA_S3TC_DXT1_EXT = 0x83F1;
+COMPRESSED_RGBA_S3TC_DXT3_EXT = 0x83F2;
+COMPRESSED_RGBA_S3TC_DXT5_EXT = 0x83F3;
+
+// BC6H/BC7 formats, from:
+// https://www.khronos.org/registry/webgl/extensions/EXT_texture_compression_bptc/
+COMPRESSED_RGBA_BPTC_UNORM = 0x8E8C;
+COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT_EXT = 0x8E8F;
+
+// ETC format, from:
+// https://www.khronos.org/registry/webgl/extensions/WEBGL_compressed_texture_etc1/
+COMPRESSED_RGB_ETC1_WEBGL = 0x8D64;
+
+// PVRTC format, from:
+// https://www.khronos.org/registry/webgl/extensions/WEBGL_compressed_texture_pvrtc/
+COMPRESSED_RGB_PVRTC_4BPPV1_IMG = 0x8C00;
+COMPRESSED_RGBA_PVRTC_4BPPV1_IMG = 0x8C02;
+
+// Half float RGBA, from:
+// https://registry.khronos.org/webgl/extensions/OES_texture_half_float/
+HALF_FLOAT_OES = 0x8D61;
+
+// Same as the Module.transcoder_texture_format enum
+BASIS_FORMAT = 
+{
+  cTFETC1: 0,
+  cTFETC2: 1,
+  cTFBC1: 2,
+  cTFBC3: 3,
+  cTFBC4: 4,
+  cTFBC5: 5,
+  cTFBC7: 6,
+  cTFPVRTC1_4_RGB: 8,
+  cTFPVRTC1_4_RGBA: 9,
+  cTFASTC_4x4: 10,
+  cTFATC_RGB: 11,
+  cTFATC_RGBA_INTERPOLATED_ALPHA: 12,
+  cTFRGBA32: 13,
+  cTFRGB565: 14,
+  cTFBGR565: 15,
+  cTFRGBA4444: 16,
+  cTFFXT1_RGB: 17,
+  cTFPVRTC2_4_RGB: 18,
+  cTFPVRTC2_4_RGBA: 19,
+  cTFETC2_EAC_R11: 20,              
+  cTFETC2_EAC_RG11: 21,
+  cTFBC6H: 22,
+  cTFASTC_HDR_4x4_RGBA: 23,
+  cTFRGB_HALF: 24,
+  cTFRGBA_HALF: 25,
+  cTFRGB_9E5: 26
+};
+
+BASIS_DEBUG_FLAGS = {
+    DEBUG_FLAG_VIS_CR: 1,
+    DEBUG_FLAG_VIS_SELS: 2,
+    DEBUG_FLAG_VIS_ENDPOINTS: 4
+};
+
+BASIS_FORMAT_NAMES = {};
+for (var name in BASIS_FORMAT) {
+  BASIS_FORMAT_NAMES[BASIS_FORMAT[name]] = name;
+}
+
+DXT_FORMAT_MAP = {};
+DXT_FORMAT_MAP[BASIS_FORMAT.cTFBC1] = COMPRESSED_RGB_S3TC_DXT1_EXT;
+DXT_FORMAT_MAP[BASIS_FORMAT.cTFBC3] = COMPRESSED_RGBA_S3TC_DXT5_EXT;
+DXT_FORMAT_MAP[BASIS_FORMAT.cTFBC7] = COMPRESSED_RGBA_BPTC_UNORM; 
+
+var astcSupported = false;
+var etcSupported = false;
+var dxtSupported = false;
+var bc7Supported = false;
+var bc6hSupported = false;
+var astcHDRSupported = false;
+var rgbaHalfSupported = false;
+var halfFloatWebGLFormat = 0;
+var pvrtcSupported = false;
+
+var drawMode = 0;
+
+var basisFile = 0;
+var tex = null, width = 0, height = 0, numImages = 0, levels = 0, have_alpha = false, transcodeFormat;
+var displayWidth = 0, displayHeight = 0;
+var alignedWidth = 0, alignedHeight = 0;
+var curImageIndex = 0;
+
+function redraw()
+{
+  if ((!width) || (!tex))
+    return;
+  
+  renderer.drawTexture(tex, displayWidth, displayHeight, drawMode);
+}
+
+function closeBasisFile()
+{
+  if (basisFile)
+  {
+    basisFile.close();
+    basisFile.delete();
+    basisFile = 0;
+  }
+  
+  renderer.deleteTexture(tex);
+  tex = null;  
+  
+  width = 0;
+  height = 0;
+  numImages = 0;
+  levels = 0;
+  have_alpha = 0;
+  
+  displayWidth = 0;
+  displayHeight = 0;  
+  alignedWidth = 0;
+  alignedHeight = 0;
+  curImageIndex = 0;
+  
+  thenTime = 0;
+  timeSinceLastFrame = 0;
+  framerateLimit = true;
+  pausedFlag = false;
+  frameRate = 24.0;
+  rewindFlag = 0;
+}
+
+function transcodeFrame()
+{
+  if (!basisFile)
+    return;
+    
+  const { BasisFile, initializeBasis } = Module;
+  
+  const isUncompressedFormat = Module.formatIsUncompressed(transcodeFormat);
+      
+  const blockWidth = isUncompressedFormat ? 1 : 4;
+  const blockHeight = blockWidth;
+  
+  const bytesPerBlockOrPixel = Module.getBytesPerBlockOrPixel(transcodeFormat);
+      
+  const dstSize = basisFile.getImageTranscodedSizeInBytes(curImageIndex, 0, transcodeFormat);
+  const dst = new Uint8Array(dstSize);
+
+   if (!basisFile.transcodeImage(dst, curImageIndex, 0, transcodeFormat, 0, 0)) 
+   {
+      log('basisFile.transcodeImage failed');
+      console.warn('transcodeImage failed');
+      
+      closeBasisFile();
+        
+     return;
+  }
+    
+  // Create or update the WebGL texture object.
+  if (transcodeFormat === BASIS_FORMAT.cTFASTC_4x4)
+  {
+    if (tex)
+        renderer.updateCompressedTexture(tex, dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_4x4_KHR);
+    else
+        tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_4x4_KHR);
+  }
+  else if ((transcodeFormat === BASIS_FORMAT.cTFBC3) || (transcodeFormat === BASIS_FORMAT.cTFBC1) || (transcodeFormat == BASIS_FORMAT.cTFBC7))
+  {
+     if (tex)
+         renderer.updateCompressedTexture(tex, dst, alignedWidth, alignedHeight, DXT_FORMAT_MAP[transcodeFormat]);
+     else
+         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, DXT_FORMAT_MAP[transcodeFormat]);
+  }
+  else if (transcodeFormat === BASIS_FORMAT.cTFETC1)
+  {
+     if (tex)
+         renderer.updateCompressedTexture(tex, dst, alignedWidth, alignedHeight, COMPRESSED_RGB_ETC1_WEBGL);
+     else
+         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGB_ETC1_WEBGL);
+  }
+  else
+  {
+    // Fallback for PVRTC1 or if no GPU tex formats are supported.
+    // Create or update 565 texture. 
+    var dstTex = new Uint16Array(width * height);
+
+    // Convert the array of bytes to an array of uint16's.
+    var pix = 0;
+    for (var y = 0; y < height; y++)
+        for (var x = 0; x < width; x++, pix++)
+            dstTex[pix] = dst[2 * pix + 0] | (dst[2 * pix + 1] << 8);
+
+    if (tex)
+      renderer.updateRgb565Texture(tex, dstTex, width, height);
+    else
+      tex = renderer.createRgb565Texture(dstTex, width, height);
+  }
+}
+
+var thenTime = 0;
+var timeSinceLastFrame = 0;
+var framerateLimit = true;
+var pausedFlag = false;
+var frameRate = 24.0;
+
+var dataLoadedCountDown;
+var receivedFileData;
+var forceBC1Flag = 0;
+
+function frame(nowTime)
+{
+   if (dataLoadedCountDown > 0)
+   {
+      dataLoadedCountDown = dataLoadedCountDown - 1;
+      if (dataLoadedCountDown == 0)
+      {
+         if (receivedFileData)
+         {
+            prepareBasisFile(receivedFileData);
+            receivedFileData = null;
+         }
+      }
+   }
+
+    nowTime *= 0.001;  // convert to seconds
+    
+    const deltaTime = nowTime - thenTime;
+    thenTime = nowTime;
+
+    if (basisFile != 0)
+    {
+        if (curImageIndex >= numImages)
+            curImageIndex = 0;
+            
+        transcodeFrame();
+ 
+        redraw()
+        
+        if (rewindFlag != 0)
+        {
+            curImageIndex = 0;
+            timeSinceLastFrame = 0;
+            
+            rewindFlag = 0;
+        }
+        else if (pausedFlag)
+        {
+            timeSinceLastFrame = 0;
+        }
+        else if (!framerateLimit)
+        {
+            timeSinceLastFrame = 0;
+            curImageIndex++;
+        }
+        else
+        {
+            timeSinceLastFrame += deltaTime;
+            if (timeSinceLastFrame > 1.0/frameRate)
+            {
+                timeSinceLastFrame = timeSinceLastFrame % (1.0/frameRate);
+                
+                curImageIndex++;
+            }
+        }
+        
+        if (curImageIndex >= numImages)
+            curImageIndex = 0;
+    }
+    
+    requestAnimationFrame(frame);
+}
+
+function prepareBasisFile(fileData)
+{
+  const { BasisFile, initializeBasis } = Module;
+
+  closeBasisFile();
+  
+  var srcFileData = new Uint8Array(fileData);
+  var srcFileSize = srcFileData.length;
+  
+  basisFile = new BasisFile(srcFileData);
+  
+  if (!basisFile)
+  {
+    log('Failed opening .basis file!');
+    
+    return;  
+  }
+
+  var is_hdr = basisFile.isHDR();
+  
+  if (is_hdr)
+  {
+    log('HDR files not supported in this demo yet!');  
+
+    closeBasisFile();
+        
+    return;
+  }
+  
+  width = basisFile.getImageWidth(0, 0);
+  height = basisFile.getImageHeight(0, 0);
+  numImages = basisFile.getNumImages();
+  levels = basisFile.getNumLevels(0);
+  have_alpha = basisFile.getHasAlpha();
+  
+  if (!width || !height || !numImages || !levels)
+  {
+    log('Failed getting info from basis file!');
+    
+    closeBasisFile();
+    
+    return;    
+  }
+  
+  log('forceBC1: ' + forceBC1Flag);
+
+  var formatString = 'UNKNOWN';
+  if ((forceBC1Flag) && (dxtSupported))
+  {
+      transcodeFormat = BASIS_FORMAT.cTFBC1;
+      formatString = 'BC1';
+  }
+  else if (astcSupported)
+  {
+      transcodeFormat = BASIS_FORMAT.cTFASTC_4x4;
+      formatString = 'ASTC';
+  }
+  else if (etcSupported)
+  {
+      transcodeFormat = BASIS_FORMAT.cTFETC1;
+      formatString = 'ETC1';
+  }
+  else if (bc7Supported)
+  {
+      transcodeFormat = BASIS_FORMAT.cTFBC7;
+      formatString = 'BC7';
+  }
+  else if (dxtSupported)
+  {
+      if (have_alpha)
+      {
+          transcodeFormat = BASIS_FORMAT.cTFBC3;
+          formatString = 'BC3';
+      }
+      else
+      {
+          transcodeFormat = BASIS_FORMAT.cTFBC1;
+          formatString = 'BC1';
+      }
+  }
+  else
+  {   
+     transcodeFormat = BASIS_FORMAT.cTFRGB565;
+     formatString = 'RGB565';
+  }
+    
+  elem('format').innerText = formatString;
+  
+  setButtonState('buttonVisCRs', (transcodeFormat == BASIS_FORMAT.cTFBC1));
+  setButtonState('buttonVisSels', (transcodeFormat == BASIS_FORMAT.cTFBC1));
+  setButtonState('buttonVisEnds', (transcodeFormat == BASIS_FORMAT.cTFBC1));
+
+  log('.basis file size: ' + srcFileSize);
+  
+  if (levels == 1)
+    log('average bits/texel: ' + ((srcFileSize * 8.0) / (width * height * numImages)));
+    
+  log('width: ' + width);
+  log('height: ' + height);
+  log('numImages: ' + numImages);
+  log('first image mipmap levels: ' + levels);
+  log('have_alpha: ' + have_alpha);
+
+  alignedWidth = (width + 3) & ~3;
+  alignedHeight = (height + 3) & ~3;
+
+  var canvas = elem('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  
+  displayWidth = width;
+  displayHeight = height;
+      
+  if (!basisFile.startTranscoding()) 
+  {
+    log('basis_start_transcoding() failed!');
+    
+    closeBasisFile();
+    
+    return;
+  }
+}
+
+function dataLoaded(fileData) 
+{
+  log('Done loading .basis file');
+  
+  const { BasisFile, initializeBasis } = Module;
+  
+  initializeBasis();
+      
+  dataLoadedCountDown = 50;
+  
+  receivedFileData = fileData;
+}
+
+function arrayBufferCopy(src, dst, dstByteOffset, numBytes) 
+{
+  dst32Offset = dstByteOffset / 4;
+  var tail = (numBytes % 4);
+  var src32 = new Uint32Array(src.buffer, 0, (numBytes - tail) / 4);
+  var dst32 = new Uint32Array(dst.buffer);
+  for (var i = 0; i < src32.length; i++) {
+    dst32[dst32Offset + i] = src32[i];
+  }
+  for (var i = numBytes - tail; i < numBytes; i++) {
+    dst[dstByteOffset + i] = src[i];
+  }
+}
+
+
+function run() 
+{
+  elem('logger').innerHTML = '';
+  
+  loadArrayBuffer(elem('file').value, dataLoaded, dataLoadError);
+  
+  requestAnimationFrame(frame);
+}
+
+function checkForGPUFormatSupport(gl)
+{
+    astcSupported = !!gl.getExtension('WEBGL_compressed_texture_astc');
+    etcSupported = !!gl.getExtension('WEBGL_compressed_texture_etc1');
+    dxtSupported = !!gl.getExtension('WEBGL_compressed_texture_s3tc');
+    pvrtcSupported = !!(gl.getExtension('WEBGL_compressed_texture_pvrtc')) || !!(gl.getExtension('WEBKIT_WEBGL_compressed_texture_pvrtc'));
+    bc7Supported = !!gl.getExtension('EXT_texture_compression_bptc');
+    
+    // Check for BC6H support
+    {
+        var ext = gl.getExtension('EXT_texture_compression_bptc');
+        if (ext) {
+            bc6hSupported = !!ext.COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT_EXT;
+        }
+    }
+
+    // Check for ASTC HDR support   
+    {
+        var ext = gl.getExtension('WEBGL_compressed_texture_astc');
+
+        if (ext) {
+            var supportedProfiles = ext.getSupportedProfiles();
+
+            var hdrProfiles = supportedProfiles.filter(profile => profile.includes('hdr'));
+
+            if (hdrProfiles.length > 0) {
+                astcHDRSupported = true;
+            }
+        }
+    }
+
+    // Check for half-float texture support.    
+    {
+        var ext = gl.getExtension('OES_texture_half_float');
+        if (ext)
+        {
+            rgbaHalfSupported = true;
+            halfFloatWebGLFormat = ext.HALF_FLOAT_OES;
+        }
+    }
+    
+    // HACK HACK - for testing uncompressed
+    //astcSupported = false;
+    //etcSupported = false;
+    //dxtSupported = false;
+    //bc7Supported = false;
+    //pvrtcSupported = false;
+    //bc6hSupported = false;
+    //astcHDRSupported = false;
+    //rgbaHalfSupported = false;
+   
+    console.log('astcSupported: ' + astcSupported);
+    console.log('etcSupported: ' + etcSupported);
+    console.log('dxtSupported: ' + dxtSupported);
+    console.log('bc7Supported: ' + bc7Supported);
+    console.log('pvrtcSupported: ' + pvrtcSupported);
+    console.log('bc6hSupported: ' + bc6hSupported);
+    console.log('astcHDRSupported: ' + astcHDRSupported);
+    console.log('rgbaHalfSupported: ' + rgbaHalfSupported);
+}
+
+function initialize(gl) 
+{
+  checkForGPUFormatSupport(gl);
+
+  window.renderer = new Renderer(gl);
+
+  elem('file').addEventListener('keydown', function(e) 
+  {
+    if (e.keyCode == 13) {
+      run();
+    }
+  }, false);
+    
+  run();
+}
+
+function alphaBlend() { drawMode = 0; redraw(); }
+function viewRGB() { drawMode = 1; redraw(); }
+function viewAlpha() { drawMode = 2; redraw(); }
+function forceBC1Func() { forceBC1Flag = 1 - forceBC1Flag; run(); }
+
+function visCR() 
+{ 
+    var i = Module.getDebugFlags();
+    i = i ^ BASIS_DEBUG_FLAGS.DEBUG_FLAG_VIS_CR;
+    Module.setDebugFlags(i);
+}
+
+function visSels() 
+{ 
+    var i = Module.getDebugFlags();
+    i = i ^ BASIS_DEBUG_FLAGS.DEBUG_FLAG_VIS_SELS;
+    Module.setDebugFlags(i);
+}
+
+function visEndpoints() 
+{ 
+    var i = Module.getDebugFlags();
+    i ^= BASIS_DEBUG_FLAGS.DEBUG_FLAG_VIS_ENDPOINTS;
+    Module.setDebugFlags(i);
+}
+
+function togglePause()
+{
+    pausedFlag = !pausedFlag;
+}
+
+function toggleFramerateLimit() 
+{
+    framerateLimit = !framerateLimit;
+}
+
+function restart()
+{
+    rewindFlag = 1;
+}
+
+function slow()
+{
+    if (frameRate > 5.0)
+        frameRate = 5.0;
+    else
+        frameRate = 24.0;
+}
+
+</script>
+
+</head>
+<body>
+  <br>
+  <div style="font-size: 24pt; font-weight: bold">
+    Basis Universal ETC1S GPU Texture Video Transcoding Test
+  </div>
+
+  <div style="font-size: 12pt;">
+  <br>This demo uses the <a href="https://github.com/BinomialLLC/basis_universal">Basis C++ transcoder</a> (compiled to WebAssembly using Emscripten) to transcode a .basis Universal Texture Video file directly to GPU texture data.
+  <br>.basis universal GPU texture files can be quickly transcoded directly to any other GPU texture format with little to no quality loss. 
+  <br>Thanks to Evan Parker for providing <a href="https://github.com/toji/webgl-texture-utils">webgl-texture-utils</a> and this test bed. <a href="../index.html">Go back.</a>
+  <br>
+  Transcode Format: <b id='format'>FORMAT</b>
+  </div>
+  <br>
+  <br>
+      .basis file:
+        <input id="file" type="text" size=30 value="6.1.01.basis"></input>
+      <input type="button" value="Run!" onclick="run()"></input>
+  <br>
+  <br>
+      <input type="button" value="Alpha blend" onclick="alphaBlend()"></input>
+      <input type="button" value="View RGB" onclick="viewRGB()"></input>
+      <input type="button" value="View Alpha" onclick="viewAlpha()"></input>
+  <br>
+      <input type="button" value="No Framerate Limit" onclick="toggleFramerateLimit()"></input>
+      <input type="button" value="Pause" onclick="togglePause()"></input>
+      <input type="button" value="Restart" onclick="restart()"></input>
+      <input type="button" value="Toggle Slow Speed" onclick="slow()"></input>
+
+  <br>
+  <br>
+     Development (only on GPU's supporting BC1):
+  <br>
+     <input type="button" value="Force BC1" onclick="forceBC1Func()"></input>
+  <br>    
+  <br>
+      <input type="button" id="buttonVisCRs" value="Visualize CR's" onclick="visCR()" disabled></input>
+      <input type="button" id="buttonVisSels" value="Visualize Selectors" onclick="visSels()" disabled></input>
+      <input type="button" id="buttonVisEnds" value="Visualize Endpoints" onclick="visEndpoints()" disabled></input>
+  <br>
+  
+  <div style="position:absolute; left: 525px; top:170px; font-size: 20pt; font-weight: bold; color: red">
+    <canvas id='canvas'></canvas>
+  </div>
+  
+  <br><br>
+  <div id='logger'></div>
+</body>
+
+<script>
+  BASIS({onRuntimeInitialized : () => {
+    var gl = elem('canvas').getContext('webgl');
+    
+    initialize(gl);
+
+  }}).then(module => window.Module = module);
+</script>
+
+</html>
