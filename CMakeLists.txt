@@ -240,15 +240,16 @@ endif()
 
 if (NOT EMSCRIPTEN)
     if (UNIX)
-        if (CMAKE_BUILD_TYPE STREQUAL Release)
-            if (APPLE)
-                add_custom_command(TARGET basisu POST_BUILD COMMAND strip -X -x ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/basisu)
-				#message("strip command: strip -X -x ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/basisu")
-            else()
-                add_custom_command(TARGET basisu POST_BUILD COMMAND strip -g -X -x ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/basisu)
-				#message("strip command: strip -g -X -x ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/basisu")
-            endif()
+        set(STRIP_ARGS -X -x)
+        if (NOT APPLE)
+            list(APPEND STRIP_ARGS -g)
         endif()
+        add_custom_command(
+            TARGET basisu POST_BUILD
+            DEPENDS basisu
+            COMMAND $<$<CONFIG:release>:${CMAKE_STRIP}>
+            ARGS ${STRIP_ARGS} $<TARGET_FILE:basisu>
+        )
     endif()
 endif()
 
