@@ -1,0 +1,7 @@
+@PACKAGE_INIT@
+
+if (NOT TARGET basisu::basisu_encoder)
+  include(${CMAKE_CURRENT_LIST_DIR}/basisu-targets.cmake)
+endif ()
+
+check_required_components(basisu)
