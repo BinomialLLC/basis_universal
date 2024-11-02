@@ -277,6 +277,35 @@ if (MSVC)
     endif()
 endif()
 
+# Forward BASISD options to the targets if they are defined externally
+set(BASISD_OPTIONS
+    BASISD_SUPPORT_KTX2
+    BASISD_SUPPORT_KTX2_ZSTD
+    BASISD_SUPPORT_DXT1
+    BASISD_SUPPORT_DXT5A
+    BASISD_SUPPORT_BC7
+    BASISD_SUPPORT_BC7_MODE5
+    BASISD_SUPPORT_PVRTC1
+    BASISD_SUPPORT_PVRTC2
+    BASISD_SUPPORT_ETC2_EAC_A8
+    BASISD_SUPPORT_ETC2_EAC_RG11
+    BASISD_SUPPORT_UASTC
+    BASISD_SUPPORT_UASTC_HDR
+    BASISD_SUPPORT_ATC
+    BASISD_SUPPORT_ASTC
+    BASISD_SUPPORT_ASTC_HIGHER_OPAQUE_QUALITY
+    BASISD_SUPPORT_FXT1)
+foreach(BASISD_OPTION ${BASISD_OPTIONS})
+    if(DEFINED ${BASISD_OPTION})
+        message(${BASISD_OPTION}=${${BASISD_OPTION}})
+        target_compile_definitions(basisu PRIVATE ${BASISD_OPTION}=${${BASISD_OPTION}})
+        target_compile_definitions(basisu_encoder PRIVATE ${BASISD_OPTION}=${${BASISD_OPTION}})
+        if(EXAMPLES)
+            target_compile_definitions(examples PRIVATE ${BASISD_OPTION}=${${BASISD_OPTION}})
+        endif()
+    endif()
+endforeach()
+
 # Target Installation
 install(TARGETS basisu_encoder basisu EXPORT basisu-targets)
 install(DIRECTORY "./transcoder" DESTINATION "include/basisu/"
