@@ -176,15 +176,15 @@ namespace basist
 	inline int get_bc7_color_index_size(int mode, int index_selection_bit) { return g_bc7_color_index_bitcount[mode] + index_selection_bit; }
 	inline int get_bc7_alpha_index_size(int mode, int index_selection_bit) { return g_bc7_alpha_index_bitcount[mode] - index_selection_bit; }
 
-	struct endpoint_err
+	struct endpoint_sel
 	{
-		uint16_t m_error; uint8_t m_lo; uint8_t m_hi;
+		uint8_t m_lo; uint8_t m_hi;
 	};
 
-	extern endpoint_err g_bc7_mode_6_optimal_endpoints[256][2]; // [c][pbit]
+	extern const endpoint_sel g_bc7_mode_6_optimal_endpoints[256][2]; // [c][pbit]
 	const uint32_t BC7ENC_MODE_6_OPTIMAL_INDEX = 5;
 
-	extern endpoint_err g_bc7_mode_5_optimal_endpoints[256]; // [c]
+	extern const endpoint_sel g_bc7_mode_5_optimal_endpoints[256]; // [c]
 	const uint32_t BC7ENC_MODE_5_OPTIMAL_INDEX = 1;
 
 	// Packs a BC7 block from a high-level description. Handles all BC7 modes.
