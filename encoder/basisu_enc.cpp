@@ -430,7 +430,7 @@ namespace basisu
 
 		uint32_t width = 0, height = 0, num_chans = 0;
 		void* pImage = pv_png::load_png(pBuf, buf_size, 4, width, height, num_chans);
-		if (!pBuf)
+		if (!pImage)
 		{
 			error_printf("pv_png::load_png failed while loading image \"%s\"\n", pFilename);
 			return false;
