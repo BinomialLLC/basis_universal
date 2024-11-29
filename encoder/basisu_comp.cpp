@@ -2018,11 +2018,24 @@ namespace basisu
 			debug_printf("Unique endpoints: %u, unique selectors: %u\n", total_unique_endpoints, total_unique_selectors);
 		}
 #endif
-
 		const double total_texels = m_total_blocks * 16.0f;
 
 		int endpoint_clusters = m_params.m_max_endpoint_clusters;
 		int selector_clusters = m_params.m_max_selector_clusters;
+		int quality_level = m_params.m_quality_level;
+
+		if (quality_level != -1)
+		{
+			endpoint_clusters = 0;
+			selector_clusters = 0;
+		}
+		else if ((!endpoint_clusters) || (!selector_clusters))
+		{
+			endpoint_clusters = 0;
+			selector_clusters = 0;
+
+			quality_level = 128;
+		}
 
 		if (endpoint_clusters > basisu_frontend::cMaxEndpointClusters)
 		{
@@ -2035,9 +2048,9 @@ namespace basisu
 			return false;
 		}
 		
-		if (m_params.m_quality_level != -1)
+		if (quality_level != -1)
 		{
-			const float quality = saturate(m_params.m_quality_level / 255.0f);
+			const float quality = saturate(quality_level / 255.0f);
 									
 			const float bits_per_endpoint_cluster = 14.0f;
 			const float max_desired_endpoint_cluster_bits_per_texel = 1.0f; // .15f
@@ -2093,7 +2106,7 @@ namespace basisu
 
 			debug_printf("Max endpoints: %u, max selectors: %u\n", endpoint_clusters, selector_clusters);
 
-			if (m_params.m_quality_level >= 223)
+			if (quality_level >= 223)
 			{
 				if (!m_params.m_selector_rdo_thresh.was_changed())
 				{
@@ -2104,7 +2117,7 @@ namespace basisu
 						m_params.m_selector_rdo_thresh *= .25f;
 				}
 			}
-			else if (m_params.m_quality_level >= 192)
+			else if (quality_level >= 192)
 			{
 				if (!m_params.m_endpoint_rdo_thresh.was_changed())
 					m_params.m_endpoint_rdo_thresh *= .5f;
@@ -2112,7 +2125,7 @@ namespace basisu
 				if (!m_params.m_selector_rdo_thresh.was_changed())
 					m_params.m_selector_rdo_thresh *= .5f;
 			}
-			else if (m_params.m_quality_level >= 160)
+			else if (quality_level >= 160)
 			{
 				if (!m_params.m_endpoint_rdo_thresh.was_changed())
 					m_params.m_endpoint_rdo_thresh *= .75f;
@@ -2120,7 +2133,7 @@ namespace basisu
 				if (!m_params.m_selector_rdo_thresh.was_changed())
 					m_params.m_selector_rdo_thresh *= .75f;
 			}
-			else if (m_params.m_quality_level >= 129)
+			else if (quality_level >= 129)
 			{
 				float l = (quality - 129 / 255.0f) / ((160 - 129) / 255.0f);
 
