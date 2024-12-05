@@ -219,7 +219,7 @@ Renderer.prototype.drawTexture = function(texture, width, height, mode, scale, l
   	x = 1.0;
   else if (mode == 2)
     y = 1.0;
-			
+
   gl.uniform4f(this.uniformLocations_.control, x, y, scale, linearToSRGBFlag ? 1.0 : 0.0);
 
   gl.enableVertexAttribArray(this.attribLocations_.vert);
@@ -269,14 +269,14 @@ Renderer.fragmentShaderSource_ = [
   'uniform sampler2D texSampler;',
   'uniform vec4 control;',
   'varying vec2 v_texCoord;',
-  
+
   // Function to convert linear RGB to sRGB
   'vec3 linearToSrgb(vec3 linearRGB) {',
   '  vec3 srgbLow = linearRGB * 12.92;',
   '  vec3 srgbHigh = 1.055 * pow(linearRGB, vec3(1.0/2.4)) - 0.055;',
   '  return clamp(mix(srgbLow, srgbHigh, step(0.0031308, linearRGB)), 0.0, 1.0);',
   '}',
-  
+
   'void main() {',
   '  vec4 c;',
   '  c = texture2D(texSampler, v_texCoord);',
@@ -294,4 +294,3 @@ Renderer.fragmentShaderSource_ = [
   '  gl_FragColor = c;',
   '}'
   ].join('\n');
-  

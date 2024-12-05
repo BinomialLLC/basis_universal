@@ -31,9 +31,9 @@ namespace basisu
           fprintf(stderr, "elemental_vector::increase_capacity: vector too large\n");
           abort();
       }
-            
+
       const uint64_t desired_size_u64 = (uint64_t)element_size * new_capacity;
-            
+
       const size_t desired_size = (size_t)desired_size_u64;
       if (desired_size_u64 != desired_size)
       {
@@ -97,7 +97,7 @@ namespace basisu
 
          if (m_p)
             free(m_p);
-         
+
          m_p = new_p;
       }
 

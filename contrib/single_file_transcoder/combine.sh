@@ -1,13 +1,13 @@
 #!/bin/sh -e
 
 # Tool to bundle multiple C/C++ source files, inlining any includes.
-# 
+#
 # Note: this POSIX-compliant script is many times slower than the original bash
 # implementation (due to the grep calls) but it runs and works everywhere.
-# 
+#
 # TODO: ROOTS, FOUND, etc., as arrays (since they fail on paths with spaces)
 # TODO: revert to Bash-only regex (the grep ones being too slow)
-# 
+#
 # Script released under a CC0 license.
 
 # Common file roots

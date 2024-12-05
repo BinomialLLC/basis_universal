@@ -11,11 +11,11 @@
 //    getFileDesc(), getImageDesc(), getImageLevelDesc(): These functions return low-level information about where compressed data is located for each image in a .basis file.
 //    This is useful for when you want to extract the compressed data and embed it into your own file formats, for container independent transcoding.
 //
-// 2. Encoding (optional): See class basis_encoder. Encodes LDR .PNG or 32bpp images, or HDR half-float/float or .EXR/.HDR images to .basis/.ktx2 files in memory. 
+// 2. Encoding (optional): See class basis_encoder. Encodes LDR .PNG or 32bpp images, or HDR half-float/float or .EXR/.HDR images to .basis/.ktx2 files in memory.
 //    Must compile with BASISU_SUPPORT_ENCODING=1.
 //    Requires basisu_transcoder.cpp as well as all the .cpp files in the "encoder" directory. Results in a larger WebAssembly executable.
 //
-// 3. Low level transcoding/container independent transcoding: See class lowlevel_etc1s_image_transcoder or function transcodeUASTCImage(). 
+// 3. Low level transcoding/container independent transcoding: See class lowlevel_etc1s_image_transcoder or function transcodeUASTCImage().
 //	  For transcoding raw compressed ETC1S/UASTC LDR/UASTC HDR texture data from non-.basis files (say from KTX2) to GPU texture data.
 //
 // 4. Helpers, transcoder texture format information: See functions getBytesPerBlockOrPixel(), formatHasAlpha(), etc.
@@ -767,7 +767,7 @@ struct ktx2_file
         return m_transcoder.is_etc1s();
     }
 
-	// Returns true if the texture is UASTC HDR. In this case, it can only be transcoded to BC6H, ASTC 4x4 HDR, or half-float RGB/RGBA images.	
+	// Returns true if the texture is UASTC HDR. In this case, it can only be transcoded to BC6H, ASTC 4x4 HDR, or half-float RGB/RGBA images.
 	bool isHDR()
     {
         assert(m_magic == KTX2_MAGIC);
@@ -1074,9 +1074,9 @@ public:
 
 	// Accepts RGBA half float or RGBA float images, or .EXR, .HDR, or .PNG file data.
 	bool set_slice_source_image_hdr(
-		uint32_t slice_index, 
-		const emscripten::val& src_image_js_val, 
-		uint32_t src_image_width, uint32_t src_image_height, 
+		uint32_t slice_index,
+		const emscripten::val& src_image_js_val,
+		uint32_t src_image_width, uint32_t src_image_height,
 		hdr_image_type img_type, bool ldr_srgb_to_linear_conversion)
     {
         // Resize the source_images_hdr array if necessary
@@ -1089,7 +1089,7 @@ public:
 
         // Now load the source image.
         imagef& src_img = m_params.m_source_images_hdr[slice_index];
-		
+
 		return load_image_hdr(src_image_buf.get_ptr(), src_image_buf.size(), src_img, src_image_width, src_image_height, img_type, ldr_srgb_to_linear_conversion);
     }
 
@@ -1359,7 +1359,7 @@ bool transcode_uastc_image(
 
     basisu::vector<uint8_t> temp_output_blocks(output_blocks_len);
 
-	bool status = false;	
+	bool status = false;
 	if (basis_transcoder_format_is_hdr(target_format))
 	{
 		basisu_lowlevel_uastc_hdr_transcoder transcoder;
@@ -1470,10 +1470,10 @@ uint32_t get_debug_flags_wrapper()
 
 EMSCRIPTEN_BINDINGS(basis_codec) {
   function("initializeBasis", &basis_init);
-  
+
   function("setDebugFlags", &set_debug_flags_wrapper);
   function("getDebugFlags", &get_debug_flags_wrapper);
-    
+
   // Expose BasisFileDesc structure
   value_object<basis_file_desc>("BasisFileDesc")
       .field("version", &basis_file_desc::m_version)
@@ -1554,7 +1554,7 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
     function("isFormatSupported", &is_format_supported);
     function("getFormatBlockWidth", &get_format_block_width);
     function("getFormatBlockHeight", &get_format_block_height);
-	
+
 	function("convertFloatToHalf", &convert_float_to_half);
 	function("convertHalfToFloat", &convert_half_to_float);
 
@@ -1650,7 +1650,7 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
 
   function("transcoderSupportsKTX2", &basisu_transcoder_supports_ktx2);
   function("transcoderSupportsKTX2Zstd", &basisu_transcoder_supports_ktx2_zstd);
-    
+
 #if BASISD_SUPPORT_KTX2
   // KTX2 enums/constants
   enum_<ktx2_supercompression>("ktx2_supercompression")
@@ -1797,7 +1797,7 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
     constant("BASISU_DEFAULT_COMPRESSION_LEVEL", BASISU_DEFAULT_COMPRESSION_LEVEL);
     constant("BASISU_MAX_COMPRESSION_LEVEL", BASISU_MAX_COMPRESSION_LEVEL);
 
-	// The maximum representable floating point value in a UASTC HDR texture (any larger values will get clamped and a warning issued).	
+	// The maximum representable floating point value in a UASTC HDR texture (any larger values will get clamped and a warning issued).
 	constant("ASTC_HDR_MAX_VAL", basist::ASTC_HDR_MAX_VAL);
 
     constant("cPackUASTCLevelFastest", cPackUASTCLevelFastest);
@@ -1814,7 +1814,7 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
 
     constant("UASTC_RDO_DEFAULT_MAX_ALLOWED_RMS_INCREASE_RATIO", UASTC_RDO_DEFAULT_MAX_ALLOWED_RMS_INCREASE_RATIO);
     constant("UASTC_RDO_DEFAULT_SKIP_BLOCK_RMS_THRESH", UASTC_RDO_DEFAULT_SKIP_BLOCK_RMS_THRESH);
-	
+
 	enum_<hdr_image_type>("hdr_image_type")
 		.value("cHITRGBAHalfFloat", hdr_image_type::cHITRGBAHalfFloat)
 		.value("cHITRGBAFloat", hdr_image_type::cHITRGBAFloat)
@@ -1843,7 +1843,7 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
     .function("setSliceSourceImage", optional_override([](basis_encoder& self, uint32_t slice_index, const emscripten::val& src_image_js_val, uint32_t width, uint32_t height, bool src_image_is_png) {
         return self.set_slice_source_image(slice_index, src_image_js_val, width, height, src_image_is_png);
     }))
-	
+
 	.function("setSliceSourceImageHDR", optional_override([](basis_encoder& self, uint32_t slice_index, const emscripten::val& src_image_js_val, uint32_t width, uint32_t height, uint32_t img_type, bool ldr_srgb_to_linear_conversion) {
         return self.set_slice_source_image_hdr(slice_index, src_image_js_val, width, height, (hdr_image_type)img_type, ldr_srgb_to_linear_conversion);
     }))
@@ -1852,13 +1852,13 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
     .function("setUASTC", optional_override([](basis_encoder& self, bool uastc_flag) {
         self.m_params.m_uastc = uastc_flag;
     }))
-	
+
 	// If true, the encoder will output a UASTC HDR texture, otherwise it works in the default LDR mode.
     .function("setHDR", optional_override([](basis_encoder& self, bool hdr_flag) {
 		self.m_params.m_hdr = hdr_flag;
     }))
 
-	// Sets the quality vs. encoder performance tradeoff (0-4, default is 1). Higher=slower but better quality.	
+	// Sets the quality vs. encoder performance tradeoff (0-4, default is 1). Higher=slower but better quality.
     .function("setUASTCHDRQualityLevel", optional_override([](basis_encoder& self, int level) {
 		assert((level >= astc_hdr_codec_options::cMinLevel) && (level <= astc_hdr_codec_options::cMaxLevel));
 		self.m_params.m_uastc_hdr_options.set_quality_level(level);
