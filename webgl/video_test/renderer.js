@@ -117,10 +117,10 @@ Renderer.prototype.createDxtTexture = function(dxtData, width, height, format) {
 
 Renderer.prototype.deleteTexture = function(tex)
 {
-	var gl = this.gl_;	
-	
+	var gl = this.gl_;
+
 	gl.bindTexture(gl.TEXTURE_2D, null);
-	
+
 	gl.deleteTexture(tex);
 }
 
@@ -230,7 +230,7 @@ Renderer.prototype.drawTexture = function(texture, width, height, mode) {
   	x = 1.0;
   else if (mode == 2)
     y = 1.0;
-	
+
   gl.uniform4f(this.uniformLocations_.control, x, y, 0.0, 0.0);
 
   gl.enableVertexAttribArray(this.attribLocations_.vert);
@@ -294,4 +294,3 @@ Renderer.fragmentShaderSource_ = [
   '  gl_FragColor = c;',
   '}'
   ].join('\n');
-  

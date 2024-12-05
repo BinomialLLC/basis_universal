@@ -125,16 +125,16 @@ namespace basisu
 #ifndef __EMSCRIPTEN__
 #ifdef __GNUC__
 #pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wclass-memaccess"            
-#endif                  
+#pragma GCC diagnostic ignored "-Wclass-memaccess"
 #endif
-		
+#endif
+
 	template <typename T> inline void clear_obj(T& obj) { memset(&obj, 0, sizeof(obj)); }
 
 #ifndef __EMSCRIPTEN__
 #ifdef __GNUC__
 #pragma GCC diagnostic pop
-#endif                            
+#endif
 #endif
 
 	template <typename T0, typename T1> inline T0 lerp(T0 a, T0 b, T1 c) { return a + (b - a) * c; }
@@ -142,7 +142,7 @@ namespace basisu
 	template <typename S> inline S maximum(S a, S b) { return (a > b) ? a : b; }
 	template <typename S> inline S maximum(S a, S b, S c) { return maximum(maximum(a, b), c); }
 	template <typename S> inline S maximum(S a, S b, S c, S d) { return maximum(maximum(maximum(a, b), c), d); }
-	
+
 	template <typename S> inline S minimum(S a, S b) {	return (a < b) ? a : b; }
 	template <typename S> inline S minimum(S a, S b, S c) {	return minimum(minimum(a, b), c); }
 	template <typename S> inline S minimum(S a, S b, S c, S d) { return minimum(minimum(minimum(a, b), c), d); }
@@ -166,7 +166,7 @@ namespace basisu
 	inline uint32_t iabs(int32_t i) { return (i < 0) ? static_cast<uint32_t>(-i) : static_cast<uint32_t>(i);	}
 	inline uint64_t iabs64(int64_t i) {	return (i < 0) ? static_cast<uint64_t>(-i) : static_cast<uint64_t>(i); }
 
-	template<typename T> inline void clear_vector(T &vec) { vec.erase(vec.begin(), vec.end()); }		
+	template<typename T> inline void clear_vector(T &vec) { vec.erase(vec.begin(), vec.end()); }
 	template<typename T> inline typename T::value_type *enlarge_vector(T &vec, size_t n) { size_t cs = vec.size(); vec.resize(cs + n); return &vec[cs]; }
 
 	inline bool is_pow2(uint32_t x) { return x && ((x & (x - 1U)) == 0U); }
@@ -214,8 +214,8 @@ namespace basisu
 		return val;
 	}
 
-	template<typename T, typename R> inline void append_vector(T &vec, const R *pObjs, size_t n) 
-	{ 
+	template<typename T, typename R> inline void append_vector(T &vec, const R *pObjs, size_t n)
+	{
 		if (n)
 		{
 			if (vec.size())
@@ -266,7 +266,7 @@ namespace basisu
 		for (size_t i = 0; i < vec.size(); i++)
 			vec[i] = obj;
 	}
-		
+
 	inline uint64_t read_be64(const void *p)
 	{
 		uint64_t val = 0;
@@ -332,7 +332,7 @@ namespace basisu
 		pBytes[2] = (uint8_t)(val >> 16U);
 		pBytes[3] = (uint8_t)(val >> 24U);
 	}
-		
+
 	// Always little endian 1-8 byte unsigned int
 	template<uint32_t NumBytes>
 	struct packed_uint
@@ -342,41 +342,41 @@ namespace basisu
 		inline packed_uint() { static_assert(NumBytes <= sizeof(uint64_t), "Invalid NumBytes"); }
 		inline packed_uint(uint64_t v) { *this = v; }
 		inline packed_uint(const packed_uint& other) { *this = other; }
-						
-		inline packed_uint& operator= (uint64_t v) 
-		{ 
-			for (uint32_t i = 0; i < NumBytes; i++) 
-				m_bytes[i] = static_cast<uint8_t>(v >> (i * 8)); 
-			return *this; 
+
+		inline packed_uint& operator= (uint64_t v)
+		{
+			for (uint32_t i = 0; i < NumBytes; i++)
+				m_bytes[i] = static_cast<uint8_t>(v >> (i * 8));
+			return *this;
 		}
 
-		inline packed_uint& operator= (const packed_uint& rhs) 
-		{ 
-			memcpy(m_bytes, rhs.m_bytes, sizeof(m_bytes)); 
+		inline packed_uint& operator= (const packed_uint& rhs)
+		{
+			memcpy(m_bytes, rhs.m_bytes, sizeof(m_bytes));
 			return *this;
 		}
 
 #ifdef __GNUC__
 #pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Warray-bounds"            
-#endif  
+#pragma GCC diagnostic ignored "-Warray-bounds"
+#endif
 		inline operator uint32_t() const
 		{
 			switch (NumBytes)
 			{
-				case 1:  
+				case 1:
 				{
 					return  m_bytes[0];
 				}
-				case 2:  
+				case 2:
 				{
 					return (m_bytes[1] << 8U) | m_bytes[0];
 				}
-				case 3:  
+				case 3:
 				{
 					return (m_bytes[2] << 16U) | (m_bytes[1] << 8U) | m_bytes[0];
 				}
-				case 4:  
+				case 4:
 				{
 					return read_le_dword(m_bytes);
 				}
@@ -398,13 +398,13 @@ namespace basisu
 					uint32_t h = (m_bytes[6] << 16U) | (m_bytes[5] << 8U) | m_bytes[4];
 					return static_cast<uint64_t>(l) | (static_cast<uint64_t>(h) << 32U);
 				}
-				case 8:  
+				case 8:
 				{
 					uint32_t l = read_le_dword(m_bytes);
 					uint32_t h = read_le_dword(m_bytes + 4);
 					return static_cast<uint64_t>(l) | (static_cast<uint64_t>(h) << 32U);
 				}
-				default: 
+				default:
 				{
 					assert(0);
 					return 0;
@@ -418,14 +418,14 @@ namespace basisu
 
 	enum eZero { cZero };
 	enum eNoClamp { cNoClamp };
-	
+
 	// Rice/Huffman entropy coding
-		
+
 	// This is basically Deflate-style canonical Huffman, except we allow for a lot more symbols.
 	enum
 	{
-		cHuffmanMaxSupportedCodeSize = 16, cHuffmanMaxSupportedInternalCodeSize = 31, 
-		cHuffmanFastLookupBits = 10, 
+		cHuffmanMaxSupportedCodeSize = 16, cHuffmanMaxSupportedInternalCodeSize = 31,
+		cHuffmanFastLookupBits = 10,
 		cHuffmanMaxSymsLog2 = 14, cHuffmanMaxSyms = 1 << cHuffmanMaxSymsLog2,
 
 		// Small zero runs
@@ -451,13 +451,13 @@ namespace basisu
 	enum class texture_format
 	{
 		cInvalidTextureFormat = -1,
-		
+
 		// Block-based formats
 		cETC1,			// ETC1
 		cETC1S,			// ETC1 (subset: diff colors only, no subblocks)
 		cETC2_RGB,		// ETC2 color block (basisu doesn't support ETC2 planar/T/H modes - just basic ETC1)
 		cETC2_RGBA,		// ETC2 EAC alpha block followed by ETC2 color block
-		cETC2_ALPHA,	// ETC2 EAC alpha block 
+		cETC2_ALPHA,	// ETC2 EAC alpha block
 		cBC1,				// DXT1
 		cBC3,				// DXT5 (BC4/DXT5A block followed by a BC1/DXT1 block)
 		cBC4,				// DXT5A
@@ -475,11 +475,11 @@ namespace basisu
 		cPVRTC2_4_RGBA,
 		cETC2_R11_EAC,
 		cETC2_RG11_EAC,
-		cUASTC4x4,		
+		cUASTC4x4,
 		cUASTC_HDR_4x4,
 		cBC1_NV,
 		cBC1_AMD,
-				
+
 		// Uncompressed/raw pixels
 		cRGBA32,
 		cRGB565,
@@ -526,7 +526,7 @@ namespace basisu
 		default:
 			break;
 		}
-		
+
 		// Everything else is 16 bytes/block.
 		return 16;
 	}
@@ -566,6 +566,5 @@ namespace basisu
 			return true;
 		return false;
 	}
-							
-} // namespace basisu
 
+} // namespace basisu

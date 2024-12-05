@@ -76,7 +76,7 @@ namespace basisu
 
 	// This is a Public Domain 8x8 font from here:
 	// https://github.com/dhepper/font8x8/blob/master/font8x8_basic.h
-	const uint8_t g_debug_font8x8_basic[127 - 32 + 1][8] = 
+	const uint8_t g_debug_font8x8_basic[127 - 32 + 1][8] =
 	{
 	 { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},	// U+0020 ( )
 	 { 0x18, 0x3C, 0x3C, 0x18, 0x18, 0x00, 0x18, 0x00},   // U+0021 (!)
@@ -178,7 +178,7 @@ namespace basisu
 
 	bool g_library_initialized;
 	std::mutex g_encoder_init_mutex;
-		
+
 	// Encoder library initialization (just call once at startup)
 	bool basisu_encoder_init(bool use_opencl, bool opencl_force_serialization)
 	{
@@ -220,7 +220,7 @@ namespace basisu
 	{
 		char buf[8192];
 
-#ifdef _WIN32		
+#ifdef _WIN32
 		vsprintf_s(buf, sizeof(buf), pFmt, args);
 #else
 		vsnprintf(buf, sizeof(buf), pFmt, args);
@@ -273,7 +273,7 @@ namespace basisu
 #else
 #error TODO
 #endif
-				
+
 	interval_timer::interval_timer() : m_start_time(0), m_stop_time(0), m_started(false), m_stopped(false)
 	{
 		if (!g_timer_freq)
@@ -307,7 +307,7 @@ namespace basisu
 		timer_ticks delta = stop_time - m_start_time;
 		return delta * g_timer_freq;
 	}
-		
+
 	void interval_timer::init()
 	{
 		if (!g_timer_freq)
@@ -351,21 +351,21 @@ namespace basisu
 		else
 			return saturate(powf((s + .055f) * (1.0f / 1.055f), 2.4f));
 	}
-		
+
 	const uint32_t MAX_32BIT_ALLOC_SIZE = 250000000;
-		
+
 	bool load_tga(const char* pFilename, image& img)
 	{
 		int w = 0, h = 0, n_chans = 0;
 		uint8_t* pImage_data = read_tga(pFilename, w, h, n_chans);
-				
+
 		if ((!pImage_data) || (!w) || (!h) || ((n_chans != 3) && (n_chans != 4)))
 		{
 			error_printf("Failed loading .TGA image \"%s\"!\n", pFilename);
 
 			if (pImage_data)
 				free(pImage_data);
-						
+
 			return false;
 		}
 
@@ -381,7 +381,7 @@ namespace basisu
 				return false;
 			}
 		}
-		
+
 		img.resize(w, h);
 
 		const uint8_t *pSrc = pImage_data;
@@ -424,7 +424,7 @@ namespace basisu
 	{
 		interval_timer tm;
 		tm.start();
-		
+
 		if (!buf_size)
 			return false;
 
@@ -442,7 +442,7 @@ namespace basisu
 
 		return true;
 	}
-		
+
 	bool load_png(const char* pFilename, image& img)
 	{
 		uint8_vec buffer;
@@ -461,9 +461,9 @@ namespace basisu
 		uint8_t *pImage_data = jpgd::decompress_jpeg_image_from_file(pFilename, &width, &height, &actual_comps, 4, jpgd::jpeg_decoder::cFlagLinearChromaFiltering);
 		if (!pImage_data)
 			return false;
-		
+
 		img.init(pImage_data, width, height, 4);
-		
+
 		free(pImage_data);
 
 		return true;
@@ -558,7 +558,7 @@ namespace basisu
 					dst[2] = basist::half_to_float(pSrc_pixel[2]);
 					dst[3] = basist::half_to_float(pSrc_pixel[3]);
 				}
-			
+
 				pSrc_image_h += (width * 4);
 			}
 
@@ -617,7 +617,7 @@ namespace basisu
 
 		return true;
 	}
-	
+
 	bool load_image_hdr(const char* pFilename, imagef& img, bool ldr_srgb_to_linear)
 	{
 		std::string ext(string_get_extension(std::string(pFilename)));
@@ -634,7 +634,7 @@ namespace basisu
 				return false;
 			return true;
 		}
-					
+
 		if (strcasecmp(pExt, "exr") == 0)
 		{
 			int n_chans = 0;
@@ -654,12 +654,12 @@ namespace basisu
 
 		return true;
 	}
-	
+
 	bool save_png(const char* pFilename, const image &img, uint32_t image_save_flags, uint32_t grayscale_comp)
 	{
 		if (!img.get_total_pixels())
 			return false;
-				
+
 		void* pPNG_data = nullptr;
 		size_t PNG_data_size = 0;
 
@@ -677,7 +677,7 @@ namespace basisu
 		else
 		{
 			bool has_alpha = false;
-			
+
 			if ((image_save_flags & cImageSaveIgnoreAlpha) == 0)
 				has_alpha = img.has_alpha();
 
@@ -694,7 +694,7 @@ namespace basisu
 						pDst[0] = pSrc->r;
 						pDst[1] = pSrc->g;
 						pDst[2] = pSrc->b;
-						
+
 						pSrc++;
 						pDst += 3;
 					}
@@ -718,10 +718,10 @@ namespace basisu
 		}
 
 		free(pPNG_data);
-						
+
 		return status;
 	}
-		
+
 	bool read_file_to_vec(const char* pFilename, uint8_vec& data)
 	{
 		FILE* pFile = nullptr;
@@ -732,7 +732,7 @@ namespace basisu
 #endif
 		if (!pFile)
 			return false;
-				
+
 		fseek(pFile, 0, SEEK_END);
 #ifdef _WIN32
 		int64_t filesize = _ftelli64(pFile);
@@ -803,7 +803,7 @@ namespace basisu
 			return false;
 		}
 		fseek(pFile, 0, SEEK_SET);
-				
+
 		if (fread(pData, 1, (size_t)len, pFile) != (size_t)len)
 		{
 			fclose(pFile);
@@ -836,19 +836,19 @@ namespace basisu
 
 		return fclose(pFile) != EOF;
 	}
-		
+
 	bool image_resample(const image &src, image &dst, bool srgb,
-		const char *pFilter, float filter_scale, 
+		const char *pFilter, float filter_scale,
 		bool wrapping,
 		uint32_t first_comp, uint32_t num_comps)
 	{
 		assert((first_comp + num_comps) <= 4);
 
 		const int cMaxComps = 4;
-				
+
 		const uint32_t src_w = src.get_width(), src_h = src.get_height();
 		const uint32_t dst_w = dst.get_width(), dst_h = dst.get_height();
-				
+
 		if (maximum(src_w, src_h) > BASISU_RESAMPLER_MAX_DIMENSION)
 		{
 			printf("Image is too large!\n");
@@ -857,10 +857,10 @@ namespace basisu
 
 		if (!src_w || !src_h || !dst_w || !dst_h)
 			return false;
-				
+
 		if ((num_comps < 1) || (num_comps > cMaxComps))
 			return false;
-				
+
 		if ((minimum(dst_w, dst_h) < 1) || (maximum(dst_w, dst_h) > BASISU_RESAMPLER_MAX_DIMENSION))
 		{
 			printf("Image is too large!\n");
@@ -891,7 +891,7 @@ namespace basisu
 
 		std::vector<float> samples[cMaxComps];
 		Resampler *resamplers[cMaxComps];
-		
+
 		resamplers[0] = new Resampler(src_w, src_h, dst_w, dst_h,
 			wrapping ? Resampler::BOUNDARY_WRAP : Resampler::BOUNDARY_CLAMP, 0.0f, 1.0f,
 			pFilter, nullptr, nullptr, filter_scale, filter_scale, 0, 0);
@@ -951,7 +951,7 @@ namespace basisu
 						break;
 
 					const bool linear_flag = !srgb || (comp_index == 3);
-					
+
 					color_rgba *pDst = &dst(0, dst_y);
 
 					for (uint32_t x = 0; x < dst_w; x++)
@@ -984,7 +984,7 @@ namespace basisu
 		return true;
 	}
 
-	bool image_resample(const imagef& src, imagef& dst, 
+	bool image_resample(const imagef& src, imagef& dst,
 		const char* pFilter, float filter_scale,
 		bool wrapping,
 		uint32_t first_comp, uint32_t num_comps)
@@ -1077,7 +1077,7 @@ namespace basisu
 					const float* pOutput_samples = resamplers[c]->get_line();
 					if (!pOutput_samples)
 						break;
-										
+
 					vec4F* pDst = &dst(0, dst_y);
 
 					for (uint32_t x = 0; x < dst_w; x++)
@@ -1110,9 +1110,9 @@ namespace basisu
 			A[0].m_key = 1;
 			return;
 		}
-		
+
 		A[0].m_key += A[1].m_key;
-		
+
 		int s = 2, r = 0, next;
 		for (next = 1; next < (num_syms - 1); ++next)
 		{
@@ -1204,7 +1204,7 @@ namespace basisu
 		for (i = 0; i < num_syms; i++)
 		{
 			uint32_t freq = pSyms0[i].m_key;
-			
+
 			// We scale all input frequencies to 16-bits.
 			assert(freq <= UINT16_MAX);
 
@@ -1395,7 +1395,7 @@ namespace basisu
 
 		uint32_t total_used = tab.get_total_used_codes();
 		put_bits(total_used, cHuffmanMaxSymsLog2);
-			
+
 		if (!total_used)
 			return 0;
 
@@ -1459,7 +1459,7 @@ namespace basisu
 			const uint32_t l = syms[i] & 63, e = syms[i] >> 6;
 
 			put_code(l, ct);
-				
+
 			if (l == cHuffmanSmallZeroRunCode)
 				put_bits(e, cHuffmanSmallZeroRunExtraBits);
 			else if (l == cHuffmanBigZeroRunCode)
@@ -1486,7 +1486,7 @@ namespace basisu
 
 		huffman_encoding_table etab;
 		etab.init(h, 16);
-		
+
 		{
 			bitwise_coder c;
 			c.init(1024);
@@ -1621,9 +1621,9 @@ namespace basisu
 
 			// We now have chosen an entry to place in the picked list, now determine which side it goes on.
 			const uint32_t entry_to_move = m_entries_to_do[best_entry];
-								
+
 			float side = pick_side(num_syms, entry_to_move, pDist_func, pCtx, dist_func_weight);
-								
+
 			// Put entry_to_move either on the "left" or "right" side of the picked entries
 			if (side <= 0)
 				m_entries_picked.push_back(entry_to_move);
@@ -1726,7 +1726,7 @@ namespace basisu
 		}
 		return which_side;
 	}
-	
+
 	void image_metrics::calc(const imagef& a, const imagef& b, uint32_t first_chan, uint32_t total_chans, bool avg_comp_error, bool log)
 	{
 		assert((first_chan < 4U) && (first_chan + total_chans <= 4U));
@@ -1740,13 +1740,13 @@ namespace basisu
 		m_has_neg = false;
 		m_any_abnormal = false;
 		m_hf_mag_overflow = false;
-				
+
 		for (uint32_t y = 0; y < height; y++)
 		{
 			for (uint32_t x = 0; x < width; x++)
 			{
 				const vec4F& ca = a(x, y), &cb = b(x, y);
-								
+
 				if (total_chans)
 				{
 					for (uint32_t c = 0; c < total_chans; c++)
@@ -1761,7 +1761,7 @@ namespace basisu
 
 						if (std::isinf(fa) || std::isinf(fb) || std::isnan(fa) || std::isnan(fb))
 							m_any_abnormal = true;
-												
+
 						const double delta = fabs(fa - fb);
 						max_e = basisu::maximum<double>(max_e, delta);
 
@@ -1796,10 +1796,10 @@ namespace basisu
 					}
 
 					double ca_l = get_luminance(ca), cb_l = get_luminance(cb);
-					
+
 					double delta = fabs(ca_l - cb_l);
 					max_e = basisu::maximum(max_e, delta);
-					
+
 					if (log)
 					{
 						double log2_delta = log2(basisu::maximum<double>(0.0f, ca_l) + 1.0f) - log2(basisu::maximum<double>(0.0f, cb_l) + 1.0f);
@@ -1825,7 +1825,7 @@ namespace basisu
 		m_mean = (float)(sum / total_values);
 		m_mean_squared = (float)(sum_sqr / total_values);
 		m_rms = (float)sqrt(sum_sqr / total_values);
-		
+
 		const double max_val = 1.0f;
 		m_psnr = m_rms ? (float)clamp<double>(log10(max_val / m_rms) * 20.0f, 0.0f, 1000.0f) : 1000.0f;
 	}
@@ -1843,7 +1843,7 @@ namespace basisu
 		m_any_abnormal = false;
 
 		uint_vec hist(65536);
-		
+
 		for (uint32_t y = 0; y < height; y++)
 		{
 			for (uint32_t x = 0; x < width; x++)
@@ -1854,7 +1854,7 @@ namespace basisu
 				{
 					if ((ca[i] < 0.0f) || (cb[i] < 0.0f))
 						m_has_neg = true;
-					
+
 					if ((fabs(ca[i]) > basist::MAX_HALF_FLOAT) || (fabs(cb[i]) > basist::MAX_HALF_FLOAT))
 						m_hf_mag_overflow = true;
 
@@ -1907,7 +1907,7 @@ namespace basisu
 		m_has_neg = false;
 		m_hf_mag_overflow = false;
 		m_any_abnormal = false;
-				
+
 		double sum = 0.0f, sum2 = 0.0f;
 		m_max = 0;
 
@@ -1944,7 +1944,7 @@ namespace basisu
 
 			} // x
 		} // y
-						
+
 		double total_values = (double)width * (double)height;
 		if (avg_comp_error)
 			total_values *= (double)clamp<uint32_t>(total_chans, 1, 4);
@@ -2036,7 +2036,7 @@ namespace basisu
 
 	uint32_t hash_hsieh(const uint8_t *pBuf, size_t len)
 	{
-		if (!pBuf || !len) 
+		if (!pBuf || !len)
 			return 0;
 
 		uint32_t h = static_cast<uint32_t>(len);
@@ -2049,23 +2049,23 @@ namespace basisu
 			const uint16_t *pWords = reinterpret_cast<const uint16_t *>(pBuf);
 
 			h += pWords[0];
-			
+
 			const uint32_t t = (pWords[1] << 11) ^ h;
 			h = (h << 16) ^ t;
-			
+
 			pBuf += sizeof(uint32_t);
-			
+
 			h += h >> 11;
 		}
 
 		switch (bytes_left)
 		{
-		case 1: 
+		case 1:
 			h += *reinterpret_cast<const signed char*>(pBuf);
 			h ^= h << 10;
 			h += h >> 1;
 			break;
-		case 2: 
+		case 2:
 			h += *reinterpret_cast<const uint16_t *>(pBuf);
 			h ^= h << 11;
 			h += h >> 17;
@@ -2079,7 +2079,7 @@ namespace basisu
 		default:
 			break;
 		}
-		
+
 		h ^= h << 3;
 		h += h >> 5;
 		h ^= h << 4;
@@ -2090,7 +2090,7 @@ namespace basisu
 		return h;
 	}
 
-	job_pool::job_pool(uint32_t num_threads) : 
+	job_pool::job_pool(uint32_t num_threads) :
 		m_num_active_jobs(0),
 		m_kill_flag(false)
 	{
@@ -2110,17 +2110,17 @@ namespace basisu
 	job_pool::~job_pool()
 	{
 		debug_printf("job_pool::~job_pool\n");
-		
+
 		// Notify all workers that they need to die right now.
 		m_kill_flag = true;
-		
+
 		m_has_work.notify_all();
 
 		// Wait for all workers to die.
 		for (uint32_t i = 0; i < m_threads.size(); i++)
 			m_threads[i].join();
 	}
-				
+
 	void job_pool::add_job(const std::function<void()>& job)
 	{
 		std::unique_lock<std::mutex> lock(m_mutex);
@@ -2140,7 +2140,7 @@ namespace basisu
 		std::unique_lock<std::mutex> lock(m_mutex);
 
 		m_queue.emplace_back(std::move(job));
-						
+
 		const size_t queue_size = m_queue.size();
 
 		lock.unlock();
@@ -2176,7 +2176,7 @@ namespace basisu
 	{
 		BASISU_NOTE_UNUSED(index);
 		//debug_printf("job_pool::job_thread: starting %u\n", index);
-		
+
 		while (true)
 		{
 			std::unique_lock<std::mutex> lock(m_mutex);
@@ -2202,9 +2202,9 @@ namespace basisu
 
 			--m_num_active_jobs;
 
-			// Now check if there are no more jobs remaining. 
+			// Now check if there are no more jobs remaining.
 			const bool all_done = m_queue.empty() && !m_num_active_jobs;
-			
+
 			lock.unlock();
 
 			if (all_done)
@@ -2263,7 +2263,7 @@ namespace basisu
 		// Simple validation
 		if ((hdr.m_cmap != 0) && (hdr.m_cmap != 1))
 			return nullptr;
-		
+
 		if (hdr.m_cmap)
 		{
 			if ((hdr.m_cmap_bpp == 0) || (hdr.m_cmap_bpp > 32))
@@ -2422,13 +2422,13 @@ namespace basisu
 				bytes_remaining += bytes_to_skip;
 			}
 		}
-		
+
 		width = hdr.m_width;
 		height = hdr.m_height;
 
 		const uint32_t source_pitch = width * tga_bytes_per_pixel;
 		const uint32_t dest_pitch = width * n_chans;
-		
+
 		uint8_t *pImage = (uint8_t *)malloc(dest_pitch * height);
 		if (!pImage)
 			return nullptr;
@@ -2450,7 +2450,7 @@ namespace basisu
 				int pixels_remaining = width;
 				uint8_t *pDst = &input_line_buf[0];
 
-				do 
+				do
 				{
 					if (!run_remaining)
 					{
@@ -2635,7 +2635,7 @@ namespace basisu
 
 		if (!filedata.size() || (filedata.size() > UINT32_MAX))
 			return nullptr;
-		
+
 		return read_tga(&filedata[0], (uint32_t)filedata.size(), width, height, n_chans);
 	}
 
@@ -2782,13 +2782,13 @@ namespace basisu
 
 			if (cur_line.size() < 3)
 				return false;
-			
+
 			if (!is_x && !is_y)
 				return false;
 
 			comp[d] = is_x ? 0 : 1;
 			dir[d] = (is_neg_x || is_neg_y) ? -1 : 1;
-			
+
 			uint32_t& dim = d ? minor_dim : major_dim;
 
 			cur_line.erase(0, 3);
@@ -2826,7 +2826,7 @@ namespace basisu
 			if ((dim < 1) || (dim > MAX_SUPPORTED_DIM))
 				return false;
 		}
-				
+
 		// temp image: width=minor, height=major
 		img.resize(minor_dim, major_dim);
 
@@ -2854,7 +2854,7 @@ namespace basisu
 			}
 			else
 			{
-				// c[0]/red is 2.Check GB and E for validity.				
+				// c[0]/red is 2.Check GB and E for validity.
 				color_rgba c;
 				memcpy(&c, &filedata[cur_ofs], 4);
 
@@ -2976,7 +2976,7 @@ namespace basisu
 		// width=minor axis dimension
 		// height=major axis dimension
 		// in file, pixels are emitted in minor order, them major (so major=scanlines in the file)
-		
+
 		imagef final_img;
 		if (comp[0] == 0) // if major axis is X
 			final_img.resize(major_dim, minor_dim);
@@ -2993,10 +2993,10 @@ namespace basisu
 				uint32_t dst_x = 0, dst_y = 0;
 
 				// is the minor dim output x?
-				if (comp[1] == 0) 
+				if (comp[1] == 0)
 				{
 					// minor axis is x, major is y
-					
+
 					// is minor axis (which is output x) flipped?
 					if (dir[1] < 0)
 						dst_x = minor_dim - 1 - minor_iter;
@@ -3055,7 +3055,7 @@ namespace basisu
 
 		return buf;
 	}
-	
+
 	static uint8_vec& append_string(uint8_vec& buf, const std::string& str)
 	{
 		if (!str.size())
@@ -3072,7 +3072,7 @@ namespace basisu
 
 		if (max_v < 1e-32f)
 			rgbe.clear();
-		else 
+		else
 		{
 			int e;
 			const float scale = frexp(max_v, &e) * 256.0f / max_v;
@@ -3085,14 +3085,14 @@ namespace basisu
 
 	const bool RGBE_FORCE_RAW = false;
 	const bool RGBE_FORCE_OLD_CRUNCH = false; // note must readers (particularly stb_image.h's) don't properly support this, when they should
-		
+
 	bool write_rgbe(uint8_vec &file_data, imagef& img, rgbe_header_info& hdr_info)
 	{
 		if (!img.get_width() || !img.get_height())
 			return false;
 
 		const uint32_t width = img.get_width(), height = img.get_height();
-		
+
 		file_data.resize(0);
 		file_data.reserve(1024 + img.get_width() * img.get_height() * 4);
 
@@ -3125,7 +3125,7 @@ namespace basisu
 			{
 				int prev_r = -1, prev_g = -1, prev_b = -1, prev_e = -1;
 				uint32_t cur_run_len = 0;
-				
+
 				for (uint32_t x = 0; x < width; x++)
 				{
 					color_rgba rgbe;
@@ -3138,7 +3138,7 @@ namespace basisu
 							// this ensures rshift stays 0, it's lame but this path is only for testing readers
 							color_rgba f(1, 1, 1, cur_run_len - 1);
 							append_vector(file_data, (const uint8_t*)&f, sizeof(f));
-							append_vector(file_data, (const uint8_t*)&rgbe, sizeof(rgbe)); 
+							append_vector(file_data, (const uint8_t*)&rgbe, sizeof(rgbe));
 							cur_run_len = 0;
 						}
 					}
@@ -3148,12 +3148,12 @@ namespace basisu
 						{
 							color_rgba f(1, 1, 1, cur_run_len);
 							append_vector(file_data, (const uint8_t*)&f, sizeof(f));
-							
+
 							cur_run_len = 0;
 						}
-						
+
 						append_vector(file_data, (const uint8_t*)&rgbe, sizeof(rgbe));
-																		
+
 						prev_r = rgbe[0];
 						prev_g = rgbe[1];
 						prev_b = rgbe[2];
@@ -3178,7 +3178,7 @@ namespace basisu
 			{
 				color_rgba rgbe(2, 2, width >> 8, width & 0xFF);
 				append_vector(file_data, (const uint8_t*)&rgbe, sizeof(rgbe));
-								
+
 				for (uint32_t x = 0; x < width; x++)
 				{
 					float2rgbe(rgbe, img(x, y));
@@ -3190,7 +3190,7 @@ namespace basisu
 				for (uint32_t c = 0; c < 4; c++)
 				{
 					int raw_ofs = -1;
-					
+
 					uint32_t x = 0;
 					while (x < width)
 					{
@@ -3205,7 +3205,7 @@ namespace basisu
 								break;
 							run_len++;
 						}
-												
+
 						const uint32_t cost_to_keep_raw = ((raw_ofs != -1) ? 0 : 1) + run_len; // 0 or 1 bytes to start a raw run, then the repeated bytes issued as raw
 						const uint32_t cost_to_take_run = 2 + 1; // 2 bytes to issue the RLE, then 1 bytes to start whatever follows it (raw or RLE)
 
@@ -3229,7 +3229,7 @@ namespace basisu
 								raw_ofs = -1;
 
 							file_data.push_back(cur_byte);
-							
+
 							x++;
 						}
 					} // x
@@ -3248,7 +3248,7 @@ namespace basisu
 			return false;
 		return write_vec_to_file(pFilename, file_data);
 	}
-		
+
 	bool read_exr(const char* pFilename, imagef& img, int& n_chans)
 	{
 		n_chans = 0;
@@ -3256,7 +3256,7 @@ namespace basisu
 		int width = 0, height = 0;
 		float* out_rgba = nullptr;
 		const char* err = nullptr;
-		
+
 		int status = LoadEXRWithLayer(&out_rgba, &width, &height, pFilename, nullptr, &err, &n_chans);
 		if (status != 0)
 		{
@@ -3275,7 +3275,7 @@ namespace basisu
 		}
 
 		img.resize(width, height);
-		
+
 		if (n_chans == 1)
 		{
 			const float* pSrc = out_rgba;
@@ -3329,16 +3329,16 @@ namespace basisu
 	{
 		assert((n_chans == 1) || (n_chans == 3) || (n_chans == 4));
 
-		const bool linear_hint = (flags & WRITE_EXR_LINEAR_HINT) != 0, 
+		const bool linear_hint = (flags & WRITE_EXR_LINEAR_HINT) != 0,
 			store_float = (flags & WRITE_EXR_STORE_FLOATS) != 0,
 			no_compression = (flags & WRITE_EXR_NO_COMPRESSION) != 0;
-								
+
 		const uint32_t width = img.get_width(), height = img.get_height();
 		assert(width && height);
-		
+
 		if (!width || !height)
 			return false;
-		
+
 		float_vec layers[4];
 		float* image_ptrs[4];
 		for (uint32_t c = 0; c < n_chans; c++)
@@ -3367,7 +3367,7 @@ namespace basisu
 			assert(0);
 			return false;
 		}
-		
+
 		for (uint32_t y = 0; y < height; y++)
 		{
 			for (uint32_t x = 0; x < width; x++)
@@ -3391,7 +3391,7 @@ namespace basisu
 		image.height = height;
 
 		header.num_channels = n_chans;
-		
+
 		header.channels = (EXRChannelInfo*)calloc(header.num_channels, sizeof(EXRChannelInfo));
 
 		// Must be (A)BGR order, since most of EXR viewers expect this channel order.
@@ -3402,37 +3402,37 @@ namespace basisu
 				c = "BGR"[i];
 			else if (n_chans == 4)
 				c = "ABGR"[i];
-						
+
 			header.channels[i].name[0] = c;
 			header.channels[i].name[1] = '\0';
 
 			header.channels[i].p_linear = linear_hint;
 		}
-		
+
 		header.pixel_types = (int*)calloc(header.num_channels, sizeof(int));
 		header.requested_pixel_types = (int*)calloc(header.num_channels, sizeof(int));
-		
+
 		if (!no_compression)
 			header.compression_type = TINYEXR_COMPRESSIONTYPE_ZIP;
 
-		for (int i = 0; i < header.num_channels; i++) 
+		for (int i = 0; i < header.num_channels; i++)
 		{
 			// pixel type of input image
-			header.pixel_types[i] = TINYEXR_PIXELTYPE_FLOAT; 
+			header.pixel_types[i] = TINYEXR_PIXELTYPE_FLOAT;
 
 			// pixel type of output image to be stored in .EXR
-			header.requested_pixel_types[i] = store_float ? TINYEXR_PIXELTYPE_FLOAT : TINYEXR_PIXELTYPE_HALF; 
+			header.requested_pixel_types[i] = store_float ? TINYEXR_PIXELTYPE_FLOAT : TINYEXR_PIXELTYPE_HALF;
 		}
 
 		const char* pErr_msg = nullptr;
 
 		int ret = SaveEXRImageToFile(&image, &header, pFilename, &pErr_msg);
-		if (ret != TINYEXR_SUCCESS) 
+		if (ret != TINYEXR_SUCCESS)
 		{
 			error_printf("Save EXR err: %s\n", pErr_msg);
 			FreeEXRErrorMessage(pErr_msg);
 		}
-				
+
 		free(header.channels);
 		free(header.pixel_types);
 		free(header.requested_pixel_types);
@@ -3446,7 +3446,7 @@ namespace basisu
 
 		va_list args;
 		va_start(args, pFmt);
-#ifdef _WIN32		
+#ifdef _WIN32
 		vsprintf_s(buf, sizeof(buf), pFmt, args);
 #else
 		vsnprintf(buf, sizeof(buf), pFmt, args);
@@ -3471,7 +3471,7 @@ namespace basisu
 				for (uint32_t x = 0; x < 8; x++)
 				{
 					const uint32_t q = row_bits & (1 << x);
-										
+
 					const color_rgba* pColor = q ? &fg : pBG;
 					if (!pColor)
 						continue;
@@ -3491,15 +3491,15 @@ namespace basisu
 			}
 		}
 	}
-	
-	// Very basic global Reinhard tone mapping, output converted to sRGB with no dithering, alpha is carried through unchanged. 
+
+	// Very basic global Reinhard tone mapping, output converted to sRGB with no dithering, alpha is carried through unchanged.
 	// Only used for debugging/development.
 	void tonemap_image_reinhard(image &ldr_img, const imagef &hdr_img, float exposure)
 	{
 		uint32_t width = hdr_img.get_width(), height = hdr_img.get_height();
 
 		ldr_img.resize(width, height);
-				
+
 		for (uint32_t y = 0; y < height; y++)
 		{
 			for (uint32_t x = 0; x < width; x++)
@@ -3527,7 +3527,7 @@ namespace basisu
 				c[3] = c[3] * 255.0f;
 
 				color_rgba& o = ldr_img(x, y);
-				
+
 				o[0] = (uint8_t)std::round(c[0]);
 				o[1] = (uint8_t)std::round(c[1]);
 				o[2] = (uint8_t)std::round(c[2]);
@@ -3692,5 +3692,5 @@ namespace basisu
 
 		return true;
 	}
-					
+
 } // namespace basisu

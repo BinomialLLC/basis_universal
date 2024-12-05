@@ -16,7 +16,7 @@ namespace basisu
 	const uint32_t MODE11_PART2_FIRST_ISE_RANGE = astc_helpers::BISE_3_LEVELS, MODE11_PART2_LAST_ISE_RANGE = astc_helpers::BISE_4_LEVELS;
 	const uint32_t MODE11_TOTAL_SUBMODES = 8; // plus an extra hidden submode, directly encoded, for direct, so really 9 (see tables 99/100 of the ASTC spec)
 	const uint32_t MODE7_TOTAL_SUBMODES = 6;
-		
+
 	struct astc_hdr_codec_options
 	{
 		float m_bc6h_err_weight;
@@ -60,7 +60,7 @@ namespace basisu
 		astc_hdr_codec_options();
 
 		void init();
-				
+
 		// TODO: set_quality_level() is preferred to configure the codec for transcoding purposes.
 		static const int cMinLevel = 0;
 		static const int cMaxLevel = 4;
@@ -76,21 +76,21 @@ namespace basisu
 	struct astc_hdr_pack_results
 	{
 		double m_best_block_error;
-		double m_bc6h_block_error; // note this is not used/set by the encoder, here for convienance 
+		double m_bc6h_block_error; // note this is not used/set by the encoder, here for convienance
 
 		// Encoder results (logical ASTC block)
 		astc_helpers::log_astc_block m_best_blk;
-		
+
 		// For statistical use
 		uint32_t m_best_submodes[2];
 		uint32_t m_best_pat_index;
 		bool m_constrained_weights;
 
 		bool m_improved_via_refinement_flag;
-				
+
 		// Only valid if the block is solid
 		basist::astc_blk m_solid_blk;
-		
+
 		// The BC6H transcoded block
 		basist::bc6h_block m_bc6h_block;
 
@@ -111,26 +111,26 @@ namespace basisu
 
 			m_best_pat_index = 0;
 			m_constrained_weights = false;
-									
+
 			clear_obj(m_bc6h_block);
-			
+
 			m_is_solid = false;
 			m_improved_via_refinement_flag = false;
 		}
 	};
-			
+
 	void interpolate_qlog12_colors(
 		const int e[2][3],
 		basist::half_float* pDecoded_half,
 		vec3F* pDecoded_float,
 		uint32_t n, uint32_t ise_weight_range);
-		
+
 	bool get_astc_hdr_mode_11_block_colors(
 		const uint8_t* pEndpoints,
 		basist::half_float* pDecoded_half,
 		vec3F* pDecoded_float,
 		uint32_t n, uint32_t ise_weight_range, uint32_t ise_endpoint_range);
-		
+
 	bool get_astc_hdr_mode_7_block_colors(
 		const uint8_t* pEndpoints,
 		basist::half_float* pDecoded_half,
@@ -149,20 +149,20 @@ namespace basisu
 	double compute_block_error(const basist::half_float* pOrig_block, const basist::half_float* pPacked_block, const astc_hdr_codec_options& coptions);
 
 	// Encodes a 4x4 ASTC HDR block given a 4x4 array of source block pixels/texels.
-	// Supports solid color blocks, mode 11 (all submodes), mode 7/1 partition (all submodes), 
+	// Supports solid color blocks, mode 11 (all submodes), mode 7/1 partition (all submodes),
 	// and mode 7/2 partitions (all submodes) - 30 patterns, only the ones also in common with the BC6H format.
 	// The packed ASTC weight grid dimensions are currently always 4x4 texels, but may be also 3x3 in the future.
 	// This function is thread safe, i.e. it may be called from multiple encoding threads simultanously with different blocks.
-	// 
+	//
 	// Parameters:
 	// pRGBPixels - An array of 48 (16 RGB) floats: the 4x4 block to pack
 	// pPacked_block - A pointer to the packed ASTC HDR block
 	// coptions - Codec options
 	// pInternal_results - An optional pointer to details about how the block was packed, for statistics/debugging purposes. May be nullptr.
-	// 
-	// Requirements: 
+	//
+	// Requirements:
 	// astc_hdr_enc_init() MUST have been called first to initialized the codec.
-	// Input pixels are checked and cannot be NaN's, Inf's, signed, or too large (greater than MAX_HALF_FLOAT, or 65504). 
+	// Input pixels are checked and cannot be NaN's, Inf's, signed, or too large (greater than MAX_HALF_FLOAT, or 65504).
 	// Normal values and denormals are okay.
 	bool astc_hdr_enc_block(
 		const float* pRGBPixels,
@@ -170,7 +170,7 @@ namespace basisu
 		basisu::vector<astc_hdr_pack_results> &all_results);
 
 	bool astc_hdr_pack_results_to_block(basist::astc_blk& dst_blk, const astc_hdr_pack_results& results);
-		
+
 	bool astc_hdr_refine_weights(const basist::half_float* pSource_block, astc_hdr_pack_results& cur_results, const astc_hdr_codec_options& coptions, float bc6h_weight, bool* pImproved_flag);
 
 	struct astc_hdr_block_stats
@@ -190,11 +190,11 @@ namespace basisu
 		uint32_t m_weight_range_hist_11[11];
 		uint32_t m_weight_range_hist_11_2part[11];
 		uint32_t m_mode11_submode_hist[9];
-								
+
 		uint32_t m_part_hist[32];
 
 		uint32_t m_total_refined;
-								
+
 		astc_hdr_block_stats() { clear(); }
 
 		void clear()
@@ -216,9 +216,8 @@ namespace basisu
 		}
 
 		void update(const astc_hdr_pack_results& log_blk);
-		
+
 		void print();
 	};
-		
-} // namespace basisu
 
+} // namespace basisu
