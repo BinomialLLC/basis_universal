@@ -111,6 +111,7 @@ static bool encode_etc1s()
 
     // basis_compress() is a simple wrapper around the basis_compressor_params and basis_compressor classes.
     void* pKTX2_data = basis_compress(
+        basist::basis_tex_format::cETC1S,
         source_images,
         quality_level | cFlagSRGB | cFlagGenMipsClamp | cFlagThreaded | cFlagPrintStats | cFlagDebug | cFlagPrintStatus | cFlagUseOpenCL, 0.0f,
         &file_size,
@@ -147,15 +148,16 @@ static bool encode_uastc_ldr()
 
     // basis_compress() is a simple wrapper around the basis_compressor_params and basis_compressor classes.
     void* pKTX2_data = basis_compress(
+        basist::basis_tex_format::cUASTC4x4,
         source_images,
-        cFlagThreaded | cFlagUASTC | cFlagPrintStats | cFlagDebug | cFlagPrintStatus, 0.0f,
+        cFlagThreaded | cFlagPrintStats | cFlagDebug | cFlagPrintStatus, 0.0f,
         &file_size,
         nullptr);
 
     if (!pKTX2_data)
         return false;
 
-    if (!write_data_to_file("test_uastc_ldr.ktx2", pKTX2_data, file_size))
+    if (!write_data_to_file("test_uastc_ldr_4x4.ktx2", pKTX2_data, file_size))
     {
         basis_free_data(pKTX2_data);
         return false;
@@ -185,7 +187,7 @@ static bool encode_uastc_hdr()
 	basis_compressor_params params;
 	params.m_hdr = true;
 	params.m_source_images_hdr.push_back(img);
-	params.m_uastc_hdr_options.set_quality_level(3);
+	params.m_uastc_hdr_4x4_options.set_quality_level(3);
 	params.m_debug = true;
 	//params.m_debug_images = true;
 	params.m_status_output = true;
@@ -239,7 +241,7 @@ static bool transcode_hdr()
     basist::ktx2_transcoder transcoder;
 
     // Initialize the transcoder.
-    if (!transcoder.init(ktx2_file_data.data(), ktx2_file_data.size()))
+    if (!transcoder.init(ktx2_file_data.data(), ktx2_file_data.size_u32()))
         return false;
 
     const uint32_t width = transcoder.get_width();
@@ -289,7 +291,7 @@ static bool transcode_hdr()
         basisu::vector<uint16_t> half_img(width * 4 * height);
 
         bool status = transcoder.transcode_image_level(0, 0, 0,
-            half_img.get_ptr(), half_img.size() / 4,
+            half_img.get_ptr(), half_img.size_u32() / 4,
             basist::transcoder_texture_format::cTFRGBA_HALF, 0);
         if (!status)
             return false;

@@ -10,7 +10,7 @@ var Renderer = function (gl) {
     * @private
     */
    this.gl_ = gl;
-
+         
    /**
     * The WebGLProgram.
     * @type {WebGLProgram}
@@ -156,10 +156,12 @@ Renderer.prototype.createHalfRGBATexture = function (data, width, height, format
    return tex;
 };
 
+// WebGL requires each row of rgb565Data to be aligned on a 4-byte boundary.            
 Renderer.prototype.createRgb565Texture = function (rgb565Data, width, height) {
    var gl = this.gl_;
    var tex = gl.createTexture();
    gl.bindTexture(gl.TEXTURE_2D, tex);
+   
    gl.texImage2D(
       gl.TEXTURE_2D,
       0,
@@ -222,6 +224,12 @@ Renderer.prototype.drawTexture = function (texture, width, height, mode, scale, 
 
    gl.uniform4f(this.uniformLocations_.control, x, y, scale, linearToSRGBFlag ? 1.0 : 0.0);
 
+   var a = 1.0 / width;
+   var b = 1.0 / height;
+   var c = 0;
+   var d = 0;
+   gl.uniform4f(this.uniformLocations_.control2, a, b, c, d);
+
    gl.enableVertexAttribArray(this.attribLocations_.vert);
    gl.bindBuffer(gl.ARRAY_BUFFER, this.quadVertexBuffer_);
    gl.vertexAttribPointer(this.attribLocations_.vert, 4, gl.FLOAT,
@@ -242,6 +250,16 @@ Renderer.prototype.compileShader_ = function (shaderSource, type) {
    var shader = gl.createShader(type);
    gl.shaderSource(shader, shaderSource);
    gl.compileShader(shader);
+   
+     // Check for errors
+   const compiled = gl.getShaderParameter(shader, gl.COMPILE_STATUS);
+   if (!compiled) {
+        const errorLog = gl.getShaderInfoLog(shader);
+        console.error(`Error compiling ${type === gl.VERTEX_SHADER ? 'vertex' : 'fragment'} shader:\n${errorLog}`);
+        gl.deleteShader(shader); // Cleanup shader object
+        throw new Error('Shader compilation failed');
+   }
+    
    return shader;
 };
 
@@ -268,15 +286,13 @@ Renderer.fragmentShaderSource_ = [
    'precision highp float;',
    'uniform sampler2D texSampler;',
    'uniform vec4 control;',
+   'uniform vec4 control2;',
    'varying vec2 v_texCoord;',
-
-   // Function to convert linear RGB to sRGB
    'vec3 linearToSrgb(vec3 linearRGB) {',
    '  vec3 srgbLow = linearRGB * 12.92;',
    '  vec3 srgbHigh = 1.055 * pow(linearRGB, vec3(1.0/2.4)) - 0.055;',
    '  return clamp(mix(srgbLow, srgbHigh, step(0.0031308, linearRGB)), 0.0, 1.0);',
    '}',
-
    'void main() {',
    '  vec4 c;',
    '  c = texture2D(texSampler, v_texCoord);',

@@ -10,25 +10,33 @@ Intro
 
 Basis Universal is an open source [supercompressed](http://gamma.cs.unc.edu/GST/gst.pdf) LDR/HDR GPU compressed texture interchange system from Binomial LLC that supports two intermediate file formats: the [.KTX2 open standard from the Khronos Group](https://registry.khronos.org/KTX/specs/2.0/ktxspec.v2.html), and our own ".basis" file format. These file formats support rapid transcoding to virtually any compressed [GPU texture format](https://en.wikipedia.org/wiki/Texture_compression) released in the past ~25 years. 
 
-Our overall goal with this project is to simplify the encoding and efficient distribution of *portable* LDR and HDR GPU texture, image, and texture video content in a way that is compatible with any GPU or rendering/graphics API.
+Our overall goal with this project is to simplify the encoding and efficient distribution of *portable* LDR and HDR GPU texture, image, and short texture video content in a way that is compatible with any GPU or rendering/graphics API.
 
-The system supports three modes: ETC1S, UASTC LDR, and UASTC HDR. The C/C++ encoder and transcoder libaries can be compiled to native code or WebAssembly, and all encoder/transcoder features can be accessed from Javascript.
+The system supports four modes: ETC1S, UASTC LDR 4x4, UASTC HDR 4x4, and three variants of ASTC HDR 6x6 (highest quality, RDO, and intermediate). The C/C++ encoder and transcoder libaries can be compiled to native code or WebAssembly, and all encoder/transcoder features can be accessed from Javascript via a C++ wrapper library. The encoder library now also optionally supports [WASM multithreading](https://web.dev/articles/webassembly-threads).
 
 Links
 -----
 
 - [Release Notes](https://github.com/BinomialLLC/basis_universal/wiki/Release-Notes)
 
-- [Live Encoder/Transcoder WebGL Examples](https://subquantumtech.com/uastchdr2/) 
+- [Live Encoder/Transcoder WebGL Examples](https://subquantumtech.com/bu_6x6/)
 
 - [Javascript API/WASM/WebGL info](https://github.com/BinomialLLC/basis_universal/tree/master/webgl)
 
-- [UASTC HDR Example Images](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-HDR-Examples)
+- [UASTC HDR 4x4 Example Images](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-HDR-Examples)
+
+## ASTC 6x6 HDR Specific Links:
+
+- [ASTC HDR 6x6 Example Images](https://github.com/BinomialLLC/basis_universal/wiki/ASTC-HDR-6x6-Example-Images)
+
+- [ASTC HDR 6x6 Support Nodes](https://github.com/BinomialLLC/basis_universal/wiki/ASTC-HDR-6x6-Support-Notes)
+
+- [Quick comparison of ARM's astcenc HDR 6x6 encoder vs. ours](https://github.com/richgel999/junkdrawer/wiki/ASTC-6x6-HDR:-astcenc-%E2%80%90thorough-%E2%80%90exhausive-vs.-basis-universal-comp_level-3)
 
 Supported LDR GPU Texture Formats
 ---------------------------------
 
-ETC1S and UASTC LDR files can be transcoded to:
+ETC1S and UASTC LDR 4x4 files can be transcoded to:
 
 - ASTC LDR 4x4 L/LA/RGB/RGBA 8bpp
 - BC1-5 RGB/RGBA/X/XY
@@ -41,33 +49,36 @@ ETC1S and UASTC LDR files can be transcoded to:
 Supported HDR GPU Texture Formats
 ---------------------------------
 
-UASTC HDR files can be transcoded to:
-- ASTC HDR 4x4 RGB 8bpp
-- BC6H RGB
-- Uncompressed HDR raster image formats: RGB_16F/RGBA_16F (half float/FP16 RGB, 48 or 64bpp), 32-bit shared exponent [RGB_9E5](https://registry.khronos.org/OpenGL/extensions/EXT/EXT_texture_shared_exponent.txt)
+UASTC HDR 4x4 and ASTC HDR 6x6 files can be transcoded to:
+- ASTC HDR 4x4 (8bpp, UASTC HDR 4x4 only)
+- ASTC HDR 6x6 RGB (3.56bpp, ASTC HDR 6x6 or ASTC HDR 6x6 intermediate only)
+- BC6H RGB (8bpp, either UASTC HDR 4x4 or ASTC HDR 6x6)
+- Uncompressed HDR raster image formats: RGB_16F/RGBA_16F (half float/FP16 RGB, 48 or 64bpp), or 32-bit/pixel shared exponent [RGB_9E5](https://registry.khronos.org/OpenGL/extensions/EXT/EXT_texture_shared_exponent.txt)
 
 Supported Texture Compression Modes
 -----------------------------------
 
-1. [ETC1S](https://github.com/BinomialLLC/basis_universal/wiki/.basis-File-Format-and-ETC1S-Texture-Video-Specification): A roughly .3-3bpp low to medium quality supercompressed mode based off a subset of ETC1 called "ETC1S". This mode supports variable quality vs. file size levels (like JPEG), alpha channels, built-in compression, and texture arrays optionally compressed as a video sequence using skip blocks ([Conditional Replenishment](https://en.wikipedia.org/wiki/MPEG-1)). This mode can be rapidly transcoded to all of the supported LDR texture formats.
+1. [ETC1S](https://github.com/BinomialLLC/basis_universal/wiki/.basis-File-Format-and-ETC1S-Texture-Video-Specification): A roughly .3-3bpp low to medium quality supercompressed mode based off a subset of [ETC1](https://en.wikipedia.org/wiki/Ericsson_Texture_Compression) called "ETC1S". This mode supports variable quality vs. file size levels (like JPEG), alpha channels, built-in compression, and texture arrays optionally compressed as a video sequence using skip blocks ([Conditional Replenishment](https://en.wikipedia.org/wiki/MPEG-1)). This mode can be rapidly transcoded to all of the supported LDR texture formats.
 
-2. [UASTC LDR](https://richg42.blogspot.com/2020/01/uastc-block-format-encoding.html): An 8 bits/pixel LDR high quality mode. UASTC LDR is a 19 mode subset of the standard [ASTC LDR](https://en.wikipedia.org/wiki/Adaptive_scalable_texture_compression) 4x4 (8bpp) texture format, but with a custom block format containing transcoding hints. Transcoding UASTC LDR to ASTC LDR and BC7 are particularly fast and simple, because UASTC LDR is a common subset of both BC7 and ASTC. The transcoders for the other texture formats are accelerated by several format-specific hint bits present in each UASTC LDR block.
+2. [UASTC LDR 4x4](https://richg42.blogspot.com/2020/01/uastc-block-format-encoding.html): An 8 bits/pixel LDR high quality mode. UASTC LDR is a 19 mode subset of the standard [ASTC LDR](https://en.wikipedia.org/wiki/Adaptive_scalable_texture_compression) 4x4 (8bpp) texture format, but with a custom block format containing transcoding hints. Transcoding UASTC LDR to ASTC LDR and BC7 are particularly fast and simple, because UASTC LDR is a common subset of both BC7 and ASTC. The transcoders for the other texture formats are accelerated by several format-specific hint bits present in each UASTC LDR block.
 
 This mode supports an optional [Rate-Distortion Optimizated (RDO)](https://en.wikipedia.org/wiki/Rate%E2%80%93distortion_optimization) post-process stage that conditions the encoded UASTC LDR texture data in the .KTX2/.basis file so it can be more effectively LZ compressed. More details [here](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-implementation-details).
 
-Here is the [UASTC LDR specification document](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-Texture-Specification).
+Here is the [UASTC LDR 4x4 specification document](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-Texture-Specification).
 
-3. [UASTC HDR](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-HDR-Texture-Specification-v1.0): An 8 bits/pixel HDR high quality mode. This is a 24 mode subset of the standard [ASTC HDR](https://en.wikipedia.org/wiki/Adaptive_scalable_texture_compression) 4x4 (8bpp) texture format. It's designed to be high quality, supporting the 27 partition patterns in common between BC6H and ASTC, and fast to transcode with very little loss (typically a fraction of a dB PSNR) to the BC6H HDR texture format. Notably, **UASTC HDR data is 100% standard ASTC texture data**, so no transcoding at all is required on devices or API's supporting ASTC HDR. This mode can also be transcoded to various 32-64bpp uncompressed HDR texture/image formats.
+3. [UASTC HDR 4x4](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-HDR-Texture-Specification-v1.0): An 8 bits/pixel HDR high quality mode. This is a 24 mode subset of the standard [ASTC HDR](https://en.wikipedia.org/wiki/Adaptive_scalable_texture_compression) 4x4 (8bpp) texture format. It's designed to be high quality, supporting the 27 partition patterns in common between BC6H and ASTC, and fast to transcode with very little loss (typically a fraction of a dB PSNR) to the BC6H HDR texture format. Notably, **UASTC HDR data is 100% standard ASTC texture data**, so no transcoding at all is required on devices or API's supporting ASTC HDR. This mode can also be transcoded to various 32-64bpp uncompressed HDR texture/image formats.
 
-Here is the [UASTC HDR specification document](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-HDR-Texture-Specification-v1.0), and some compressed [example images](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-HDR-Examples).
+Here is the [UASTC HDR 4x4 specification document](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-HDR-Texture-Specification-v1.0), and some compressed [example images](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-HDR-Examples).
+
+4. ASTC HDR 6x6/RDO ASTC HDR 6x6 (which is 100% standard ASTC HDR 6x6 texture data), or RDO ASTC 6x6 stored in the .KTX2/.basis file with a custom compressed intermediate format. Here's a [page with details](https://github.com/BinomialLLC/basis_universal/wiki/ASTC-HDR-6x6-Support-Notes).
 
 ### Other Features
 
-Both .basis and .KTX2 files support mipmap levels, texture arrays, cubemaps, cubemap arrays, and texture video, in all three modes. Additionally, .basis files support non-uniform texture arrays, where each image in the file can have a different resolution or number of mipmap levels.
+Both .basis and .KTX2 files support mipmap levels, texture arrays, cubemaps, cubemap arrays, and texture video, in all four modes. Additionally, .basis files support non-uniform texture arrays, where each image in the file can have a different resolution or number of mipmap levels.
 
-In ETC1S mode, the compressor is able to exploit color and pattern correlations across all the images in the entire file using global endpoint/selector codebooks, so multiple images with mipmaps can be stored efficiently in a single file. The ETC1S mode also supports short video sequences, with skip blocks (Conditional Replenishment) used to not send blocks which haven't changed relative to the previous frame.
+In ETC1S mode, the compressor is able to exploit color and pattern correlations across all the images in the entire file using global endpoint/selector codebooks, so multiple images with mipmaps can be stored efficiently in a single file. The ETC1S mode also supports skip blocks (Conditional Replenishment) for short video sequences, to prevent sending blocks which haven't changed relative to the previous frame.
 
-The LDR image formats supported for reading are .PNG, [.DDS with mipmaps](https://learn.microsoft.com/en-us/windows/win32/direct3ddds/dx-graphics-dds-pguide), .TGA, .QOI, and .JPG. The HDR image formats supported for reading are .EXR, .HDR, and .DDS with mipmaps. It can write .basis, .KTX2, .DDS, .KTX (v1), .ASTC, .OUT, .EXR, and .PNG files.
+The LDR image formats supported for reading are .PNG, [.DDS with mipmaps](https://learn.microsoft.com/en-us/windows/win32/direct3ddds/dx-graphics-dds-pguide), .TGA, .QOI, and .JPG. The HDR image formats supported for reading are .EXR, .HDR, and .DDS with mipmaps. The library can write .basis, .KTX2, .DDS, .KTX (v1), .ASTC, .OUT, .EXR, and .PNG files.
 
 The system now supports loading basic 2D .DDS files with optional mipmaps, but the .DDS file must be in one of the supported uncompressed formats: 24bpp RGB, 32bpp RGBA/BGRA, half-float RGBA, or float RGBA. Using .DDS files allows the user to control exactly how the mipmaps are generated before compression.
 
@@ -87,6 +98,7 @@ Under Windows with Visual Studio you can use the included `basisu.sln` file. Alt
 To build, first [install cmake](https://cmake.org/), then:
 
 ```
+mkdir build
 cd build
 cmake ..
 make
@@ -103,7 +115,9 @@ The command line tool includes some automated LDR/HDR encoding/transcoding tests
 ```
 cd ../bin
 basisu -test
-basisu -test_hdr
+basisu -test_hdr_4x4
+basisu -test_hdr_6x6
+basisu -test_hdr_6x6i
 ```
 
 To test the codec in OpenCL mode (must have OpenCL libs/headers/drivers installed and have compiled OpenCL support in by running cmake with `-DOPENCL=TRUE`):
@@ -127,13 +141,29 @@ Compressing and Unpacking .KTX2/.basis Files
 
 `basisu -uastc x.png`
 
-- To compress an [.EXR](https://en.wikipedia.org/wiki/OpenEXR), [Radiance .HDR](https://paulbourke.net/dataformats/pic/), or .DDS HDR image to a UASTC HDR .KTX2 file:
+- To compress an [.EXR](https://en.wikipedia.org/wiki/OpenEXR), [Radiance .HDR](https://paulbourke.net/dataformats/pic/), or .DDS HDR image to a UASTC HDR 4x4 .KTX2 file:
 
 `basisu x.exr`
 
+- To compress an HDR 6x6 file:
+
+```
+basisu -hdr_6x6 x.exr  
+basisu -hdr_6x6 -lambda 500 x.exr  
+basisu -hdr_6x6_level 5 -lambda 500 x.exr
+```
+
+- To compress an HDR 6x6 file using the compressed intermediate format for smaller files:
+
+```
+basisu -hdr_6x6i x.exr  
+basisu -hdr_6x6i -lambda 500 x.exr  
+basisu -hdr_6x6i_level 5 -lambda 500 x.exr
+```
+
 Note the .EXR reader we're using is [TinyEXR's](https://github.com/syoyo/tinyexr), which doesn't support all possible .EXR compression modes. Tools like [ImageMagick](https://imagemagick.org/) can be used to create .EXR files that TinyEXR can read.
 
-Alternatively, LDR images (such as .PNG) can be compressed to UASTC HDR by specifying `-hdr`. By default, LDR images, when compressed to UASTC HDR, are first converted from sRGB to linear light before compression. This conversion step can be disabled by specifying `-hdr_ldr_no_srgb_to_linear`. 
+Alternatively, LDR images (such as .PNG) can be compressed to an HDR format by specifying `-hdr`, `-hdr_6x6`, or `-hdr_6x6i`. By default LDR images, when compressed to an HDR format, are first upconverted to HDR by converting them from sRGB to linear light and scaled to 100 [nits](https://en.wikipedia.org/wiki/Candela_per_square_metre) (candelas per square meter). The sRGB conversion step can be disabled by specifying `-hdr_ldr_no_srgb_to_linear`, and the normalized RGB linear light to nit multiplier can be changed by specifying `-hdr_ldr_upconversion_nit_multiplier X`.
 
 Importantly, for best quality, you should **supply basisu with original uncompressed source images**. Any other type of lossy compression applied before basisu (including ETC1/BC1-5, BC7, JPEG, etc.) will cause multi-generational artifacts to appear in the final output textures. 
 

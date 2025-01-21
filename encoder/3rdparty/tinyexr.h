@@ -4928,7 +4928,7 @@ static int DecodeTiledLevel(EXRImage* exr_image, const EXRHeader* exr_header,
   }
 #endif
   exr_image->tiles = static_cast<EXRTile*>(
-    calloc(static_cast<size_t>(num_tiles), sizeof(EXRTile)));
+    calloc(sizeof(EXRTile), static_cast<size_t>(num_tiles)));
 
 #if TINYEXR_HAS_CXX11 && (TINYEXR_USE_THREAD > 0)
   std::vector<std::thread> workers;
