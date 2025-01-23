@@ -70,7 +70,7 @@ Here is the [UASTC LDR 4x4 specification document](https://github.com/BinomialLL
 
 Here is the [UASTC HDR 4x4 specification document](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-HDR-4x4-Texture-Specification-v1.0), and here are some compressed [example images](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-HDR-Examples).
 
-4. ASTC HDR 6x6/RDO ASTC HDR 6x6 (which is 100% standard ASTC HDR 6x6 texture data), or RDO ASTC 6x6 stored in the .KTX2/.basis file with a custom compressed intermediate format. Here's a [page with details](https://github.com/BinomialLLC/basis_universal/wiki/ASTC-HDR-6x6-Support-Notes).
+4. ASTC HDR 6x6/RDO ASTC HDR 6x6 (which is 100% standard ASTC HDR 6x6 texture data), or RDO ASTC 6x6 stored in the .KTX2/.basis file with a custom compressed intermediate format. Here's a [page with details](https://github.com/BinomialLLC/basis_universal/wiki/ASTC-HDR-6x6-Support-Notes). The custom compressed file format is [described here](https://github.com/BinomialLLC/basis_universal/wiki/ASTC-HDR-6x6-Intermediate-File-Format-(Basis-GPU-Photo-6x6)).
 
 ### Other Features
 
