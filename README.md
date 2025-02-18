@@ -12,7 +12,7 @@ Basis Universal is an open source [supercompressed](http://gamma.cs.unc.edu/GST/
 
 Our overall goal with this project is to simplify the encoding and efficient distribution of *portable* LDR and HDR GPU texture, image, and short texture video content in a way that is compatible with any GPU or rendering/graphics API.
 
-The system supports four modes: ETC1S, UASTC LDR 4x4, UASTC HDR 4x4, and three variants of ASTC HDR 6x6 (highest quality, RDO, and intermediate). The C/C++ encoder and transcoder libaries can be compiled to native code or WebAssembly, and all encoder/transcoder features can be accessed from Javascript via a C++ wrapper library which optionally supports [WASM multithreading](https://web.dev/articles/webassembly-threads) for fast encoding in the browser.
+The system supports four modes: ETC1S, UASTC LDR 4x4, UASTC HDR 4x4, and three variants of UASTC HDR 6x6 (highest quality, RDO, and intermediate). The C/C++ encoder and transcoder libaries can be compiled to native code or WebAssembly, and all encoder/transcoder features can be accessed from Javascript via a C++ wrapper library which optionally supports [WASM multithreading](https://web.dev/articles/webassembly-threads) for fast encoding in the browser.
 
 Links
 -----
@@ -27,9 +27,9 @@ Links
 
 ### ASTC 6x6 HDR Specific Links:
 
-- [ASTC HDR 6x6 Example Images](https://github.com/BinomialLLC/basis_universal/wiki/ASTC-HDR-6x6-Example-Images)
+- [UASTC HDR 6x6 Example Images](https://github.com/BinomialLLC/basis_universal/wiki/ASTC-HDR-6x6-Example-Images)
 
-- [ASTC HDR 6x6 Support Nodes](https://github.com/BinomialLLC/basis_universal/wiki/ASTC-HDR-6x6-Support-Notes)
+- [UASTC HDR 6x6 Support Nodes](https://github.com/BinomialLLC/basis_universal/wiki/ASTC-HDR-6x6-Support-Notes)
 
 - [Quick comparison of ARM's astcenc HDR 6x6 encoder vs. ours](https://github.com/richgel999/junkdrawer/wiki/ASTC-6x6-HDR:-astcenc-%E2%80%90thorough-%E2%80%90exhausive-vs.-basis-universal-comp_level-3)
 
@@ -49,10 +49,10 @@ ETC1S and UASTC LDR 4x4 files can be transcoded to:
 Supported HDR GPU Texture Formats
 ---------------------------------
 
-UASTC HDR 4x4 and ASTC HDR 6x6 files can be transcoded to:
+UASTC HDR 4x4 and UASTC HDR 6x6 files can be transcoded to:
 - ASTC HDR 4x4 (8bpp, UASTC HDR 4x4 only)
-- ASTC HDR 6x6 RGB (3.56bpp, ASTC HDR 6x6 or ASTC HDR 6x6 intermediate only)
-- BC6H RGB (8bpp, either UASTC HDR 4x4 or ASTC HDR 6x6)
+- ASTC HDR 6x6 RGB (3.56bpp, ASTC HDR 6x6 or UASTC HDR 6x6 intermediate only)
+- BC6H RGB (8bpp, either UASTC HDR 4x4 or UASTC HDR 6x6)
 - Uncompressed HDR raster image formats: RGB_16F/RGBA_16F (half float/FP16 RGB, 48 or 64bpp), or 32-bit/pixel shared exponent [RGB_9E5](https://registry.khronos.org/OpenGL/extensions/EXT/EXT_texture_shared_exponent.txt)
 
 Supported Texture Compression Modes
@@ -66,11 +66,18 @@ This mode supports an optional [Rate-Distortion Optimizated (RDO)](https://en.wi
 
 Here is the [UASTC LDR 4x4 specification document](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-LDR-4x4-Texture-Specification).
 
-3. [UASTC HDR 4x4](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-HDR-4x4-Texture-Specification-v1.0): An 8 bits/pixel HDR high quality mode. This is a 24 mode subset of the standard [ASTC HDR](https://en.wikipedia.org/wiki/Adaptive_scalable_texture_compression) 4x4 (8bpp) texture format. It's designed to be high quality, supporting the 27 partition patterns in common between BC6H and ASTC, and fast to transcode with very little loss (typically a fraction of a dB PSNR) to the BC6H HDR texture format. Notably, **UASTC HDR data is 100% standard ASTC texture data**, so no transcoding at all is required on devices or API's supporting ASTC HDR. This mode can also be transcoded to various 32-64bpp uncompressed HDR texture/image formats.
+3. [UASTC HDR 4x4](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-HDR-4x4-Texture-Specification-v1.0): An 8 bits/pixel HDR high quality mode. This is a 24 mode subset of the standard [ASTC HDR](https://en.wikipedia.org/wiki/Adaptive_scalable_texture_compression) 4x4 (8bpp) texture format. It's designed to be high quality, supporting the 27 partition patterns in common between BC6H and ASTC, and fast to transcode with very little loss (typically a fraction of a dB PSNR) to the BC6H HDR texture format. Notably, **UASTC HDR 4x4 data is 100% standard ASTC texture data**, so no transcoding at all is required on devices or API's supporting ASTC HDR. This mode can also be transcoded to various 32-64bpp uncompressed HDR texture/image formats.
 
 Here is the [UASTC HDR 4x4 specification document](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-HDR-4x4-Texture-Specification-v1.0), and here are some compressed [example images](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-HDR-Examples).
 
-4. ASTC HDR 6x6/RDO ASTC HDR 6x6 (which is 100% standard ASTC HDR 6x6 texture data), or RDO ASTC 6x6 stored in the .KTX2/.basis file with a custom compressed intermediate format. Here's a [page with details](https://github.com/BinomialLLC/basis_universal/wiki/ASTC-HDR-6x6-Support-Notes). The custom compressed file format is [described here](https://github.com/BinomialLLC/basis_universal/wiki/ASTC-HDR-6x6-Intermediate-File-Format-(Basis-GPU-Photo-6x6)).
+4. UASTC HDR 6x6 or RDO UASTC HDR 6x6: A 3.56 bits/pixel (or less with RDO+Zstd) HDR high quality mode. Just like mode #3, **UASTC HDR 6x6 data is 100% standard ASTC texture data**. Here's a [page with details](https://github.com/BinomialLLC/basis_universal/wiki/ASTC-HDR-6x6-Support-Notes). The current encoder supports weight grid upsampling, 1-3 subsets, single or dual planes, CEM's 7 and 11, and all unique ASTC partition patterns. We don't currently impose any ASTC configuration constraints in this mode, but that may change which is why it's labeled "UASTC".
+
+5. UASTC HDR 6x6 Intermediate ("GPU Photo"): A custom compressed intermediate format that can be rapidly transcoded to ASTC HDR 6x6, BC6H, and various uncompressed HDR formats. The custom compressed file format is [described here](https://github.com/BinomialLLC/basis_universal/wiki/ASTC-HDR-6x6-Intermediate-File-Format-(Basis-GPU-Photo-6x6)). The format supports 75 unique ASTC configurations, utilizing weight grid upsampling, 1-3 subsets, single or dual planes, CEM's 7 and 11, and all unique ASTC partition patterns.
+
+Notes:  
+- Modes #3 and #4 output 100% standard or plain ASTC texture data (with or without RDO), like any other ASTC encoder. The .KTX2 files are just plain textures.
+- The other modes (#1, #2, #5) output compressed data in various custom formats, which our transcoder library can convert in real-time to various GPU texture or pixel formats.
+- Modes #4 and #5 internally use the same unified HDR 6x6 encoder.
 
 ### Other Features
 
