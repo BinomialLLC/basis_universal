@@ -25,7 +25,7 @@ Links
 
 - [UASTC HDR 4x4 Example Images](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-HDR-Examples)
 
-### ASTC 6x6 HDR Specific Links:
+### UASTC 6x6 HDR Specific Links:
 
 - [UASTC HDR 6x6 Example Images](https://github.com/BinomialLLC/basis_universal/wiki/ASTC-HDR-6x6-Example-Images)
 
