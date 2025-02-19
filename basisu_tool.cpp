@@ -114,8 +114,8 @@ static void print_usage()
 		" -etc1s: Encode to ETC1S LDR (the default for SDR/LDR inputs). Roughly .8-2.5 bpp.\n"
 		" -uastc: Encode to UASTC LDR 4x4. Roughly 5-8 bpp.\n"
 		" -hdr/-hdr_4x4: Encode input as UASTC HDR 4x4 (the default if any input file has the .EXR or .HDR extension, or if any .DDS file is HDR). Roughly 5-8 bpp.\n"
-		" -hdr_6x6: Encode input as RDO or highest quality ASTC HDR 6x6. Use -lambda X (try 100-20000 or higher) option to enable RDO ASTC HDR 6x6, where x controls the quality vs. size tradeoff. Roughly 1.2-3.2 bpp.\n"
-		" -hdr_6x6i: Encode input as ASTC HDR 6x6 intermediate. Use -lambda X (try 100-20000 or higher) option to enable RDO ASTC HDR 6x6, where x controls the quality vs. size tradeoff. Roughly 1-3.2 bpp.\n"
+		" -hdr_6x6: Encode input as RDO or highest quality UASTC HDR 6x6. Use -lambda X (try 100-20000 or higher) option to enable RDO UASTC HDR 6x6, where x controls the quality vs. size tradeoff. Roughly 1.2-3.2 bpp.\n"
+		" -hdr_6x6i: Encode input as UASTC HDR 6x6 intermediate. Use -lambda X (try 100-20000 or higher) option to enable RDO UASTC HDR 6x6, where x controls the quality vs. size tradeoff. Roughly 1-3.2 bpp.\n"
 		"\n"
 		"--- Options:\n"
 		" -ktx2: Write .KTX2 files (the default). By default, UASTC LDR/HDR 4x4 and ASTC 6x6 files will be compressed using Zstandard unless -ktx2_no_zstandard is specified.\n"
@@ -171,7 +171,7 @@ static void print_usage()
 		" -hdr_ultra_quant: UASTC HDR 4x4: Try to find better quantized CEM 7/11 endpoint values (slower).\n"
 		" -hdr_favor_astc: UASTC HDR 4x4: By default the UASTC HDR 4x4 encoder tries to strike a balance or even slightly favor BC6H quality. If this option is specified, ASTC HDR 4x4 quality is favored instead.\n"
 		"\n"
-		"--- ASTC HDR 6x6 specific options (-hdr_6x6 or -hdr_6x6i):\n"
+		"--- UASTC HDR 6x6 specific options (-hdr_6x6 or -hdr_6x6i):\n"
 		" -lambda X: Enables rate distortion optimization (RDO). The higher this value, the lower the quality, but the smaller the file size. Try 100-20000, or higher values on some images.\n"
 		" -hdr_6x6_level X: Sets the codec to 6x6 HDR mode (same as -hdr_6x6) and controls encoder performance vs. max quality tradeoff. X may range from [0,12]. Default level is 2. Higher values result in better quality but slower encoding. Values above 10 are extremely slow.\n"
 		" -hdr_6x6i_level X: Sets the codec to 6x6 HDR intermediate mode (same as -hdr_6x6i) and controls encoder performance vs. max quality tradeoff. X may range from [0,12]. Default level is 2.\n"
@@ -184,7 +184,7 @@ static void print_usage()
 		"\n"
 		"--- More options:\n"
 		" -test: Run an automated LDR ETC1S/UASTC encoding and transcoding test. Returns EXIT_FAILURE if any failures\n"
-		" -test_hdr_4x4/-test_hdr_6x6/-test_hdr_6x6i: Run automated ASTC HDR encoding and transcoding tests. Returns EXIT_FAILURE if any failures\n"
+		" -test_hdr_4x4/-test_hdr_6x6/-test_hdr_6x6i: Run automated UASTC HDR encoding and transcoding tests. Returns EXIT_FAILURE if any failures\n"
 		" -test_dir: Optional directory of test files. Defaults to \"../test_files\".\n"
 		" -y_flip: Flip input images vertically before compression\n"
 		" -normal_map: Tunes codec parameters for better quality on normal maps (linear colorspace metrics, linear mipmap filtering, no selector RDO, no sRGB)\n"
@@ -261,11 +261,11 @@ static void print_usage()
 		" basisu x.hdr -uastc_level 3 : Compress a HDR .hdr image to UASTC HDR 4x4 at higher quality (-uastc_level 4 is highest quality, but very slow encoding)\n"
 		" basisu x.hdr -uastc_level 3 -mipmap -basis -stats -debug -debug_images : Compress a HDR .hdr image to UASTC HDR 4x4, .basis output file, at higher quality, generate mipmaps, output statistics and debug information, and write tone mapped debug images\n"
 		" basisu x.hdr -stats -hdr_favor_astc -hdr_uber_mode -uastc_level 4 : Highest achievable ASTC HDR 4x4 quality (very slow encoding, BC6H quality is traded off)\n"
-		"\n--- Example ASTC HDR 6x6 command lines:\n"
-		" basisu -hdr_6x6 x.exr : Compress a HDR .EXR (or .HDR) image to a ASTC HDR 6x6 .KTX2 file. LDR/SDR images will be upconverted to linear light HDR before compression. See HDR upconversion options, above.\n"
-		" basisu -lambda 1000 -hdr_6x6 x.exr : Compress a HDR .EXR (or .HDR) image to a ASTC HDR 6x6 .KTX2 file with rate-distortion optimization (RDO), at lambda level 1000.\n"
-		" basisu -hdr_6x6i x.exr : Compress a HDR .EXR image to a compressed intermediate format ASTC HDR 6x6 .KTX2 file.\n"
-		" basisu -lambda 1000 -hdr_6x6i x.exr : Compress a HDR .EXR image to a compressed intermediate format ASTC HDR 6x6 .KTX2 file with rate-distortion optimization (RDO), at lambda level 1000.\n"
+		"\n--- Example UASTC HDR 6x6 command lines:\n"
+		" basisu -hdr_6x6 x.exr : Compress a HDR .EXR (or .HDR) image to a UASTC HDR 6x6 .KTX2 file. LDR/SDR images will be upconverted to linear light HDR before compression. See HDR upconversion options, above.\n"
+		" basisu -lambda 1000 -hdr_6x6 x.exr : Compress a HDR .EXR (or .HDR) image to a UASTC HDR 6x6 .KTX2 file with rate-distortion optimization (RDO), at lambda level 1000.\n"
+		" basisu -hdr_6x6i x.exr : Compress a HDR .EXR image to a compressed intermediate format UASTC HDR 6x6 .KTX2 file.\n"
+		" basisu -lambda 1000 -hdr_6x6i x.exr : Compress a HDR .EXR image to a compressed intermediate format UASTC HDR 6x6 .KTX2 file with rate-distortion optimization (RDO), at lambda level 1000.\n"
 		"\n"
 		"--- Video notes: For video use, it's recommended to encode on a machine with many cores. Use -comp_level 2 or higher for better codebook\n"
 		"generation, specify very large codebooks using -max_endpoints and -max_selectors, and reduce the default endpoint RDO threshold\n"
@@ -374,13 +374,13 @@ class command_line_params
 		}
 		else if (strcasecmp(pArg, "-hdr_6x6") == 0)
 		{
-			// max quality (if -lambda=0) or RDO ASTC HDR 6x6
+			// max quality (if -lambda=0) or RDO UASTC HDR 6x6
 			m_comp_params.set_format_mode(basist::basis_tex_format::cASTC_HDR_6x6);
 			return true;
 		}
 		else if (strcasecmp(pArg, "-hdr_6x6i") == 0)
 		{
-			// intermediate format ASTC HDR 6x6
+			// intermediate format UASTC HDR 6x6
 			m_comp_params.set_format_mode(basist::basis_tex_format::cASTC_HDR_6x6_INTERMEDIATE);
 			return true;
 		}
@@ -388,7 +388,7 @@ class command_line_params
 		{
 			REMAINING_ARGS_CHECK(1);
 
-			// Set ASTC HDR 6x6's lambda
+			// Set UASTC HDR 6x6's lambda
 			m_comp_params.m_astc_hdr_6x6_options.m_lambda = (float)atof(arg_v[arg_index + 1]);
 
 			if (m_comp_params.m_astc_hdr_6x6_options.m_lambda < 0.0f)
@@ -4517,7 +4517,7 @@ static bool test_mode_hdr(command_line_params& opts, basist::basis_tex_format te
 			uint32_t flags_and_quality;
 			size_t data_size = 0;
 
-			printf("**** Testing UASTC/ASTC HDR Level %u\n", uastc_hdr_level);
+			printf("**** Testing UASTC HDR Level %u\n", uastc_hdr_level);
 
 			flags_and_quality = (opts.m_comp_params.m_multithreading ? cFlagThreaded : 0);// | cFlagPrintStats | cFlagPrintStatus;
 			flags_and_quality |= uastc_hdr_level;
@@ -4543,7 +4543,7 @@ static bool test_mode_hdr(command_line_params& opts, basist::basis_tex_format te
 
 			if (fabs(stats.m_basis_rgb_avg_log2_psnr - pTest_files[i].m_level_psnr_astc[uastc_hdr_level]) > PSNR_THRESHOLD)
 			{
-				error_printf("Expected UASTC/ASTC HDR RGB Avg PSNR was %f, but got %f instead!\n", pTest_files[i].m_level_psnr_astc[uastc_hdr_level], stats.m_basis_rgb_avg_log2_psnr);
+				error_printf("Expected UASTC HDR RGB Avg PSNR was %f, but got %f instead!\n", pTest_files[i].m_level_psnr_astc[uastc_hdr_level], stats.m_basis_rgb_avg_log2_psnr);
 				total_mismatches++;
 			}
 
@@ -4641,7 +4641,15 @@ static void force_san_failure()
 
 static int main_internal(int argc, const char **argv)
 {
-	printf("Basis Universal LDR/HDR GPU Texture Compression and Transcoding System v" BASISU_TOOL_VERSION "\nCopyright (C) 2019-2025 Binomial LLC, All rights reserved\n");
+	printf("Basis Universal LDR/HDR GPU Texture Compression and Transcoding System v" BASISU_TOOL_VERSION 
+#if defined(_ARM64EC_) || defined(_ARM64_)
+	" (ARM64)"
+#elif defined(_M_IX86)
+	" (x86)"
+#elif defined(_M_X64) || defined(_M_AMD64)
+	" (x64)"
+#endif
+	"\nCopyright (C) 2019-2025 Binomial LLC, All rights reserved\n");
 
 #ifdef FORCE_SAN_FAILURE
 	force_san_failure();

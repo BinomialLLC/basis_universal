@@ -3460,7 +3460,7 @@ namespace basisu
 		}
 		else
 		{
-			memcpy(img.get_ptr(), out_rgba, sizeof(float) * 4 * img.get_total_pixels());
+			memcpy(img.get_ptr(), out_rgba, static_cast<size_t>(sizeof(float) * 4 * img.get_total_pixels()));
 		}
 
 		free(out_rgba);
