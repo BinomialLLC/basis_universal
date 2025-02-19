@@ -96,6 +96,7 @@ The encoding library and command line tool have no required 3rd party dependenci
 
 We build and test under:
 - Windows x86/x64 using Visual Studio 2019/2022, MSVC, or clang
+- Windows ARM (Visual Studio 2022 ARM 17.13.0 or later)
 - Mac OSX (M1) with clang v15.0
 - Ubuntu Linux with gcc v11.4 or clang v14
 - Arch Linux ARM, on a [Pinebook Pro](https://pine64.org/devices/pinebook_pro/), with gcc v12.1.
