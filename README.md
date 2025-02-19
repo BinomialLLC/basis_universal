@@ -95,7 +95,7 @@ Building
 The encoding library and command line tool have no required 3rd party dependencies that are not already in the repo itself. The transcoder is a single .cpp source file (in `transcoder/basisu_transcoder.cpp`) which has no 3rd party dependencies.
 
 We build and test under:
-- Windows x86/x64 using Visual Studio 2019/2022, MSVC, or clang
+- Windows x86/x64 using Visual Studio 2019/2022, MSVC or clang
 - Windows ARM (Visual Studio 2022 ARM 17.13.0 or later)
 - Mac OSX (M1) with clang v15.0
 - Ubuntu Linux with gcc v11.4 or clang v14
