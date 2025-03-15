@@ -21,10 +21,10 @@ namespace basist
 	enum basis_slice_desc_flags
 	{
 		cSliceDescFlagsHasAlpha = 1,
-		
+
 		// Video only: Frame doesn't refer to previous frame (no usage of conditional replenishment pred symbols)
 		// Currently the first frame is always an I-Frame, all subsequent frames are P-Frames. This will eventually be changed to periodic I-Frames.
-		cSliceDescFlagsFrameIsIFrame = 2			
+		cSliceDescFlagsFrameIsIFrame = 2
 	};
 
 #pragma pack(push)
@@ -39,7 +39,7 @@ namespace basist
 		basisu::packed_uint<2> m_orig_height;  // The original image height (may not be a multiple of 4 pixels)
 
 		basisu::packed_uint<2> m_num_blocks_x;	// The slice's block X dimensions. Each block is 4x4 or 6x6 pixels. The slice's pixel resolution may or may not be a power of 2.
-		basisu::packed_uint<2> m_num_blocks_y;	// The slice's block Y dimensions. 
+		basisu::packed_uint<2> m_num_blocks_y;	// The slice's block Y dimensions.
 
 		basisu::packed_uint<4> m_file_ofs;		// Offset from the start of the file to the start of the slice's data
 		basisu::packed_uint<4> m_file_size;		// The size of the compressed slice data in bytes
@@ -51,24 +51,24 @@ namespace basist
 	enum basis_header_flags
 	{
 		// Always set for ETC1S files. Not set for UASTC files.
-		cBASISHeaderFlagETC1S = 1,					 
-		
+		cBASISHeaderFlagETC1S = 1,
+
 		// Set if the texture had to be Y flipped before encoding. The actual interpretation of this (is Y up or down?) is up to the user.
-		cBASISHeaderFlagYFlipped = 2,				 
-		
+		cBASISHeaderFlagYFlipped = 2,
+
 		// Set if any slices contain alpha (for ETC1S, if the odd slices contain alpha data)
-		cBASISHeaderFlagHasAlphaSlices = 4,		 
-		
-		// For ETC1S files, this will be true if the file utilizes a codebook from another .basis file. 
-		cBASISHeaderFlagUsesGlobalCodebook = 8, 
-		
-		// Set if the texture data is sRGB, otherwise it's linear. 
+		cBASISHeaderFlagHasAlphaSlices = 4,
+
+		// For ETC1S files, this will be true if the file utilizes a codebook from another .basis file.
+		cBASISHeaderFlagUsesGlobalCodebook = 8,
+
+		// Set if the texture data is sRGB, otherwise it's linear.
 		// In reality, we have no idea if the texture data is actually linear or sRGB. This is the m_perceptual parameter passed to the compressor.
-		cBASISHeaderFlagSRGB = 16,					 
+		cBASISHeaderFlagSRGB = 16,
 	};
 
 	// The image type field attempts to describe how to interpret the image data in a Basis file.
-	// The encoder library doesn't really do anything special or different with these texture types, this is mostly here for the benefit of the user. 
+	// The encoder library doesn't really do anything special or different with these texture types, this is mostly here for the benefit of the user.
 	// We do make sure the various constraints are followed (2DArray/cubemap/videoframes/volume implies that each image has the same resolution and # of mipmap levels, etc., cubemap implies that the # of image slices is a multiple of 6)
 	enum basis_texture_type
 	{
@@ -115,7 +115,7 @@ namespace basist
 		basisu::packed_uint<3>      m_total_slices;	// The total # of compressed slices (1 slice per image, or 2 for alpha .basis files)
 
 		basisu::packed_uint<3>      m_total_images;	// The total # of images
-				
+
 		basisu::packed_uint<1>      m_tex_format;		// enum basis_tex_format
 		basisu::packed_uint<2>      m_flags;			// enum basist::header_flags
 		basisu::packed_uint<1>      m_tex_type;		// enum basist::basis_texture_type
@@ -125,11 +125,11 @@ namespace basist
 		basisu::packed_uint<4>      m_userdata0;		// For client use
 		basisu::packed_uint<4>      m_userdata1;		// For client use
 
-		basisu::packed_uint<2>      m_total_endpoints;			// The number of endpoints in the endpoint codebook 
+		basisu::packed_uint<2>      m_total_endpoints;			// The number of endpoints in the endpoint codebook
 		basisu::packed_uint<4>      m_endpoint_cb_file_ofs;	// The compressed endpoint codebook's file offset relative to the start of the file
 		basisu::packed_uint<3>      m_endpoint_cb_file_size;	// The compressed endpoint codebook's size in bytes
 
-		basisu::packed_uint<2>      m_total_selectors;			// The number of selectors in the endpoint codebook 
+		basisu::packed_uint<2>      m_total_selectors;			// The number of selectors in the endpoint codebook
 		basisu::packed_uint<4>      m_selector_cb_file_ofs;	// The compressed selectors codebook's file offset relative to the start of the file
 		basisu::packed_uint<3>      m_selector_cb_file_size;	// The compressed selector codebook's size in bytes
 
@@ -137,7 +137,7 @@ namespace basist
 		basisu::packed_uint<4>      m_tables_file_size;			// The file size in bytes of the compressed huffman codelength tables
 
 		basisu::packed_uint<4>      m_slice_desc_file_ofs;		// The file offset to the slice description array, usually follows the header
-		
+
 		basisu::packed_uint<4>      m_extended_file_ofs;		// The file offset of the "extended" header and compressed data, for future use
 		basisu::packed_uint<4>      m_extended_file_size;		// The file size in bytes of the "extended" header and compressed data, for future use
 	};

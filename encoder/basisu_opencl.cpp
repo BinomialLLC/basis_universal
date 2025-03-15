@@ -56,10 +56,10 @@ namespace basisu
 	class ocl
 	{
 	public:
-		ocl() 
+		ocl()
 		{
 			memset(&m_dev_fp_config, 0, sizeof(m_dev_fp_config));
-			
+
 			m_ocl_mutex.lock();
 			m_ocl_mutex.unlock();
 		}
@@ -163,12 +163,12 @@ namespace basisu
 				deinit();
 				return false;
 			}
-						
+
 			printf("OpenCL init time: %3.3f secs\n", tm.get_elapsed_secs());
 
 			return true;
 		}
-				
+
 		bool deinit()
 		{
 			if (m_program)
@@ -366,7 +366,7 @@ namespace basisu
 
 			return obj;
 		}
-				
+
 		bool destroy_buffer(cl_mem buf)
 		{
 			if (buf)
@@ -680,7 +680,7 @@ namespace basisu
 		cl_command_queue m_command_queue = nullptr;
 		cl_program m_program = nullptr;
 		cl_device_fp_config m_dev_fp_config;
-		
+
 		bool m_use_mutex = false;
 		std::mutex m_ocl_mutex;
 
@@ -706,7 +706,7 @@ namespace basisu
 		private:
 			ocl* m_p;
 		};
-		
+
 		cl_image_format get_image_format(uint32_t bytes_per_pixel, bool normalized)
 		{
 			cl_image_format fmt;
@@ -723,10 +723,10 @@ namespace basisu
 			return fmt;
 		}
 	};
-		
+
 	// Library blobal state
 	ocl g_ocl;
-			
+
 	bool opencl_init(bool force_serialization)
 	{
 		if (g_ocl.is_initialized())
@@ -755,11 +755,11 @@ namespace basisu
 			g_ocl.deinit();
 			return false;
 		}
-			
+
 		pKernel_src = (char*)kernel_src.data();
 		kernel_src_size = kernel_src.size();
 #endif
-		
+
 		if (!kernel_src_size)
 		{
 			ocl_error_printf("opencl_init: Invalid OpenCL kernel source file \"%s\"\n", BASISU_OCL_KERNELS_FILENAME);
@@ -773,7 +773,7 @@ namespace basisu
 			g_ocl.deinit();
 			return false;
 		}
-								
+
 		printf("OpenCL support initialized successfully\n");
 
 		return true;
@@ -818,10 +818,10 @@ namespace basisu
 		opencl_context* pContext = static_cast<opencl_context * >(calloc(sizeof(opencl_context), 1));
 		if (!pContext)
 			return nullptr;
-				
+
 		// To avoid driver bugs in some drivers - serialize this. Likely not necessary, we don't know.
 		// https://community.intel.com/t5/OpenCL-for-CPU/Bug-report-clCreateKernelsInProgram-is-not-thread-safe/td-p/1159771
-		
+
 		pContext->m_command_queue = g_ocl.create_command_queue();
 		if (!pContext->m_command_queue)
 		{
@@ -892,7 +892,7 @@ namespace basisu
 		g_ocl.destroy_kernel(pContext->m_ocl_refine_endpoint_clusterization_kernel);
 
 		g_ocl.destroy_command_queue(pContext->m_command_queue);
-			
+
 		memset(pContext, 0, sizeof(opencl_context));
 
 		free(pContext);
@@ -942,7 +942,7 @@ namespace basisu
 			return false;
 
 		assert(pContext->m_ocl_total_pixel_blocks <= INT_MAX);
-				
+
 		cl_encode_etc1s_param_struct ps;
 		ps.m_total_blocks = (int)pContext->m_ocl_total_pixel_blocks;
 		ps.m_perceptual = perceptual;
@@ -952,7 +952,7 @@ namespace basisu
 
 		cl_mem vars = g_ocl.alloc_and_init_read_buffer(pContext->m_command_queue , &ps, sizeof(ps));
 		cl_mem block_buf = g_ocl.alloc_write_buffer(sizeof(etc_block) * pContext->m_ocl_total_pixel_blocks);
-		
+
 		if (!vars || !block_buf)
 			goto exit;
 
@@ -990,7 +990,7 @@ exit:
 
 		interval_timer tm;
 		tm.start();
-				
+
 		cl_encode_etc1s_param_struct ps;
 		ps.m_total_blocks = total_clusters;
 		ps.m_perceptual = perceptual;
@@ -1007,7 +1007,7 @@ exit:
 				return false;
 			}
 		}
-				
+
 		cl_mem vars = g_ocl.alloc_and_init_read_buffer(pContext->m_command_queue , &ps, sizeof(ps));
 		cl_mem input_clusters = g_ocl.alloc_and_init_read_buffer(pContext->m_command_queue, pClusters, (size_t)(sizeof(cl_pixel_cluster) * total_clusters));
 		cl_mem input_pixels = g_ocl.alloc_and_init_read_buffer(pContext->m_command_queue, pPixels, (size_t)(sizeof(color_rgba) * total_pixels));
@@ -1068,7 +1068,7 @@ exit:
 			return false;
 
 		assert(pContext->m_ocl_total_pixel_blocks <= INT_MAX);
-				
+
 		cl_rec_param_struct ps;
 		ps.m_total_blocks = (int)pContext->m_ocl_total_pixel_blocks;
 		ps.m_perceptual = perceptual;
@@ -1079,7 +1079,7 @@ exit:
 		cl_mem cluster_info = g_ocl.alloc_and_init_read_buffer(pContext->m_command_queue, pCluster_info, sizeof(cl_endpoint_cluster_struct) * total_clusters);
 		cl_mem sorted_block_indices = g_ocl.alloc_and_init_read_buffer(pContext->m_command_queue, pSorted_block_indices, sizeof(uint32_t) * pContext->m_ocl_total_pixel_blocks);
 		cl_mem output_buf = g_ocl.alloc_write_buffer(sizeof(uint32_t) * pContext->m_ocl_total_pixel_blocks);
-		
+
 		if (!pixel_block_info || !cluster_info || !sorted_block_indices || !output_buf)
 			goto exit;
 
@@ -1093,7 +1093,7 @@ exit:
 			goto exit;
 
 		debug_printf("opencl_refine_endpoint_clusterization: Elapsed time: %3.3f secs\n", tm.get_elapsed_secs());
-		
+
 		status = true;
 
 exit:
@@ -1129,7 +1129,7 @@ exit:
 		fosc_param_struct ps;
 		ps.m_total_blocks = (int)pContext->m_ocl_total_pixel_blocks;
 		ps.m_perceptual = perceptual;
-		
+
 		bool status = false;
 
 		cl_mem input_block_info = g_ocl.alloc_and_init_read_buffer(pContext->m_command_queue, pInput_block_info, sizeof(fosc_block_struct) * pContext->m_ocl_total_pixel_blocks);
@@ -1202,9 +1202,9 @@ exit:
 			goto exit;
 
 		debug_printf("opencl_determine_selectors: Elapsed time: %3.3f secs\n", tm.get_elapsed_secs());
-					
+
 		status = true;
-	
+
 	exit:
 		g_ocl.destroy_buffer(input_etc_color5_intens);
 		g_ocl.destroy_buffer(output_blocks);
@@ -1212,7 +1212,7 @@ exit:
 		return status;
 	}
 
-#else	
+#else
 namespace basisu
 {
 	// No OpenCL support - all dummy functions that return false;
@@ -1279,7 +1279,7 @@ namespace basisu
 		BASISU_NOTE_UNUSED(pPixel_weights);
 		BASISU_NOTE_UNUSED(perceptual);
 		BASISU_NOTE_UNUSED(total_perms);
-		
+
 		return false;
 	}
 

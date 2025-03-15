@@ -8,10 +8,10 @@ namespace bu_math
 	// Would prefer using SSE1 etc. but that would require implementing multiple versions and platform divergence (needing more testing).
 	BASISU_FORCE_INLINE float inv_sqrt(float v)
 	{
-		union 
-		{ 
-			float flt; 
-			uint32_t ui; 
+		union
+		{
+			float flt;
+			uint32_t ui;
 		} un;
 
 		un.flt = v;
@@ -1180,7 +1180,7 @@ namespace bu_math
 			}
 		return result;
 	}
-		
+
 	template <uint32_t R, uint32_t C, typename T>
 	class matrix
 	{
@@ -2521,14 +2521,14 @@ namespace basisu
 		FloatType m_mad;					// mean absolute deviation
 		FloatType m_min, m_max, m_range;	// min and max values, and max-min
 		FloatType m_len;					// length of values as a vector (Euclidean norm or L2 norm)
-		FloatType m_coeff_of_var;			// coefficient of variation (std_dev/mean), High CV: Indicates greater variability relative to the mean, meaning the data values are more spread out, 
+		FloatType m_coeff_of_var;			// coefficient of variation (std_dev/mean), High CV: Indicates greater variability relative to the mean, meaning the data values are more spread out,
 											// Low CV : Indicates less variability relative to the mean, meaning the data values are more consistent.
-		
-		FloatType m_skewness;				// Skewness = 0: The data is perfectly symmetric around the mean, 
-											// Skewness > 0: The data is positively skewed (right-skewed), 
+
+		FloatType m_skewness;				// Skewness = 0: The data is perfectly symmetric around the mean,
+											// Skewness > 0: The data is positively skewed (right-skewed),
 											// Skewness < 0: The data is negatively skewed (left-skewed)
 											// 0-.5 approx. symmetry, .5-1 moderate skew, >= 1 highly skewed
-		
+
 		FloatType m_kurtosis;				// Excess Kurtosis: Kurtosis = 0: The distribution has normal kurtosis (mesokurtic)
 											// Kurtosis > 0: The distribution is leptokurtic, with heavy tails and a sharp peak
 											// Kurtosis < 0: The distribution is platykurtic, with light tails and a flatter peak
@@ -2538,9 +2538,9 @@ namespace basisu
 		FloatType m_median;
 		uint32_t m_median_index;
 
-		stats() 
-		{ 
-			clear(); 
+		stats()
+		{
+			clear();
 		}
 
 		void clear()
@@ -2557,7 +2557,7 @@ namespace basisu
 			m_skewness = 0;
 			m_kurtosis = 0;
 			m_any_zero = false;
-			
+
 			m_median = 0;
 			m_median_index = 0;
 		}
@@ -2594,7 +2594,7 @@ namespace basisu
 		void calc(uint32_t n, const T* pVals, uint32_t stride = 1, bool calc_median_flag = false)
 		{
 			clear();
-						
+
 			if (!n)
 				return;
 
@@ -2609,10 +2609,10 @@ namespace basisu
 
 				if (v == 0.0f)
 					m_any_zero = true;
-				
+
 				m_total += v;
 				m_total_sq += v * v;
-				
+
 				if (!i)
 				{
 					m_min = v;
@@ -2634,12 +2634,12 @@ namespace basisu
 			m_avg = m_total / nd;
 			m_avg_sq = m_total_sq / nd;
 			m_rms = sqrt(m_avg_sq);
-			
+
 			for (uint32_t i = 0; i < n; i++)
 			{
 				FloatType v = (FloatType)pVals[i * stride];
 				FloatType d = v - m_avg;
-				
+
 				const FloatType d2 = d * d;
 				const FloatType d3 = d2 * d;
 				const FloatType d4 = d3 * d;
@@ -2680,7 +2680,7 @@ namespace basisu
 
 				m_total += v;
 			}
-						
+
 			const FloatType nd = (FloatType)n;
 
 			m_avg = m_total / nd;
@@ -2712,7 +2712,7 @@ namespace basisu
 		FloatType m_euclidean_dist;			// euclidean distance between values as vectors
 		FloatType m_cosine_sim;				// normalized dot products of values as vectors
 		FloatType m_min_diff, m_max_diff;	// minimum/maximum abs difference between values
-				
+
 		comparative_stats()
 		{
 			clear();
@@ -2738,7 +2738,7 @@ namespace basisu
 			clear();
 			if (!n)
 				return;
-						
+
 			stats<FloatType> temp_a_stats;
 			if (!pA_stats)
 			{
@@ -2757,7 +2757,7 @@ namespace basisu
 			{
 				const FloatType fa = (FloatType)pA[i * a_stride];
 				const FloatType fb = (FloatType)pB[i * b_stride];
-								
+
 				if ((pA_stats->m_min >= 0.0f) && (pB_stats->m_min >= 0.0f))
 				{
 					const FloatType ld = log(fa + 1.0f) - log(fb + 1.0f);
@@ -2766,7 +2766,7 @@ namespace basisu
 
 				const FloatType diff = fa - fb;
 				const FloatType abs_diff = fabs(diff);
-				
+
 				m_mse += diff * diff;
 				m_mae += abs_diff;
 
@@ -2781,7 +2781,7 @@ namespace basisu
 			}
 
 			const FloatType nd = (FloatType)n;
-			
+
 			m_euclidean_dist = sqrt(m_mse);
 
 			m_mse /= nd;
@@ -2790,7 +2790,7 @@ namespace basisu
 			m_mae /= nd;
 
 			m_cov /= nd;
-			
+
 			FloatType dv = (pA_stats->m_std_dev * pB_stats->m_std_dev);
 			if (dv != 0.0f)
 				m_pearson = m_cov / dv;
@@ -2883,9 +2883,9 @@ namespace basisu
 				const FloatType fb = (FloatType)pB[i * b_stride];
 
 				const FloatType diff = fa - fb;
-				
+
 				m_mse += diff * diff;
-				
+
 				const FloatType da = fa - pA_stats->m_avg;
 				const FloatType db = fb - pB_stats->m_avg;
 				m_cov += da * db;
@@ -2897,7 +2897,7 @@ namespace basisu
 
 			m_mse /= nd;
 			m_rmse = sqrt(m_mse);
-						
+
 			m_cov /= nd;
 		}
 
@@ -2938,7 +2938,7 @@ namespace basisu
 			m_cov /= nd;
 		}
 	};
-		
+
 	class stat_history
 	{
 	public:
@@ -3083,12 +3083,12 @@ namespace basisu
 			uint32_t lowerBits = float_union.u & 0xFFFF;
 
 			// Round to nearest or even
-			if ((lowerBits & 0x8000) && 
+			if ((lowerBits & 0x8000) &&
 				((lowerBits > 0x8000) || ((lowerBits == 0x8000) && (upperBits & 1)))
 			   )
 			{
 				// Round up
-				upperBits += 1;        
+				upperBits += 1;
 
 				// Check for overflow in the exponent after rounding up
 				if (((upperBits & 0x7F80) == 0x7F80) && ((upperBits & 0x007F) == 0))
@@ -3140,7 +3140,6 @@ namespace basisu
 
 		return res;
 	}
-	
-	
-} // namespace basisu
 
+
+} // namespace basisu

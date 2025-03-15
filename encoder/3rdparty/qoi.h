@@ -581,7 +581,7 @@ void *qoi_decode(const void *data, size_t size, qoi_desc *desc, int channels) {
 		pixels[px_pos + 0] = px.rgba.r;
 		pixels[px_pos + 1] = px.rgba.g;
 		pixels[px_pos + 2] = px.rgba.b;
-		
+
 		if (channels == 4) {
 			pixels[px_pos + 3] = px.rgba.a;
 		}
@@ -638,7 +638,7 @@ void *qoi_read(const char *filename, qoi_desc *desc, int channels) {
 	}
 
 	fseek(f, 0, SEEK_END);
-	
+
 	sz = ftell(f);
 	if (sz <= 0)
 	{

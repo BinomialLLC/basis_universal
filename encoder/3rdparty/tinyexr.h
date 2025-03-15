@@ -1396,7 +1396,7 @@ static bool CompressZip(unsigned char *dst,
 
   memcpy(dst, ret, outSize);
   free(ret);
-  
+
   compressedSize = outSize;
 #else
   uLong outSize = compressBound(static_cast<uLong>(src_size));
@@ -5860,7 +5860,7 @@ static bool ReconstructTileOffsets(OffsetData& offset_data,
         if (size_t(tileX) >= offset_data.offsets[size_t(level_idx)][size_t(tileY)].size()) {
           return false;
         }
-        
+
         offset_data.offsets[size_t(level_idx)][size_t(tileY)][size_t(tileX)] = tileOffset;
       }
     }
@@ -6871,7 +6871,7 @@ struct MemoryMappedFile {
     if (read_bytes != size) {
       // TODO: Try to read data until reading `size` bytes.
       fclose(fp);
-      size = 0; 
+      size = 0;
       data = nullptr;
       return;
     }
@@ -7717,7 +7717,7 @@ static size_t SaveEXRNPartImageToMemory(const EXRImage* exr_images,
           SetErrorMessage("Failed to compute Tile offsets",
                           err);
           return (size_t)TINYEXR_ERROR_INVALID_DATA;
-          
+
         }
         total_chunk_count += chunk_count[i];
       }
@@ -8585,7 +8585,7 @@ int EXRNumLevels(const EXRImage* exr_image) {
   const EXRImage* level_image = exr_image;
 
 #if 0
-  while ((level_image = level_image->next_level)) 
+  while ((level_image = level_image->next_level))
       ++levels;
 #else
   for (; ;)

@@ -8,9 +8,9 @@
 <html>
 <head>
    <script src="renderer.js"></script>
-         
+
    <script type="text/javascript">
-   
+
       const MAX_WORKER_THREADS = 18;
 
       function log(s) {
@@ -18,11 +18,11 @@
          div.innerHTML = s;
          document.getElementById('logger').appendChild(div);
       }
-      
+
       function logClear() {
          elem('logger').innerHTML = '';
       }
-      
+
       function logTime(desc, t) {
          log(t + 'ms ' + desc);
       }
@@ -176,9 +176,9 @@
       DXT_FORMAT_MAP[BASIS_FORMAT.cTFBC3] = COMPRESSED_RGBA_S3TC_DXT5_EXT;
       DXT_FORMAT_MAP[BASIS_FORMAT.cTFBC7] = COMPRESSED_RGBA_BPTC_UNORM;
 
-      var astcSupported = false, etcSupported = false, dxtSupported = false, bc7Supported = false, bc6hSupported = false, astcHDRSupported = false, 
+      var astcSupported = false, etcSupported = false, dxtSupported = false, bc7Supported = false, bc6hSupported = false, astcHDRSupported = false,
          rgbaHalfSupported = false, halfFloatWebGLFormat = 0, pvrtcSupported = false;
-      
+
       var astcDisabled = false, etcDisabled = false, dxtDisabled = false, bc7Disabled = false, bc6hDisabled = false, astcHDRDisabled = false, rgbaHalfDisabled = false, pvrtcDisabled = false;
 
       var drawMode = 0;
@@ -188,10 +188,10 @@
 
       var tex, width, height, is_hdr, layers, levels, faces, has_alpha;
       var alignedWidth4, alignedHeight4, format, displayWidth, displayHeight;
-      
+
       var curLoadedImageData = null, curLoadedImageURI = null;
       var curLoadedKTX2Data = null, curLoadedKTX2URI = null;
-      
+
       function redraw() {
          if (!width)
             return;
@@ -269,9 +269,9 @@
          log('--');
          log('Image level information:');
          var level_index;
-         
+
          var total_texels = 0;
-         
+
          for (level_index = 0; level_index < ktx2File.getLevels(); level_index++) {
             var layer_index;
             for (layer_index = 0; layer_index < Math.max(1, ktx2File.getLayers()); layer_index++) {
@@ -296,7 +296,7 @@
                      log('ETC1S image desc image flags: ' + ktx2File.getETC1SImageDescImageFlags(level_index, layer_index, face_index));
 
                   log('--');
-                  
+
                   total_texels += imageLevelInfo.origWidth * imageLevelInfo.origHeight;
                }
             }
@@ -322,18 +322,18 @@
          log('sgdByteLength: ' + hdr.sgdByteLength);
 
          log('------');
-         
+
          return total_texels;
       }
-            
+
       function dataLoaded(data, uri) {
-      
+
          updateErrorLine("");
-      
+
          log('Done loading .KTX2 file, decoded header:');
 
          const { KTX2File, initializeBasis, encodeBasisTexture } = Module;
-                  
+
          resetDrawSettings();
 
          initializeBasis();
@@ -359,25 +359,25 @@
          levels = ktx2File.getLevels();
          faces = ktx2File.getFaces();
          has_alpha = ktx2File.getHasAlpha();
-         
+
          // If a HDR KTX2 file was upconverted from LDR/SDR content by us, it'll have a key indicating the Nit scale that was appplied.
          // We can use that to make viewing the file work out of the box.
          var ldrHDRUpconversionNitMultiplier = ktx2File.getLDRHDRUpconversionNitMultiplier();
-                  
+
          if (ldrHDRUpconversionNitMultiplier > 0.0)
             ldrHDRUpconversionScale = 1.0 / ldrHDRUpconversionNitMultiplier;
          else
             ldrHDRUpconversionScale = 1.0;
-            
+
          var srcBlockWidth = ktx2File.getBlockWidth();
          var srcBlockHeight = ktx2File.getBlockHeight();
-         
+
          var dstBlockWidth = 4;
          var dstBlockHeight = 4;
 
          // To transcode to PVRTC1, the texture MUST be square and the dimensions must be a power of 2.
          var is_square_pow2 = (width == height) && ((width & (width - 1)) == 0);
-         
+
          if ((!is_hdr) && (!is_square_pow2))
          {
             if ((pvrtcSupported) && (!pvrtcDisabled))
@@ -406,19 +406,19 @@
                format = BASIS_FORMAT.cTFBC6H;
             }
             else if ((astcHDRSupported) && (!astcHDRDisabled)) {
-                              
+
                if (basisTexFormat == Module.basis_tex_format.cUASTC_HDR_4x4.value)
                {
                   formatString = 'ASTC HDR 4x4';
-                  
+
                   format = BASIS_FORMAT.cTFASTC_HDR_4x4_RGBA;
                }
                else
                {
                   formatString = 'ASTC HDR 6x6';
-                  
+
                   format = BASIS_FORMAT.cTFASTC_HDR_6x6_RGBA;
-                  
+
                   dstBlockWidth = 6;
                   dstBlockHeight = 6;
                }
@@ -438,7 +438,7 @@
             formatString = 'ASTC';
             format = BASIS_FORMAT.cTFASTC_4x4;
          }
-         else if ((bc7Supported) && (!bc7Disabled)) { 
+         else if ((bc7Supported) && (!bc7Disabled)) {
             formatString = 'BC7';
             format = BASIS_FORMAT.cTFBC7;
          }
@@ -471,13 +471,13 @@
             format = BASIS_FORMAT.cTFRGB565;
             log('Warning: Falling back to decoding texture data to uncompressed 16-bit 565');
          }
-         
+
          var descString = formatString;
          if (is_hdr)
          {
-            if (basisTexFormat == Module.basis_tex_format.cUASTC_HDR_4x4.value)         
+            if (basisTexFormat == Module.basis_tex_format.cUASTC_HDR_4x4.value)
                descString += ' from UASTC HDR 4x4';
-            else if (basisTexFormat == Module.basis_tex_format.cASTC_HDR_6x6.value) 
+            else if (basisTexFormat == Module.basis_tex_format.cASTC_HDR_6x6.value)
                descString += ' from ASTC HDR 6x6';
             else
                descString += ' from ASTC HDR 6x6 Intermediate';
@@ -486,13 +486,13 @@
             descString += ' from UASTC LDR 4x4';
          else
             descString += ' from ETC1S';
-            
+
          var total_texels = dumpKTX2FileDesc(ktx2File);
          var bpp = (data.byteLength * 8.0) / total_texels;
          descString += ` (${bpp.toFixed(3)} bits/pixel).`;
 
          elem('format').innerText = descString;
-                  
+
          if (!ktx2File.startTranscoding()) {
             updateErrorLine('startTranscoding failed');
             log('startTranscoding failed');
@@ -501,19 +501,19 @@
             basisFile.delete();
             return;
          }
-                  
+
          const dstSize = ktx2File.getImageTranscodedSizeInBytes(0, 0, 0, format);
          const dst = new Uint8Array(dstSize);
-         
+
          const levelIndex =0;
          const layerIndex = 0;
-         const faceIndex = 0;         
-         
+         const faceIndex = 0;
+
          var flags = elem('highquality_transcoding').checked ? Module.basisu_decode_flags.cDecodeFlagsHighQuality.value : 0;
          if (elem('etc1s_bc7_transcoder_no_chroma_filtering').checked)
             flags = flags | Module.basisu_decode_flags.cDecodeFlagsNoETC1SChromaFiltering.value;
-                                    
-         if (!ktx2File.transcodeImageWithFlags(dst, levelIndex, layerIndex, faceIndex, format, flags, -1, -1)) 
+
+         if (!ktx2File.transcodeImageWithFlags(dst, levelIndex, layerIndex, faceIndex, format, flags, -1, -1))
          {
             updateErrorLine('ktx2File.transcodeImage failed');
             log('ktx2File.transcodeImage failed');
@@ -543,19 +543,19 @@
          log('faces: ' + faces);
          log('has_alpha: ' + has_alpha);
          log('ldrHDRUpconversionNitMultiplier: ' + ldrHDRUpconversionNitMultiplier);
-         
+
          logTime('transcoding time', elapsed.toFixed(3));
 
          alignedWidth = Math.floor((width + dstBlockWidth - 1) / dstBlockWidth) * dstBlockWidth;
          alignedHeight = Math.floor((height + dstBlockHeight - 1) / dstBlockHeight) * dstBlockHeight;
-                          
+
          displayWidth = alignedWidth;
          displayHeight = alignedHeight;
 
          var canvas = elem('canvas');
          canvas.width = alignedWidth;
          canvas.height = alignedHeight;
-         
+
          // Now create the WebGL texture object.
 
          if ((format === BASIS_FORMAT.cTFASTC_4x4) || (format === BASIS_FORMAT.cTFASTC_HDR_4x4_RGBA)) {
@@ -626,15 +626,15 @@
          }
          else {
             // Uncompressed 565 (with no block alignment)
-            
+
             displayWidth = width;
             displayHeight = height;
             canvas.width = width;
             canvas.height = height;
 
-            // WebGL requires each row to be aligned on a 4-byte boundary.            
+            // WebGL requires each row to be aligned on a 4-byte boundary.
             var widthWordAligned = (width + 1) & ~1;
-            
+
             // Create 565 texture.
             var dstTex = new Uint16Array(widthWordAligned * height);
 
@@ -646,15 +646,15 @@
                for (var x = 0; x < width; x++, pix++)
                   dstTex[dstTexRowOfs + x] = dst[2 * pix + 0] | (dst[2 * pix + 1] << 8);
             }
-                  
+
             tex = renderer.createRgb565Texture(dstTex, width, height);
          }
-         
+
          linearToSRGBFlag = is_hdr;
          elem('linear_to_srgb').innerText = linearToSRGBFlag ? 'Enabled' : 'Disabled';
 
          redraw();
-         
+
          curLoadedKTX2Data = data;
          curLoadedKTX2URI = uri;
       }
@@ -682,11 +682,11 @@
 
       function resetDrawSettings() {
          drawMode = 0;
-         
+
          linearToSRGBFlag = false;
          elem('linear_to_srgb').innerText = linearToSRGBFlag ? 'Enabled' : 'Disabled';
 
-//         drawScale = 1.0;         
+//         drawScale = 1.0;
 //         elem('scale-slider').value = .5;
 //         elem('scale-value').textContent = 1;
 
@@ -704,55 +704,55 @@
 
          return cleanExtension;
       }
-      
+
       function getETC1SCompLevel() {
          var slider = document.getElementById('etc1s-comp-level-slider'); // Get the slider element
          var compLevel = parseInt(slider.value, 10);  // Convert the slider value to an integer
          return compLevel;
       }
-      
+
       function getUASTCHDRQuality() {
          var slider = document.getElementById('uastc-hdr-quality-slider'); // Get the slider element
          var qualityLevel = parseInt(slider.value, 10);  // Convert the slider value to an integer
          return qualityLevel;
       }
-      
+
       function getASTCHDR6x6CompLevel() {
          var slider = document.getElementById('astc-hdr6x6-comp-level-slider');
          var compLevel = parseInt(slider.value, 10);  // Convert the slider value to an integer
          return compLevel;
       }
-      
+
       function getUASTCLDRQuality() {
          var slider = document.getElementById('uastc-ldr-quality-slider'); // Get the slider element
          var qualityLevel = parseInt(slider.value, 10);  // Convert the slider value to an integer
          return qualityLevel;
       }
-      
+
       function getUASTCLDRRDOQuality() {
          var rdoSlider = document.getElementById('rdo-quality-slider'); // Get the slider element
          var rdoQuality = parseFloat(rdoSlider.value);  // Convert the slider value to a floating-point number
          return rdoQuality;  // Return the current value
       }
-      
+
       function getNumWorkerThreads() {
          var slider = document.getElementById('num_worker_threads');
          var num = parseInt(slider.value, 10);  // Convert the slider value to an integer
-         
+
          num = Math.floor(num);
-         
+
          if (num < 0)
             num = 0;
          else if (num > MAX_WORKER_THREADS)
             num = MAX_WORKER_THREADS;
-            
+
          return num;
       }
 
       function imageFileDataLoaded(data, uri) {
-      
+
          updateErrorLine("");
-                                          
+
          const { BasisFile, BasisEncoder, initializeBasis, encodeBasisTexture } = Module;
 
          var extension = getFileExtension(uri);
@@ -760,12 +760,12 @@
          resetDrawSettings();
 
          initializeBasis();
-         
+
          log("imageFileDataLoaded URI: " + uri);
-                           
+
          curLoadedImageData = data;
          curLoadedImageURI = uri;
-         
+
          // Create a destination buffer to hold the compressed .basis file data. If this buffer isn't large enough compression will fail.
          var ktx2FileData = new Uint8Array(1024 * 1024 * 24);
 
@@ -773,27 +773,27 @@
          log('BasisEncoder::encode() started:');
 
          const basisEncoder = new BasisEncoder();
-         
+
          basisEncoder.controlThreading(elem('multithreaded_encoding').checked, MAX_WORKER_THREADS);
-                                    
+
          var desiredBasisTexFormat = getSelectedBasisTexFormat();
-         
+
          const isHDRSourceFile = (extension != null) && (extension === "exr" || extension === "hdr");
-         
+
          if (Module.isBasisTexFormatLDR(desiredBasisTexFormat))
          {
             if (isHDRSourceFile)
             {
                   log('Image is HDR - must encode to a HDR format. Defaulting to UASTC HDR 4x4.');
                   desiredBasisTexFormat = Module.basis_tex_format.cUASTC_HDR_4x4.value;
-                  
+
                   setDropdownValue('basis-tex-format', Module.basis_tex_format.cUASTC_HDR_4x4.value);
             }
          }
 
          basisEncoder.setCreateKTX2File(true);
          basisEncoder.setKTX2UASTCSupercompression(true);
-         
+
          if (!isHDRSourceFile)
             basisEncoder.setKTX2SRGBTransferFunc(true);
 
@@ -810,9 +810,9 @@
                else if ((extension === "jpg") || (extension === "jpeg") || (extension === "jfif"))
                   img_type = Module.hdr_image_type.cHITJPGImage.value;
             }
-            
+
             var ldr_to_hdr_nit_multiplier = getNitMultiplier();
-            
+
             basisEncoder.setSliceSourceImageHDR(0, new Uint8Array(data), 0, 0, img_type, elem('ConvertLDRToLinear').checked, ldr_to_hdr_nit_multiplier);
 
             /*
@@ -881,7 +881,7 @@
                     basisEncoder.setSliceSourceImageHDR(0, byteArray, W, H, Module.hdr_image_type.cHITRGBAHalfFloat.value, elem('ConvertLDRToLinear').checked, 1.0);
             */
          }
-         else 
+         else
          {
             var img_type = Module.ldr_image_type.cPNGImage.value;
 
@@ -890,15 +890,15 @@
                if ((extension === "jpg") || (extension === "jpeg") || (extension === "jfif"))
                   img_type = Module.ldr_image_type.cJPGImage.value;
             }
-         
+
             basisEncoder.setSliceSourceImage(0, new Uint8Array(data), 0, 0, img_type);
          }
-         
+
          basisEncoder.setFormatMode(desiredBasisTexFormat);
 
          // Use UASTC HDR quality (0=fastest)
          basisEncoder.setUASTCHDRQualityLevel(getUASTCHDRQuality());
-         
+
          basisEncoder.setASTC_HDR_6x6_Level(getASTCHDR6x6CompLevel());
          basisEncoder.setLambda(getASTC6x6RDOLambda());
          basisEncoder.setRec2020(elem('Rec2020').checked);
@@ -910,10 +910,10 @@
 
          const etc1SQualityLevel = parseInt(elem('EncodeQuality').value, 10);
          basisEncoder.setQualityLevel(etc1SQualityLevel);
-                           
+
          basisEncoder.setRDOUASTC(elem('UASTC_LDR_RDO').checked);
          basisEncoder.setRDOUASTCQualityScalar(getUASTCLDRRDOQuality());
-         
+
          basisEncoder.setMipGen(elem('Mipmaps').checked);
          basisEncoder.setCompressionLevel(getETC1SCompLevel());
          basisEncoder.setPackUASTCFlags(getUASTCLDRQuality());
@@ -926,7 +926,7 @@
             log('Encoding to ASTC HDR 6x6 Intermediate');
          else if (desiredBasisTexFormat === Module.basis_tex_format.cUASTC4x4.value)
             log('Encoding to UASTC LDR 4x4');
-         else 
+         else
             log('Encoding to ETC1S quality level ' + etc1SQualityLevel);
 
          showBusyModal();
@@ -949,7 +949,7 @@
 
             if (num_output_bytes == 0) {
                updateErrorLine('encodeBasisTexture() failed! Image may be too large to compress using 32-bit WASM.');
-               
+
                log('encodeBasisTexture() failed!');
             } else {
                log('encodeBasisTexture() succeeded, output size ' + num_output_bytes);
@@ -960,12 +960,12 @@
             if (num_output_bytes != 0) {
                dataLoaded(actualKTX2FileData);
             }
-         
-         });         
+
+         });
        });
-                     
+
       }
-      
+
       function dataLoadError(msg) {
          updateErrorLine(msg);
          log(msg);
@@ -978,21 +978,21 @@
 
       function runEncodeImageFile() {
          logClear();
-         
+
          if ((elem('imagefile').value === '<externally loaded>') && (curLoadedImageData != null))
          {
             //console.log("calling imageFileDataLoaded 1");
-            
+
             imageFileDataLoaded(curLoadedImageData, curLoadedImageURI);
          }
          else
          {
             //console.log("calling imageFileDataLoaded 4");
-            
+
             loadArrayBuffer(elem('imagefile').value, imageFileDataLoaded, dataLoadError);
          }
       }
-      
+
       function onFilenameSelect() {
          // Get the selected value from the drop-down
          var dropdown = document.getElementById('filename-dropdown');
@@ -1000,11 +1000,11 @@
 
          if (selectedFilename) {
             elem('imagefile').value = selectedFilename;
-            
+
             logClear();
-            
+
             //console.log("calling imageFileDataLoaded 3");
-            
+
             loadArrayBuffer(selectedFilename, imageFileDataLoaded, dataLoadError);
          }
       }
@@ -1013,15 +1013,15 @@
       function viewRGB() { drawMode = 1; redraw(); }
       function viewAlpha() { drawMode = 2; redraw(); }
 
-      function BC7ChromaFilterClicked() 
-      { 
-         if (curLoadedKTX2Data != null) 
+      function BC7ChromaFilterClicked()
+      {
+         if (curLoadedKTX2Data != null)
          {
             logClear();
             dataLoaded(curLoadedKTX2Data, curLoadedKTX2URI);
          }
       }
-      
+
       function highQualityTranscodingClicked()
       {
          // Force retranscoding with the changed flags
@@ -1031,12 +1031,12 @@
          }
       }
 
-      function linearToSRGB() { 
-         linearToSRGBFlag = !linearToSRGBFlag; 
-         elem('linear_to_srgb').innerText = linearToSRGBFlag ? 'Enabled' : 'Disabled'; 
-         redraw(); 
+      function linearToSRGB() {
+         linearToSRGBFlag = !linearToSRGBFlag;
+         elem('linear_to_srgb').innerText = linearToSRGBFlag ? 'Enabled' : 'Disabled';
+         redraw();
       }
-      
+
       function lerp(a, b, t) {
          return a + t * (b - a);
       }
@@ -1052,7 +1052,7 @@
             v = (v - .5) / .5;
             v = lerp(1.0, 32.0, v);
          }
-         
+
          document.getElementById('scale-value').textContent = v.toFixed(4);
          drawScale = v;
          redraw();
@@ -1064,17 +1064,17 @@
                download_file("encoded_file.ktx2", encodedKTX2File);
          }
       }
-                  
+
       function disabledFormatsChanged() {
          updateSupportedFormats();
          updateDisableButtons();
-         
+
          if (curLoadedKTX2Data != null) {
             logClear();
             dataLoaded(curLoadedKTX2Data, curLoadedKTX2URI);
          }
       }
-            
+
       function disableASTC() {
          astcDisabled = !astcDisabled;
          disabledFormatsChanged();
@@ -1099,8 +1099,8 @@
          bc7Disabled = !bc7Disabled;
          disabledFormatsChanged();
       }
-      
-      function disableASTCHDR() 
+
+      function disableASTCHDR()
       {
          astcHDRDisabled = !astcHDRDisabled;
          disabledFormatsChanged();
@@ -1115,7 +1115,7 @@
          rgbaHalfDisabled = !rgbaHalfDisabled;
          disabledFormatsChanged();
       }
-      
+
       function disableAllFormats()
       {
          astcDisabled = true;
@@ -1128,7 +1128,7 @@
          rgbaHalfDisabled = true;
          disabledFormatsChanged();
       }
-      
+
       function enableAllFormats()
       {
          astcDisabled = false;
@@ -1141,7 +1141,7 @@
          rgbaHalfDisabled = false;
          disabledFormatsChanged();
       }
-      
+
       function updateDisableButtons() {
          const buttonsDiv = elem('disable-buttons');
          buttonsDiv.innerHTML = '';  // Clear any previous buttons
@@ -1205,11 +1205,11 @@
             else
                addButton('<button onclick="disableRGBA_HALF()">Disable RGBA_HALF</button>');
          }
-         
+
          addButton('<button onclick="disableAllFormats()">Disable All</button>');
          addButton('<button onclick="enableAllFormats()">Enable All</button>');
       }
-     
+
       function updateSupportedFormats() {
          let supportedFormats = [];
 
@@ -1302,12 +1302,12 @@
          console.log('bc6hSupported: ' + bc6hSupported);
          console.log('astcHDRSupported: ' + astcHDRSupported);
          console.log('rgbaHalfSupported: ' + rgbaHalfSupported);
-         
+
          updateSupportedFormats();
          updateDisableButtons();
       }
-      
-      function validateNitMultiplier(input) 
+
+      function validateNitMultiplier(input)
       {
          const warning = document.getElementById('ldr-to-hdr-warning');
          const value = parseFloat(input.value);
@@ -1315,54 +1315,54 @@
          if (isNaN(value) || value < 0.1 || value > 1000) {
            // Show warning if value is invalid
            warning.style.display = 'inline';
-         } 
-         else 
+         }
+         else
          {
               // Hide warning if value is valid
             warning.style.display = 'none';
          }
       }
-      
-      function getNitMultiplier() 
+
+      function getNitMultiplier()
       {
          const input = document.getElementById('ldr-to-hdr-multiplier');
          const value = parseFloat(input.value);
 
-         if (!isNaN(value) && value >= 0.1 && value <= 1000) 
+         if (!isNaN(value) && value >= 0.1 && value <= 1000)
          {
             return value;
-         } 
-         else 
+         }
+         else
          {
             log('Invalid LDR to HDR Nit Multiplier value. Defaulting to 100.0');
             return 100.0; // Default value if invalid
          }
       }
-      
-      function getSelectedBasisTexFormat() 
+
+      function getSelectedBasisTexFormat()
       {
          const selectElem = document.getElementById('basis-tex-format');
          const selectedValue = parseInt(selectElem.value, 10);
 
          return selectedValue;
       }
-      
+
       function getASTC6x6RDOLambda()
       {
          const input = document.getElementById('astc6x6-rdo-lambda');
          const value = parseFloat(input.value);
 
-         if (!isNaN(value) && value >= 0.0 && value <= 1000000) 
+         if (!isNaN(value) && value >= 0.0 && value <= 1000000)
          {
             return value;
-         } 
-         else 
+         }
+         else
          {
             log('Invalid lambda value. Defaulting to 0.0');
             return 0.0; // Default value if invalid
          }
       }
-      
+
       function showBusyModal() {
          //console.log("Showing modal");
          document.getElementById('busy-modal').style.display = 'flex';
@@ -1372,16 +1372,16 @@
          //console.log("Hiding modal");
          document.getElementById('busy-modal').style.display = 'none';
       }
-      
+
       function setDropdownValue(selectId, value) {
          const selectElement = document.getElementById(selectId);
          if (!selectElement)
             return;
-            
+
          selectElement.value = value;
          selectElement.dispatchEvent(new Event('change'));
       }
-      
+
       function globalInit()
       {
          elem('SRGB').checked = true;
@@ -1450,10 +1450,10 @@
                  etc1SQualitySliderValue.textContent = parseFloat(this.value).toFixed(0);
              }
          }
-         
+
          runLoadFile();
       }
-      
+
       function updateErrorLine(message) {
         const errorLine = document.getElementById('error-line');
         errorLine.textContent = message;
@@ -1473,31 +1473,31 @@
    <br>Thanks to Evan Parker for providing <a href="https://github.com/toji/webgl-texture-utils">webgl-texture-utils</a> and this test bed. <a href="../index.html">Go back.</a>
    <br>Enable your browser debug console (F12 on Chrome/Firefox) to see debug output.
    <br>Note: The largest image resolution that can be compressed in the browser with
-   <br>this library is limited to around 6 megapixels due to 32-bit WASM memory 
+   <br>this library is limited to around 6 megapixels due to 32-bit WASM memory
    <br>constraints. Larger images risk running out of memory.
-   
+
    <br><br>
    <div id="supported-formats">
       Supported WebGL formats:
    </div>
-   
+
    <br>
    <div id="error-line">
    Test
    </div>
-      
+
    <div id="disable-buttons" style="margin-top: 10px;">
       <!-- Buttons will be dynamically added here -->
    </div>
 
-   <br>   
+   <br>
    <div id="threading-indicator"> </div>
    <input type="checkbox" id="multithreaded_encoding" checked>Use Multithreading (if available)
-   
+
    <br>Additional Worker Threads (Max 18):
    <input type="text" id="num_worker_threads" value="18" size="18">
    <br><br>
-   
+
    <br>
    .ktx2 file:
    <input id="file" type="text" size=30 value="assets/kodim23.ktx2"></input>
@@ -1508,7 +1508,7 @@
    .png/.jpg/.exr/.hdr file:
    <input id="imagefile" type="text" size=30 value="assets/desk.exr"></input>
    <input type="button" value="Encode!" onclick="runEncodeImageFile()"></input>
-   <br>   
+   <br>
    <br>
    <select id="filename-dropdown" onchange="onFilenameSelect()">
       <option value="">--Select Image File--</option>
@@ -1523,10 +1523,10 @@
       <option value="assets/src_memorial.exr">src_memorial.exr</option>
       <option value="assets/src_yucca.exr">src_yucca.exr</option>
       <option value="assets/Tree.exr">Tree.exr</option>
-      
+
       <option value="assets/kodim18_512x512.png">kodim18_512x512.png</option>
       <option value="assets/kodim18_64x64.png">kodim18_64x64.png</option>
-     
+
       <option value="assets/kodim01.png">kodim01.png</option>
       <option value="assets/kodim02.png">kodim02.png</option>
       <option value="assets/kodim03.png">kodim03.png</option>
@@ -1550,41 +1550,41 @@
       <option value="assets/kodim21.png">kodim21.png</option>
       <option value="assets/kodim22.png">kodim22.png</option>
       <option value="assets/kodim23.png">kodim23.png</option>
-      
+
       <option value="assets/kodim24.png">kodim24.png</option>
       <option value="assets/kodim25.png">kodim25.png</option>
       <option value="assets/kodim26.png">kodim26.png</option>
-     
+
       <option value="assets/xmen.png">xmen.png</option>
       <option value="assets/tng.png">tng.png</option>
       <option value="assets/base.png">base.png</option>
-     
+
    </select>
-   
+
    <br>
-   
+
    <div id="drop-area" style="width: 20%; height: 50px; border: 2px dashed #ccc; display: flex; justify-content: center; align-items: center; margin-top: 20px;">
     <p>Drag and drop a PNG/JPG/EXR/HDR file here, or click to select a file.</p>
     <input type="file" id="file-input" style="display: none;">
    </div>
    <br>
-      
+
    <input type="button" value="Download Encoded .KTX2 File" onclick="downloadEncodedFile()">
-   
-   <hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">            
+
+   <hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">
 
    <b>Visualization/Display Options:</b>
-   
+
    <br>
    Disable ETC1S->BC7 Transcoder's Chroma Artifact Filtering:
    <input type="checkbox" id="etc1s_bc7_transcoder_no_chroma_filtering" onclick="BC7ChromaFilterClicked()"></input>
 
-   <br>   
+   <br>
    <div id="threading-indicator"> </div>
-   
+
    Higher quality ASTC 6x6 HDR->BC6H transcoding:
    <input type="checkbox" id="highquality_transcoding" checked onclick="highQualityTranscodingClicked()">
-   
+
    <br><br>
    <input type="button" value="Alpha blend" onclick="alphaBlend()"></input>
    <input type="button" value="View RGB" onclick="viewRGB()"></input>
@@ -1603,10 +1603,10 @@
    <div style="position:absolute; left: 600px; top:160px; font-size: 20pt; font-weight: bold; color: red">
       <canvas id='canvas'></canvas>
    </div>
-   
+
    <br>
    <hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">
-      
+
    <b>KTX2 Texture Format to Encode:</b>
    <select id="basis-tex-format">
       <option value="0">ETC1S</option>
@@ -1616,83 +1616,83 @@
       <option value="4">ASTC HDR 6x6 Intermediate</option>
    </select>
    <br>
-      
+
    <hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">
-      
-   <b>ETC1S LDR Options:</b>      
+
+   <b>ETC1S LDR Options:</b>
    <br>
    ETC1S Quality:
    <input type="range" min="1" max="255" value="255" class="slider" id="EncodeQuality" style="width: 300px;">
    <span id="encode-quality-value">255</span>
-   
+
    <br>
    <label for="etc1s-comp-level-slider">ETC1S Comp Level:</label>
    <input type="range" id="etc1s-comp-level-slider" min="0" max="6" step="1" value="2">
    <span id="etc1s-comp-level-slider-value">2</span> <!-- Displays the current value -->
-   
-   <hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">            
-   
+
+   <hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">
+
    <b>UASTC LDR 4x4 Options:</b>
    <br>
    <label for="uastc-ldr-quality-slider">UASTC LDR Quality:</label>
    <input type="range" id="uastc-ldr-quality-slider" min="0" max="3" step="1" value="1">
    <span id="uastc-ldr-quality-value">1</span> <!-- Displays the current value -->
-   
+
    <br>
-   
+
    UASTC LDR RDO:
    <input type="checkbox" id="UASTC_LDR_RDO">
-   
+
    <label for="rdo-quality-slider">RDO Quality:</label>
    <input type="range" id="rdo-quality-slider" min="0.1" max="10" step="0.1" value="1.0">
    <span id="rdo-quality-value">1.0</span> <!-- Displays the current value -->
-   
-   <hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">               
-      
+
+   <hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">
+
    <b>UASTC HDR 4x4 Options:</b>
-  
+
    <br>
    <label for="uastc-hdr-quality-slider">UASTC HDR Quality:</label>
    <input type="range" id="uastc-hdr-quality-slider" min="0" max="3" step="1" value="0">
    <span id="uastc-hdr-quality-value">0</span> <!-- Displays the current value -->
    <br>
-   
-   <hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">            
-      
+
+   <hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">
+
    <b>ASTC HDR 6x6 Options:</b>
    <br>
-   
+
    <label for="astc-hdr6x6-comp-level-slider">Comp Level:</label>
    <input type="range" id="astc-hdr6x6-comp-level-slider" min="0" max="12" step="1" value="0">
    <span id="astc-hdr6x6-comp-level-value">0</span> <!-- Displays the current value -->
    <br>
-   
+
    RDO Quality (Lambda, 0-50k, try 0-5k, higher=smaller):
    <input type="text" id="astc6x6-rdo-lambda" value="0.0" size="10">
    <br>
-   
+
    REC 2020 Colorspace:
    <input type="checkbox" id="Rec2020">
-   
-   <hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">            
-      
+
+   <hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">
+
    <b>LDR->HDR Upconversion Options:</b>
    <br>
    Convert LDR images to linear light:
    <input type="checkbox" id="ConvertLDRToLinear" checked>
-   
+
    <br>
    LDR to HDR Upconversion Nit Multiplier:
-   <input type="text" id="ldr-to-hdr-multiplier" value="100.0" size="10" 
-          oninput="validateNitMultiplier(this)" 
+   <input type="text" id="ldr-to-hdr-multiplier" value="100.0" size="10"
+          oninput="validateNitMultiplier(this)"
           placeholder="Enter a value between 0.1 and 1000">
    <span id="ldr-to-hdr-warning" style="color: red; display: none;">Invalid value!</span>
    <br>
-   
-   <hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">            
-      
+
+   <hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">
+
    <b>Other Options:</b>
-   
+
    <br>
    Use sRGB/perceptual metrics:
    <input type="checkbox" id="SRGB">
@@ -1707,16 +1707,16 @@
    Compute Stats:
    <input type="checkbox" id="ComputeStats">
 
-   <hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">            
-   
+   <hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">
+
    <b>Log Output:</b>
 
    <div id='logger'></div>
-   
+
    <div id="busy-modal" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); z-index: 9999; justify-content: center; align-items: center; font-size: 24px; color: white; display: none;">
       Encoding... Please wait.
    </div>
-   
+
 </body>
 
 <script>
@@ -1750,18 +1750,18 @@
        script.onload = () => {
            BASIS({
                onRuntimeInitialized: () => {
-                     
+
                    console.warn('isThreaded: ' + window.isThreaded);
-               
+
                    globalInit();
-                   
+
                    const threadingIndicator = document.getElementById("threading-indicator");
-                   
-                   if (!threadingSupported) 
+
+                   if (!threadingSupported)
                    {
                      threadingIndicator.style.color = "red";
                      threadingIndicator.innerText = "Multithreading not supported! Running in non-threaded mode.";
-                     
+
                      const threadingCheckbox = document.getElementById("multithreaded_encoding");
                      threadingCheckbox.checked = false;
                    }
@@ -1769,20 +1769,20 @@
                    {
                      threadingIndicator.innerText = "Multithreading is supported.";
                    }
-                   
+
                }
            }).then(module => { window.Module = module;
-             
+
              if (module.initializeBasis) {
                 module.initializeBasis();
                 console.log("module.initializeBasis() called successfully.");
-             } 
+             }
              else {
                 console.error("module.initializeBasis() is not available on the Module object.");
              }
-             
+
              }
-           
+
            );
        };
 
@@ -1850,11 +1850,11 @@
              // Assume you have a function to process the file
              log(`Loaded file: ${file.name}`);
              log(`File size: ${file.size} bytes`);
-             
+
              //console.log("calling imageFileDataLoaded 2");
-             
+
              imageFileDataLoaded(arrayBuffer, file.name);
-             
+
              elem('imagefile').value = '<externally loaded>';
          };
 

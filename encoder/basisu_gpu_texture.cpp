@@ -36,9 +36,9 @@ namespace basisu
 		const eac_a8_block *pBlock = static_cast<const eac_a8_block *>(pBlock_bits);
 
 		const int8_t *pTable = g_etc2_eac_tables[pBlock->m_table];
-		
+
 		const uint64_t selector_bits = pBlock->get_selector_bits();
-		
+
 		const int32_t base = pBlock->m_base;
 		const int32_t mul = pBlock->m_multiplier;
 
@@ -72,16 +72,16 @@ namespace basisu
 		uint8_t m_low_color[cTotalEndpointBytes];
 		uint8_t m_high_color[cTotalEndpointBytes];
 		uint8_t m_selectors[cTotalSelectorBytes];
-				
+
 		inline uint32_t get_high_color() const	{ return m_high_color[0] | (m_high_color[1] << 8U); }
 		inline uint32_t get_low_color() const { return m_low_color[0] | (m_low_color[1] << 8U); }
 
-		static void unpack_color(uint32_t c, uint32_t &r, uint32_t &g, uint32_t &b) 
+		static void unpack_color(uint32_t c, uint32_t &r, uint32_t &g, uint32_t &b)
 		{
 			r = (c >> 11) & 31;
 			g = (c >> 5) & 63;
 			b = c & 31;
-			
+
 			r = (r << 3) | (r >> 2);
 			g = (g << 2) | (g >> 4);
 			b = (b << 3) | (b >> 2);
@@ -127,9 +127,9 @@ namespace basisu
 		{
 			for (uint32_t y = 0; y < 4; y++, pPixels += 4)
 			{
-				pPixels[0] = c[pBlock->get_selector(0, y)]; 
-				pPixels[1] = c[pBlock->get_selector(1, y)]; 
-				pPixels[2] = c[pBlock->get_selector(2, y)]; 
+				pPixels[0] = c[pBlock->get_selector(0, y)];
+				pPixels[1] = c[pBlock->get_selector(1, y)];
+				pPixels[2] = c[pBlock->get_selector(2, y)];
 				pPixels[3] = c[pBlock->get_selector(3, y)];
 			}
 		}
@@ -137,9 +137,9 @@ namespace basisu
 		{
 			for (uint32_t y = 0; y < 4; y++, pPixels += 4)
 			{
-				pPixels[0].set_rgb(c[pBlock->get_selector(0, y)]); 
-				pPixels[1].set_rgb(c[pBlock->get_selector(1, y)]); 
-				pPixels[2].set_rgb(c[pBlock->get_selector(2, y)]); 
+				pPixels[0].set_rgb(c[pBlock->get_selector(0, y)]);
+				pPixels[1].set_rgb(c[pBlock->get_selector(1, y)]);
+				pPixels[2].set_rgb(c[pBlock->get_selector(2, y)]);
 				pPixels[3].set_rgb(c[pBlock->get_selector(3, y)]);
 			}
 		}
@@ -206,9 +206,9 @@ namespace basisu
 		{
 			for (uint32_t y = 0; y < 4; y++, pPixels += 4)
 			{
-				pPixels[0] = c[pBlock->get_selector(0, y)]; 
-				pPixels[1] = c[pBlock->get_selector(1, y)]; 
-				pPixels[2] = c[pBlock->get_selector(2, y)]; 
+				pPixels[0] = c[pBlock->get_selector(0, y)];
+				pPixels[1] = c[pBlock->get_selector(1, y)];
+				pPixels[2] = c[pBlock->get_selector(2, y)];
 				pPixels[3] = c[pBlock->get_selector(3, y)];
 			}
 		}
@@ -216,9 +216,9 @@ namespace basisu
 		{
 			for (uint32_t y = 0; y < 4; y++, pPixels += 4)
 			{
-				pPixels[0].set_rgb(c[pBlock->get_selector(0, y)]); 
-				pPixels[1].set_rgb(c[pBlock->get_selector(1, y)]); 
-				pPixels[2].set_rgb(c[pBlock->get_selector(2, y)]); 
+				pPixels[0].set_rgb(c[pBlock->get_selector(0, y)]);
+				pPixels[1].set_rgb(c[pBlock->get_selector(1, y)]);
+				pPixels[2].set_rgb(c[pBlock->get_selector(2, y)]);
 				pPixels[3].set_rgb(c[pBlock->get_selector(3, y)]);
 			}
 		}
@@ -244,7 +244,7 @@ namespace basisu
 
 		c[0].set_noclamp_rgba(r0, g0, b0, 255);
 		c[1].set_noclamp_rgba(r1, g1, b1, 255);
-				
+
 		bool used_punchthrough = false;
 
 		if (l > h)
@@ -263,9 +263,9 @@ namespace basisu
 		{
 			for (uint32_t y = 0; y < 4; y++, pPixels += 4)
 			{
-				pPixels[0] = c[pBlock->get_selector(0, y)]; 
-				pPixels[1] = c[pBlock->get_selector(1, y)]; 
-				pPixels[2] = c[pBlock->get_selector(2, y)]; 
+				pPixels[0] = c[pBlock->get_selector(0, y)];
+				pPixels[1] = c[pBlock->get_selector(1, y)];
+				pPixels[2] = c[pBlock->get_selector(2, y)];
 				pPixels[3] = c[pBlock->get_selector(3, y)];
 			}
 		}
@@ -273,9 +273,9 @@ namespace basisu
 		{
 			for (uint32_t y = 0; y < 4; y++, pPixels += 4)
 			{
-				pPixels[0].set_rgb(c[pBlock->get_selector(0, y)]); 
-				pPixels[1].set_rgb(c[pBlock->get_selector(1, y)]); 
-				pPixels[2].set_rgb(c[pBlock->get_selector(2, y)]); 
+				pPixels[0].set_rgb(c[pBlock->get_selector(0, y)]);
+				pPixels[1].set_rgb(c[pBlock->get_selector(1, y)]);
+				pPixels[2].set_rgb(c[pBlock->get_selector(2, y)]);
 				pPixels[3].set_rgb(c[pBlock->get_selector(3, y)]);
 			}
 		}
@@ -298,7 +298,7 @@ namespace basisu
 		inline bool is_alpha6_block() const { return get_low_alpha() <= get_high_alpha(); }
 
 		inline uint64_t get_selector_bits() const
-		{ 
+		{
 			return ((uint64_t)((uint32_t)m_selectors[0] | ((uint32_t)m_selectors[1] << 8U) | ((uint32_t)m_selectors[2] << 16U) | ((uint32_t)m_selectors[3] << 24U))) |
 				(((uint64_t)m_selectors[4]) << 32U) |
 				(((uint64_t)m_selectors[5]) << 40U);
@@ -309,7 +309,7 @@ namespace basisu
 			assert((x < 4U) && (y < 4U));
 			return (selector_bits >> (((y * 4) + x) * cBC4SelectorBits)) & (cMaxSelectorValues - 1);
 		}
-				
+
 		static inline uint32_t get_block_values6(uint8_t *pDst, uint32_t l, uint32_t h)
 		{
 			pDst[0] = static_cast<uint8_t>(l);
@@ -364,7 +364,7 @@ namespace basisu
 			pPixels[stride * 3] = sel_values[pBlock->get_selector(3, y, selector_bits)];
 		}
 	}
-	
+
 	// Returns false if the block uses 3-color punchthrough alpha mode, which isn't supported on some GPU's for BC3.
 	bool unpack_bc3(const void *pBlock_bits, color_rgba *pPixels)
 	{
@@ -374,7 +374,7 @@ namespace basisu
 			success = false;
 
 		unpack_bc4(pBlock_bits, &pPixels[0].a, sizeof(color_rgba));
-		
+
 		return success;
 	}
 
@@ -384,7 +384,7 @@ namespace basisu
 		unpack_bc4(pBlock_bits, &pPixels[0].r, sizeof(color_rgba));
 		unpack_bc4((const uint8_t *)pBlock_bits + sizeof(bc4_block), &pPixels[0].g, sizeof(color_rgba));
 	}
-	
+
 	//------------------------------------------------------------------------------------------------
 	// ATC isn't officially documented, so I'm assuming these references:
 	// http://www.guildsoftware.com/papers/2012.Converting.DXTC.to.ATC.pdf
@@ -432,9 +432,9 @@ namespace basisu
 		for (uint32_t i = 0; i < 16; i++)
 		{
 			const uint32_t s = sels & 3;
-			
+
 			pPixels[i] = c[s];
-							
+
 			sels >>= 2;
 		}
 	}
@@ -457,12 +457,12 @@ namespace basisu
 		case 2: return bc7_interp2(l, h, w);
 		case 3: return bc7_interp3(l, h, w);
 		case 4: return bc7_interp4(l, h, w);
-		default: 
+		default:
 			break;
 		}
 		return 0;
 	}
-		
+
 	bool unpack_bc7_mode0_2(uint32_t mode, const void* pBlock_bits, color_rgba* pPixels)
 	{
 		//const uint32_t SUBSETS = 3;
@@ -472,7 +472,7 @@ namespace basisu
 		const uint32_t ENDPOINT_BITS = (mode == 0) ? 4 : 5;
 		const uint32_t PBITS = (mode == 0) ? 6 : 0;
 		const uint32_t WEIGHT_VALS = 1 << WEIGHT_BITS;
-		
+
 		uint32_t bit_offset = 0;
 		const uint8_t* pBuf = static_cast<const uint8_t*>(pBlock_bits);
 
@@ -524,7 +524,7 @@ namespace basisu
 		const uint32_t PBITS = (mode == 1) ? 2 : 4;
 		const uint32_t SHARED_PBITS = (mode == 1) ? true : false;
 		const uint32_t WEIGHT_VALS = 1 << WEIGHT_BITS;
-		
+
 		uint32_t bit_offset = 0;
 		const uint8_t* pBuf = static_cast<const uint8_t*>(pBlock_bits);
 
@@ -536,21 +536,21 @@ namespace basisu
 		for (uint32_t c = 0; c < COMPS; c++)
 			for (uint32_t e = 0; e < ENDPOINTS; e++)
 				endpoints[e][c] = (uint8_t)read_bits32(pBuf, bit_offset, ENDPOINT_BITS);
-		
+
 		uint32_t pbits[4];
 		for (uint32_t p = 0; p < PBITS; p++)
 			pbits[p] = read_bits32(pBuf, bit_offset, 1);
-						
+
 		uint32_t weights[16];
 		for (uint32_t i = 0; i < 16; i++)
 			weights[i] = read_bits32(pBuf, bit_offset, ((!i) || (i == basist::g_bc7_table_anchor_index_second_subset[part])) ? (WEIGHT_BITS - 1) : WEIGHT_BITS);
-		
+
 		assert(bit_offset == 128);
 
 		for (uint32_t e = 0; e < ENDPOINTS; e++)
 			for (uint32_t c = 0; c < 4; c++)
 				endpoints[e][c] = (uint8_t)((c == ((mode == 7U) ? 4U : 3U)) ? 255 : bc7_dequant(endpoints[e][c], pbits[SHARED_PBITS ? (e >> 1) : e], ENDPOINT_BITS));
-		
+
 		color_rgba block_colors[2][8];
 		for (uint32_t s = 0; s < 2; s++)
 			for (uint32_t i = 0; i < WEIGHT_VALS; i++)
@@ -589,11 +589,11 @@ namespace basisu
 		for (uint32_t c = 0; c < COMPS; c++)
 			for (uint32_t e = 0; e < ENDPOINTS; e++)
 				endpoints[e][c] = (uint8_t)read_bits32(pBuf, bit_offset, (c == 3) ? A_ENDPOINT_BITS : ENDPOINT_BITS);
-		
+
 		const uint32_t weight_bits[2] = { index_mode ? A_WEIGHT_BITS : WEIGHT_BITS,  index_mode ? WEIGHT_BITS : A_WEIGHT_BITS };
-		
+
 		uint32_t weights[16], a_weights[16];
-		
+
 		for (uint32_t i = 0; i < 16; i++)
 			(index_mode ? a_weights : weights)[i] = read_bits32(pBuf, bit_offset, weight_bits[index_mode] - ((!i) ? 1 : 0));
 
@@ -695,10 +695,10 @@ namespace basisu
 		{
 			const uint32_t w = basist::g_bc7_weights4[i];
 			const uint32_t iw = 64 - w;
-			vals[i].set_noclamp_rgba( 
-				(r0 * iw + r1 * w + 32) >> 6, 
-				(g0 * iw + g1 * w + 32) >> 6, 
-				(b0 * iw + b1 * w + 32) >> 6, 
+			vals[i].set_noclamp_rgba(
+				(r0 * iw + r1 * w + 32) >> 6,
+				(g0 * iw + g1 * w + 32) >> 6,
+				(b0 * iw + b1 * w + 32) >> 6,
 				(a0 * iw + a1 * w + 32) >> 6);
 		}
 
@@ -711,7 +711,7 @@ namespace basisu
 		pPixels[5] = vals[block.m_hi.m_s11];
 		pPixels[6] = vals[block.m_hi.m_s21];
 		pPixels[7] = vals[block.m_hi.m_s31];
-		
+
 		pPixels[8] = vals[block.m_hi.m_s02];
 		pPixels[9] = vals[block.m_hi.m_s12];
 		pPixels[10] = vals[block.m_hi.m_s22];
@@ -755,7 +755,7 @@ namespace basisu
 
 		return false;
 	}
-	
+
 	static inline int bc6h_sign_extend(int val, int bits)
 	{
 		assert((bits >= 1) && (bits < 32));
@@ -1105,7 +1105,7 @@ namespace basisu
 			return false;
 		if (pBlock->m_hi.m_alpha == 1)
 			return false;
-				
+
 		color_rgba colors[4];
 
 		colors[0].r = pBlock->m_hi.m_r0;
@@ -1155,7 +1155,7 @@ namespace basisu
 		for (uint32_t i = 0; i < 16; i++)
 		{
 			const uint32_t sel = (pBlock->m_sels[4 + (i >> 2)] >> ((i & 3) * 2)) & 3;
-			
+
 			const uint32_t x = i & 3;
 			const uint32_t y = i >> 2;
 			pPixels[4 + x + y * 8] = block1_colors[sel];
@@ -1216,7 +1216,7 @@ namespace basisu
 	{
 		return color_rgba((col[0] << 3) | (col[0] >> 2), (col[1] << 3) | (col[1] >> 2), (col[2] << 3) | (col[2] >> 2), 255);
 	}
-	
+
 	static color_rgba convert_rgba_5554_to_8888(const color_rgba& col)
 	{
 		return color_rgba((col[0] << 3) | (col[0] >> 2), (col[1] << 3) | (col[1] >> 2), (col[2] << 3) | (col[2] >> 2), (col[3] << 4) | col[3]);
@@ -1239,10 +1239,10 @@ namespace basisu
 		{
 			// colora=554
 			color_rgba color_a(pBlock->m_opaque_color_data.m_red_a, pBlock->m_opaque_color_data.m_green_a, (pBlock->m_opaque_color_data.m_blue_a << 1) | (pBlock->m_opaque_color_data.m_blue_a >> 3), 255);
-			
+
 			// colora=555
 			color_rgba color_b(pBlock->m_opaque_color_data.m_red_b, pBlock->m_opaque_color_data.m_green_b, pBlock->m_opaque_color_data.m_blue_b, 255);
-						
+
 			colors[0] = convert_rgb_555_to_888(color_a);
 			colors[3] = convert_rgb_555_to_888(color_b);
 
@@ -1251,11 +1251,11 @@ namespace basisu
 		}
 		else
 		{
-			// colora=4433 
+			// colora=4433
 			color_rgba color_a(
-				(pBlock->m_trans_color_data.m_red_a << 1) | (pBlock->m_trans_color_data.m_red_a >> 3), 
+				(pBlock->m_trans_color_data.m_red_a << 1) | (pBlock->m_trans_color_data.m_red_a >> 3),
 				(pBlock->m_trans_color_data.m_green_a << 1) | (pBlock->m_trans_color_data.m_green_a >> 3),
-				(pBlock->m_trans_color_data.m_blue_a << 2) | (pBlock->m_trans_color_data.m_blue_a >> 1), 
+				(pBlock->m_trans_color_data.m_blue_a << 2) | (pBlock->m_trans_color_data.m_blue_a >> 1),
 				pBlock->m_trans_color_data.m_alpha_a << 1);
 
 			//colorb=4443
@@ -1331,9 +1331,9 @@ namespace basisu
 			for (uint32_t x = 0; x < 4; x++)
 			{
 				const uint32_t shift = 45 - ((y + x * 4) * 3);
-				
+
 				const uint32_t sel = (uint32_t)((sels >> shift) & 7);
-				
+
 				int val = base + g_etc2_eac_tables[table][sel] * mul;
 				val = clamp<int>(val, 0, 2047);
 
@@ -1362,7 +1362,7 @@ namespace basisu
 	{
 		basist::unpack_uastc(*static_cast<const basist::uastc_block*>(p), (basist::color32 *)pPixels, false);
 	}
-			
+
 	// Unpacks to RGBA, R, RG, or A. LDR GPU texture formats only.
 	bool unpack_block(texture_format fmt, const void* pBlock, color_rgba* pPixels)
 	{
@@ -1440,7 +1440,7 @@ namespace basisu
 
 			if (!status)
 				return false;
-			
+
 			break;
 		}
 		case texture_format::cATC_RGB:
@@ -1532,7 +1532,7 @@ namespace basisu
 #else
 				// Use our decoder
 				basist::half_float half_block[16][4];
-				
+
 				astc_helpers::log_astc_block log_blk;
 				if (!astc_helpers::unpack_block(pBlock, log_blk, 4, 4))
 					return false;
@@ -1577,7 +1577,7 @@ namespace basisu
 		assert(0);
 		return false;
 	}
-		
+
 	bool gpu_image::unpack(image& img) const
 	{
 		img.resize(get_pixel_width(), get_pixel_height());
@@ -1589,10 +1589,10 @@ namespace basisu
 		if ((m_fmt == texture_format::cPVRTC1_4_RGB) || (m_fmt == texture_format::cPVRTC1_4_RGBA))
 		{
 			pvrtc4_image pi(m_width, m_height);
-			
+
 			if (get_total_blocks() != pi.get_total_blocks())
 				return false;
-			
+
 			memcpy(&pi.get_blocks()[0], get_ptr(), get_size_in_bytes());
 
 			pi.deswizzle();
@@ -1662,14 +1662,14 @@ namespace basisu
 
 		return success;
 	}
-		
+
 	// KTX1 texture file writing
 	static const uint8_t g_ktx_file_id[12] = { 0xAB, 0x4B, 0x54, 0x58, 0x20, 0x31, 0x31, 0xBB, 0x0D, 0x0A, 0x1A, 0x0A };
 
 	// KTX/GL enums
 	enum
 	{
-		KTX_ENDIAN = 0x04030201, 
+		KTX_ENDIAN = 0x04030201,
 		KTX_OPPOSITE_ENDIAN = 0x01020304,
 		KTX_ETC1_RGB8_OES = 0x8D64,
 		KTX_RED = 0x1903,
@@ -1689,7 +1689,7 @@ namespace basisu
 		KTX_COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT = 0x8E8F,
 		KTX_COMPRESSED_RGB_PVRTC_4BPPV1_IMG = 0x8C00,
 		KTX_COMPRESSED_RGBA_PVRTC_4BPPV1_IMG = 0x8C02,
-		
+
 		KTX_COMPRESSED_RGBA_ASTC_4x4_KHR = 0x93B0,
 		KTX_COMPRESSED_RGBA_ASTC_5x4_KHR = 0x93B1,
 		KTX_COMPRESSED_RGBA_ASTC_5x5_KHR = 0x93B2,
@@ -1731,7 +1731,7 @@ namespace basisu
 		KTX_COMPRESSED_R11_EAC = 0x9270,
 		KTX_COMPRESSED_RG11_EAC = 0x9272
 	};
-		
+
 	struct ktx_header
 	{
 		uint8_t m_identifier[12];
@@ -1773,7 +1773,7 @@ namespace basisu
 				return false;
 			}
 		}
-				
+
 		for (uint32_t array_index = 0; array_index < gpu_images.size(); array_index++)
 		{
 			const gpu_image_vec &levels = gpu_images[array_index];
@@ -1905,7 +1905,7 @@ namespace basisu
 		{
 			internal_fmt = KTX_COMPRESSED_RGBA_ASTC_6x6_KHR;
 			// TODO: should we write RGB? We don't support generating HDR 6x6 with alpha.
-			base_internal_fmt = KTX_RGBA; 
+			base_internal_fmt = KTX_RGBA;
 			break;
 		}
 		// We use different enums for HDR vs. LDR ASTC, but internally they are both just ASTC.
@@ -2169,7 +2169,7 @@ namespace basisu
 			} // array_index
 		}
 #endif
-		
+
 		// Write DDS file using tinydds
 		TinyDDS_WriteCallbacks cbs;
 		cbs.error = [](void* user, char const* msg) { BASISU_NOTE_UNUSED(user);  fprintf(stderr, "tinydds: %s\n", msg); };
@@ -2179,7 +2179,7 @@ namespace basisu
 
 		uint32_t mipmap_sizes[32];
 		const void* mipmap_ptrs[32];
-		
+
 		clear_obj(mipmap_sizes);
 		clear_obj(mipmap_ptrs);
 
@@ -2197,7 +2197,7 @@ namespace basisu
 		{
 			case texture_format::cBC1_NV:
 			case texture_format::cBC1_AMD:
-			case texture_format::cBC1: 
+			case texture_format::cBC1:
 				tinydds_fmt = use_srgb_format ? TDDS_BC1_RGBA_SRGB_BLOCK : TDDS_BC1_RGBA_UNORM_BLOCK;
 				break;
 			case texture_format::cBC3:
@@ -2226,7 +2226,7 @@ namespace basisu
 		}
 
 		// DirectXTex's DDSView doesn't handle odd sizes textures correctly. RenderDoc loads them fine, however.
-		// Trying to work around this here results in invalid mipmaps. 
+		// Trying to work around this here results in invalid mipmaps.
 		//width = (width + 3) & ~3;
 		//height = (height + 3) & ~3;
 
@@ -2248,7 +2248,7 @@ namespace basisu
 			fprintf(stderr, "write_dds_file: Failed creating DDS file\n");
 			return false;
 		}
-								
+
 		return true;
 	}
 
@@ -2267,7 +2267,7 @@ namespace basisu
 
 		return true;
 	}
-		
+
 	bool read_uncompressed_dds_file(const char* pFilename, basisu::vector<image> &ldr_mips,	basisu::vector<imagef>& hdr_mips)
 	{
 		const uint32_t MAX_IMAGE_DIM = 16384;
@@ -2278,7 +2278,7 @@ namespace basisu
 		cbs.allocFn = [](void* user, size_t size) -> void* { BASISU_NOTE_UNUSED(user); return malloc(size); };
 		cbs.freeFn = [](void* user, void* memory) { BASISU_NOTE_UNUSED(user); free(memory); };
 		cbs.readFn = [](void* user, void* buffer, size_t byteCount) -> size_t { return (size_t)fread(buffer, 1, byteCount, (FILE*)user); };
-		
+
 #ifdef _MSC_VER
 		cbs.seekFn = [](void* user, int64_t ofs) -> bool { return _fseeki64((FILE*)user, ofs, SEEK_SET) == 0; };
 		cbs.tellFn = [](void* user) -> int64_t { return _ftelli64((FILE*)user); };
@@ -2318,7 +2318,7 @@ namespace basisu
 			error_printf("Failed parsing DDS header in file \"%s\"\n", pFilename);
 			goto failure;
 		}
-				
+
 		if ((!TinyDDS_Is2D(ctx)) || (TinyDDS_ArraySlices(ctx) > 1) || (TinyDDS_IsCubemap(ctx)))
 		{
 			error_printf("Unsupported DDS texture type in file \"%s\"\n", pFilename);
@@ -2327,7 +2327,7 @@ namespace basisu
 
 		width = TinyDDS_Width(ctx);
 		height = TinyDDS_Height(ctx);
-						
+
 		if (!width || !height)
 		{
 			error_printf("DDS texture dimensions invalid in file \"%s\"\n", pFilename);
@@ -2339,7 +2339,7 @@ namespace basisu
 			error_printf("DDS texture dimensions too large in file \"%s\"\n", pFilename);
 			goto failure;
 		}
-		
+
 		tfmt = TinyDDS_GetFormat(ctx);
 		switch (tfmt)
 		{
@@ -2387,7 +2387,7 @@ namespace basisu
 				}
 
 				memcpy(ldr_mips[level].get_ptr(), pImage, image_size);
-								
+
 				if ((tfmt == TDDS_B8G8R8A8_SRGB) || (tfmt == TDDS_B8G8R8A8_UNORM))
 				{
 					// Swap R and B components.
@@ -2416,7 +2416,7 @@ namespace basisu
 			else if (fmt == cRGBA_HALF)
 			{
 				hdr_mips[level].resize(level_width, level_height);
-				
+
 				if ((hdr_mips[level].get_total_pixels() * sizeof(basist::half_float) * 4 != image_size))
 				{
 					assert(0);
@@ -2426,7 +2426,7 @@ namespace basisu
 				// Unpack half to float.
 				const basist::half_float* pSrc_comps = static_cast<const basist::half_float*>(pImage);
 				vec4F* pDst_texels = hdr_mips[level].get_ptr();
-				
+
 				for (uint32_t i = 0; i < total_level_texels; i++)
 				{
 					(*pDst_texels)[0] = basist::half_to_float(pSrc_comps[0]);
@@ -2500,7 +2500,7 @@ namespace basisu
 	}
 
 	//const uint32_t OUT_FILE_MAGIC = 'TEXC';
-	struct out_file_header 
+	struct out_file_header
 	{
 		packed_uint<4> m_magic;
 		packed_uint<4> m_pad;
@@ -2532,11 +2532,11 @@ namespace basisu
 
 		fwrite(&hdr, sizeof(hdr), 1, pFile);
 		fwrite(gi.get_ptr(), gi.get_size_in_bytes(), 1, pFile);
-		
+
 		return fclose(pFile) != EOF;
 	}
 
-	// The .astc texture format is readable using ARM's astcenc, AMD Compressonator, and other engines/tools. It oddly doesn't support mipmaps, limiting 
+	// The .astc texture format is readable using ARM's astcenc, AMD Compressonator, and other engines/tools. It oddly doesn't support mipmaps, limiting
 	// its usefulness/relevance.
 	// https://github.com/ARM-software/astc-encoder/blob/main/Docs/FileFormat.md
 	bool write_astc_file(const char* pFilename, const void* pBlocks, uint32_t block_width, uint32_t block_height, uint32_t dim_x, uint32_t dim_y)
@@ -2578,6 +2578,5 @@ namespace basisu
 
 		return write_vec_to_file(pFilename, file_data);
 	}
-		
-} // basisu
 
+} // basisu
