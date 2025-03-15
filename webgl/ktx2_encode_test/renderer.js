@@ -10,7 +10,7 @@ var Renderer = function (gl) {
     * @private
     */
    this.gl_ = gl;
-         
+
    /**
     * The WebGLProgram.
     * @type {WebGLProgram}
@@ -156,12 +156,12 @@ Renderer.prototype.createHalfRGBATexture = function (data, width, height, format
    return tex;
 };
 
-// WebGL requires each row of rgb565Data to be aligned on a 4-byte boundary.            
+// WebGL requires each row of rgb565Data to be aligned on a 4-byte boundary.
 Renderer.prototype.createRgb565Texture = function (rgb565Data, width, height) {
    var gl = this.gl_;
    var tex = gl.createTexture();
    gl.bindTexture(gl.TEXTURE_2D, tex);
-   
+
    gl.texImage2D(
       gl.TEXTURE_2D,
       0,
@@ -250,7 +250,7 @@ Renderer.prototype.compileShader_ = function (shaderSource, type) {
    var shader = gl.createShader(type);
    gl.shaderSource(shader, shaderSource);
    gl.compileShader(shader);
-   
+
      // Check for errors
    const compiled = gl.getShaderParameter(shader, gl.COMPILE_STATUS);
    if (!compiled) {
@@ -259,7 +259,7 @@ Renderer.prototype.compileShader_ = function (shaderSource, type) {
         gl.deleteShader(shader); // Cleanup shader object
         throw new Error('Shader compilation failed');
    }
-    
+
    return shader;
 };
 
@@ -310,4 +310,3 @@ Renderer.fragmentShaderSource_ = [
    '  gl_FragColor = c;',
    '}'
 ].join('\n');
-
