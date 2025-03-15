@@ -22,7 +22,7 @@ HBITMAP rgbToBitmap(const uint32_t* src, uint32_t const imgW, uint32_t const img
 	 * Creates a bitmap (a DIB) for the passed-in pixel size. Note that
 	 * negation of the height means top-down, origin upper-left, which is the
 	 * regular case.
-	 * 
+	 *
 	 * TODO: 16-bit variant instead?
 	 */
 	assert(src && imgW && imgH);
@@ -38,7 +38,7 @@ HBITMAP rgbToBitmap(const uint32_t* src, uint32_t const imgW, uint32_t const img
 	HBITMAP hbmp = CreateDIBSection(NULL, &bmi, DIB_RGB_COLORS, &pixels, NULL, 0);
 	/*
 	 * RGBA to BGRA conversion.
-	 * 
+	 *
 	 * Note: we keep the alpha.
 	 */
 	if (hbmp && pixels) {
