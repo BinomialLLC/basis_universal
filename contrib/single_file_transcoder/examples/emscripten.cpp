@@ -131,7 +131,7 @@ static GLchar const fragShader2D[] =
 
 /**
  * Helper to compile a shader.
- * 
+ *
  * \param type shader type
  * \param text shader source
  * \return the shader ID (or zero if compilation failed)
@@ -199,7 +199,7 @@ struct posTex2d {
 
 /*
  * Possibly missing GL enums.
- * 
+ *
  * Note: GL_COMPRESSED_RGB_ETC1_WEBGL is the same as GL_ETC1_RGB8_OES
  */
 #ifndef GL_ETC1_RGB8_OES
@@ -233,7 +233,7 @@ static etc1_global_selector_codebook* globalCodebook = NULL;
 
 /**
  * Returns a supported compressed texture format for a given context.
- * 
+ *
  * \param[in] ctx WebGL context
  * \param[in] alpha \c true if the texture has an alpha channel
  * \return corresponding Basis format
@@ -243,7 +243,7 @@ static transcoder_texture_format supports(EMSCRIPTEN_WEBGL_CONTEXT_HANDLE const 
 	/*
 	 * Test for both prefixed and non-prefixed versions. This should grab iOS
 	 * and other ImgTec GPUs first as a preference.
-	 * 
+	 *
 	 * TODO: do older iOS expose ASTC to the browser and does it transcode to RGBA?
 	 */
 	static bool const pvr = GL_HAS_EXT(ctx, "WEBKIT_WEBGL_compressed_texture_pvrtc")
@@ -291,7 +291,7 @@ static transcoder_texture_format supports(EMSCRIPTEN_WEBGL_CONTEXT_HANDLE const 
 #endif
 	/*
 	 * Finally ETC1, falling back on RGBA.
-	 * 
+	 *
 	 * TODO: we might just prefer to transcode to dithered 565 once available
 	 */
 	static bool const etc1 = GL_HAS_EXT(ctx, "WEBGL_compressed_texture_etc1");
@@ -306,10 +306,10 @@ static transcoder_texture_format supports(EMSCRIPTEN_WEBGL_CONTEXT_HANDLE const 
 
 /**
  * Returns the equivalent GL type given a BasisU type.
- * 
+ *
  * \note This relies on \c #supports() returning the supported formats, and so
  * only converts to the GL equivalents (without further testing for support).
- * 
+ *
  * \param[in] type BasisU transcode target
  * \return equivalent GL type
  */
@@ -340,13 +340,13 @@ static GLenum toGlType(transcoder_texture_format const type) {
 
 /**
  * Uploads the texture.
- * 
+ *
  * \param[in] ctx ctx WebGL context
  * \param[in] name texture \e name
  * \param[in] data \c .basis file content
  * \param[in] size number of bytes in \a data
  * \return \c true if the texture was decoded and created
- * 
+ *
  * \todo reuse the decode buffer (the first mips level should be able to contain the rest)
  */
 bool upload(EMSCRIPTEN_WEBGL_CONTEXT_HANDLE const ctx, GLuint const name, const uint8_t* const data, size_t const size) {
@@ -477,7 +477,7 @@ static EM_BOOL initContext() {
 static void tick() {
 	glClearColor(1.0f, 0.0f, 1.0f, 1.0f);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-	
+
 	if (uRotId >= 0) {
 		glUniform1f(uRotId, rotDeg);
 		rotDeg += 0.1f;
@@ -486,7 +486,7 @@ static void tick() {
 		}
 		glBindTexture(GL_TEXTURE_2D, txName[(lround(rotDeg / 45) & 1) != 0]);
 	}
-	
+
 	glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, 0);
 	glFlush();
 }
@@ -501,10 +501,10 @@ int main() {
 		if ((progId = glCreateProgram())) {
 			 vertId = compileShader(GL_VERTEX_SHADER,   vertShader2D);
 			 fragId = compileShader(GL_FRAGMENT_SHADER, fragShader2D);
-			 
+
 			 glBindAttribLocation(progId, GL_VERT_POSXY_ID, "aPos");
 			 glBindAttribLocation(progId, GL_VERT_TXUV0_ID, "aUV0");
-			 
+
 			 glAttachShader(progId, vertId);
 			 glAttachShader(progId, fragId);
 			 glLinkProgram (progId);
@@ -514,7 +514,7 @@ int main() {
 			 if (uTx0Id >= 0) {
 				 glUniform1i(uTx0Id, 0);
 			 }
-			
+
 			 glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 			 glEnable(GL_BLEND);
 			 glDisable(GL_DITHER);
@@ -522,7 +522,7 @@ int main() {
 			 glCullFace(GL_BACK);
 			 glEnable(GL_CULL_FACE);
 		}
-		
+
 		GLuint vertsBuf = 0;
 		GLuint indexBuf = 0;
 		// Create the textured quad (vert positions then UVs)
@@ -551,14 +551,14 @@ int main() {
 			sizeof(index2d), index2d, GL_STATIC_DRAW);
 		glEnableVertexAttribArray(GL_VERT_POSXY_ID);
 		glEnableVertexAttribArray(GL_VERT_TXUV0_ID);
-		
+
 		glGenTextures(2, txName);
 		if (upload(glCtx, txName[0], srcRgb,  sizeof srcRgb) &&
 			upload(glCtx, txName[1], srcRgba, sizeof srcRgba))
 		{
 			printf("Decoded!\n");
 		}
-		
+
 		emscripten_set_main_loop(tick, 0, EM_FALSE);
 		emscripten_exit_with_live_runtime();
 	} else {

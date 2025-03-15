@@ -142,4 +142,3 @@ void detect_sse41()
 
 } // namespace basisu
 #endif // #if BASISU_SUPPORT_SSE
-
