@@ -4810,8 +4810,6 @@ void clear_console()
 
 //-----------------------------------------------------------------------------------
 
-#include "encoder/basisu_pvrtc1_4.h"
-
 int main(int argc, const char** argv)
 {
 #ifdef _WIN32
