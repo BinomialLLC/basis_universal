@@ -209,10 +209,10 @@
          has_alpha = basisFile.getHasAlpha();
          is_hdr = basisFile.isHDR();
          basisTexFormat = basisFile.getBasisTexFormat();
-         
+
          var srcBlockWidth = basisFile.getBlockWidth();
          var srcBlockHeight = basisFile.getBlockHeight();
-         
+
          var dstBlockWidth = 4;
          var dstBlockHeight = 4;
 
@@ -232,7 +232,7 @@
 
          var formatString = 'UNKNOWN';
          if (is_hdr) {
-            if (astcHDRSupported) 
+            if (astcHDRSupported)
             {
                if (basisTexFormat == Module.basis_tex_format.cUASTC_HDR_4x4.value)
                {
@@ -243,7 +243,7 @@
                {
                   formatString = 'ASTC HDR 6x6';
                   format = BASIS_FORMAT.cTFASTC_HDR_6x6_RGBA;
-                  
+
                   dstBlockWidth = 6;
                   dstBlockHeight = 6;
                }
@@ -323,7 +323,7 @@
          }
 
          const isUncompressedFormat = Module.formatIsUncompressed(format);
-                  
+
          const bytesPerBlockOrPixel = Module.getBytesPerBlockOrPixel(format);
          log('isUncompressedFormat: ' + isUncompressedFormat + ' bytesPerBlockOrPixel: ' + bytesPerBlockOrPixel);
 
@@ -461,7 +461,7 @@
          log('first image mipmap levels: ' + levels);
          log('has_alpha: ' + has_alpha);
          logTime('transcoding time', elapsed.toFixed(2));
-                           
+
          alignedWidth = Math.floor((width + dstBlockWidth - 1) / dstBlockWidth) * dstBlockWidth;
          alignedHeight = Math.floor((height + dstBlockHeight - 1) / dstBlockHeight) * dstBlockHeight;
 

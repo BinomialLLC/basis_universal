@@ -54,7 +54,7 @@ CPPSPMD_FORCE_INLINE vfloat atan2_est(vfloat y, vfloat x);
 
 CPPSPMD_FORCE_INLINE vfloat atan_est(vfloat x) { return atan2_est(x, vfloat(1.0f)); }
 
-// Don't call this for angles close to 90/270! 
+// Don't call this for angles close to 90/270!
 inline vfloat tan_est(vfloat x);
 
 // https://burtleburtle.net/bob/rand/smallprng.html
@@ -86,4 +86,3 @@ void print_vbool(vbool v);
 void print_vint_hex(vint v);
 void print_active_lanes(const char *pPrefix);
 void print_vfloat(vfloat v);
-
