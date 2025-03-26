@@ -1722,7 +1722,7 @@ namespace basisu
 			if ((!m_params.m_hdr) && (m_params.m_source_mipmap_images.size()))
 			{
 				// User-provided mipmaps for each layer or image in the texture array.
-				for (uint32_t mip_index = 0; mip_index < m_params.m_source_mipmap_images[source_file_index].size(); mip_index++)
+				for (uint32_t mip_index = 1; mip_index < m_params.m_source_mipmap_images[source_file_index].size(); mip_index++)
 				{
 					image& mip_img = m_params.m_source_mipmap_images[source_file_index][mip_index];
 
@@ -1748,7 +1748,7 @@ namespace basisu
 			else if ((m_params.m_hdr) && (m_params.m_source_mipmap_images_hdr.size()))
 			{
 				// User-provided mipmaps for each layer or image in the texture array.
-				for (uint32_t mip_index = 0; mip_index < m_params.m_source_mipmap_images_hdr[source_file_index].size(); mip_index++)
+				for (uint32_t mip_index = 1; mip_index < m_params.m_source_mipmap_images_hdr[source_file_index].size(); mip_index++)
 				{
 					imagef& mip_img = m_params.m_source_mipmap_images_hdr[source_file_index][mip_index];
 
