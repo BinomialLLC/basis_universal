@@ -13733,8 +13733,25 @@ namespace basist
 
 	const uint8_t g_bc7_alpha_index_bitcount[8] = { 0, 0, 0, 0, 3, 2, 4, 2 };
 
-	endpoint_err g_bc7_mode_6_optimal_endpoints[256][2]; // [c][pbit]
-	endpoint_err g_bc7_mode_5_optimal_endpoints[256]; // [c]
+	const endpoint_sel g_bc7_mode_5_optimal_endpoints[256] = // [c]
+	{
+		{ 0,0 }, { 0,1 }, { 0,3 }, { 0,4 }, { 0,6 }, { 0,7 }, { 0,9 }, { 0,10 }, { 0,12 }, { 0,13 }, { 0,15 }, { 0,16 }, { 0,18 }, { 0,20 }, { 0,21 }, { 0,23 },
+		{ 0,24 }, { 0,26 }, { 0,27 }, { 0,29 }, { 0,30 }, { 0,32 }, { 0,33 }, { 0,35 }, { 0,36 }, { 0,38 }, { 0,39 }, { 0,41 }, { 0,42 }, { 0,44 }, { 0,45 }, { 0,47 },
+		{ 0,48 }, { 0,50 }, { 0,52 }, { 0,53 }, { 0,55 }, { 0,56 }, { 0,58 }, { 0,59 }, { 0,61 }, { 0,62 }, { 0,64 }, { 0,65 }, { 0,66 }, { 0,68 }, { 0,69 }, { 0,71 },
+		{ 0,72 }, { 0,74 }, { 0,75 }, { 0,77 }, { 0,78 }, { 0,80 }, { 0,82 }, { 0,83 }, { 0,85 }, { 0,86 }, { 0,88 }, { 0,89 }, { 0,91 }, { 0,92 }, { 0,94 }, { 0,95 },
+		{ 0,97 }, { 0,98 }, { 0,100 }, { 0,101 }, { 0,103 }, { 0,104 }, { 0,106 }, { 0,107 }, { 0,109 }, { 0,110 }, { 0,112 }, { 0,114 }, { 0,115 }, { 0,117 }, { 0,118 }, { 0,120 },
+		{ 0,121 }, { 0,123 }, { 0,124 }, { 0,126 }, { 0,127 }, { 1,127 }, { 2,126 }, { 3,126 }, { 3,127 }, { 4,127 }, { 5,126 }, { 6,126 }, { 6,127 }, { 7,127 }, { 8,126 }, { 9,126 },
+		{ 9,127 }, { 10,127 }, { 11,126 }, { 12,126 }, { 12,127 }, { 13,127 }, { 14,126 }, { 15,125 }, { 15,127 }, { 16,126 }, { 17,126 }, { 17,127 }, { 18,127 }, { 19,126 }, { 20,126 }, { 20,127 },
+		{ 21,127 }, { 22,126 }, { 23,126 }, { 23,127 }, { 24,127 }, { 25,126 }, { 26,126 }, { 26,127 }, { 27,127 }, { 28,126 }, { 29,126 }, { 29,127 }, { 30,127 }, { 31,126 }, { 32,126 }, { 32,127 },
+		{ 33,127 }, { 34,126 }, { 35,126 }, { 35,127 }, { 36,127 }, { 37,126 }, { 38,126 }, { 38,127 }, { 39,127 }, { 40,126 }, { 41,126 }, { 41,127 }, { 42,127 }, { 43,126 }, { 44,126 }, { 44,127 },
+		{ 45,127 }, { 46,126 }, { 47,125 }, { 47,127 }, { 48,126 }, { 49,126 }, { 49,127 }, { 50,127 }, { 51,126 }, { 52,126 }, { 52,127 }, { 53,127 }, { 54,126 }, { 55,126 }, { 55,127 }, { 56,127 },
+		{ 57,126 }, { 58,126 }, { 58,127 }, { 59,127 }, { 60,126 }, { 61,126 }, { 61,127 }, { 62,127 }, { 63,126 }, { 64,125 }, { 64,126 }, { 65,126 }, { 65,127 }, { 66,127 }, { 67,126 }, { 68,126 },
+		{ 68,127 }, { 69,127 }, { 70,126 }, { 71,126 }, { 71,127 }, { 72,127 }, { 73,126 }, { 74,126 }, { 74,127 }, { 75,127 }, { 76,126 }, { 77,125 }, { 77,127 }, { 78,126 }, { 79,126 }, { 79,127 },
+		{ 80,127 }, { 81,126 }, { 82,126 }, { 82,127 }, { 83,127 }, { 84,126 }, { 85,126 }, { 85,127 }, { 86,127 }, { 87,126 }, { 88,126 }, { 88,127 }, { 89,127 }, { 90,126 }, { 91,126 }, { 91,127 },
+		{ 92,127 }, { 93,126 }, { 94,126 }, { 94,127 }, { 95,127 }, { 96,126 }, { 97,126 }, { 97,127 }, { 98,127 }, { 99,126 }, { 100,126 }, { 100,127 }, { 101,127 }, { 102,126 }, { 103,126 }, { 103,127 },
+		{ 104,127 }, { 105,126 }, { 106,126 }, { 106,127 }, { 107,127 }, { 108,126 }, { 109,125 }, { 109,127 }, { 110,126 }, { 111,126 }, { 111,127 }, { 112,127 }, { 113,126 }, { 114,126 }, { 114,127 }, { 115,127 },
+		{ 116,126 }, { 117,126 }, { 117,127 }, { 118,127 }, { 119,126 }, { 120,126 }, { 120,127 }, { 121,127 }, { 122,126 }, { 123,126 }, { 123,127 }, { 124,127 }, { 125,126 }, { 126,126 }, { 126,127 }, { 127,127 },
+	};
 
 	static inline void bc7_set_block_bits(uint8_t* pBytes, uint32_t val, uint32_t num_bits, uint32_t* pCur_ofs)
 	{
@@ -15503,50 +15520,23 @@ namespace basist
 		}
 		case UASTC_MODE_INDEX_SOLID_COLOR:
 		{
-			// Void-Extent: Solid Color RGBA (BC7 MODE5 or MODE6)
+			// Void-Extent: Solid Color RGBA (BC7 MODE5)
 			const color32& solid_color = unpacked_src_blk.m_solid_color;
 
-			uint32_t best_err0 = g_bc7_mode_6_optimal_endpoints[solid_color.r][0].m_error + g_bc7_mode_6_optimal_endpoints[solid_color.g][0].m_error +
-				g_bc7_mode_6_optimal_endpoints[solid_color.b][0].m_error + g_bc7_mode_6_optimal_endpoints[solid_color.a][0].m_error;
+			dst_blk.m_mode = 5;
 
-			uint32_t best_err1 = g_bc7_mode_6_optimal_endpoints[solid_color.r][1].m_error + g_bc7_mode_6_optimal_endpoints[solid_color.g][1].m_error +
-				g_bc7_mode_6_optimal_endpoints[solid_color.b][1].m_error + g_bc7_mode_6_optimal_endpoints[solid_color.a][1].m_error;
-
-			if (best_err0 > 0 && best_err1 > 0)
+			for (uint32_t c = 0; c < 3; c++)
 			{
-				dst_blk.m_mode = 5;
-
-				for (uint32_t c = 0; c < 3; c++)
-				{
-					dst_blk.m_low[0].m_c[c] = g_bc7_mode_5_optimal_endpoints[solid_color.c[c]].m_lo;
-					dst_blk.m_high[0].m_c[c] = g_bc7_mode_5_optimal_endpoints[solid_color.c[c]].m_hi;
-				}
-
-				memset(dst_blk.m_selectors, BC7ENC_MODE_5_OPTIMAL_INDEX, 16);
-
-				dst_blk.m_low[0].m_c[3] = solid_color.c[3];
-				dst_blk.m_high[0].m_c[3] = solid_color.c[3];
-
-				//memset(dst_blk.m_alpha_selectors, 0, 16);
+				dst_blk.m_low[0].m_c[c] = g_bc7_mode_5_optimal_endpoints[solid_color.c[c]].m_lo;
+				dst_blk.m_high[0].m_c[c] = g_bc7_mode_5_optimal_endpoints[solid_color.c[c]].m_hi;
 			}
-			else
-			{
-				dst_blk.m_mode = 6;
 
-				uint32_t best_p = 0;
-				if (best_err1 < best_err0)
-					best_p = 1;
+			memset(dst_blk.m_selectors, BC7ENC_MODE_5_OPTIMAL_INDEX, 16);
 
-				for (uint32_t c = 0; c < 4; c++)
-				{
-					dst_blk.m_low[0].m_c[c] = g_bc7_mode_6_optimal_endpoints[solid_color.c[c]][best_p].m_lo;
-					dst_blk.m_high[0].m_c[c] = g_bc7_mode_6_optimal_endpoints[solid_color.c[c]][best_p].m_hi;
-				}
+			dst_blk.m_low[0].m_c[3] = solid_color.c[3];
+			dst_blk.m_high[0].m_c[3] = solid_color.c[3];
 
-				dst_blk.m_pbits[0][0] = best_p;
-				dst_blk.m_pbits[0][1] = best_p;
-				memset(dst_blk.m_selectors, BC7ENC_MODE_6_OPTIMAL_INDEX, 16);
-			}
+			//memset(dst_blk.m_alpha_selectors, 0, 16);
 
 			break;
 		}
@@ -18762,45 +18752,13 @@ namespace basist
 			} // i
 		}
 
-		// TODO: Precompute?
-		// BC7 777.1
-		for (int c = 0; c < 256; c++)
-		{
-			for (uint32_t lp = 0; lp < 2; lp++)
-			{
-				endpoint_err best;
-				best.m_error = (uint16_t)UINT16_MAX;
-
-				for (uint32_t l = 0; l < 128; l++)
-				{
-					const uint32_t low = (l << 1) | lp;
-
-					for (uint32_t h = 0; h < 128; h++)
-					{
-						const uint32_t high = (h << 1) | lp;
-
-						const int k = (low * (64 - g_bc7_weights4[BC7ENC_MODE_6_OPTIMAL_INDEX]) + high * g_bc7_weights4[BC7ENC_MODE_6_OPTIMAL_INDEX] + 32) >> 6;
-
-						const int err = (k - c) * (k - c);
-						if (err < best.m_error)
-						{
-							best.m_error = (uint16_t)err;
-							best.m_lo = (uint8_t)l;
-							best.m_hi = (uint8_t)h;
-						}
-					} // h
-				} // l
-
-				g_bc7_mode_6_optimal_endpoints[c][lp] = best;
-			} // lp
-
-		} // c
-
+		// BC7 mode 5 table is precomputed
+	#if 0
 		// BC7 777
 		for (int c = 0; c < 256; c++)
 		{
-			endpoint_err best;
-			best.m_error = (uint16_t)UINT16_MAX;
+			endpoint_sel best = {};
+			uint16_t best_error = (uint16_t)UINT16_MAX;
 
 			for (uint32_t l = 0; l < 128; l++)
 			{
@@ -18813,9 +18771,9 @@ namespace basist
 					const int k = (low * (64 - g_bc7_weights2[BC7ENC_MODE_5_OPTIMAL_INDEX]) + high * g_bc7_weights2[BC7ENC_MODE_5_OPTIMAL_INDEX] + 32) >> 6;
 
 					const int err = (k - c) * (k - c);
-					if (err < best.m_error)
+					if (err < best_error)
 					{
-						best.m_error = (uint16_t)err;
+						best_error = (uint16_t)err;
 						best.m_lo = (uint8_t)l;
 						best.m_hi = (uint8_t)h;
 					}
@@ -18825,6 +18783,7 @@ namespace basist
 			g_bc7_mode_5_optimal_endpoints[c] = best;
 
 		} // c
+	#endif
 	}
 
 #endif // #if BASISD_SUPPORT_UASTC
