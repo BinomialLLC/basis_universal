@@ -1315,6 +1315,86 @@ public:
         return true;
     }
 
+    // Only works for LDR inputs.
+    bool set_slice_source_mipmap_image(uint32_t slice_index, uint32_t level_index, const emscripten::val& src_image_js_val, uint32_t src_image_width, uint32_t src_image_height, ldr_image_type img_type)
+    {
+        
+        if (level_index == 0) {
+            return set_slice_source_image(slice_index, src_image_js_val, src_image_width, src_image_height, img_type);
+        }
+
+        
+        if (slice_index >= m_params.m_source_mipmap_images.size())
+        {
+            m_params.m_source_mipmap_images.resize(slice_index + 1);
+        }
+
+        if (level_index >= m_params.m_source_mipmap_images[slice_index].size())
+        {
+            m_params.m_source_mipmap_images[slice_index].resize(level_index + 1);
+        }
+
+        // First copy the src image buffer to the heap.
+        basisu::vector<uint8_t> src_image_buf;
+        copy_from_jsbuffer(src_image_js_val, src_image_buf);
+
+        // Now load the source image.
+        image& src_img = m_params.m_source_mipmap_images[slice_index][level_index];
+        if (img_type == ldr_image_type::cPNGImage)
+        {
+            // It's a PNG file, so try and parse it.
+            if (!load_png(src_image_buf.data(), src_image_buf.size(), src_img, nullptr))
+            {
+#if BASISU_DEBUG_PRINTF
+                printf("basis_encoder::set_slice_source_mipmap_image: Failed parsing provided PNG file!\n");
+#endif
+                return false;
+            }
+
+            src_image_width = src_img.get_width();
+            src_image_height = src_img.get_height();
+        }
+        else if (img_type == ldr_image_type::cJPGImage)
+        {
+            // It's a JPG file, so try and parse it.
+            if (!load_jpg(src_image_buf.data(), src_image_buf.size(), src_img))
+            {
+#if BASISU_DEBUG_PRINTF
+                printf("basis_encoder::set_slice_source_mipmap_image: Failed parsing provided JPG file!\n");
+#endif
+                return false;
+            }
+
+            src_image_width = src_img.get_width();
+            src_image_height = src_img.get_height();
+        }
+        else if (img_type == ldr_image_type::cRGBA32)
+        {
+            // It's a raw image, so check the buffer's size.
+            if (src_image_buf.size() != src_image_width * src_image_height * sizeof(uint32_t))
+            {
+#if BASISU_DEBUG_PRINTF
+                printf("basis_encoder::set_slice_source_mipmap_image: Provided source buffer has an invalid size!\n");
+#endif
+                return false;
+            }
+
+            // Copy the raw image's data into our source image.
+            src_img.resize(src_image_width, src_image_height);
+            memcpy(src_img.get_ptr(), src_image_buf.data(), src_image_width * src_image_height * sizeof(uint32_t));
+        }
+        else
+        {
+#if BASISU_DEBUG_PRINTF
+            printf("basis_encoder::set_slice_source_mipmap_image: Invalid img_type parameter\n");
+#endif
+            assert(0);
+            return false;
+        }
+
+        return true;
+    }
+
 	// Accepts RGBA half float or RGBA float images, or .EXR, .HDR, .PNG, or .JPG file data.
     bool set_slice_source_image_hdr(
         uint32_t slice_index,
@@ -1334,6 +1414,52 @@ public:
 
         // Now load the source image.
         imagef& src_img = m_params.m_source_images_hdr[slice_index];
+
+        if (!load_image_hdr(src_image_buf.get_ptr(), src_image_buf.size(), src_img, src_image_width, src_image_height, img_type, ldr_srgb_to_linear_conversion, ldr_to_hdr_nit_multiplier))
+            return false;
+
+        if ((img_type == hdr_image_type::cHITPNGImage) || (img_type == hdr_image_type::cHITJPGImage))
+        {
+            // Because we're loading the image ourselves we need to add these tags so the UI knows how to tone map LDR upconverted outputs. 
+            // Normally basis_compressor adds them when it loads the images itself from source files.
+            basist::ktx2_add_key_value(m_params.m_ktx2_key_values, "LDRUpconversionMultiplier", fmt_string("{}", ldr_to_hdr_nit_multiplier));
+
+            if (ldr_srgb_to_linear_conversion)
+                basist::ktx2_add_key_value(m_params.m_ktx2_key_values, "LDRUpconversionSRGBToLinear", "1");
+        }
+                		
+        return true;
+    }
+
+    bool set_slice_source_image_mipmap_hdr(
+        uint32_t slice_index,
+        uint32_t level_index,
+        const emscripten::val& src_image_js_val,
+        uint32_t src_image_width, uint32_t src_image_height,
+        hdr_image_type img_type, bool ldr_srgb_to_linear_conversion, float ldr_to_hdr_nit_multiplier)
+    {
+        assert(ldr_to_hdr_nit_multiplier > 0.0f);
+
+        if (level_index == 0) {
+            return set_slice_source_image_hdr(slice_index, src_image_js_val, src_image_width, src_image_height, img_type, ldr_srgb_to_linear_conversion, ldr_to_hdr_nit_multiplier);
+        }
+        
+        if (slice_index >= m_params.m_source_mipmap_images_hdr.size())
+        {
+            m_params.m_source_mipmap_images_hdr.resize(slice_index + 1);
+        }
+
+        if (level_index >= m_params.m_source_mipmap_images_hdr[slice_index].size())
+        {
+            m_params.m_source_mipmap_images_hdr[slice_index].resize(level_index + 1);
+        }
+
+        // First copy the src image buffer to the heap.
+        basisu::vector<uint8_t> src_image_buf;
+        copy_from_jsbuffer(src_image_js_val, src_image_buf);
+
+        // Now load the source image.
+        imagef& src_img = m_params.m_source_mipmap_images_hdr[slice_index][level_index];
 
         if (!load_image_hdr(src_image_buf.get_ptr(), src_image_buf.size(), src_img, src_image_width, src_image_height, img_type, ldr_srgb_to_linear_conversion, ldr_to_hdr_nit_multiplier))
             return false;
@@ -2282,6 +2408,10 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
         return self.set_slice_source_image(slice_index, src_image_js_val, width, height, (ldr_image_type)img_type);
     }))
 
+    .function("setSliceSourceMipmapImage", optional_override([](basis_encoder& self, uint32_t slice_index, uint32_t level_index, const emscripten::val& src_image_js_val, uint32_t width, uint32_t height, uint32_t img_type) {
+        return self.set_slice_source_mipmap_image(slice_index, level_index, src_image_js_val, width, height, (ldr_image_type)img_type);
+    }))
+
     .function("controlThreading", optional_override([](basis_encoder& self, bool enable_threading, uint32_t num_extra_worker_threads) {
       return self.control_threading(enable_threading, num_extra_worker_threads);
     }))
@@ -2290,6 +2420,11 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
 	.function("setSliceSourceImageHDR", optional_override([](basis_encoder& self, uint32_t slice_index, const emscripten::val& src_image_js_val, uint32_t width, uint32_t height, uint32_t img_type, 
         bool ldr_srgb_to_linear_conversion, float ldr_to_hdr_nit_multiplier) {
         return self.set_slice_source_image_hdr(slice_index, src_image_js_val, width, height, (hdr_image_type)img_type, ldr_srgb_to_linear_conversion, ldr_to_hdr_nit_multiplier);
+    }))
+
+    .function("setSliceSourceMipmapImageHDR", optional_override([](basis_encoder& self, uint32_t slice_index, uint32_t level_index, const emscripten::val& src_image_js_val, uint32_t width, uint32_t height, uint32_t img_type, 
+        bool ldr_srgb_to_linear_conversion, float ldr_to_hdr_nit_multiplier) {
+        return self.set_slice_source_image_mipmap_hdr(slice_index, level_index, src_image_js_val, width, height, (hdr_image_type)img_type, ldr_srgb_to_linear_conversion, ldr_to_hdr_nit_multiplier);
     }))
 
     // Sets the desired encoding format. This is the preferred way to control which format the encoder creates.
