@@ -183,7 +183,7 @@ THREE.GLTFLoader = ( function () {
 						case EXTENSIONS.MSFT_TEXTURE_DDS:
 							extensions[ extensionName ] = new GLTFTextureDDSExtension( this.ddsLoader );
 							break;
-						
+
 						case EXTENSIONS.GOOGLE_TEXTURE_BASIS:
 							extensions[ EXTENSIONS.GOOGLE_TEXTURE_BASIS ] = new GLTFTextureBasisExtension();
 							break;
