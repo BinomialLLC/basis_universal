@@ -2,7 +2,8 @@
 # It should also work without this option, but we do not test with it.
 cmake_minimum_required(VERSION 3.5)
 
-project(basisu)
+project(basisu C CXX)
+set(CMAKE_CXX_STANDARD 17)
 option(STATIC "static linking" FALSE)
 option(SAN "sanitize" FALSE)
 
