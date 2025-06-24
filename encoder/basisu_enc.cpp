@@ -663,7 +663,7 @@ namespace basisu
 			}
 
 			img.resize(width, height);
-			memcpy(img.get_ptr(), pMem, width * height * sizeof(float) * 4);
+			memcpy((void *)img.get_ptr(), pMem, width * height * sizeof(float) * 4);
 
 			break;
 		}
@@ -3460,7 +3460,7 @@ namespace basisu
 		}
 		else
 		{
-			memcpy(img.get_ptr(), out_rgba, static_cast<size_t>(sizeof(float) * 4 * img.get_total_pixels()));
+			memcpy((void *)img.get_ptr(), out_rgba, static_cast<size_t>(sizeof(float) * 4 * img.get_total_pixels()));
 		}
 
 		free(out_rgba);
@@ -3482,7 +3482,7 @@ namespace basisu
 		}
 
 		img.resize(width, height);
-		memcpy(img.get_ptr(), out_rgba, width * height * sizeof(float) * 4);
+		memcpy((void *)img.get_ptr(), out_rgba, width * height * sizeof(float) * 4);
 		free(out_rgba);
 
 		return true;

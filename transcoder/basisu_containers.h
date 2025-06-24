@@ -1656,7 +1656,7 @@ namespace basisu
 #endif         
 #endif
 				if ((m_p) && (other.m_p))
-					memcpy(m_p, other.m_p, other.m_size * sizeof(T));
+					memcpy((void *)m_p, other.m_p, other.m_size * sizeof(T));
 #ifndef __EMSCRIPTEN__          
 #ifdef __GNUC__
 #pragma GCC diagnostic pop
@@ -2241,7 +2241,7 @@ namespace basisu
 #endif
 #endif
 
-				memmove(pDst, pSrc, num_to_move * sizeof(T));
+				memmove((void *)pDst, pSrc, num_to_move * sizeof(T));
 
 #ifndef __EMSCRIPTEN__
 #ifdef __GNUC__

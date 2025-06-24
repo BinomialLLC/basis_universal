@@ -2411,7 +2411,7 @@ namespace basisu
 					goto failure;
 				}
 
-				memcpy(hdr_mips[level].get_ptr(), pImage, image_size);
+				memcpy((void *)hdr_mips[level].get_ptr(), pImage, image_size);
 			}
 			else if (fmt == cRGBA_HALF)
 			{

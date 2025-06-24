@@ -114,7 +114,7 @@ namespace basisu
 #endif                  
 #endif
 		
-	template <typename T> inline void clear_obj(T& obj) { memset(&obj, 0, sizeof(obj)); }
+	template <typename T> inline void clear_obj(T& obj) { memset((void *)&obj, 0, sizeof(obj)); }
 
 #ifndef __EMSCRIPTEN__
 #ifdef __GNUC__
