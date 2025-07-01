@@ -100,6 +100,7 @@ We build and test under:
 - Mac OSX (M1) with clang v15.0
 - Ubuntu Linux with gcc v11.4 or clang v14
 - Arch Linux ARM, on a [Pinebook Pro](https://pine64.org/devices/pinebook_pro/), with gcc v12.1.
+- Ubuntu Linux 24.04 on RISC-V (Orange PI RV2)
 
 Under Windows with Visual Studio you can use the included `basisu.sln` file. Alternatively, you can use cmake to create new VS solution/project files.
 
