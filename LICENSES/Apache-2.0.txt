@@ -187,7 +187,7 @@ a file or class name and description of purpose be included on the same "printed
 page" as the copyright notice for easier identification within third-party
 archives.
 
-Copyright [yyyy] [name of copyright owner]
+Copyright 2019-2025 Binomial LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 
