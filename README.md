@@ -19,7 +19,9 @@ Links
 
 - [Release Notes](https://github.com/BinomialLLC/basis_universal/wiki/Release-Notes)
 
-- [Live Encoder/Transcoder WebGL Examples](https://subquantumtech.com/bu_6x6/)
+- [Live Compression/Transcoding Testbed](https://subquantumtech.com/bu_6x6/ktx2_encode_test/)
+ 
+- [Live WebGL Examples](https://subquantumtech.com/bu_6x6/)
 
 - [Javascript API/WASM/WebGL info](https://github.com/BinomialLLC/basis_universal/tree/master/webgl)
 
