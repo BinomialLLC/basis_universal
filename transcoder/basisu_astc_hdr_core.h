@@ -181,7 +181,7 @@ namespace basist
 
 			bool m_hq_ls;
 			bool m_brute_force_weight4_assignment;
-			
+
 			fast_bc6h_params()
 			{
 				init();
@@ -203,4 +203,3 @@ namespace basist
 	} // namespace astc_6x6_hdr
 
 } // namespace basist
-

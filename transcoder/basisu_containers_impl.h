@@ -14,7 +14,7 @@ namespace basisu
 #ifdef _MSC_VER
 	__declspec(noreturn)
 #else
-	[[noreturn]] 
+	[[noreturn]]
 #endif
 	void container_abort(const char* pMsg, ...)
 	{
@@ -42,12 +42,12 @@ namespace basisu
 		assert(m_size <= m_capacity);
 		assert(min_new_capacity >= m_size);
 		assert(element_size);
-		
+
 		// Basic sanity check min_new_capacity
 		if (!can_fit_into_size_t((uint64_t)min_new_capacity * element_size))
 		{
 			assert(0);
-			
+
 			if (nofail_flag)
 				return false;
 
@@ -100,7 +100,7 @@ namespace basisu
 		}
 
 		const size_t desired_size = static_cast<size_t>(desired_size_u64);
-						
+
 		size_t actual_size = 0;
 		BASISU_NOTE_UNUSED(actual_size);
 
@@ -269,7 +269,7 @@ namespace basisu
 				s.insert(i);
 				k.push_back(i);
 			}
-						
+
 			for (uint32_t i = 0; i < k.size(); i++)
 			{
 				uint32_t r = rand() ^ (rand() << 15);
@@ -315,7 +315,7 @@ namespace basisu
 		{
 			typedef basisu::hash_map< uint32_t, basisu::vector<uint32_t> > hm;
 			hm q;
-			
+
 			basisu::vector<uint32_t> a, b;
 			a.push_back(1);
 			b.push_back(2);
