@@ -6657,6 +6657,8 @@ bool compress_photo(const basisu::imagef &orig_src_img, const astc_hdr_6x6_globa
 	interval_timer tm;
 	tm.start();
 
+	job_pool::token token{0};
+
 	std::atomic_bool any_failed_flag;
 	any_failed_flag.store(false);
 
@@ -6685,14 +6687,14 @@ bool compress_photo(const basisu::imagef &orig_src_img, const astc_hdr_6x6_globa
 					any_failed_flag.store(true, std::memory_order_relaxed);
 				}
 			}
-		} );
+		}, &token);
 
 		if (any_failed_flag)
 			break;
 	
 	} // strip_index
 
-	pJob_pool->wait_for_all();
+	pJob_pool->wait_for_all(&token);
 
 	if (any_failed_flag)
 	{
