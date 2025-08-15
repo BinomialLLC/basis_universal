@@ -43,6 +43,6 @@ artifacts:
   # Linux
   - path: bin/basisu
   # MacOS
-  - path: bin_osx/basisu
+  - path: bin/basisu
   # Windows
   - path: bin\$(configuration)\basisu.exe

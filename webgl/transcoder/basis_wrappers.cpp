@@ -30,14 +30,22 @@
 #define BASISU_DEBUG_PRINTF 0
 #endif
 
+#define BASISU_ENCODER_MAX_SOURCE_IMAGE_PIXELS (6291456)
+
 #include "basisu_transcoder.h"
-#include <emscripten/bind.h>
 #include <algorithm>
 
 #if BASISU_SUPPORT_ENCODING
 #include "../../encoder/basisu_comp.h"
+#include "../../encoder/basisu_astc_hdr_6x6_enc.h"
 #include "../../encoder/basisu_resampler_filters.h"
 #endif
+
+#include <emscripten/bind.h>
+#if BASISU_SUPPORT_ENCODING
+#include <emscripten/threading.h>
+#endif
+#include <emscripten.h>
 
 using namespace emscripten;
 using namespace basist;
@@ -48,6 +56,9 @@ static bool g_basis_initialized_flag;
 // Global one-time initialization. MUST be called before using any other functionality.
 void basis_init()
 {
+    static std::mutex s_init_mutex;
+    std::lock_guard<std::mutex> lock(s_init_mutex);
+
 #if BASISU_DEBUG_PRINTF
     printf("basis_init()\n");
 #endif
@@ -108,8 +119,8 @@ static bool copy_to_jsbuffer(const emscripten::val& dstBuffer, const basisu::vec
     return true;
 }
 
-#define BASIS_MAGIC 0xDEADBEE1
-#define KTX2_MAGIC 0xDEADBEE2
+const uint32_t BASIS_MAGIC = 0xD4ADBEA1;
+const uint32_t KTX2_MAGIC = 0xD4ADBEF2;
 
 struct basis_file_desc
 {
@@ -122,7 +133,7 @@ struct basis_file_desc
     uint32_t m_userdata0;
     uint32_t m_userdata1;
 
-    // Type of texture (cETC1S, cUASTC4x4, or cUASTC_HDR_4x4)
+    // Type of texture (cETC1S, cUASTC4x4, cUASTC_HDR_4x4, etc.)
     uint32_t m_tex_format; // basis_tex_format
 
     bool m_y_flipped;
@@ -141,6 +152,9 @@ struct basis_file_desc
     // Huffman codelength tables
     uint32_t m_tables_ofs;
     uint32_t m_tables_len;
+
+    uint32_t m_block_width;
+    uint32_t m_block_height;
 };
 
 struct basis_image_desc
@@ -150,6 +164,8 @@ struct basis_image_desc
     uint32_t m_num_blocks_x;
     uint32_t m_num_blocks_y;
     uint32_t m_num_levels;
+    uint32_t m_block_width;
+    uint32_t m_block_height;
 
     // Will be true if the image has alpha (for UASTC this may vary per-image)
     bool m_alpha_flag;
@@ -275,6 +291,39 @@ struct basis_file
         return orig_height;
     }
 
+    // Returns a basis_tex_format (cETC1S, cUASTC, cUASTC_HDR_4x4, etc.)
+    uint32_t getBasisTexFormat()
+    {
+        assert(m_magic == BASIS_MAGIC);
+        if (m_magic != BASIS_MAGIC)
+            return false;
+
+        basis_tex_format fmt = m_transcoder.get_basis_tex_format(m_file.data(), m_file.size());
+        return (uint32_t)fmt;
+    }
+
+    // Currently 4 or 6
+    uint32_t getBlockWidth() const
+    {
+        assert(m_magic == BASIS_MAGIC);
+        if (m_magic != BASIS_MAGIC)
+            return false;
+
+        basis_tex_format fmt = m_transcoder.get_basis_tex_format(m_file.data(), m_file.size());
+        return basis_tex_format_get_block_width(fmt);
+    }
+
+    // Currently 4 or 6
+    uint32_t getBlockHeight()
+    {
+        assert(m_magic == BASIS_MAGIC);
+        if (m_magic != BASIS_MAGIC)
+            return false;
+
+        basis_tex_format fmt = m_transcoder.get_basis_tex_format(m_file.data(), m_file.size());
+        return basis_tex_format_get_block_height(fmt);
+    }
+
     basis_file_desc getFileDesc()
     {
         basis_file_desc result;
@@ -312,6 +361,9 @@ struct basis_file
         result.m_tables_ofs = file_info.m_tables_ofs;
         result.m_tables_len = file_info.m_tables_size;
 
+        result.m_block_width = file_info.m_block_width;
+        result.m_block_height = file_info.m_block_height;
+
         return result;
     }
 
@@ -340,6 +392,8 @@ struct basis_file
         result.m_num_levels = image_info.m_total_levels;
         result.m_alpha_flag = image_info.m_alpha_flag;
         result.m_iframe_flag = image_info.m_iframe_flag;
+        result.m_block_width = image_info.m_block_width;
+        result.m_block_height = image_info.m_block_height;
 
         return result;
     }
@@ -374,62 +428,87 @@ struct basis_file
         assert(m_magic == BASIS_MAGIC);
         if (m_magic != BASIS_MAGIC)
             return 0;
-
+                
         if (format >= (int)transcoder_texture_format::cTFTotalTextureFormats)
-            return 0;
-
-        uint32_t orig_width, orig_height, total_blocks;
-        if (!m_transcoder.get_image_level_desc(m_file.data(), m_file.size(), image_index, level_index, orig_width, orig_height, total_blocks))
-            return 0;
-
-        const transcoder_texture_format transcoder_format = static_cast<transcoder_texture_format>(format);
-
-        if (basis_transcoder_format_is_uncompressed(transcoder_format))
         {
-            // Uncompressed formats are just plain raster images.
-            const uint32_t bytes_per_pixel = basis_get_uncompressed_bytes_per_pixel(transcoder_format);
-            const uint32_t bytes_per_line = orig_width * bytes_per_pixel;
-            const uint32_t bytes_per_slice = bytes_per_line * orig_height;
-            return bytes_per_slice;
+            assert(0);
+            return 0;
         }
-        else
+
+        const transcoder_texture_format tex_format = static_cast<transcoder_texture_format>(format);
+                        
+        uint32_t orig_width, orig_height, total_src_blocks;
+        if (!m_transcoder.get_image_level_desc(m_file.data(), m_file.size(), image_index, level_index, orig_width, orig_height, total_src_blocks))
         {
-            // Compressed formats are 2D arrays of blocks.
-            const uint32_t bytes_per_block = basis_get_bytes_per_block_or_pixel(transcoder_format);
-
-            if (transcoder_format == transcoder_texture_format::cTFPVRTC1_4_RGB || transcoder_format == transcoder_texture_format::cTFPVRTC1_4_RGBA)
-            {
-                // For PVRTC1, Basis only writes (or requires) total_blocks * bytes_per_block. But GL requires extra padding for very small textures:
-                // https://www.khronos.org/registry/OpenGL/extensions/IMG/IMG_texture_compression_pvrtc.txt
-                const uint32_t width = (orig_width + 3) & ~3;
-                const uint32_t height = (orig_height + 3) & ~3;
-                const uint32_t size_in_bytes = (std::max(8U, width) * std::max(8U, height) * 4 + 7) / 8;
-                return size_in_bytes;
-            }
-
-            return total_blocks * bytes_per_block;
+            assert(0);
+            return 0;
         }
+
+        return basis_compute_transcoded_image_size_in_bytes(tex_format, orig_width, orig_height);
     }
 
-    bool isUASTC()
+    // Only true for UASTC LDR 4x4.
+    bool isUASTC_LDR_4x4()
     {
         assert(m_magic == BASIS_MAGIC);
         if (m_magic != BASIS_MAGIC)
             return false;
 
-        return m_transcoder.get_tex_format(m_file.data(), m_file.size()) == basis_tex_format::cUASTC4x4;
+        return m_transcoder.get_basis_tex_format(m_file.data(), m_file.size()) == basis_tex_format::cUASTC4x4;
     }
 
-	// Returns true if the texture is UASTC HDR. In this case, it can only be transcoded to BC6H, ASTC 4x4 HDR, or half-float RGB/RGBA images.
+    bool isETC1S()
+    {
+        assert(m_magic == BASIS_MAGIC);
+        if (m_magic != BASIS_MAGIC)
+            return false;
+
+        return m_transcoder.get_basis_tex_format(m_file.data(), m_file.size()) == basis_tex_format::cETC1S;
+    }
+
+    // True for any LDR texture types
+    bool isLDR()
+    {
+        assert(m_magic == BASIS_MAGIC);
+        if (m_magic != BASIS_MAGIC)
+            return false;
+
+        basis_tex_format fmt = m_transcoder.get_basis_tex_format(m_file.data(), m_file.size());
+        return (fmt == basis_tex_format::cETC1S) || (fmt == basis_tex_format::cUASTC4x4);
+    }
+        
+	// True if the texture is UASTC HDR 4x4 or ASTC HDR 6x6.
+    // In this case, it can only be transcoded to BC6H, ASTC HDR (of the same block dimensions, currently 4x4 or 6x6), RGB9E5 or half-float RGB/RGBA images.
     bool isHDR()
     {
         assert(m_magic == BASIS_MAGIC);
         if (m_magic != BASIS_MAGIC)
             return false;
 
-        return m_transcoder.get_tex_format(m_file.data(), m_file.size()) == basis_tex_format::cUASTC_HDR_4x4;
+        basis_tex_format fmt = m_transcoder.get_basis_tex_format(m_file.data(), m_file.size());
+        return basis_tex_format_is_hdr(fmt);
+    }
+        
+    bool isHDR4x4()
+    {
+        assert(m_magic == BASIS_MAGIC);
+        if (m_magic != BASIS_MAGIC)
+            return false;
+
+        basis_tex_format fmt = m_transcoder.get_basis_tex_format(m_file.data(), m_file.size());
+        return (fmt == basis_tex_format::cUASTC_HDR_4x4);
     }
 
+    bool isHDR6x6()
+    {
+        assert(m_magic == BASIS_MAGIC);
+        if (m_magic != BASIS_MAGIC)
+            return false;
+
+        basis_tex_format fmt = m_transcoder.get_basis_tex_format(m_file.data(), m_file.size());
+        return (fmt == basis_tex_format::cASTC_HDR_6x6) || (fmt == basis_tex_format::cASTC_HDR_6x6_INTERMEDIATE);
+    }
+        
     uint32_t startTranscoding()
     {
         assert(m_magic == BASIS_MAGIC);
@@ -439,6 +518,7 @@ struct basis_file
         return m_transcoder.start_transcoding(m_file.data(), m_file.size());
     }
 
+    // Here for backwards compat, prefer transcodeImageWithFlags().
     uint32_t transcodeImage(const emscripten::val& dst, uint32_t image_index, uint32_t level_index, uint32_t format, uint32_t unused, uint32_t get_alpha_for_opaque_formats)
     {
         (void)unused;
@@ -451,25 +531,23 @@ struct basis_file
             return 0;
 
         const transcoder_texture_format transcoder_format = static_cast<transcoder_texture_format>(format);
-
-        uint32_t orig_width, orig_height, total_blocks;
-        if (!m_transcoder.get_image_level_desc(m_file.data(), m_file.size(), image_index, level_index, orig_width, orig_height, total_blocks))
+                
+        uint32_t orig_width, orig_height, total_src_blocks;
+        if (!m_transcoder.get_image_level_desc(m_file.data(), m_file.size(), image_index, level_index, orig_width, orig_height, total_src_blocks))
             return 0;
 
         basisu::vector<uint8_t> dst_data;
 
         uint32_t flags = get_alpha_for_opaque_formats ? cDecodeFlagsTranscodeAlphaDataToOpaqueFormats : 0;
+                
+        const uint32_t transcoded_size_in_bytes = getImageTranscodedSizeInBytes(image_index, level_index, format);
+
+        dst_data.resize(transcoded_size_in_bytes);
 
         uint32_t status;
 
         if (basis_transcoder_format_is_uncompressed(transcoder_format))
         {
-            const uint32_t bytes_per_pixel = basis_get_uncompressed_bytes_per_pixel(transcoder_format);
-            const uint32_t bytes_per_line = orig_width * bytes_per_pixel;
-            const uint32_t bytes_per_slice = bytes_per_line * orig_height;
-
-            dst_data.resize(bytes_per_slice);
-
             status = m_transcoder.transcode_image_level(
                 m_file.data(), m_file.size(), image_index, level_index,
                 dst_data.data(), orig_width * orig_height,
@@ -481,22 +559,61 @@ struct basis_file
         }
         else
         {
-            uint32_t bytes_per_block = basis_get_bytes_per_block_or_pixel(transcoder_format);
+            const uint32_t bytes_per_block = basis_get_bytes_per_block_or_pixel(transcoder_format);
 
-            uint32_t required_size = total_blocks * bytes_per_block;
+            status = m_transcoder.transcode_image_level(
+                m_file.data(), m_file.size(), image_index, level_index,
+                dst_data.data(), dst_data.size() / bytes_per_block,
+                static_cast<basist::transcoder_texture_format>(format),
+                flags);
+        }
 
-            if (transcoder_format == transcoder_texture_format::cTFPVRTC1_4_RGB || transcoder_format == transcoder_texture_format::cTFPVRTC1_4_RGBA)
-            {
-                // For PVRTC1, Basis only writes (or requires) total_blocks * bytes_per_block. But GL requires extra padding for very small textures:
-                // https://www.khronos.org/registry/OpenGL/extensions/IMG/IMG_texture_compression_pvrtc.txt
-                // The transcoder will clear the extra bytes followed the used blocks to 0.
-                const uint32_t width = (orig_width + 3) & ~3;
-                const uint32_t height = (orig_height + 3) & ~3;
-                required_size = (std::max(8U, width) * std::max(8U, height) * 4 + 7) / 8;
-                assert(required_size >= total_blocks * bytes_per_block);
-            }
+        emscripten::val memory = emscripten::val::module_property("HEAP8")["buffer"];
+        emscripten::val memoryView = emscripten::val::global("Uint8Array").new_(memory, reinterpret_cast<uintptr_t>(dst_data.data()), dst_data.size());
 
-            dst_data.resize(required_size);
+        dst.call<void>("set", memoryView);
+        return status;
+    }
+    
+    // Like transcodeImage(), but with fixed parameters.
+    // For flags, see cDecodeFlagsPVRTCDecodeToNextPow2 etc.
+    uint32_t transcodeImageWithFlags(const emscripten::val& dst, uint32_t image_index, uint32_t level_index, uint32_t format, uint32_t flags)
+    {
+        assert(m_magic == BASIS_MAGIC);
+        if (m_magic != BASIS_MAGIC)
+            return 0;
+
+        if (format >= (int)transcoder_texture_format::cTFTotalTextureFormats)
+            return 0;
+
+        const transcoder_texture_format transcoder_format = static_cast<transcoder_texture_format>(format);
+                
+        uint32_t orig_width, orig_height, total_src_blocks;
+        if (!m_transcoder.get_image_level_desc(m_file.data(), m_file.size(), image_index, level_index, orig_width, orig_height, total_src_blocks))
+            return 0;
+
+        basisu::vector<uint8_t> dst_data;
+                
+        const uint32_t transcoded_size_in_bytes = getImageTranscodedSizeInBytes(image_index, level_index, format);
+
+        dst_data.resize(transcoded_size_in_bytes);
+
+        uint32_t status;
+
+        if (basis_transcoder_format_is_uncompressed(transcoder_format))
+        {
+            status = m_transcoder.transcode_image_level(
+                m_file.data(), m_file.size(), image_index, level_index,
+                dst_data.data(), orig_width * orig_height,
+                transcoder_format,
+                flags,
+                orig_width,
+                nullptr,
+                orig_height);
+        }
+        else
+        {
+            const uint32_t bytes_per_block = basis_get_bytes_per_block_or_pixel(transcoder_format);
 
             status = m_transcoder.transcode_image_level(
                 m_file.data(), m_file.size(), image_index, level_index,
@@ -717,6 +834,22 @@ struct ktx2_file
         return m_transcoder.get_height();
     }
 
+    uint32_t getBlockWidth()
+    {
+        assert(m_magic == KTX2_MAGIC);
+        if (m_magic != KTX2_MAGIC)
+            return 0;
+        return m_transcoder.get_block_width();
+    }
+
+    uint32_t getBlockHeight()
+    {
+        assert(m_magic == KTX2_MAGIC);
+        if (m_magic != KTX2_MAGIC)
+            return 0;
+        return m_transcoder.get_block_height();
+    }
+
     uint32_t getFaces()
     {
         assert(m_magic == KTX2_MAGIC);
@@ -741,22 +874,39 @@ struct ktx2_file
         return m_transcoder.get_levels();
     }
 
-	// Returns cETC1S, cUASTC4x4, or cUASTC_HDR_4x4.
-    uint32_t getFormat()
+	// Returns a basis_tex_format: cETC1S, cUASTC4x4, or cUASTC_HDR_4x4, etc.
+    uint32_t getBasisTexFormat()
     {
         assert(m_magic == KTX2_MAGIC);
         if (m_magic != KTX2_MAGIC)
             return 0;
-        return (uint32_t)m_transcoder.get_format();
+        return (uint32_t)m_transcoder.get_basis_tex_format();
     }
 
-	// Returns true if the texture is UASTC LDR (and not HDR - see isHDR()).
+	// Returns true if the texture is UASTC LDR 4x4 (and not HDR - see isHDR()).
+    bool isUASTC_LDR_4x4()
+    {
+        assert(m_magic == KTX2_MAGIC);
+        if (m_magic != KTX2_MAGIC)
+            return false;
+        return m_transcoder.is_uastc();
+    }
+
+    // Returns true if the texture is UASTC LDR 4x4 (and not HDR - see isHDR()).
     bool isUASTC()
     {
         assert(m_magic == KTX2_MAGIC);
         if (m_magic != KTX2_MAGIC)
             return false;
         return m_transcoder.is_uastc();
+    }
+
+    bool isLDR()
+    {
+        assert(m_magic == KTX2_MAGIC);
+        if (m_magic != KTX2_MAGIC)
+            return false;
+        return !m_transcoder.is_hdr();
     }
 
     bool isETC1S()
@@ -767,13 +917,29 @@ struct ktx2_file
         return m_transcoder.is_etc1s();
     }
 
-	// Returns true if the texture is UASTC HDR. In this case, it can only be transcoded to BC6H, ASTC 4x4 HDR, or half-float RGB/RGBA images.	
+	// Returns true if the texture is UASTC HDR or ASTC HDR. In this case, it can only be transcoded to BC6H, ASTC HDR (of the same block dimensions), RGB9E5 or half-float RGB/RGBA images.	
 	bool isHDR()
     {
         assert(m_magic == KTX2_MAGIC);
         if (m_magic != KTX2_MAGIC)
             return false;
         return m_transcoder.is_hdr();
+    }
+
+    bool isHDR4x4()
+    {
+        assert(m_magic == KTX2_MAGIC);
+        if (m_magic != KTX2_MAGIC)
+            return false;
+        return m_transcoder.is_hdr_4x4();
+    }
+
+    bool isHDR6x6()
+    {
+        assert(m_magic == KTX2_MAGIC);
+        if (m_magic != KTX2_MAGIC)
+            return false;
+        return m_transcoder.is_hdr_6x6();
     }
 
     bool getHasAlpha()
@@ -849,6 +1015,14 @@ struct ktx2_file
         return m_transcoder.is_video();
     }
 
+    float getLDRHDRUpconversionNitMultiplier()
+    {
+        assert(m_magic == KTX2_MAGIC);
+        if (m_magic != KTX2_MAGIC)
+            return 0;
+        return m_transcoder.get_ldr_hdr_upconversion_nit_multiplier();
+    }
+
     // startTranscoding() must be called before calling getETC1SImageDescImageFlags().
     uint32_t getETC1SImageDescImageFlags(uint32_t level_index, uint32_t layer_index, uint32_t face_index)
     {
@@ -884,41 +1058,21 @@ struct ktx2_file
             return 0;
 
         if (format >= (int)transcoder_texture_format::cTFTotalTextureFormats)
+        {
+            assert(0);
             return 0;
+        }
 
+        const transcoder_texture_format tex_format = static_cast<transcoder_texture_format>(format);
+                
         ktx2_image_level_info info;
         if (!m_transcoder.get_image_level_info(info, level_index, layer_index, face_index))
+        {
+            assert(0);
             return 0;
-
-        uint32_t orig_width = info.m_orig_width, orig_height = info.m_orig_height, total_blocks = info.m_total_blocks;
-
-        const transcoder_texture_format transcoder_format = static_cast<transcoder_texture_format>(format);
-
-        if (basis_transcoder_format_is_uncompressed(transcoder_format))
-        {
-            // Uncompressed formats are just plain raster images.
-            const uint32_t bytes_per_pixel = basis_get_uncompressed_bytes_per_pixel(transcoder_format);
-            const uint32_t bytes_per_line = orig_width * bytes_per_pixel;
-            const uint32_t bytes_per_slice = bytes_per_line * orig_height;
-            return bytes_per_slice;
         }
-        else
-        {
-            // Compressed formats are 2D arrays of blocks.
-            const uint32_t bytes_per_block = basis_get_bytes_per_block_or_pixel(transcoder_format);
 
-            if (transcoder_format == transcoder_texture_format::cTFPVRTC1_4_RGB || transcoder_format == transcoder_texture_format::cTFPVRTC1_4_RGBA)
-            {
-                // For PVRTC1, Basis only writes (or requires) total_blocks * bytes_per_block. But GL requires extra padding for very small textures:
-                // https://www.khronos.org/registry/OpenGL/extensions/IMG/IMG_texture_compression_pvrtc.txt
-                const uint32_t width = (orig_width + 3) & ~3;
-                const uint32_t height = (orig_height + 3) & ~3;
-                const uint32_t size_in_bytes = (std::max(8U, width) * std::max(8U, height) * 4 + 7) / 8;
-                return size_in_bytes;
-            }
-
-            return total_blocks * bytes_per_block;
-        }
+        return basis_compute_transcoded_image_size_in_bytes(tex_format, info.m_orig_width, info.m_orig_height);
     }
 
     // Must be called before transcodeImage() can be called.
@@ -932,6 +1086,7 @@ struct ktx2_file
         return m_transcoder.start_transcoding();
     }
 
+    // Here for backwards compat, prefer transcodeImageWithFlags().
     // get_alpha_for_opaque_formats defaults to false
     // channel0/channel1 default to -1
     uint32_t transcodeImage(const emscripten::val& dst, uint32_t level_index, uint32_t layer_index, uint32_t face_index, uint32_t format, uint32_t get_alpha_for_opaque_formats, int channel0, int channel1)
@@ -945,26 +1100,27 @@ struct ktx2_file
 
         const transcoder_texture_format transcoder_format = static_cast<transcoder_texture_format>(format);
 
+        const uint32_t dst_block_width = basis_get_block_width(transcoder_format);
+        const uint32_t dst_block_height = basis_get_block_height(transcoder_format);
+                
         ktx2_image_level_info info;
         if (!m_transcoder.get_image_level_info(info, level_index, layer_index, face_index))
             return 0;
 
-        uint32_t orig_width = info.m_orig_width, orig_height = info.m_orig_height, total_blocks = info.m_total_blocks;
+        uint32_t orig_width = info.m_orig_width, orig_height = info.m_orig_height, total_src_blocks = info.m_total_blocks;
 
         basisu::vector<uint8_t> dst_data;
 
         uint32_t flags = get_alpha_for_opaque_formats ? cDecodeFlagsTranscodeAlphaDataToOpaqueFormats : 0;
 
+        const uint32_t transcoded_size_in_bytes = getImageTranscodedSizeInBytes(level_index, layer_index, face_index, format);
+
+        dst_data.resize(transcoded_size_in_bytes);
+
         uint32_t status;
 
         if (basis_transcoder_format_is_uncompressed(transcoder_format))
         {
-            const uint32_t bytes_per_pixel = basis_get_uncompressed_bytes_per_pixel(transcoder_format);
-            const uint32_t bytes_per_line = orig_width * bytes_per_pixel;
-            const uint32_t bytes_per_slice = bytes_per_line * orig_height;
-
-            dst_data.resize(bytes_per_slice);
-
             status = m_transcoder.transcode_image_level(
                 level_index, layer_index, face_index,
                 dst_data.data(), orig_width * orig_height,
@@ -977,22 +1133,71 @@ struct ktx2_file
         }
         else
         {
-            uint32_t bytes_per_block = basis_get_bytes_per_block_or_pixel(transcoder_format);
+            const uint32_t bytes_per_block = basis_get_bytes_per_block_or_pixel(transcoder_format);
 
-            uint32_t required_size = total_blocks * bytes_per_block;
+            status = m_transcoder.transcode_image_level(
+                level_index, layer_index, face_index,
+                dst_data.data(), dst_data.size() / bytes_per_block,
+                static_cast<basist::transcoder_texture_format>(format),
+                flags,
+                0,
+                0,
+                channel0, channel1,
+                nullptr);
+        }
 
-            if (transcoder_format == transcoder_texture_format::cTFPVRTC1_4_RGB || transcoder_format == transcoder_texture_format::cTFPVRTC1_4_RGBA)
-            {
-                // For PVRTC1, Basis only writes (or requires) total_blocks * bytes_per_block. But GL requires extra padding for very small textures:
-                // https://www.khronos.org/registry/OpenGL/extensions/IMG/IMG_texture_compression_pvrtc.txt
-                // The transcoder will clear the extra bytes followed the used blocks to 0.
-                const uint32_t width = (orig_width + 3) & ~3;
-                const uint32_t height = (orig_height + 3) & ~3;
-                required_size = (std::max(8U, width) * std::max(8U, height) * 4 + 7) / 8;
-                assert(required_size >= total_blocks * bytes_per_block);
-            }
+        emscripten::val memory = emscripten::val::module_property("HEAP8")["buffer"];
+        emscripten::val memoryView = emscripten::val::global("Uint8Array").new_(memory, reinterpret_cast<uintptr_t>(dst_data.data()), dst_data.size());
 
-            dst_data.resize(required_size);
+        dst.call<void>("set", memoryView);
+        return status;
+    }
+    
+    // like transcodeImage(), but with fixed parameters (includes flags)
+    // For flags, see cDecodeFlagsPVRTCDecodeToNextPow2 etc.
+    uint32_t transcodeImageWithFlags(const emscripten::val& dst, uint32_t level_index, uint32_t layer_index, uint32_t face_index, uint32_t format, uint32_t flags, int channel0, int channel1)
+    {
+        assert(m_magic == KTX2_MAGIC);
+        if (m_magic != KTX2_MAGIC)
+            return 0;
+
+        if (format >= (int)transcoder_texture_format::cTFTotalTextureFormats)
+            return 0;
+                
+        const transcoder_texture_format transcoder_format = static_cast<transcoder_texture_format>(format);
+
+        const uint32_t dst_block_width = basis_get_block_width(transcoder_format);
+        const uint32_t dst_block_height = basis_get_block_height(transcoder_format);
+                
+        ktx2_image_level_info info;
+        if (!m_transcoder.get_image_level_info(info, level_index, layer_index, face_index))
+            return 0;
+
+        uint32_t orig_width = info.m_orig_width, orig_height = info.m_orig_height, total_src_blocks = info.m_total_blocks;
+
+        basisu::vector<uint8_t> dst_data;
+
+        const uint32_t transcoded_size_in_bytes = getImageTranscodedSizeInBytes(level_index, layer_index, face_index, format);
+
+        dst_data.resize(transcoded_size_in_bytes);
+
+        uint32_t status;
+
+        if (basis_transcoder_format_is_uncompressed(transcoder_format))
+        {
+            status = m_transcoder.transcode_image_level(
+                level_index, layer_index, face_index,
+                dst_data.data(), orig_width * orig_height,
+                transcoder_format,
+                flags,
+                orig_width,
+                orig_height,
+                channel0, channel1,
+                nullptr);
+        }
+        else
+        {
+            const uint32_t bytes_per_block = basis_get_bytes_per_block_or_pixel(transcoder_format);
 
             status = m_transcoder.transcode_image_level(
                 level_index, layer_index, face_index,
@@ -1017,8 +1222,18 @@ struct ktx2_file
 
 #if BASISU_SUPPORT_ENCODING
 
+enum class ldr_image_type
+{
+    cRGBA32 = 0,
+    cPNGImage = 1,
+    cJPGImage = 2
+};
+
 class basis_encoder
 {
+    bool m_threading_enabled = false;
+    uint32_t m_num_extra_worker_threads = 0;
+
 public:
     basis_compressor_params m_params;
 
@@ -1026,8 +1241,14 @@ public:
     {
     }
 
+    void control_threading(bool enabled_flag, uint32_t num_extra_worker_threads)
+    {
+        m_threading_enabled = enabled_flag;
+        m_num_extra_worker_threads = num_extra_worker_threads;
+    }
+
 	// Only works for LDR inputs.
-    bool set_slice_source_image(uint32_t slice_index, const emscripten::val& src_image_js_val, uint32_t src_image_width, uint32_t src_image_height, bool src_image_is_png)
+    bool set_slice_source_image(uint32_t slice_index, const emscripten::val& src_image_js_val, uint32_t src_image_width, uint32_t src_image_height, ldr_image_type img_type)
     {
         // Resize the source_images array if necessary
         if (slice_index >= m_params.m_source_images.size())
@@ -1039,7 +1260,7 @@ public:
 
         // Now load the source image.
         image& src_img = m_params.m_source_images[slice_index];
-        if (src_image_is_png)
+        if (img_type == ldr_image_type::cPNGImage)
         {
             // It's a PNG file, so try and parse it.
             if (!load_png(src_image_buf.data(), src_image_buf.size(), src_img, nullptr))
@@ -1053,7 +1274,21 @@ public:
             src_image_width = src_img.get_width();
             src_image_height = src_img.get_height();
         }
-        else
+        else if (img_type == ldr_image_type::cJPGImage)
+        {
+            // It's a JPG file, so try and parse it.
+            if (!load_jpg(src_image_buf.data(), src_image_buf.size(), src_img))
+            {
+#if BASISU_DEBUG_PRINTF
+                printf("basis_encoder::set_slice_source_image: Failed parsing provided JPG file!\n");
+#endif
+                return false;
+            }
+
+            src_image_width = src_img.get_width();
+            src_image_height = src_img.get_height();
+        }
+        else if (img_type == ldr_image_type::cRGBA32)
         {
             // It's a raw image, so check the buffer's size.
             if (src_image_buf.size() != src_image_width * src_image_height * sizeof(uint32_t))
@@ -1068,17 +1303,27 @@ public:
             src_img.resize(src_image_width, src_image_height);
             memcpy(src_img.get_ptr(), src_image_buf.data(), src_image_width * src_image_height * sizeof(uint32_t));
         }
+        else
+        {
+#if BASISU_DEBUG_PRINTF
+            printf("basis_encoder::set_slice_source_image: Invalid img_type parameter\n");
+#endif
+            assert(0);
+            return false;
+        }
 
         return true;
     }
 
-	// Accepts RGBA half float or RGBA float images, or .EXR, .HDR, or .PNG file data.
-	bool set_slice_source_image_hdr(
-		uint32_t slice_index, 
-		const emscripten::val& src_image_js_val, 
-		uint32_t src_image_width, uint32_t src_image_height, 
-		hdr_image_type img_type, bool ldr_srgb_to_linear_conversion)
+	// Accepts RGBA half float or RGBA float images, or .EXR, .HDR, .PNG, or .JPG file data.
+    bool set_slice_source_image_hdr(
+        uint32_t slice_index,
+        const emscripten::val& src_image_js_val,
+        uint32_t src_image_width, uint32_t src_image_height,
+        hdr_image_type img_type, bool ldr_srgb_to_linear_conversion, float ldr_to_hdr_nit_multiplier)
     {
+        assert(ldr_to_hdr_nit_multiplier > 0.0f);
+                
         // Resize the source_images_hdr array if necessary
         if (slice_index >= m_params.m_source_images_hdr.size())
             m_params.m_source_images_hdr.resize(slice_index + 1);
@@ -1089,8 +1334,21 @@ public:
 
         // Now load the source image.
         imagef& src_img = m_params.m_source_images_hdr[slice_index];
-		
-		return load_image_hdr(src_image_buf.get_ptr(), src_image_buf.size(), src_img, src_image_width, src_image_height, img_type, ldr_srgb_to_linear_conversion);
+
+        if (!load_image_hdr(src_image_buf.get_ptr(), src_image_buf.size(), src_img, src_image_width, src_image_height, img_type, ldr_srgb_to_linear_conversion, ldr_to_hdr_nit_multiplier))
+            return false;
+
+        if ((img_type == hdr_image_type::cHITPNGImage) || (img_type == hdr_image_type::cHITJPGImage))
+        {
+            // Because we're loading the image ourselves we need to add these tags so the UI knows how to tone map LDR upconverted outputs. 
+            // Normally basis_compressor adds them when it loads the images itself from source files.
+            basist::ktx2_add_key_value(m_params.m_ktx2_key_values, "LDRUpconversionMultiplier", fmt_string("{}", ldr_to_hdr_nit_multiplier));
+
+            if (ldr_srgb_to_linear_conversion)
+                basist::ktx2_add_key_value(m_params.m_ktx2_key_values, "LDRUpconversionSRGBToLinear", "1");
+        }
+                		
+        return true;
     }
 
     uint32_t encode(const emscripten::val& dst_basis_file_js_val)
@@ -1105,15 +1363,42 @@ public:
         }
 
         // We don't use threading for now, but the compressor needs a job pool.
-        job_pool jpool(1);
+        uint32_t num_new_threads = 0;
+        bool enable_threading = false;
+        
+#if WASM_THREADS_ENABLED
+        if ((emscripten_has_threading_support()) && (m_threading_enabled) && (m_num_extra_worker_threads))
+        {
+            enable_threading = true;
+            num_new_threads = m_num_extra_worker_threads;
+        }
+#endif
+
+        // We always need a job pool, but making a job pool with just 1 thread doesn't actually create any additional helper threads (i.e. it always utilizes the main thread).
+        job_pool jpool(1 + num_new_threads);
 
         // Initialize the compression parameters structure. This is the same structure that the command line tool fills in.
         basis_compressor_params &params = m_params;
+        
+        // Check to see if we would risk running out of memory in 32-bit WASM. There's not much we can do about this limit until memory64 is available.
+        uint64_t total_src_texels = 0;
+        
+        for (uint32_t i = 0; i < m_params.m_source_images.size(); i++)
+            total_src_texels += m_params.m_source_images[i].get_total_pixels();
+
+        for (uint32_t i = 0; i < m_params.m_source_images_hdr.size(); i++)
+            total_src_texels += m_params.m_source_images_hdr[i].get_total_pixels();
+                
+        if (total_src_texels > BASISU_ENCODER_MAX_SOURCE_IMAGE_PIXELS)
+        {
+            printf("ERROR: basis_encoder::encode(): The total number of source texels to compress is too large for 32-bit WASM (above BASISU_ENCODER_MAX_SOURCE_IMAGE_PIXELS in basis_wrappers.cpp)." 
+                "This is not a fundamental limitation of the library, but of WASM. Processing images this large risks running out of memory until WASM memory64 is available.\n");
+            return 0;
+        }
 
         params.m_pJob_pool = &jpool;
 
-        // Disabling multithreading for now, which sucks.
-        params.m_multithreading = false;
+        params.m_multithreading = enable_threading;
 
         params.m_status_output = params.m_debug;
 
@@ -1230,7 +1515,7 @@ public:
         const emscripten::val& compressed_data,
         uint32_t num_blocks_x, uint32_t num_blocks_y, uint32_t orig_width, uint32_t orig_height, uint32_t level_index,
         uint32_t rgb_offset, uint32_t rgb_length, uint32_t alpha_offset, uint32_t alpha_length,
-        uint32_t decode_flags, // see cDecodeFlagsPVRTCDecodeToNextPow2
+        uint32_t decode_flags, // see cDecodeFlagsPVRTCDecodeToNextPow2 etc.
         bool basis_file_has_alpha_slices,
         bool is_video,
         uint32_t output_row_pitch_in_blocks_or_pixels,
@@ -1299,21 +1584,26 @@ public:
     }
 };
 
-// Supports UASTC LDR and HDR.
+// Supports UASTC LDR 4x4, UASTC HDR 4x4, and ASTC HDR 6x6/intermediate (but not ETC1S).
 bool transcode_uastc_image(
+    uint32_t basis_tex_format_int, 
     uint32_t target_format_int, // see transcoder_texture_format
     const emscripten::val& output_blocks, uint32_t output_blocks_buf_size_in_blocks_or_pixels,
     const emscripten::val& compressed_data,
     uint32_t num_blocks_x, uint32_t num_blocks_y, uint32_t orig_width, uint32_t orig_height, uint32_t level_index,
     uint32_t slice_offset, uint32_t slice_length,
-    uint32_t decode_flags, // see cDecodeFlagsPVRTCDecodeToNextPow2
+    uint32_t decode_flags, // see cDecodeFlagsPVRTCDecodeToNextPow2 etc.
     bool has_alpha,
     bool is_video,
     uint32_t output_row_pitch_in_blocks_or_pixels,
     uint32_t output_rows_in_pixels,
     int channel0, int channel1)
 {
+    assert(basis_tex_format_int < (uint32_t)basis_tex_format::cTotalFormats);
+    assert(target_format_int < (uint32_t)transcoder_texture_format::cTFTotalTextureFormats);
+
     transcoder_texture_format target_format = static_cast<transcoder_texture_format>(target_format_int);
+    basis_tex_format tex_format = static_cast<basis_tex_format>(basis_tex_format_int);
 
     if (!g_basis_initialized_flag)
     {
@@ -1360,9 +1650,9 @@ bool transcode_uastc_image(
     basisu::vector<uint8_t> temp_output_blocks(output_blocks_len);
 
 	bool status = false;	
-	if (basis_transcoder_format_is_hdr(target_format))
+	if (tex_format == basis_tex_format::cUASTC_HDR_4x4)
 	{
-		basisu_lowlevel_uastc_hdr_transcoder transcoder;
+		basisu_lowlevel_uastc_hdr_4x4_transcoder transcoder;
 
     	status = transcoder.transcode_image(
         	(transcoder_texture_format)target_format,
@@ -1378,9 +1668,45 @@ bool transcode_uastc_image(
         	output_rows_in_pixels,
         	channel0, channel1);
 	}
-	else
+    else if (tex_format == basis_tex_format::cASTC_HDR_6x6)
+    {
+        basisu_lowlevel_astc_hdr_6x6_transcoder transcoder;
+
+        status = transcoder.transcode_image(
+            (transcoder_texture_format)target_format,
+            &temp_output_blocks[0], output_blocks_buf_size_in_blocks_or_pixels,
+            &temp_comp_data[0], temp_comp_data.size(),
+            num_blocks_x, num_blocks_y, orig_width, orig_height, level_index,
+            slice_offset, slice_length,
+            decode_flags,
+            has_alpha,
+            is_video,
+            output_row_pitch_in_blocks_or_pixels,
+            nullptr,
+            output_rows_in_pixels,
+            channel0, channel1);
+    }
+    else if (tex_format == basis_tex_format::cASTC_HDR_6x6_INTERMEDIATE)
+    {
+        basisu_lowlevel_astc_hdr_6x6_intermediate_transcoder transcoder;
+
+        status = transcoder.transcode_image(
+            (transcoder_texture_format)target_format,
+            &temp_output_blocks[0], output_blocks_buf_size_in_blocks_or_pixels,
+            &temp_comp_data[0], temp_comp_data.size(),
+            num_blocks_x, num_blocks_y, orig_width, orig_height, level_index,
+            slice_offset, slice_length,
+            decode_flags,
+            has_alpha,
+            is_video,
+            output_row_pitch_in_blocks_or_pixels,
+            nullptr,
+            output_rows_in_pixels,
+            channel0, channel1);
+    }
+	else if (tex_format == basis_tex_format::cUASTC4x4)
 	{
-    	basisu_lowlevel_uastc_transcoder transcoder;
+    	basisu_lowlevel_uastc_ldr_4x4_transcoder transcoder;
 
     	status = transcoder.transcode_image(
         	(transcoder_texture_format)target_format,
@@ -1396,6 +1722,10 @@ bool transcode_uastc_image(
         	output_rows_in_pixels,
         	channel0, channel1);
 	}
+    else
+    {
+        assert(0);
+    }
 
     if (!status)
     {
@@ -1414,37 +1744,80 @@ bool transcode_uastc_image(
 
 uint32_t get_bytes_per_block_or_pixel(uint32_t transcoder_tex_fmt)
 {
+    assert(transcoder_tex_fmt < (uint32_t)transcoder_texture_format::cTFTotalTextureFormats);
     return basis_get_bytes_per_block_or_pixel(static_cast<transcoder_texture_format>(transcoder_tex_fmt));
 }
 
 bool format_has_alpha(uint32_t transcoder_tex_fmt)
 {
+    assert(transcoder_tex_fmt < (uint32_t)transcoder_texture_format::cTFTotalTextureFormats);
     return basis_transcoder_format_has_alpha(static_cast<transcoder_texture_format>(transcoder_tex_fmt));
 }
 
 bool format_is_hdr(uint32_t transcode_tex_fmt)
 {
+    assert(transcode_tex_fmt < (uint32_t)transcoder_texture_format::cTFTotalTextureFormats);
 	return basis_transcoder_format_is_hdr(static_cast<transcoder_texture_format>(transcode_tex_fmt));
+}
+
+bool format_is_ldr(uint32_t transcode_tex_fmt)
+{
+    assert(transcode_tex_fmt < (uint32_t)transcoder_texture_format::cTFTotalTextureFormats);
+    return !basis_transcoder_format_is_hdr(static_cast<transcoder_texture_format>(transcode_tex_fmt));
 }
 
 bool format_is_uncompressed(uint32_t transcoder_tex_fmt)
 {
+    assert(transcoder_tex_fmt < (uint32_t)transcoder_texture_format::cTFTotalTextureFormats);
     return basis_transcoder_format_is_uncompressed(static_cast<transcoder_texture_format>(transcoder_tex_fmt));
 }
 
 bool is_format_supported(uint32_t transcoder_tex_fmt, uint32_t file_fmt)
 {
+    assert(transcoder_tex_fmt < (uint32_t)transcoder_texture_format::cTFTotalTextureFormats);
     return basis_is_format_supported(static_cast<transcoder_texture_format>(transcoder_tex_fmt), static_cast<basis_tex_format>(file_fmt));
 }
 
+// transcoder_texture_format
 uint32_t get_format_block_width(uint32_t transcoder_tex_fmt)
 {
+    assert(transcoder_tex_fmt < (uint32_t)transcoder_texture_format::cTFTotalTextureFormats);
     return basis_get_block_width(static_cast<transcoder_texture_format>(transcoder_tex_fmt));
 }
 
+// transcoder_texture_format
 uint32_t get_format_block_height(uint32_t transcoder_tex_fmt)
 {
+    assert(transcoder_tex_fmt < (uint32_t)transcoder_texture_format::cTFTotalTextureFormats);
     return basis_get_block_height(static_cast<transcoder_texture_format>(transcoder_tex_fmt));
+}
+
+// basis_tex_format
+uint32_t get_basis_tex_format_block_width(uint32_t fmt) 
+{
+    assert(fmt < (uint32_t)basis_tex_format::cTotalFormats);
+    return basis_tex_format_get_block_width(static_cast<basis_tex_format>(fmt));
+}
+
+// basis_tex_format
+uint32_t get_basis_tex_format_block_height(uint32_t fmt)
+{
+    assert(fmt < (uint32_t)basis_tex_format::cTotalFormats);
+    return basis_tex_format_get_block_height(static_cast<basis_tex_format>(fmt));
+}
+
+// basis_tex_format
+bool is_basis_tex_format_hdr(uint32_t fmt)
+{
+    assert(fmt < (uint32_t)basis_tex_format::cTotalFormats);
+    return ((basis_tex_format)fmt == basis_tex_format::cUASTC_HDR_4x4) || ((basis_tex_format)fmt == basis_tex_format::cASTC_HDR_6x6) || ((basis_tex_format)fmt == basis_tex_format::cASTC_HDR_6x6_INTERMEDIATE);
+}
+
+// basis_tex_format
+bool is_basis_tex_format_ldr(uint32_t fmt)
+{
+    assert(fmt < (uint32_t)basis_tex_format::cTotalFormats);
+    return ((basis_tex_format)fmt == basis_tex_format::cETC1S) || ((basis_tex_format)fmt == basis_tex_format::cUASTC4x4);
 }
 
 uint32_t convert_float_to_half(float f)
@@ -1492,6 +1865,8 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
       .field("selectorPaletteLen", &basis_file_desc::m_selector_palette_len)
       .field("tablesOfs", &basis_file_desc::m_tables_ofs)
       .field("tablesLen", &basis_file_desc::m_tables_len)
+      .field("blockWidth", &basis_file_desc::m_block_width)
+      .field("blockHeight", &basis_file_desc::m_block_height)
     ;
 
   // Expose BasisImageDesc structure
@@ -1501,6 +1876,8 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
     .field("numBlocksX", &basis_image_desc::m_num_blocks_x)
     .field("numBlocksY", &basis_image_desc::m_num_blocks_y)
     .field("numLevels", &basis_image_desc::m_num_levels)
+    .field("blockWidth", &basis_image_desc::m_block_width)
+    .field("blockHeight", &basis_image_desc::m_block_height)
     .field("alphaFlag", &basis_image_desc::m_alpha_flag)
     .field("iframeFlag", &basis_image_desc::m_iframe_flag)
     ;
@@ -1543,17 +1920,25 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
 		.value("cTFRGB_HALF", transcoder_texture_format::cTFRGB_HALF)
 		.value("cTFRGBA_HALF", transcoder_texture_format::cTFRGBA_HALF)
 		.value("cTFRGB_9E5", transcoder_texture_format::cTFRGB_9E5)
+        .value("cTFASTC_HDR_6x6_RGBA", transcoder_texture_format::cTFASTC_HDR_6x6_RGBA)
         .value("cTFTotalTextureFormats", transcoder_texture_format::cTFTotalTextureFormats)
     ;
 
     // Expose some useful transcoder_texture_format helper functions
-    function("getBytesPerBlockOrPixel", &get_bytes_per_block_or_pixel);
+    function("getBytesPerBlockOrPixel", &::get_bytes_per_block_or_pixel);
     function("formatHasAlpha", &format_has_alpha);
 	function("formatIsHDR", &format_is_hdr);
+    function("formatIsLDR", &format_is_ldr);
     function("formatIsUncompressed", &format_is_uncompressed);
     function("isFormatSupported", &is_format_supported);
     function("getFormatBlockWidth", &get_format_block_width);
     function("getFormatBlockHeight", &get_format_block_height);
+
+    function("getBasisTexFormatBlockWidth", &get_basis_tex_format_block_width);
+    function("getBasisTexFormatBlockHeight", &get_basis_tex_format_block_height);
+
+    function("isBasisTexFormatHDR", &is_basis_tex_format_hdr);
+    function("isBasisTexFormatLDR", &is_basis_tex_format_ldr);
 	
 	function("convertFloatToHalf", &convert_float_to_half);
 	function("convertHalfToFloat", &convert_half_to_float);
@@ -1572,6 +1957,8 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
         .value("cETC1S", basis_tex_format::cETC1S)
         .value("cUASTC4x4", basis_tex_format::cUASTC4x4)
         .value("cUASTC_HDR_4x4", basis_tex_format::cUASTC_HDR_4x4)
+        .value("cASTC_HDR_6x6", basis_tex_format::cASTC_HDR_6x6)
+        .value("cASTC_HDR_6x6_INTERMEDIATE", basis_tex_format::cASTC_HDR_6x6_INTERMEDIATE)
     ;
 
   // .basis file transcoder object. If all you want to do is transcode already encoded .basis files, this is all you really need.
@@ -1583,11 +1970,29 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
     .function("getHasAlpha", optional_override([](basis_file& self) {
       return self.getHasAlpha();
     }))
+    .function("getBasisTexFormat", optional_override([](basis_file& self) {
+      return self.getBasisTexFormat();
+    }))
+    .function("isUASTC_LDR_4x4", optional_override([](basis_file& self) {
+      return self.isUASTC_LDR_4x4();
+    }))
     .function("isUASTC", optional_override([](basis_file& self) {
-      return self.isUASTC();
+      return self.isUASTC_LDR_4x4();
+    }))
+    .function("isETC1S", optional_override([](basis_file& self) {
+      return self.isETC1S();
     }))
 	.function("isHDR", optional_override([](basis_file& self) {
       return self.isHDR();
+    }))
+    .function("isHDR4x4", optional_override([](basis_file& self) {
+      return self.isHDR4x4();
+    }))
+    .function("isHDR6x6", optional_override([](basis_file& self) {
+      return self.isHDR6x6();
+    }))
+      .function("isLDR", optional_override([](basis_file& self) {
+      return self.isLDR();
     }))
     .function("getNumImages", optional_override([](basis_file& self) {
       return self.getNumImages();
@@ -1601,6 +2006,12 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
     .function("getImageHeight", optional_override([](basis_file& self, uint32_t imageIndex, uint32_t levelIndex) {
       return self.getImageHeight(imageIndex, levelIndex);
     }))
+    .function("getBlockWidth", optional_override([](basis_file& self) {
+      return self.getBlockWidth();
+    }))
+    .function("getBlockHeight", optional_override([](basis_file& self) {
+      return self.getBlockHeight();
+    }))
     // format is enum class transcoder_texture_format
     .function("getImageTranscodedSizeInBytes", optional_override([](basis_file& self, uint32_t imageIndex, uint32_t levelIndex, uint32_t format) {
       return self.getImageTranscodedSizeInBytes(imageIndex, levelIndex, format);
@@ -1611,6 +2022,9 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
     // format is enum class transcoder_texture_format
     .function("transcodeImage", optional_override([](basis_file& self, const emscripten::val& dst, uint32_t imageIndex, uint32_t levelIndex, uint32_t format, uint32_t unused, uint32_t getAlphaForOpaqueFormats) {
       return self.transcodeImage(dst, imageIndex, levelIndex, format, unused, getAlphaForOpaqueFormats);
+    }))
+    .function("transcodeImageWithFlags", optional_override([](basis_file& self, const emscripten::val& dst, uint32_t imageIndex, uint32_t levelIndex, uint32_t format, uint32_t flags) {
+      return self.transcodeImageWithFlags(dst, imageIndex, levelIndex, format, flags);
     }))
     // Returns low-level information about the basis file.
     .function("getFileDesc", optional_override([](basis_file& self) {
@@ -1635,6 +2049,7 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
     .value("cDecodeFlagsBC1ForbidThreeColorBlocks", cDecodeFlagsBC1ForbidThreeColorBlocks)
     .value("cDecodeFlagsOutputHasAlphaIndices", cDecodeFlagsOutputHasAlphaIndices)
     .value("cDecodeFlagsHighQuality", cDecodeFlagsHighQuality)
+    .value("cDecodeFlagsNoETC1SChromaFiltering", cDecodeFlagsNoETC1SChromaFiltering)
   ;
 
   // The low-level ETC1S transcoder is a class because it has persistent state (such as the endpoint/selector codebooks and Huffman tables, and transcoder state for video)
@@ -1645,7 +2060,7 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
     .function("transcodeImage", &lowlevel_etc1s_image_transcoder::transcode_image)
    ;
 
-  // The low-level UASTC transcoder is a single function.
+  // The low-level UASTC transcoder (for UASTC LDR 4x4, HDR 4x4, or ASTC HDR 6x6) is a single function.
   function("transcodeUASTCImage", &transcode_uastc_image);
 
   function("transcoderSupportsKTX2", &basisu_transcoder_supports_ktx2);
@@ -1660,8 +2075,10 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
       ;
 
   constant("KTX2_VK_FORMAT_UNDEFINED", KTX2_VK_FORMAT_UNDEFINED);
-  constant("KTX2_KDF_DF_MODEL_UASTC", KTX2_KDF_DF_MODEL_UASTC);
+  constant("KTX2_KDF_DF_MODEL_UASTC", KTX2_KDF_DF_MODEL_UASTC_LDR_4X4);
   constant("KTX2_KDF_DF_MODEL_ETC1S", KTX2_KDF_DF_MODEL_ETC1S);
+  constant("KTX2_KDF_DF_MODEL_ASTC_HDR_6X6_INTERMEDIATE", KTX2_KDF_DF_MODEL_ASTC_HDR_6X6_INTERMEDIATE);
+
   constant("KTX2_IMAGE_IS_P_FRAME", KTX2_IMAGE_IS_P_FRAME);
   constant("KTX2_UASTC_BLOCK_SIZE", KTX2_UASTC_BLOCK_SIZE);
   constant("KTX2_MAX_SUPPORTED_LEVEL_COUNT", KTX2_MAX_SUPPORTED_LEVEL_COUNT);
@@ -1709,6 +2126,8 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
       .field("height", &ktx2_image_level_info::m_height)
       .field("numBlocksX", &ktx2_image_level_info::m_num_blocks_x)
       .field("numBlocksY", &ktx2_image_level_info::m_num_blocks_y)
+      .field("blockWidth", &ktx2_image_level_info::m_block_width)
+      .field("blockHeight", &ktx2_image_level_info::m_block_height)
       .field("totalBlocks", &ktx2_image_level_info::m_total_blocks)
       .field("alphaFlag", &ktx2_image_level_info::m_alpha_flag)
       .field("iframeFlag", &ktx2_image_level_info::m_iframe_flag)
@@ -1736,24 +2155,30 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
   // KTX2 transcoder class
   class_<ktx2_file>("KTX2File")
       .constructor<const emscripten::val&>()
-       .function("isValid", &ktx2_file::isValid)
-       .function("close", &ktx2_file::close)
+        .function("isValid", &ktx2_file::isValid)
+        .function("close", &ktx2_file::close)
         .function("getDFDSize", &ktx2_file::getDFDSize)
         .function("getDFD", &ktx2_file::getDFD)
         .function("getHeader", &ktx2_file::getHeader)
         .function("hasKey", &ktx2_file::hasKey)
-       .function("getTotalKeys", &ktx2_file::getTotalKeys)
-       .function("getKey", &ktx2_file::getKey)
+        .function("getTotalKeys", &ktx2_file::getTotalKeys)
+        .function("getKey", &ktx2_file::getKey)
         .function("getKeyValueSize", &ktx2_file::getKeyValueSize)
         .function("getKeyValue", &ktx2_file::getKeyValue)
         .function("getWidth", &ktx2_file::getWidth)
         .function("getHeight", &ktx2_file::getHeight)
+        .function("getBlockWidth", &ktx2_file::getBlockWidth)
+        .function("getBlockHeight", &ktx2_file::getBlockHeight)
         .function("getFaces", &ktx2_file::getFaces)
         .function("getLayers", &ktx2_file::getLayers)
-       .function("getLevels", &ktx2_file::getLevels)
-        .function("getFormat", &ktx2_file::getFormat)
-        .function("isUASTC", &ktx2_file::isUASTC)
-		.function("isHDR", &ktx2_file::isHDR)
+        .function("getLevels", &ktx2_file::getLevels)
+        .function("getBasisTexFormat", &ktx2_file::getBasisTexFormat)
+        .function("isUASTC_LDR_4x4", &ktx2_file::isUASTC_LDR_4x4)
+        .function("isUASTC", &ktx2_file::isUASTC_LDR_4x4)
+        .function("isHDR", &ktx2_file::isHDR)
+        .function("isHDR4x4", &ktx2_file::isHDR4x4)
+        .function("isHDR6x6", &ktx2_file::isHDR6x6)
+        .function("isLDR", &ktx2_file::isLDR)
         .function("isETC1S", &ktx2_file::isETC1S)
         .function("getHasAlpha", &ktx2_file::getHasAlpha)
         .function("getDFDColorModel", &ktx2_file::getDFDColorModel)
@@ -1764,11 +2189,13 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
         .function("getDFDChannelID0", &ktx2_file::getDFDChannelID0)
         .function("getDFDChannelID1", &ktx2_file::getDFDChannelID1)
         .function("isVideo", &ktx2_file::isVideo)
+        .function("getLDRHDRUpconversionNitMultiplier", &ktx2_file::getLDRHDRUpconversionNitMultiplier)
         .function("getETC1SImageDescImageFlags", &ktx2_file::getETC1SImageDescImageFlags)
         .function("getImageLevelInfo", &ktx2_file::getImageLevelInfo)
         .function("getImageTranscodedSizeInBytes", &ktx2_file::getImageTranscodedSizeInBytes)
         .function("startTranscoding", &ktx2_file::startTranscoding)
         .function("transcodeImage", &ktx2_file::transcodeImage)
+        .function("transcodeImageWithFlags", &ktx2_file::transcodeImageWithFlags)
       ;
 
 #endif // BASISD_SUPPORT_KTX2
@@ -1797,9 +2224,10 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
     constant("BASISU_DEFAULT_COMPRESSION_LEVEL", BASISU_DEFAULT_COMPRESSION_LEVEL);
     constant("BASISU_MAX_COMPRESSION_LEVEL", BASISU_MAX_COMPRESSION_LEVEL);
 
-	// The maximum representable floating point value in a UASTC HDR texture (any larger values will get clamped and a warning issued).	
+	// The maximum representable floating point value in a UASTC HDR or ASTC HDR texture (any larger values will get clamped and a warning issued).	
 	constant("ASTC_HDR_MAX_VAL", basist::ASTC_HDR_MAX_VAL);
 
+    // UASTC LDR/HDR flags/options
     constant("cPackUASTCLevelFastest", cPackUASTCLevelFastest);
     constant("cPackUASTCLevelFaster", cPackUASTCLevelFaster);
     constant("cPackUASTCLevelDefault", cPackUASTCLevelDefault);
@@ -1811,9 +2239,11 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
     constant("cPackUASTCETC1FasterHints", cPackUASTCETC1FasterHints);
     constant("cPackUASTCETC1FastestHints", cPackUASTCETC1FastestHints);
     constant("cPackUASTCETC1DisableFlipAndIndividual", cPackUASTCETC1DisableFlipAndIndividual);
-
+    
     constant("UASTC_RDO_DEFAULT_MAX_ALLOWED_RMS_INCREASE_RATIO", UASTC_RDO_DEFAULT_MAX_ALLOWED_RMS_INCREASE_RATIO);
     constant("UASTC_RDO_DEFAULT_SKIP_BLOCK_RMS_THRESH", UASTC_RDO_DEFAULT_SKIP_BLOCK_RMS_THRESH);
+
+    constant("cPackASTC6x6MaxUserCompLevel", ::astc_6x6_hdr::ASTC_HDR_6X6_MAX_USER_COMP_LEVEL);
 	
 	enum_<hdr_image_type>("hdr_image_type")
 		.value("cHITRGBAHalfFloat", hdr_image_type::cHITRGBAHalfFloat)
@@ -1821,6 +2251,13 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
 		.value("cHITPNGImage", hdr_image_type::cHITPNGImage)
 		.value("cHITEXRImage", hdr_image_type::cHITEXRImage)
 		.value("cHITHDRImage", hdr_image_type::cHITHDRImage)
+        .value("cHITJPGImage", hdr_image_type::cHITJPGImage)
+	;
+
+    enum_<ldr_image_type>("ldr_image_type")
+        .value("cRGBA32", ldr_image_type::cRGBA32)
+        .value("cPNGImage", ldr_image_type::cPNGImage)
+        .value("cJPGImage", ldr_image_type::cJPGImage)
 	;
 
   // Compression/encoding object.
@@ -1835,41 +2272,70 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
     .function("encode", optional_override([](basis_encoder& self, const emscripten::val& dst_basis_file_js_val) {
         return self.encode(dst_basis_file_js_val);
     }))
-
-    // Sets the slice's source image, either from a PNG file or from a raw 32-bit RGBA raster image.
+          
+    // Sets the slice's source image, either from a PNG/JPG file or from a raw 32-bit RGBA raster image.
     // If the input is a raster image, the buffer must be width*height*4 bytes in size. The raster image is stored in top down scanline order.
     // The first texel is the top-left texel. The texel byte order in memory is R,G,B,A (R first at offset 0, A last at offset 3).
     // slice_index is the slice to change. Valid range is [0,BASISU_MAX_SLICES-1].
-    .function("setSliceSourceImage", optional_override([](basis_encoder& self, uint32_t slice_index, const emscripten::val& src_image_js_val, uint32_t width, uint32_t height, bool src_image_is_png) {
-        return self.set_slice_source_image(slice_index, src_image_js_val, width, height, src_image_is_png);
-    }))
-	
-	.function("setSliceSourceImageHDR", optional_override([](basis_encoder& self, uint32_t slice_index, const emscripten::val& src_image_js_val, uint32_t width, uint32_t height, uint32_t img_type, bool ldr_srgb_to_linear_conversion) {
-        return self.set_slice_source_image_hdr(slice_index, src_image_js_val, width, height, (hdr_image_type)img_type, ldr_srgb_to_linear_conversion);
+    // All formats, including HDR formats. The compressor will upconvert LDR/SDR content to absolute light HDR as needed. See LDR upconversion options below.
+    .function("setSliceSourceImage", optional_override([](basis_encoder& self, uint32_t slice_index, const emscripten::val& src_image_js_val, uint32_t width, uint32_t height, uint32_t img_type) {
+        return self.set_slice_source_image(slice_index, src_image_js_val, width, height, (ldr_image_type)img_type);
     }))
 
-    // If true, the encoder will output a UASTC texture, otherwise a ETC1S texture.
+    .function("controlThreading", optional_override([](basis_encoder& self, bool enable_threading, uint32_t num_extra_worker_threads) {
+      return self.control_threading(enable_threading, num_extra_worker_threads);
+    }))
+
+    // HDR targets only
+	.function("setSliceSourceImageHDR", optional_override([](basis_encoder& self, uint32_t slice_index, const emscripten::val& src_image_js_val, uint32_t width, uint32_t height, uint32_t img_type, 
+        bool ldr_srgb_to_linear_conversion, float ldr_to_hdr_nit_multiplier) {
+        return self.set_slice_source_image_hdr(slice_index, src_image_js_val, width, height, (hdr_image_type)img_type, ldr_srgb_to_linear_conversion, ldr_to_hdr_nit_multiplier);
+    }))
+
+    // Sets the desired encoding format. This is the preferred way to control which format the encoder creates.
+    // tex_format is a basis_tex_format (cETC1s, cUASTC4x4, cUASTC_HDR_4x4 etc.)
+    // This can be used instead of the older setUASTC(), setHDR() etc. methods.
+    // All formats
+    .function("setFormatMode", optional_override([](basis_encoder& self, int tex_format) {
+      assert((tex_format >= 0) && (tex_format < (uint32_t)basis_tex_format::cTotalFormats));
+      self.m_params.set_format_mode((basis_tex_format)tex_format);
+    }))
+
+    // If true, the encoder will output a UASTC LDR 4x4 texture, otherwise a ETC1S texture.
+    // (This is for backwards compatibility, prefer setFormatMode() instead.)
+    // All formats
     .function("setUASTC", optional_override([](basis_encoder& self, bool uastc_flag) {
-        self.m_params.m_uastc = uastc_flag;
-    }))
-	
-	// If true, the encoder will output a UASTC HDR texture, otherwise it works in the default LDR mode.
-    .function("setHDR", optional_override([](basis_encoder& self, bool hdr_flag) {
-		self.m_params.m_hdr = hdr_flag;
+      if (uastc_flag)
+          self.m_params.set_format_mode(basis_tex_format::cUASTC4x4);
+      else
+          self.m_params.set_format_mode(basis_tex_format::cETC1S);
     }))
 
-	// Sets the quality vs. encoder performance tradeoff (0-4, default is 1). Higher=slower but better quality.	
+    // If true, the encoder will output a UASTC HDR 4x4 texture, otherwise a ETC1S texture.
+    // (This is for backwards compatibility, prefer setFormatMode() instead.)
+    // All formats
+    .function("setHDR", optional_override([](basis_encoder& self, bool hdr_flag) {
+      if (hdr_flag)
+          self.m_params.set_format_mode(basis_tex_format::cUASTC_HDR_4x4);
+      else
+          self.m_params.set_format_mode(basis_tex_format::cETC1S); // don't really know what to set
+    }))
+	
+	// Sets the UASTC HDR 4x4 quality vs. encoder performance tradeoff (0-4, default is 1). Higher=slower but better quality.	
+    // UASTC HDR 4x4
     .function("setUASTCHDRQualityLevel", optional_override([](basis_encoder& self, int level) {
-		assert((level >= astc_hdr_codec_options::cMinLevel) && (level <= astc_hdr_codec_options::cMaxLevel));
-		self.m_params.m_uastc_hdr_options.set_quality_level(level);
+		assert((level >= uastc_hdr_4x4_codec_options::cMinLevel) && (level <= uastc_hdr_4x4_codec_options::cMaxLevel));
+		self.m_params.m_uastc_hdr_4x4_options.set_quality_level(level);
     }))
 
     // If true the source images will be Y flipped before compression.
+    // All formats
     .function("setYFlip", optional_override([](basis_encoder& self, bool y_flip_flag) {
         self.m_params.m_y_flip = y_flip_flag;
     }))
 
     // Enables debug output to stdout
+    // All formats
     .function("setDebug", optional_override([](basis_encoder& self, bool debug_flag) {
         self.m_params.m_debug = debug_flag;
         g_debug_printf = debug_flag;
@@ -1877,22 +2343,26 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
 
     // If true, the input is assumed to be in sRGB space. Be sure to set this correctly! (Examples: True on photos, albedo/spec maps, and false on normal maps.)
 	// In HDR mode, if perceptual is true R and G are weighted higher (2.0, 3.0) than B (1.0). Otherwise the encoder uses equal weightings for each channel.
+    // ETC1S, UASTC LDR 4x4, UASTC HDR 4x4
     .function("setPerceptual", optional_override([](basis_encoder& self, bool perceptual_flag) {
         self.m_params.m_perceptual = perceptual_flag;
     }))
 
     // Check source images for active/used alpha channels
+    // ETC1S, UASTC LDR 4x4
     .function("setCheckForAlpha", optional_override([](basis_encoder& self, bool check_for_alpha_flag) {
         self.m_params.m_check_for_alpha = check_for_alpha_flag;
     }))
 
     // Fource output .basis/.ktx2 file to have an alpha channel
+    // ETC1S, UASTC LDR 4x4
     .function("setForceAlpha", optional_override([](basis_encoder& self, bool force_alpha_flag) {
         self.m_params.m_force_alpha = force_alpha_flag;
     }))
 
     // Set source image component swizzle.
     // r,g,b,a - valid range is [0,3]
+    // All formats (but formats without alpha will ignore a)
     .function("setSwizzle", optional_override([](basis_encoder& self, uint32_t r, uint32_t g, uint32_t b, uint32_t a) {
         assert((r < 4) && (g < 4) && (b < 4) && (a < 4));
         self.m_params.m_swizzle[0] = (char)r;
@@ -1901,42 +2371,121 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
         self.m_params.m_swizzle[3] = (char)a;
     }))
 
+    // ASTC HDR 6x6 options
+    // Sets ASTC HDR 6x6/6x6 intermediate lambda setting. The higher this setting, the lower the bitrate.
+    // ASTC HDR 6x6
+    .function("setLambda", optional_override([](basis_encoder& self, float rdo_quality) {
+        self.m_params.m_astc_hdr_6x6_options.m_lambda = rdo_quality;
+    }))
+          
+    // ASTC HDR 6x6: Enables REC 2020 delta E ITP vs. REC 709 in the  encoder.
+    .function("setRec2020", optional_override([](basis_encoder& self, bool rec2020) {
+        self.m_params.m_astc_hdr_6x6_options.m_rec2020_bt2100_color_gamut = rec2020;
+    }))
+
+    // ASTC HDR 6x6: Enables JND (Just Noticeable Difference) optimization
+    .function("setJND", optional_override([](basis_encoder& self, float thresh) {
+      if (thresh == 0.0f)
+      {
+          self.m_params.m_astc_hdr_6x6_options.m_jnd_optimization = false;
+      }
+      else
+      {
+          self.m_params.m_astc_hdr_6x6_options.m_jnd_optimization = true;
+          self.m_params.m_astc_hdr_6x6_options.m_jnd_delta_itp_thresh = thresh;
+      }
+    }))
+
+    // ASTC HDR 6x6: Compression speed vs. quality level. Ranges from [0,cPackASTC6x6MaxUserCompLevel].
+    .function("setASTC_HDR_6x6_Level", optional_override([](basis_encoder& self, int level) {
+        self.m_params.m_astc_hdr_6x6_options.set_user_level(level);
+    }))
+
+    // ASTC HDR 6x6: Enable extra 2/3 subset patterns (slower)
+    .function("setASTC_HDR_6x6_ExtraPats", optional_override([](basis_encoder& self, bool flag) {
+        self.m_params.m_astc_hdr_6x6_options.m_extra_patterns_flag = flag;
+    }))
+
+    // ASTC HDR 6x6: Enable brute force pattern searching (slower)
+    .function("setASTC_HDR_6x6_BruteForcePats", optional_override([](basis_encoder& self, bool flag) {
+        self.m_params.m_astc_hdr_6x6_options.m_brute_force_partition_matching = flag;
+    }))
+
+    // ASTC HDR 6x6: Control gaussian filtering on very hard blocks
+    .function("setASTC_HDR_6x6_SetGaussian1", optional_override([](basis_encoder& self, float strength) {
+        if (strength <= 0.0f)
+            self.m_params.m_astc_hdr_6x6_options.m_gaussian1_fallback = false;
+        else
+        {
+            self.m_params.m_astc_hdr_6x6_options.m_gaussian1_fallback = true;
+            self.m_params.m_astc_hdr_6x6_options.m_gaussian1_strength = strength;
+        }
+    }))
+
+    // ASTC HDR 6x6
+    .function("setASTC_HDR_6x6_SetGaussian2", optional_override([](basis_encoder& self, float strength) {
+        if (strength <= 0.0f)
+            self.m_params.m_astc_hdr_6x6_options.m_gaussian2_fallback = false;
+        else
+        {
+            self.m_params.m_astc_hdr_6x6_options.m_gaussian2_fallback = true;
+            self.m_params.m_astc_hdr_6x6_options.m_gaussian2_strength = strength;
+        }
+    }))
+
+    // LDR->HDR upconversion options (all HDR modes)
+    // All HDR modes
+    .function("setLDR_HDR_Upconversion_sRGBToLinear", optional_override([](basis_encoder& self, bool srgb_to_linear) {
+        self.m_params.m_ldr_hdr_upconversion_srgb_to_linear = srgb_to_linear;
+    }))
+
+    // All HDR modes
+    .function("setLDR_HDR_Upconversion_NitMultiplier", optional_override([](basis_encoder& self, float multiplier) {
+        self.m_params.m_ldr_hdr_upconversion_nit_multiplier = multiplier;
+    }))
+
     // If true, the input is assumed to be a normal map, and all source texels will be renormalized before encoding.
+    // Impacts LDR images only
     .function("setRenormalize", optional_override([](basis_encoder& self, bool renormalize_flag) {
         self.m_params.m_renormalize = renormalize_flag;
     }))
 
     // Sets the max # of endpoint clusters for ETC1S mode. Use instead of setQualityLevel.
     // Default is 512, range is [1,BASISU_MAX_ENDPOINT_CLUSTERS]
+    // ETC1S mode
     .function("setMaxEndpointClusters", optional_override([](basis_encoder& self, uint32_t max_endpoint_clusters) {
         assert(max_endpoint_clusters <= BASISU_MAX_ENDPOINT_CLUSTERS);
-        self.m_params.m_max_endpoint_clusters = max_endpoint_clusters;
+        self.m_params.m_etc1s_max_endpoint_clusters = max_endpoint_clusters;
     }))
 
     // Sets the max # of selectors clusters for ETC1S mode. Use instead of setQualityLevel.
     // Default is 512, range is [1,BASISU_MAX_ENDPOINT_CLUSTERS]
+    // ETC1S mode
     .function("setMaxSelectorClusters", optional_override([](basis_encoder& self, uint32_t max_selector_clusters) {
         assert(max_selector_clusters <= BASISU_MAX_SELECTOR_CLUSTERS);
-        self.m_params.m_max_selector_clusters = max_selector_clusters;
+        self.m_params.m_etc1s_max_selector_clusters = max_selector_clusters;
     }))
 
     // Sets the ETC1S encoder's quality level, which controls the file size vs. quality tradeoff.
     // Default is -1 (meaning unused - the compressor will use m_max_endpoint_clusters/m_max_selector_clusters instead to control the codebook sizes).
     // Range is [1,BASISU_QUALITY_MAX]
+    // ETC1S mode
     .function("setQualityLevel", optional_override([](basis_encoder& self, int quality_level) {
         assert(quality_level >= -1 && quality_level <= BASISU_QUALITY_MAX);
-        self.m_params.m_quality_level = quality_level;
+        self.m_params.m_etc1s_quality_level = quality_level;
     }))
 
     // The compression_level parameter controls the encoder perf vs. file size tradeoff for ETC1S files.
     // It does not directly control file size vs. quality - see quality_level().
     // Default is BASISU_DEFAULT_COMPRESSION_LEVEL, range is [0,BASISU_MAX_COMPRESSION_LEVEL]
+    // ETC1S mode
     .function("setCompressionLevel", optional_override([](basis_encoder& self, int comp_level) {
         assert(comp_level >= 0 && comp_level <= BASISU_MAX_COMPRESSION_LEVEL);
         self.m_params.m_compression_level = comp_level;
     }))
 
     // setNormalMapMode is the same as the basisu.exe "-normal_map" option. It tunes several codec parameters so compression works better on normal maps.
+    // ETC1S/UASTC LDR 4x4/UASTC HDR 4x4
     .function("setNormalMap", optional_override([](basis_encoder& self) {
         self.m_params.m_perceptual = false;
         self.m_params.m_mip_srgb = false;
@@ -1944,14 +2493,16 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
         self.m_params.m_no_endpoint_rdo = true;
     }))
 
-    // Sets selector RDO threshold
+    // Sets ETC1S selector RDO threshold
     // Default is BASISU_DEFAULT_SELECTOR_RDO_THRESH, range is [0,1e+10]
+    // ETC1S
     .function("setSelectorRDOThresh", optional_override([](basis_encoder& self, float selector_rdo_thresh) {
         self.m_params.m_selector_rdo_thresh = selector_rdo_thresh;
     }))
 
-    // Sets endpoint RDO threshold
+    // Sets ETC1S endpoint RDO threshold
     // Default is BASISU_DEFAULT_ENDPOINT_RDO_THRESH, range is [0,1e+10]
+    // ETC1S
     .function("setEndpointRDOThresh", optional_override([](basis_encoder& self, float endpoint_rdo_thresh) {
         self.m_params.m_endpoint_rdo_thresh = endpoint_rdo_thresh;
     }))
@@ -1960,16 +2511,19 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
     // --- KTX2 related options
     //
     // Create .KTX2 files instead of .basis files. By default this is FALSE.
+    // All formats
     .function("setCreateKTX2File", optional_override([](basis_encoder& self, bool create_ktx2_file) {
     self.m_params.m_create_ktx2_file = create_ktx2_file;
         }))
 
     // KTX2: Use UASTC Zstandard supercompression. Defaults to disabled or KTX2_SS_NONE.
+    // Impacts UASTC LDR 4x4, UASTC HDR 4x4, and ASTC HDR 6x6 (but not ASTC HDR 6x6 intermediate)
     .function("setKTX2UASTCSupercompression", optional_override([](basis_encoder& self, bool use_zstandard) {
     self.m_params.m_ktx2_uastc_supercompression = use_zstandard ? basist::KTX2_SS_ZSTANDARD : basist::KTX2_SS_NONE;
         }))
 
     // KTX2: Use sRGB transfer func in the file's DFD. Default is FALSE. This should very probably match the "perceptual" setting.
+    // All formats
     .function("setKTX2SRGBTransferFunc", optional_override([](basis_encoder& self, bool srgb_transfer_func) {
     self.m_params.m_ktx2_srgb_transfer_func = srgb_transfer_func;
         }))
@@ -1977,7 +2531,7 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
     // TODO: Expose KTX2 key value array, other options to JavaScript. See encoder/basisu_comp.h.
 #endif
 
-    // --- Mip-map options
+    // --- Mip-map options (format independent)
 
     // If true mipmaps will be generated from the source images
     .function("setMipGen", optional_override([](basis_encoder& self, bool mip_gen_flag) {
@@ -2024,73 +2578,84 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
     // cBASISTexTypeVideoFrames changes the encoder into video mode.
     // tex_type is enum basis_texture_type
     // default is cBASISTexType2D
+    // All formats
     .function("setTexType", optional_override([](basis_encoder& self, uint32_t tex_type) {
         assert(tex_type < cBASISTexTypeTotal);
         self.m_params.m_tex_type = (basist::basis_texture_type)tex_type;
     }))
 
+    // All formats (.basis only)
     .function("setUserData0", optional_override([](basis_encoder& self, uint32_t userdata0) {
         self.m_params.m_userdata0 = userdata0;
     }))
 
+    // All formats (.basis only)
     .function("setUserData1", optional_override([](basis_encoder& self, uint32_t userdata1) {
         self.m_params.m_userdata1 = userdata1;
     }))
 
-    // UASTC specific flags.
+    // UASTC LDR 4x4 specific flags.
 
     // Sets the UASTC encoding performance vs. quality tradeoff, and other lesser used UASTC encoder flags.
     // This is a combination of flags. See cPackUASTCLevelDefault, etc.
+    // UASTC LDR 4x4
     .function("setPackUASTCFlags", optional_override([](basis_encoder& self, uint32_t pack_uastc_flags) {
         assert((pack_uastc_flags & cPackUASTCLevelMask) >= cPackUASTCLevelFastest);
         assert((pack_uastc_flags & cPackUASTCLevelMask) <= cPackUASTCLevelVerySlow);
-        self.m_params.m_pack_uastc_flags = pack_uastc_flags;
+        self.m_params.m_pack_uastc_ldr_4x4_flags = pack_uastc_flags;
     }))
 
     // If true, the RDO post-processor will be applied to the encoded UASTC texture data.
+    // UASTC LDR 4x4
     .function("setRDOUASTC", optional_override([](basis_encoder& self, bool rdo_uastc) {
-        self.m_params.m_rdo_uastc = rdo_uastc;
+        self.m_params.m_rdo_uastc_ldr_4x4 = rdo_uastc;
     }))
 
     // Default is 1.0 range is [0.001, 10.0]
+    // UASTC LDR 4x4
     .function("setRDOUASTCQualityScalar", optional_override([](basis_encoder& self, float rdo_quality) {
-        self.m_params.m_rdo_uastc_quality_scalar = rdo_quality;
+        self.m_params.m_rdo_uastc_ldr_4x4_quality_scalar = rdo_quality;
     }))
-
+            
     // Default is BASISU_RDO_UASTC_DICT_SIZE_DEFAULT, range is [BASISU_RDO_UASTC_DICT_SIZE_MIN, BASISU_RDO_UASTC_DICT_SIZE_MAX]
+    // UASTC LDR 4x4
     .function("setRDOUASTCDictSize", optional_override([](basis_encoder& self, int dict_size) {
         assert((dict_size >= BASISU_RDO_UASTC_DICT_SIZE_MIN) && (dict_size <= BASISU_RDO_UASTC_DICT_SIZE_MAX));
-        self.m_params.m_rdo_uastc_dict_size = dict_size;
+        self.m_params.m_rdo_uastc_ldr_4x4_dict_size = dict_size;
     }))
 
     // Default is UASTC_RDO_DEFAULT_MAX_ALLOWED_RMS_INCREASE_RATIO, range is [01, 100.0]
+    // UASTC LDR 4x4
     .function("setRDOUASTCMaxAllowedRMSIncreaseRatio", optional_override([](basis_encoder& self, float rdo_uastc_max_allowed_rms_increase_ratio) {
-        self.m_params.m_rdo_uastc_max_allowed_rms_increase_ratio = rdo_uastc_max_allowed_rms_increase_ratio;
+        self.m_params.m_rdo_uastc_ldr_4x4_max_allowed_rms_increase_ratio = rdo_uastc_max_allowed_rms_increase_ratio;
     }))
 
     // Default is UASTC_RDO_DEFAULT_SKIP_BLOCK_RMS_THRESH, range is [.01f, 100.0f]
+    // UASTC LDR 4x4
     .function("setRDOUASTCSkipBlockRMSThresh", optional_override([](basis_encoder& self, float rdo_uastc_skip_block_rms_thresh) {
-        self.m_params.m_rdo_uastc_skip_block_rms_thresh = rdo_uastc_skip_block_rms_thresh;
+        self.m_params.m_rdo_uastc_ldr_4x4_skip_block_rms_thresh = rdo_uastc_skip_block_rms_thresh;
     }))
 
     // --- Low level options
 
-    // Disables selector RDO
+    // Disables ETC1S selector RDO
     .function("setNoSelectorRDO", optional_override([](basis_encoder& self, bool no_selector_rdo_flag) {
         self.m_params.m_no_selector_rdo = no_selector_rdo_flag;
     }))
 
-    // Disables endpoint RDO
+    // Disables ETC1S endpoint RDO
     .function("setNoEndpointRDO", optional_override([](basis_encoder& self, bool no_endpoint_rdo_flag) {
         self.m_params.m_no_endpoint_rdo = no_endpoint_rdo_flag;
     }))
 
     // Display output PSNR statistics
+    // All formats
     .function("setComputeStats", optional_override([](basis_encoder& self, bool compute_stats_flag) {
         self.m_params.m_compute_stats = compute_stats_flag;
     }))
 
-    // Write output .PNG files for debugging
+    // Write output .PNG/.EXR files for debugging
+    // All formats
     .function("setDebugImages", optional_override([](basis_encoder& self, bool debug_images_flag) {
         self.m_params.m_debug_images = debug_images_flag;
     }))

@@ -355,9 +355,7 @@ namespace basisu
 			const uint32_t first_index = block_index_iter;
 			const uint32_t last_index = minimum<uint32_t>(m_total_blocks, first_index + N);
 
-#ifndef __EMSCRIPTEN__
 			m_params.m_pJob_pool->add_job([this, first_index, last_index] {
-#endif
 
 				for (uint32_t block_index = first_index; block_index < last_index; block_index++)
 				{
@@ -390,15 +388,11 @@ namespace basisu
 					m_block_selector_cluster_index[block_index] = best_index;
 				}
 
-#ifndef __EMSCRIPTEN__
 				}, &token);
-#endif
 
 		}
 
-#ifndef __EMSCRIPTEN__
 		m_params.m_pJob_pool->wait_for_all(&token);
-#endif
 
 		m_encoded_blocks.resize(m_total_blocks);
 		for (uint32_t block_index = 0; block_index < m_total_blocks; block_index++)
@@ -429,9 +423,7 @@ namespace basisu
 				const uint32_t first_index = block_index_iter;
 				const uint32_t last_index = minimum<uint32_t>(m_total_blocks, first_index + N);
 
-#ifndef __EMSCRIPTEN__
 				m_params.m_pJob_pool->add_job([this, first_index, last_index, pass] {
-#endif
 										
 					for (uint32_t block_index = first_index; block_index < last_index; block_index++)
 					{
@@ -479,15 +471,11 @@ namespace basisu
 
 					} // block_index
 
-#ifndef __EMSCRIPTEN__
 					}, &token);
-#endif
 
 			}
 
-#ifndef __EMSCRIPTEN__
 			m_params.m_pJob_pool->wait_for_all(&token);
-#endif
 
 			m_endpoint_clusters.resize(0);
 			m_endpoint_clusters.resize(endpoints.size());
@@ -507,9 +495,7 @@ namespace basisu
 				const uint32_t first_index = block_index_iter;
 				const uint32_t last_index = minimum<uint32_t>(m_total_blocks, first_index + N);
 
-#ifndef __EMSCRIPTEN__
 				m_params.m_pJob_pool->add_job([this, first_index, last_index] {
-#endif
 
 					for (uint32_t block_index = first_index; block_index < last_index; block_index++)
 					{
@@ -541,15 +527,11 @@ namespace basisu
 						m_block_selector_cluster_index[block_index] = best_index;
 					}
 
-#ifndef __EMSCRIPTEN__
 					}, &token);
-#endif
 
 			}
 
-#ifndef __EMSCRIPTEN__
 			m_params.m_pJob_pool->wait_for_all(&token);
-#endif
 
 			m_encoded_blocks.resize(m_total_blocks);
 			for (uint32_t block_index = 0; block_index < m_total_blocks; block_index++)
@@ -579,7 +561,7 @@ namespace basisu
 		debug_printf("introduce_special_selector_clusters\n");
 
 		uint32_t total_blocks_relocated = 0;
-		const uint32_t initial_selector_clusters = (uint32_t)m_selector_cluster_block_indices.size();
+		const uint32_t initial_selector_clusters = m_selector_cluster_block_indices.size_u32();
 
 		bool_vec block_relocated_flags(m_total_blocks);
 
@@ -601,7 +583,7 @@ namespace basisu
 
 			debug_printf("Introducing sel %u\n", sel);
 
-			const uint32_t new_selector_cluster_index = (uint32_t)m_optimized_cluster_selectors.size();
+			const uint32_t new_selector_cluster_index = m_optimized_cluster_selectors.size_u32();
 
 			m_optimized_cluster_selectors.push_back(blk);
 			
@@ -681,7 +663,7 @@ namespace basisu
 	{
 		debug_printf("optimize_selector_codebook\n");
 
-		const uint32_t orig_total_selector_clusters = (uint32_t)m_optimized_cluster_selectors.size();
+		const uint32_t orig_total_selector_clusters = m_optimized_cluster_selectors.size_u32();
 
 		bool_vec selector_cluster_was_used(m_optimized_cluster_selectors.size());
 		for (uint32_t i = 0; i < m_total_blocks; i++)
@@ -795,9 +777,7 @@ namespace basisu
 				const uint32_t first_index = block_index_iter;
 				const uint32_t last_index = minimum<uint32_t>(m_total_blocks, first_index + N);
 
-#ifndef __EMSCRIPTEN__
 				m_params.m_pJob_pool->add_job([this, first_index, last_index] {
-#endif
 
 					for (uint32_t block_index = first_index; block_index < last_index; block_index++)
 					{
@@ -838,15 +818,11 @@ namespace basisu
 								blk.set_selector(x, y, selectors[x + y * 4]);
 					}
 
-#ifndef __EMSCRIPTEN__
 				}, &token);
-#endif
 
 			}
 
-#ifndef __EMSCRIPTEN__
 			m_params.m_pJob_pool->wait_for_all(&token);
-#endif
 
 		} // use_cpu
 		 
@@ -869,9 +845,7 @@ namespace basisu
 			const uint32_t first_index = block_index_iter;
 			const uint32_t last_index = minimum<uint32_t>(m_total_blocks, first_index + N);
 
-#ifndef __EMSCRIPTEN__
 			m_params.m_pJob_pool->add_job( [this, first_index, last_index, &training_vecs] {
-#endif
 
 				for (uint32_t block_index = first_index; block_index < last_index; block_index++)
 				{			
@@ -893,15 +867,11 @@ namespace basisu
 
 				} // block_index;
 
-#ifndef __EMSCRIPTEN__
 			}, &token);
-#endif
 
 		} // block_index_iter
 
-#ifndef __EMSCRIPTEN__
 		m_params.m_pJob_pool->wait_for_all(&token);
-#endif
 	}
 
 	void basisu_frontend::generate_endpoint_clusters()
@@ -980,7 +950,7 @@ namespace basisu
 		}
 								
 		if (m_params.m_debug_stats)
-			debug_printf("Total endpoint clusters: %u, parent clusters: %u\n", (uint32_t)m_endpoint_clusters.size(), (uint32_t)m_endpoint_parent_clusters.size());
+			debug_printf("Total endpoint clusters: %u, parent clusters: %u\n", m_endpoint_clusters.size_u32(), m_endpoint_parent_clusters.size_u32());
 	}
 
 	// Iterate through each array of endpoint cluster block indices and set the m_block_endpoint_clusters_indices[][] array to indicaste which cluster index each block uses.
@@ -1052,11 +1022,9 @@ namespace basisu
 		for (uint32_t cluster_index_iter = 0; cluster_index_iter < m_endpoint_clusters.size(); cluster_index_iter += N)
 		{
 			const uint32_t first_index = cluster_index_iter;                                    
-			const uint32_t last_index = minimum<uint32_t>((uint32_t)m_endpoint_clusters.size(), cluster_index_iter + N);   
+			const uint32_t last_index = minimum<uint32_t>(m_endpoint_clusters.size_u32(), cluster_index_iter + N);   
 
-#ifndef __EMSCRIPTEN__
 			m_params.m_pJob_pool->add_job( [this, first_index, last_index] {
-#endif
 
 				for (uint32_t cluster_index = first_index; cluster_index < last_index; cluster_index++)
 				{
@@ -1124,15 +1092,11 @@ namespace basisu
 					}
 				} // cluster_index
 
-#ifndef __EMSCRIPTEN__
 			}, &token);
-#endif
 
 		} // cluster_index_iter
 
-#ifndef __EMSCRIPTEN__
 		m_params.m_pJob_pool->wait_for_all(&token);
-#endif
 
 		vector_sort(m_subblock_endpoint_quant_err_vec);
 	}
@@ -1143,19 +1107,19 @@ namespace basisu
 
 		generate_block_endpoint_clusters();
 
-		int num_new_endpoint_clusters = m_params.m_max_endpoint_clusters - (uint32_t)m_endpoint_clusters.size();
+		int num_new_endpoint_clusters = m_params.m_max_endpoint_clusters - m_endpoint_clusters.size_u32();
 		if (num_new_endpoint_clusters <= 0)
 			return;
 
 		compute_endpoint_subblock_error_vec();
 
-		const uint32_t num_orig_endpoint_clusters = (uint32_t)m_endpoint_clusters.size();
+		const uint32_t num_orig_endpoint_clusters = m_endpoint_clusters.size_u32();
 
 		std::unordered_set<uint32_t> training_vector_was_relocated;
 
 		uint_vec cluster_sizes(num_orig_endpoint_clusters);
 		for (uint32_t i = 0; i < num_orig_endpoint_clusters; i++)
-			cluster_sizes[i] = (uint32_t)m_endpoint_clusters[i].size();
+			cluster_sizes[i] = m_endpoint_clusters[i].size_u32();
 
 		std::unordered_set<uint32_t> ignore_cluster;
 
@@ -1271,7 +1235,7 @@ namespace basisu
 		// TODO: Get this working when step>0
 		if (m_params.m_pOpenCL_context && !step)
 		{
-			const uint32_t total_clusters = m_endpoint_clusters.size();
+			const uint32_t total_clusters = (uint32_t)m_endpoint_clusters.size();
 
 			basisu::vector<cl_pixel_cluster> pixel_clusters(total_clusters);
 			
@@ -1354,7 +1318,7 @@ namespace basisu
 
 				} // cluster_indices_iter
 
-				uint32_t* pSorted = radix_sort(colors.size(), colors.data(), colors2.data(), 0, 3);
+				uint32_t* pSorted = radix_sort((uint32_t)colors.size(), colors.data(), colors2.data(), 0, 3);
 
 				const uint64_t first_pixel_index = input_pixels.size();
 
@@ -1536,9 +1500,7 @@ namespace basisu
 				const uint32_t first_index = cluster_index_iter;
 				const uint32_t last_index = minimum<uint32_t>((uint32_t)m_endpoint_clusters.size(), cluster_index_iter + N);
 
-#ifndef __EMSCRIPTEN__
 				m_params.m_pJob_pool->add_job([this, first_index, last_index, step] {
-#endif
 
 					for (uint32_t cluster_index = first_index; cluster_index < last_index; cluster_index++)
 					{
@@ -1657,15 +1619,11 @@ namespace basisu
 
 					} // cluster_index
 
-#ifndef __EMSCRIPTEN__
 					}, &token);
-#endif
 
 			} // cluster_index_iter
 
-#ifndef __EMSCRIPTEN__
 			m_params.m_pJob_pool->wait_for_all(&token);
-#endif
 		}
 
 		debug_printf("Elapsed time: %3.3f secs\n", tm.get_elapsed_secs());
@@ -1740,14 +1698,14 @@ namespace basisu
 		{
 			// For the OpenCL kernel, we order the parent endpoint clusters by smallest to largest for efficiency.
 			// We also prepare an array of block info structs that point into this new parent endpoint cluster array.
-			const uint32_t total_parent_clusters = m_endpoint_clusters_within_each_parent_cluster.size();
+			const uint32_t total_parent_clusters = (uint32_t)m_endpoint_clusters_within_each_parent_cluster.size();
 
 			basisu::vector<cl_block_info_struct> cl_block_info_structs(m_total_blocks);
 			
 			// the size of each parent cluster, in total clusters
 			uint_vec parent_cluster_sizes(total_parent_clusters);
 			for (uint32_t i = 0; i < total_parent_clusters; i++)
-				parent_cluster_sizes[i] = m_endpoint_clusters_within_each_parent_cluster[i].size();
+				parent_cluster_sizes[i] = (uint32_t)m_endpoint_clusters_within_each_parent_cluster[i].size();
 
 			uint_vec first_parent_cluster_ofs(total_parent_clusters);
 			uint32_t cur_ofs = 0;
@@ -1834,9 +1792,7 @@ namespace basisu
 				const uint32_t first_index = block_index_iter;
 				const uint32_t last_index = minimum<uint32_t>(m_total_blocks, first_index + N);
 
-#ifndef __EMSCRIPTEN__
 				m_params.m_pJob_pool->add_job([this, first_index, last_index, &best_cluster_indices, &block_clusters] {
-#endif
 
 					for (uint32_t block_index = first_index; block_index < last_index; block_index++)
 					{
@@ -1967,15 +1923,11 @@ namespace basisu
 
 					} // block_index
 
-#ifndef __EMSCRIPTEN__
 					}, &token);
-#endif
 
 			} // block_index_iter
 
-#ifndef __EMSCRIPTEN__
 			m_params.m_pJob_pool->wait_for_all(&token);
-#endif
 		
 		} // use_cpu
 						
@@ -2122,9 +2074,7 @@ namespace basisu
 				const uint32_t first_index = block_index_iter;
 				const uint32_t last_index = minimum<uint32_t>(m_total_blocks, first_index + N);
 
-#ifndef __EMSCRIPTEN__
 				m_params.m_pJob_pool->add_job([this, first_index, last_index] {
-#endif
 
 					for (uint32_t block_index = first_index; block_index < last_index; block_index++)
 					{
@@ -2149,15 +2099,11 @@ namespace basisu
 
 					} // block_index
 
-#ifndef __EMSCRIPTEN__
 					}, &token);
-#endif
 
 			} // block_index_iter
 
-#ifndef __EMSCRIPTEN__
 			m_params.m_pJob_pool->wait_for_all(&token);
-#endif
 
 		} // use_cpu
 				
@@ -2224,9 +2170,7 @@ namespace basisu
 			const uint32_t first_index = block_index_iter;
 			const uint32_t last_index = minimum<uint32_t>(m_total_blocks, first_index + N);
 
-#ifndef __EMSCRIPTEN__
 			m_params.m_pJob_pool->add_job( [this, first_index, last_index, &training_vecs] {
-#endif
 
 				for (uint32_t block_index = first_index; block_index < last_index; block_index++)
 				{
@@ -2253,15 +2197,11 @@ namespace basisu
 				
 				} // block_index
 
-#ifndef __EMSCRIPTEN__
 			}, &token);
-#endif
 
 		} // block_index_iter
 
-#ifndef __EMSCRIPTEN__
 		m_params.m_pJob_pool->wait_for_all(&token);
-#endif
 
 		vec16F_clusterizer selector_clusterizer;
 		for (uint32_t i = 0; i < m_total_blocks; i++)
@@ -2357,9 +2297,7 @@ namespace basisu
 			const uint32_t first_index = cluster_index_iter;
 			const uint32_t last_index = minimum<uint32_t>((uint32_t)total_selector_clusters, cluster_index_iter + N);
 
-#ifndef __EMSCRIPTEN__			
 			m_params.m_pJob_pool->add_job([this, first_index, last_index] {
-#endif
 
 				for (uint32_t cluster_index = first_index; cluster_index < last_index; cluster_index++)
 				{
@@ -2428,15 +2366,11 @@ namespace basisu
 
 				} // cluster_index
 
-#ifndef __EMSCRIPTEN__
 				}, &token);
-#endif
 
 		} // cluster_index_iter
 
-#ifndef __EMSCRIPTEN__
 		m_params.m_pJob_pool->wait_for_all(&token);
-#endif
 
 		debug_printf("Elapsed time: %3.3f secs\n", tm.get_elapsed_secs());
 				
@@ -2528,7 +2462,7 @@ namespace basisu
 
 		if ((m_params.m_pOpenCL_context) && m_use_hierarchical_selector_codebooks)
 		{
-			const uint32_t num_parent_clusters = m_selector_clusters_within_each_parent_cluster.size();
+			const uint32_t num_parent_clusters = m_selector_clusters_within_each_parent_cluster.size_u32();
 
 			basisu::vector<fosc_selector_struct> selector_structs;
 			selector_structs.reserve(m_optimized_cluster_selectors.size());
@@ -2556,7 +2490,7 @@ namespace basisu
 					selector_cluster_indices.push_back(selector_cluster_index);
 				}
 
-				cur_ofs += m_selector_clusters_within_each_parent_cluster[parent_index].size();
+				cur_ofs += m_selector_clusters_within_each_parent_cluster[parent_index].size_u32();
 			}
 
 			const uint32_t total_input_selectors = cur_ofs;
@@ -2571,7 +2505,7 @@ namespace basisu
 
 				block_structs[i].m_etc_color5_inten.a = (uint8_t)blk.get_inten_table(0);
 				block_structs[i].m_first_selector = parent_selector_cluster_offsets[parent_selector_cluster];
-				block_structs[i].m_num_selectors = m_selector_clusters_within_each_parent_cluster[parent_selector_cluster].size();
+				block_structs[i].m_num_selectors = m_selector_clusters_within_each_parent_cluster[parent_selector_cluster].size_u32();
 			}
 
 			uint_vec output_selector_cluster_indices(m_total_blocks);
@@ -2639,10 +2573,8 @@ namespace basisu
 				const uint32_t first_index = block_index_iter;
 				const uint32_t last_index = minimum<uint32_t>(m_total_blocks, first_index + N);
 
-	#ifndef __EMSCRIPTEN__
 				m_params.m_pJob_pool->add_job( [this, first_index, last_index, &unpacked_optimized_cluster_selectors] {
-	#endif
-
+	
 				int prev_best_cluster_index = 0;
 
 				for (uint32_t block_index = first_index; block_index < last_index; block_index++)
@@ -2780,15 +2712,11 @@ namespace basisu
 					
 				} // block_index
 
-	#ifndef __EMSCRIPTEN__
 				}, &token);
-	#endif
 
 			} // block_index_iter
 
-	#ifndef __EMSCRIPTEN__
 			m_params.m_pJob_pool->wait_for_all(&token);
-	#endif
 						
 			for (uint32_t i = 0; i < m_selector_cluster_block_indices.size(); i++)
 			{
@@ -3107,9 +3035,7 @@ namespace basisu
 			const uint32_t first_index = cluster_index_iter;                                    
 			const uint32_t last_index = minimum<uint32_t>((uint32_t)new_endpoint_cluster_block_indices.size(), cluster_index_iter + N);   
 
-#ifndef __EMSCRIPTEN__
 			m_params.m_pJob_pool->add_job( [this, first_index, last_index, &cluster_improved, &cluster_valid, &new_endpoint_cluster_block_indices, &pBlock_selector_indices ] {
-#endif
 
 				for (uint32_t cluster_index = first_index; cluster_index < last_index; cluster_index++)
 				{
@@ -3199,15 +3125,11 @@ namespace basisu
 
 				} // cluster_index
 
-#ifndef __EMSCRIPTEN__
 			}, &token);
-#endif
 
 		} // cluster_index_iter
 
-#ifndef __EMSCRIPTEN__
 		m_params.m_pJob_pool->wait_for_all(&token);
-#endif
 				
 		uint32_t total_unused_clusters = 0;
 		uint32_t total_improved_clusters = 0;

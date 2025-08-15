@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.0)
+cmake_minimum_required(VERSION 3.5)
 
 project(basisu_transcoder_js)
 
@@ -14,7 +14,7 @@ message("KTX2=${KTX2}")
 message("KTX2_ZSTANDARD=${KTX2_ZSTANDARD}")
 
 if (EMSCRIPTEN)
-  set(CMAKE_CXX_STANDARD 11)
+  set(CMAKE_CXX_STANDARD 17)
   
   set(SRC_LIST
   	../../transcoder/basisu_transcoder.cpp
@@ -57,10 +57,12 @@ if (EMSCRIPTEN)
   )
   
   target_compile_options(basis_transcoder.js PRIVATE -O3 -fno-strict-aliasing)
+  #target_compile_options(basis_transcoder.js PRIVATE -O0 -g -fno-strict-aliasing)
+      
   target_include_directories(basis_transcoder.js PRIVATE ../../transcoder)
 
   set_target_properties(basis_transcoder.js PROPERTIES
       OUTPUT_NAME "basis_transcoder"
       SUFFIX ".js"
-      LINK_FLAGS "--bind -s ALLOW_MEMORY_GROWTH=1 -O3 -s ASSERTIONS=0 -s MALLOC=emmalloc -s MODULARIZE=1 -s EXPORT_NAME=BASIS ")
+      LINK_FLAGS "--bind -s ALLOW_MEMORY_GROWTH=1 -s MALLOC=emmalloc -s MODULARIZE=1 -s EXPORT_NAME=BASIS -s ASSERTIONS=0 -s EXPORTED_RUNTIME_METHODS=['HEAP8']")
 endif()

@@ -2,7 +2,8 @@
 # It should also work without this option, but we do not test with it.
 cmake_minimum_required(VERSION 3.5)
 
-project(basisu)
+project(basisu C CXX)
+set(CMAKE_CXX_STANDARD 17)
 option(STATIC "static linking" FALSE)
 option(SAN "sanitize" FALSE)
 
@@ -75,22 +76,20 @@ if (NOT MSVC)
     if (SAN)
 		message("Enabling SAN")
 		
-		set(SANITIZE_FLAGS "-fsanitize=address -fno-omit-frame-pointer -fsanitize=undefined -fno-sanitize=alignment")
+		  set(SANITIZE_FLAGS "-fsanitize=address -fno-omit-frame-pointer -fsanitize=undefined -fno-sanitize=alignment")
 		
-		set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} ${SANITIZE_FLAGS}")
+		  set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} ${SANITIZE_FLAGS}")
         set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} ${SANITIZE_FLAGS}")
 	
         set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} ${SANITIZE_FLAGS}")
         set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} ${SANITIZE_FLAGS}")
     endif()
 
-    set(CMAKE_CXX_FLAGS -std=c++11)
-    set(GCC_COMPILE_FLAGS "-fvisibility=hidden -fPIC -fno-strict-aliasing -D_LARGEFILE64_SOURCE=1 -D_FILE_OFFSET_BITS=64 -Wall -Wextra -Wno-unused-local-typedefs -Wno-unused-value -Wno-unused-parameter -Wno-unused-variable -Wno-misleading-indentation -Wno-maybe-uninitialized -Wno-unused-function -Wno-stringop-overflow -Wno-unknown-warning-option")
-    set(GCC_CXX_COMPILE_FLAGS "-fvisibility=hidden -fPIC -fno-strict-aliasing -D_LARGEFILE64_SOURCE=1 -D_FILE_OFFSET_BITS=64 -Wall -Wextra -Wno-unused-local-typedefs -Wno-unused-value -Wno-unused-parameter -Wno-unused-variable -Wno-reorder -Wno-misleading-indentation -Wno-class-memaccess -Wno-deprecated-copy -Wno-maybe-uninitialized -Wno-unused-function -Wno-stringop-overflow -Wno-unknown-warning-option")
+    set(CMAKE_CXX_FLAGS -std=c++17)
+    set(GCC_COMPILE_FLAGS "-fvisibility=hidden -fPIC -fno-strict-aliasing -D_LARGEFILE64_SOURCE=1 -D_FILE_OFFSET_BITS=64 -Wall -Wextra -Wno-unused-local-typedefs -Wno-unused-value -Wno-unused-parameter -Wno-unused-variable -Wno-reorder -Wno-misleading-indentation -Wno-class-memaccess -Wno-deprecated-copy -Wno-maybe-uninitialized -Wno-unused-function -Wno-stringop-overflow -Wno-unknown-warning-option")
    
     if (NOT BUILD_X64)
         set(GCC_COMPILE_FLAGS "${GCC_COMPILE_FLAGS} -m32")
-        set(GCC_CXX_COMPILE_FLAGS "${GCC_CXX_COMPILE_FLAGS} -m32")
     endif()
 
     if (EMSCRIPTEN)
@@ -124,9 +123,9 @@ if (NOT MSVC)
     set(CMAKE_C_FLAGS_RELEASE  "${CMAKE_C_FLAGS_RELEASE} ${GCC_COMPILE_FLAGS}")
     set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} ${GCC_COMPILE_FLAGS} -D_DEBUG")
 
-    set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} ${GCC_CXX_COMPILE_FLAGS}")
-    set(CMAKE_CXX_FLAGS_RELEASE  "${CMAKE_CXX_FLAGS_RELEASE} ${GCC_CXX_COMPILE_FLAGS}")
-    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} ${GCC_CXX_COMPILE_FLAGS} -D_DEBUG")
+    set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} ${GCC_COMPILE_FLAGS}")
+    set(CMAKE_CXX_FLAGS_RELEASE  "${CMAKE_CXX_FLAGS_RELEASE} ${GCC_COMPILE_FLAGS}")
+    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} ${GCC_COMPILE_FLAGS} -D_DEBUG")
 else()
     if (SSE)
         set(CMAKE_C_FLAGS  "${CMAKE_C_FLAGS} -DBASISU_SUPPORT_SSE=1")
@@ -156,8 +155,10 @@ set(ENCODER_LIB_SRC_LIST
     encoder/basisu_kernels_sse.cpp
     encoder/basisu_opencl.cpp
     encoder/pvpngreader.cpp
-    encoder/basisu_astc_hdr_enc.cpp
-	encoder/3rdparty/android_astc_decomp.cpp
+    encoder/basisu_uastc_hdr_4x4_enc.cpp
+    encoder/basisu_astc_hdr_6x6_enc.cpp
+    encoder/basisu_astc_hdr_common.cpp
+    encoder/3rdparty/android_astc_decomp.cpp
     encoder/3rdparty/tinyexr.cpp
     transcoder/basisu_transcoder.cpp
 )
