@@ -17,6 +17,7 @@
 #include "../transcoder/basisu_transcoder_internal.h"
 
 #include <mutex>
+#include <atomic>
 #include <condition_variable>
 #include <functional>
 #include <thread>
