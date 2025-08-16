@@ -2305,7 +2305,18 @@ namespace basisu
 			job_run(job, lock);
 		}
 
+#ifndef __EMSCRIPTEN__
 		m_job_done.wait(lock, [wait_token] { return *wait_token == 0; });
+#else
+		// Avoid infinite blocking
+		for (; ; )
+		{
+			if (m_job_done.wait_for(lock, std::chrono::milliseconds(50), [wait_token] { return *wait_token == 0; }))
+			{
+				break;
+			}
+		}
+#endif
 	}
 
 	bool job_pool::job_steal(item& job, token* tok, std::unique_lock<std::mutex>&)
