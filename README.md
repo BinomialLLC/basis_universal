@@ -12,7 +12,7 @@ Basis Universal is an open source [supercompressed](http://gamma.cs.unc.edu/GST/
 
 Our overall goal with this project is to simplify the encoding and efficient distribution of *portable* LDR and HDR GPU texture, image, and short texture video content in a way that is compatible with any GPU or rendering/graphics API.
 
-The system supports five modes: ETC1S, UASTC LDR 4x4, UASTC HDR 4x4, UASTC HDR 6x6 (with or without RDO), or UASTC HDR 6x6 Intermediate ("GPU Photo"). The C/C++ encoder and transcoder libaries can be compiled to native code or WebAssembly, and all encoder/transcoder features can be accessed from Javascript via a C++ wrapper library which optionally supports [WASM multithreading](https://web.dev/articles/webassembly-threads) for fast encoding in the browser.
+The system supports five modes: ETC1S, UASTC LDR 4x4, UASTC HDR 4x4, UASTC HDR 6x6 (with or without RDO), or UASTC HDR 6x6 Intermediate ("GPU Photo"). The C/C++ encoder and transcoder libaries can be compiled to native code or WebAssembly, and all encoder/transcoder features can be accessed from Javascript via a C++ wrapper library which optionally supports [WASM multithreading](https://web.dev/articles/webassembly-threads) for fast encoding in the browser. ETC1S transcoding (which uses no SIMD code) is slightly faster than libjpeg when compiled to native code.
 
 Links
 -----
