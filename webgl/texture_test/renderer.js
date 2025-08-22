@@ -294,4 +294,3 @@ Renderer.fragmentShaderSource_ = [
    '  gl_FragColor = c;',
    '}'
 ].join('\n');
-

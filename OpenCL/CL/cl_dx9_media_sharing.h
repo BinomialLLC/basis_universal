@@ -30,7 +30,7 @@ extern "C" {
 
 typedef cl_uint             cl_dx9_media_adapter_type_khr;
 typedef cl_uint             cl_dx9_media_adapter_set_khr;
-    
+
 #if defined(_WIN32)
 #include <d3d9.h>
 typedef struct _cl_dx9_surface_info_khr
@@ -91,7 +91,7 @@ typedef cl_mem (CL_API_CALL *clCreateFromDX9MediaSurfaceKHR_fn)(
     cl_mem_flags                  flags,
     cl_dx9_media_adapter_type_khr adapter_type,
     void *                        surface_info,
-    cl_uint                       plane,                                                                          
+    cl_uint                       plane,
     cl_int *                      errcode_ret) CL_API_SUFFIX__VERSION_1_2;
 
 typedef cl_int (CL_API_CALL *clEnqueueAcquireDX9MediaSurfacesKHR_fn)(
@@ -226,4 +226,3 @@ typedef cl_int (CL_API_CALL *clEnqueueReleaseDX9ObjectsINTEL_fn)(
 #endif
 
 #endif  /* __OPENCL_CL_DX9_MEDIA_SHARING_H */
-
