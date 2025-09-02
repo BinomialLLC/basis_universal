@@ -117,7 +117,7 @@ static void compute_half_to_qlog_table(uint32_t bits, uint16_t* pTable, const ba
 
 		float best_err = BIG_FLOAT_VAL;
 		uint32_t best_qlog = 0;
-		
+
 		double prev_err = BIG_FLOAT_VAL;
 
 		// For all possible qlog's
@@ -141,13 +141,13 @@ static void compute_half_to_qlog_table(uint32_t bits, uint16_t* pTable, const ba
 			}
 
 			prev_err = err;
-						
+
 			// Find best
 			if (err < best_err)
 			{
 				best_err = err;
 				best_qlog = i;
-				
+
 				if (best_err == 0.0f)
 					break;
 			}
@@ -171,7 +171,7 @@ static void init_qlog_tables()
 
 #if BASISU_MULTITHREADED_INIT
 	job_pool jp(3);
-	
+
 	for (uint32_t bits = HALF_TO_QLOG_TABS_MIN_BITS; bits <= HALF_TO_QLOG_TABS_MAX_BITS; bits++)
 	{
 		jp.add_job( [bits, &qlog16_to_float]() { compute_half_to_qlog_table(bits, g_pHalf_to_qlog_tabs[bits - HALF_TO_QLOG_TABS_MIN_BITS], qlog16_to_float); });
@@ -328,7 +328,7 @@ static bool compute_least_squares_endpoints_rgb(
 	uint32_t N, const uint8_t* pSelectors, const vec4F* pSelector_weights,
 	vec3F* pXl, vec3F* pXh, const vec4F* pColors, const aabb3F& input_box)
 {
-	// Least squares using normal equations: http://www.cs.cornell.edu/~bindel/class/cs3220-s12/notes/lec10.pdf 
+	// Least squares using normal equations: http://www.cs.cornell.edu/~bindel/class/cs3220-s12/notes/lec10.pdf
 	// https://web.archive.org/web/20150319232457/http://www.cs.cornell.edu/~bindel/class/cs3220-s12/notes/lec10.pdf
 	// I did this in matrix form first, expanded out all the ops, then optimized it a bit.
 	float z00 = 0.0f, z01 = 0.0f, z10 = 0.0f, z11 = 0.0f;
@@ -339,7 +339,7 @@ static bool compute_least_squares_endpoints_rgb(
 	for (uint32_t i = 0; i < N; i++)
 	{
 		const uint32_t sel = pSelectors[i];
-		
+
 		z00 += pSelector_weights[sel][0];
 		z10 += pSelector_weights[sel][1];
 		z11 += pSelector_weights[sel][2];
@@ -373,7 +373,7 @@ static bool compute_least_squares_endpoints_rgb(
 	iz01 = -z01 * det;
 	iz10 = -z10 * det;
 	iz11 = z00 * det;
-		
+
 	(*pXl)[0] = (float)(iz00 * q00_r + iz01 * q10_r);
 	(*pXh)[0] = (float)(iz10 * q00_r + iz11 * q10_r);
 
@@ -392,7 +392,7 @@ static bool compute_least_squares_endpoints_rgb(
 			l = input_box[0][c];
 			h = input_box[1][c];
 		}
-		
+
 		(*pXl)[c] = l;
 		(*pXh)[c] = h;
 	}
@@ -429,17 +429,17 @@ static bool compute_least_squares_endpoints_rgb(
 }
 
 static bool compute_least_squares_endpoints_rgb_raw_weights(
-	uint32_t N, const uint8_t* pRaw_weights, 
+	uint32_t N, const uint8_t* pRaw_weights,
 	vec3F* pXl, vec3F* pXh, const vec4F* pColors, const aabb3F& input_box)
 {
-	// Least squares using normal equations: http://www.cs.cornell.edu/~bindel/class/cs3220-s12/notes/lec10.pdf 
+	// Least squares using normal equations: http://www.cs.cornell.edu/~bindel/class/cs3220-s12/notes/lec10.pdf
 	// https://web.archive.org/web/20150319232457/http://www.cs.cornell.edu/~bindel/class/cs3220-s12/notes/lec10.pdf
 	// I did this in matrix form first, expanded out all the ops, then optimized it a bit.
 	float z00 = 0.0f, z01 = 0.0f, z10 = 0.0f, z11 = 0.0f;
 	float q00_r = 0.0f, q10_r = 0.0f, t_r = 0.0f;
 	float q00_g = 0.0f, q10_g = 0.0f, t_g = 0.0f;
 	float q00_b = 0.0f, q10_b = 0.0f, t_b = 0.0f;
-		
+
 	for (uint32_t i = 0; i < N; i++)
 	{
 		const float wt = (float)pRaw_weights[i] * (1.0f / 64.0f);
@@ -541,13 +541,13 @@ static bool compute_least_squares_endpoints_2D(
 	uint32_t N, const uint8_t* pSelectors, const vec4F* pSelector_weights,
 	vec2F* pXl, vec2F* pXh, const vec2F* pColors, const aabb2F& input_box)
 {
-	// Least squares using normal equations: http://www.cs.cornell.edu/~bindel/class/cs3220-s12/notes/lec10.pdf 
+	// Least squares using normal equations: http://www.cs.cornell.edu/~bindel/class/cs3220-s12/notes/lec10.pdf
 	// https://web.archive.org/web/20150319232457/http://www.cs.cornell.edu/~bindel/class/cs3220-s12/notes/lec10.pdf
 	// I did this in matrix form first, expanded out all the ops, then optimized it a bit.
 	float z00 = 0.0f, z01 = 0.0f, z10 = 0.0f, z11 = 0.0f;
 	float q00_r = 0.0f, q10_r = 0.0f, t_r = 0.0f;
 	float q00_g = 0.0f, q10_g = 0.0f, t_g = 0.0f;
-	
+
 	for (uint32_t i = 0; i < N; i++)
 	{
 		const uint32_t sel = pSelectors[i];
@@ -599,7 +599,7 @@ static bool compute_least_squares_endpoints_2D(
 		(*pXl)[c] = l;
 		(*pXh)[c] = h;
 	}
-		
+
 	pXl->clamp(0.0f, MAX_QLOG16_VAL);
 	pXh->clamp(0.0f, MAX_QLOG16_VAL);
 
@@ -610,7 +610,7 @@ static bool compute_least_squares_endpoints_1D(
 	uint32_t N, const uint8_t* pSelectors, const vec4F* pSelector_weights,
 	vec1F* pXl, vec1F* pXh, const vec1F* pColors, const aabb1F& input_box)
 {
-	// Least squares using normal equations: http://www.cs.cornell.edu/~bindel/class/cs3220-s12/notes/lec10.pdf 
+	// Least squares using normal equations: http://www.cs.cornell.edu/~bindel/class/cs3220-s12/notes/lec10.pdf
 	// https://web.archive.org/web/20150319232457/http://www.cs.cornell.edu/~bindel/class/cs3220-s12/notes/lec10.pdf
 	// I did this in matrix form first, expanded out all the ops, then optimized it a bit.
 	float z00 = 0.0f, z01 = 0.0f, z10 = 0.0f, z11 = 0.0f;
@@ -668,10 +668,10 @@ static bool compute_least_squares_endpoints_1D(
 }
 
 static bool compute_weighted_least_squares_endpoints_rgb(
-	uint32_t N, 
+	uint32_t N,
 	const uint8_t* pSelectors, const vec4F* pSelector_weights, const float* pRaw_weights, /* ti */
 	const float* pEmphasis_weights /* wi */,
-	vec3F* pXl, vec3F* pXh, 
+	vec3F* pXl, vec3F* pXh,
 	const vec4F* pColors, /* pi */
 	const aabb3F& input_box)
 {
@@ -702,7 +702,7 @@ static bool compute_weighted_least_squares_endpoints_rgb(
 		const float pi_r = pColors[i][0], pi_g = pColors[i][1], pi_b = pColors[i][2];
 
 		weighted_mean_tw += wi * ti;
-		
+
 		weighted_mean_pw[0] += wi * pi_r;
 		weighted_mean_pw[1] += wi * pi_g;
 		weighted_mean_pw[2] += wi * pi_b;
@@ -722,7 +722,7 @@ static bool compute_weighted_least_squares_endpoints_rgb(
 		const float wi = pEmphasis_weights[i];
 		const float ti = pSelectors ? pSelector_weights[pSelectors[i]][3] : pRaw_weights[i];
 		const float pi_r = pColors[i][0], pi_g = pColors[i][1], pi_b = pColors[i][2];
-		
+
 		spt[0] += wi * (pi_r - weighted_mean_pw[0]) * (ti - weighted_mean_tw);
 		spt[1] += wi * (pi_g - weighted_mean_pw[1]) * (ti - weighted_mean_tw);
 		spt[2] += wi * (pi_b - weighted_mean_pw[2]) * (ti - weighted_mean_tw);
@@ -737,7 +737,7 @@ static bool compute_weighted_least_squares_endpoints_rgb(
 	{
 		float h = weighted_mean_pw[i] + (spt[i] / stt) * (1.0f - weighted_mean_tw);
 		float l = weighted_mean_pw[i] - (spt[i] / stt) * weighted_mean_tw;
-				
+
 		(*pXh)[i] = h;
 		(*pXl)[i] = l;
 	}
@@ -1128,7 +1128,7 @@ double eval_selectors(
 			const vec3F low_color((float)pDecoded_half[lo_index * 3 + 0], (float)pDecoded_half[lo_index * 3 + 1], (float)pDecoded_half[lo_index * 3 + 2]);
 			const vec3F high_color((float)pDecoded_half[hi_index * 3 + 0], (float)pDecoded_half[hi_index * 3 + 1], (float)pDecoded_half[hi_index * 3 + 2]);
 			const vec3F mid_color((float)pDecoded_half[mid_index * 3 + 0], (float)pDecoded_half[mid_index * 3 + 1], (float)pDecoded_half[mid_index * 3 + 2]);
-						
+
 			const vec3F block_dir(high_color - low_color);
 
 			for (uint32_t p = 0; p < num_pixels; p++)
@@ -1140,11 +1140,11 @@ double eval_selectors(
 				const int64_t desired_half_r_q = q2(desired_r, coptions.m_q_log_bias);
 				const int64_t desired_half_g_q = q2(desired_g, coptions.m_q_log_bias);
 				const int64_t desired_half_b_q = q2(desired_b, coptions.m_q_log_bias);
-				
+
 				// Determine which side of the middle plane the point is for a modest gain
 				vec3F c((float)desired_r - mid_color[0], (float)desired_g - mid_color[1], (float)desired_b - mid_color[2]);
 				float d = c.dot(block_dir);
-								
+
 				int i = 0, high_index = (num_weight_levels / 2) + 1;
 				if (d >= 0.0f)
 				{
@@ -1240,11 +1240,11 @@ double eval_selectors_dual_plane(
 
 	const uint32_t first_channel = (channel_index + 1) % 3;
 	const uint32_t second_channel = (channel_index + 2) % 3;
-	
+
 	// First plane
 	const double first_channel_weight = channel_weights[first_channel];
 	const double second_channel_weight = channel_weights[second_channel];
-		
+
 	for (uint32_t p = 0; p < num_pixels; p++)
 	{
 		const half_float* pDesired_half = &pBlock_pixels_half[p * 3];
@@ -1284,7 +1284,7 @@ double eval_selectors_dual_plane(
 		const half_float* pDesired_half = &pBlock_pixels_half[p * 3];
 
 		const double desired_half_a_q = q(pDesired_half[channel_index], coptions.m_q_log_bias);
-		
+
 		double lowest_e = BIG_FLOAT_VAL;
 
 		// this is an approximation of MSLE
@@ -1711,7 +1711,7 @@ bool pack_astc_mode11_submode(uint32_t submode, uint8_t* pEndpoints, int val_q[2
 bool pack_astc_mode11_submode(uint32_t submode, uint8_t* pEndpoints, const vec3F& low_q16, const vec3F& high_q16, int& max_clamp_mag, bool early_out_if_clamped, int max_clamp_mag_accept_thresh)
 {
 	assert(submode <= 7);
-		
+
 	const uint32_t a_bits = 9 + (submode >> 1);
 	const int max_a_val = (1 << a_bits) - 1;
 
@@ -1803,7 +1803,7 @@ void pack_astc_mode11_direct(uint8_t* pEndpoints, vec3F l_q16, vec3F h_q16)
 			// this quantizes R and G as 7 bits vs. 8, for grayscale.
 			//l_q = g_half_to_qlog7[bounds_check((uint32_t)l_half, 0U, 32768U)] << 1;
 			//h_q = g_half_to_qlog7[bounds_check((uint32_t)h_half, 0U, 32768U)] << 1;
-						
+
 			l_q = minimum<uint32_t>(l_q, MAX_QLOG8);
 			h_q = minimum<uint32_t>(h_q, MAX_QLOG8);
 		}
@@ -1982,7 +1982,7 @@ bool pack_astc_mode7_submode(uint32_t submode, uint8_t* pEndpoints, const vec3F&
 		x1 = get_bit(qlog[0], 8); // R8
 		x2 = get_bit(qlog[0], 7); // R7
 		x3 = get_bit(qlog[0], 10); // R10
-		x4 = get_bit(qlog[0], 6); // R6 
+		x4 = get_bit(qlog[0], 6); // R6
 		x5 = get_bit(qlog[3], 6); // S6
 		x6 = get_bit(qlog[3], 5); // S5
 		break;
@@ -1996,7 +1996,7 @@ bool pack_astc_mode7_submode(uint32_t submode, uint8_t* pEndpoints, const vec3F&
 		x1 = get_bit(qlog[1], 5); // G5
 		x2 = get_bit(qlog[0], 7); // R7
 		x3 = get_bit(qlog[2], 5); // B5
-		x4 = get_bit(qlog[0], 6); // R6 
+		x4 = get_bit(qlog[0], 6); // R6
 		x5 = get_bit(qlog[0], 10); // R10
 		x6 = get_bit(qlog[0], 9); // R9
 		break;
@@ -2010,7 +2010,7 @@ bool pack_astc_mode7_submode(uint32_t submode, uint8_t* pEndpoints, const vec3F&
 		x1 = get_bit(qlog[0], 8); // R8
 		x2 = get_bit(qlog[0], 7); // R7
 		x3 = get_bit(qlog[0], 6); // R6
-		x4 = get_bit(qlog[3], 7); // S7 
+		x4 = get_bit(qlog[3], 7); // S7
 		x5 = get_bit(qlog[3], 6); // S6
 		x6 = get_bit(qlog[3], 5); // S5
 		break;
@@ -2024,7 +2024,7 @@ bool pack_astc_mode7_submode(uint32_t submode, uint8_t* pEndpoints, const vec3F&
 		x1 = get_bit(qlog[1], 5); // G5
 		x2 = get_bit(qlog[0], 7); // R7
 		x3 = get_bit(qlog[2], 5); // B5
-		x4 = get_bit(qlog[0], 6); // R6 
+		x4 = get_bit(qlog[0], 6); // R6
 		x5 = get_bit(qlog[3], 6); // S6
 		x6 = get_bit(qlog[3], 5); // S5
 		break;
@@ -2039,7 +2039,7 @@ bool pack_astc_mode7_submode(uint32_t submode, uint8_t* pEndpoints, const vec3F&
 		x1 = get_bit(qlog[1], 5); // G5
 		x2 = get_bit(qlog[2], 6); // B6
 		x3 = get_bit(qlog[2], 5); // B5
-		x4 = get_bit(qlog[0], 6); // R6 
+		x4 = get_bit(qlog[0], 6); // R6
 		x5 = get_bit(qlog[0], 7); // R7
 		x6 = get_bit(qlog[3], 5); // S5
 		break;
@@ -2052,7 +2052,7 @@ bool pack_astc_mode7_submode(uint32_t submode, uint8_t* pEndpoints, const vec3F&
 		x1 = get_bit(qlog[1], 5); // G5
 		x2 = get_bit(qlog[2], 6); // B6
 		x3 = get_bit(qlog[2], 5); // B5
-		x4 = get_bit(qlog[0], 6); // R6 
+		x4 = get_bit(qlog[0], 6); // R6
 		x5 = get_bit(qlog[3], 6); // S6
 		x6 = get_bit(qlog[3], 5); // S5
 		break;
@@ -2143,7 +2143,7 @@ bool pack_mode11(mode11_log_desc& desc, uint8_t* pEndpoints)
 		pEndpoints[1] = (uint8_t)desc.m_b1;
 		pEndpoints[3] = (uint8_t)desc.m_d0;
 		pEndpoints[5] = (uint8_t)desc.m_d1 | 128;
-		
+
 		return true;
 	}
 
@@ -2161,9 +2161,9 @@ bool pack_mode11(mode11_log_desc& desc, uint8_t* pEndpoints)
 		return false;
 
 	const int va = desc.m_a, vb0 = desc.m_b0, vb1 = desc.m_b1, vc = desc.m_c, vd0 = desc.m_d0, vd1 = desc.m_d1;
-	
+
 	int v0 = 0, v1 = 0, v2 = 0, v3 = 0, v4 = 0, v5 = 0;
-	
+
 	int x0 = 0, x1 = 0, x2 = 0, x3 = 0, x4 = 0, x5 = 0;
 	switch (desc.m_submode)
 	{
@@ -2261,7 +2261,7 @@ void unpack_mode11(const uint8_t* pEndpoints, mode11_log_desc& desc)
 		desc.m_b1 = pEndpoints[1];
 		desc.m_d0 = pEndpoints[3];
 		desc.m_d1 = pEndpoints[5] & 0x7F;
-		
+
 		return;
 	}
 
@@ -2384,7 +2384,7 @@ void decode_cem_7_config(const uint8_t* pEndpoints, int& submode_index, int &maj
 
 bool pack_mode11(
 	const vec3F& low_color_q16, const vec3F& high_color_q16,
-	uint32_t ise_endpoint_range, uint8_t* pEndpoints, 
+	uint32_t ise_endpoint_range, uint8_t* pEndpoints,
 	const astc_hdr_codec_base_options& coptions,
 	bool direct_only, int32_t first_submode, int32_t last_submode, bool ignore_clamping, uint32_t& submode_used)
 {
@@ -2521,7 +2521,7 @@ bool pack_mode11(
 			} // d
 		} // c
 	} // if (coptions.m_ultra_quant)
-		
+
 	submode_used = best_submode + 1;
 
 	return (best_trial_dist != BIG_FLOAT_VAL);
@@ -3039,7 +3039,7 @@ bool try_mode7(
 	clear_obj(best_trial_endpoints);
 	double best_trial_dist = BIG_FLOAT_VAL;
 	int best_trial_submode = 0;
-		
+
 	for (int submode = first_submode; submode <= last_submode; submode++)
 	{
 		const int MAX_CLAMP_MAG_ACCEPT_THRESH = 16;
@@ -3236,9 +3236,9 @@ double encode_astc_hdr_block_mode_11(
 			high_color_q16 = pBlock_pixels_q16[i];
 		}
 	}
-		
+
 	vec3F old_low_color_q16(low_color_q16), old_high_color_q16(high_color_q16);
-	
+
 	for (uint32_t i = 0; i < 3; i++)
 	{
 		low_color_q16[i] = lerp<float>(old_low_color_q16[i], old_high_color_q16[i], 1.0f / 64.0f);
@@ -3253,7 +3253,7 @@ double encode_astc_hdr_block_mode_11(
 	clear_obj(trial_blk_weights);
 
 	double trial_blk_error = BIG_FLOAT_VAL;
-			
+
 	bool did_improve = try_mode11(num_pixels, trial_blk_endpoints, trial_blk_weights, trial_blk_error, trial_best_submode,
 		low_color_q16, high_color_q16,
 		pBlock_pixels_half, num_weight_levels, ise_weight_range, coptions, direct_only, ise_endpoint_range, constrain_ise_weight_selectors,
@@ -3330,7 +3330,7 @@ double encode_astc_hdr_block_mode_11(
 
 			if (!compute_least_squares_endpoints_rgb(num_pixels, trial_blk_weights, &g_astc_ls_weights_ise[ise_weight_range][0], &l_q16, &h_q16, pBlock_pixels_q16, color_box_q16))
 				break;
-			
+
 			bool was_improved = try_mode11(num_pixels, blk_endpoints, blk_weights, cur_block_error, best_submode,
 				l_q16, h_q16,
 				pBlock_pixels_half, num_weight_levels, ise_weight_range, coptions, direct_only, ise_endpoint_range, constrain_ise_weight_selectors,
@@ -3359,7 +3359,7 @@ double encode_astc_hdr_block_mode_11(
 			float lw = LOW_EMPHASIS_WEIGHT, mw = MIDDLE_EMPHASIS_WEIGHT, hw = HIGH_EMPHASIS_WEIGHT;
 			if (opt_mode == cWeightedLeastSquaresHeavy)
 				lw = LOW_EMPHASIS_WEIGHT_HEAVY, mw = MIDDLE_EMPHASIS_WEIGHT_HEAVY, hw = HIGH_EMPHASIS_WEIGHT_HEAVY;
-						
+
 			for (uint32_t i = 0; i < num_pixels; i++)
 			{
 				vec3F k(vec3F(pBlock_pixels_q16[i]) - block_mean_color_q16);
@@ -3368,7 +3368,7 @@ double encode_astc_hdr_block_mode_11(
 				assert((kd >= l) && (kd <= h));
 
 				float v = (kd - l) / (h - l);
-										
+
 				if (v < mid)
 					v = lerp(lw, mw, v / mid);
 				else
@@ -3655,7 +3655,7 @@ double encode_astc_hdr_block_downsampled_mode_11(
 
 		clear_obj(trial_blk_endpoints);
 		clear_obj(trial_blk_weights);
-				
+
 		double trial_blk_error = BIG_FLOAT_VAL;
 
 		bool could_pack = try_mode11(num_pixels, trial_blk_endpoints, trial_blk_weights, trial_blk_error, trial_best_submode,
@@ -3696,7 +3696,7 @@ double encode_astc_hdr_block_downsampled_mode_11(
 		}
 		else if (pass)
 			break;
-						
+
 		if ((opt_mode == cWeightedLeastSquares) || (opt_mode == cWeightedLeastSquaresHeavy))
 		{
 			float emphasis_weights[MAX_ASTC_HDR_ENC_BLOCK_PIXELS];
@@ -3797,7 +3797,7 @@ double encode_astc_hdr_block_mode_11_dual_plane(
 
 	assert((first_submode >= FIRST_MODE11_SUBMODE_INDEX) && (first_submode <= last_submode));
 	assert(last_submode <= MAX_MODE11_SUBMODE_INDEX);
-	
+
 	assert(num_pixels <= MAX_ASTC_HDR_ENC_BLOCK_PIXELS);
 
 	best_submode = 0;
@@ -3873,7 +3873,7 @@ double encode_astc_hdr_block_mode_11_dual_plane(
 	double trial_blk_error = BIG_FLOAT_VAL;
 
 	bool did_improve = try_mode11_dual_plane(channel_index, num_pixels, trial_blk_endpoints, trial_blk_weights0, trial_blk_weights1, trial_blk_error, trial_best_submode,
-		low_color_q16, high_color_q16, 
+		low_color_q16, high_color_q16,
 		pBlock_pixels_half, num_weight_levels, ise_weight_range, coptions, direct_only, ise_endpoint_range, constrain_ise_weight_selectors,
 		first_submode, last_submode, ignore_clamping);
 
@@ -3947,7 +3947,7 @@ double encode_astc_hdr_block_mode_11_dual_plane(
 		memcpy(trial_blk_weights1, blk_weights1, num_pixels);
 
 	} // pass
-	
+
 	return cur_block_error;
 }
 
@@ -3962,7 +3962,7 @@ double encode_astc_hdr_block_mode_7(
 	uint8_t* blk_endpoints,  //[4]
 	uint8_t* blk_weights, // [num_pixels]
 	const astc_hdr_codec_base_options& coptions,
-	uint32_t ise_endpoint_range, 
+	uint32_t ise_endpoint_range,
 	int first_submode, int last_submode,
 	const encode_astc_block_stats* pBlock_stats)
 {
@@ -4008,7 +4008,7 @@ double encode_astc_hdr_block_mode_7(
 
 	vec3F diff(high_color_q16 - low_color_q16);
 
-	// The mul here (* block_axis_q16[0]) is because the "S" or scale value is subtracted from the high color with a scale of 1.0, 
+	// The mul here (* block_axis_q16[0]) is because the "S" or scale value is subtracted from the high color with a scale of 1.0,
 	// i.e. it's equivalent to a vector of (1,1,1) multiplied by scale before the sub. We want to actually move along the grayscale axis, or (0.577350259, 0.577350259, 0.577350259).
 	float s_q16 = diff.dot(block_axis_q16) * block_axis_q16[0];
 
@@ -4081,7 +4081,7 @@ double encode_astc_hdr_block_mode_7(
 
 			vec3F alt_diff(alt_high_color_q16 - alt_low_color_q16);
 
-			// The mul here (* block_axis_q16[0]) is because the "S" or scale value is subtracted from the high color with a scale of 1.0, 
+			// The mul here (* block_axis_q16[0]) is because the "S" or scale value is subtracted from the high color with a scale of 1.0,
 			// i.e. it's equivalent to a vector of (1,1,1) multiplied by scale before the sub. We want to actually move along the grayscale axis, or (0.577350259, 0.577350259, 0.577350259).
 			float alt_s_q16 = alt_diff.dot(block_axis_q16) * block_axis_q16[0];
 
@@ -4803,7 +4803,7 @@ void downsample_ise_weights(
 	assert((block_w <= MAX_ASTC_HDR_BLOCK_W) && (block_h <= MAX_ASTC_HDR_BLOCK_H));
 	assert((grid_w >= 2) && (grid_w <= MAX_ASTC_HDR_BLOCK_W));
 	assert((grid_h >= 2) && (grid_h <= MAX_ASTC_HDR_BLOCK_H));
-	
+
 	assert(dequant_weight_ise_range >= astc_helpers::FIRST_VALID_WEIGHT_ISE_RANGE);
 	assert(dequant_weight_ise_range <= astc_helpers::LAST_VALID_WEIGHT_ISE_RANGE);
 
@@ -4902,7 +4902,7 @@ static bool refine_endpoints_mode11(
 	{
 		for (uint32_t i = 0; i < num_block_pixels; i++)
 			def_pixel_block_ofs[i] = (uint8_t)i;
-		
+
 		pPixel_block_ofs = def_pixel_block_ofs;
 	}
 
@@ -4928,7 +4928,7 @@ static bool refine_endpoints_mode11(
 		trial_blk_raw_weights[i] = upsampled_weights[pPixel_block_ofs[i]];
 		trial_blk_raw_weightsf[i] = (float)trial_blk_raw_weights[i] * (1.0f / 64.0f);
 	}
-	
+
 	vec3F l_q16, h_q16;
 	if (opt_mode == cOrdinaryLeastSquares)
 	{
@@ -4959,7 +4959,7 @@ static bool refine_endpoints_mode11(
 		{
 			float mid = (0.0f - l) / (h - l);
 			mid = clamp(mid, .01f, .99f);
-				
+
 			float lw = LOW_EMPHASIS_WEIGHT, mw = MIDDLE_EMPHASIS_WEIGHT, hw = HIGH_EMPHASIS_WEIGHT;
 			if (opt_mode == cWeightedLeastSquaresHeavy)
 				lw = LOW_EMPHASIS_WEIGHT_HEAVY, mw = MIDDLE_EMPHASIS_WEIGHT_HEAVY, hw = HIGH_EMPHASIS_WEIGHT_HEAVY;
@@ -5019,7 +5019,7 @@ static bool refine_endpoints_mode11(
 	}
 
 	uint8_t trial_endpoints[NUM_MODE11_ENDPOINTS];
-	
+
 	uint32_t submode_used;
 
 	bool pack_succeeded = pack_mode11(l_q16, h_q16, endpoint_ise_range, trial_endpoints, coptions, direct_only, first_submode, last_submode, false, submode_used);
@@ -5046,7 +5046,7 @@ static bool refine_endpoints_mode11(
 	const float R_WEIGHT = coptions.m_r_err_scale, G_WEIGHT = coptions.m_g_err_scale;
 
 	double cur_error = 0, trial_error = 0;
-		
+
 	for (uint32_t p = 0; p < num_pixels; p++)
 	{
 		const half_float* pDesired_half = &pBlock_pixels_half[p][0];
@@ -5173,7 +5173,7 @@ static bool refine_endpoints_mode7(
 	vec3F block_mean_color_q16(calc_mean(num_pixels, pBlock_pixels_q16));
 
 	vec3F new_high_color_q16(block_mean_color_q16);
-		
+
 	const float one_over_num_pixels = 1.0f / (float)num_pixels;
 
 	for (uint32_t i = 0; i < num_pixels; i++)
@@ -5185,7 +5185,7 @@ static bool refine_endpoints_mode7(
 		new_high_color_q16[1] += k;
 		new_high_color_q16[2] += k;
 	}
-					
+
 	// Given a set of selectors and a high color, try to compute a better S.
 	float t = 0.0f;
 
@@ -5197,7 +5197,7 @@ static bool refine_endpoints_mode7(
 	}
 
 	t *= one_over_num_pixels;
-	
+
 	if (fabs(t) < .0000125f)
 		return false;
 
@@ -5223,7 +5223,7 @@ static bool refine_endpoints_mode7(
 
 	if (!decode_mode7_to_qlog12(trial_endpoints, trial_e, nullptr, endpoint_ise_range))
 		return false;
-	
+
 	// --
 
 	for (uint32_t i = 0; i < 3; i++)
@@ -5354,4 +5354,3 @@ bool refine_endpoints(
 }
 
 } // namespace basisu
-
