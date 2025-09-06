@@ -48,6 +48,13 @@
 #include <windows.h>
 #endif
 
+#include <filesystem>
+#if defined(_WIN32)
+namespace fs = std::filesystem;
+#else
+namespace fs = std::__fs::filesystem;
+#endif
+
 namespace basisu
 {
 	uint64_t interval_timer::g_init_ticks, interval_timer::g_freq;
@@ -827,7 +834,29 @@ namespace basisu
 						
 		return status;
 	}
-		
+
+	bool create_directory_if_not_exists(std::string &dir) {
+		fs::path dir_path(dir);
+
+		try {
+			if (!fs::exists(dir_path)) {
+				if (fs::create_directories(dir_path)) {
+					// Directory created
+				} else {
+					error_printf("Failed to create directory: \"%s\"\n", dir.c_str());
+					return false;
+				}
+			} else if (!fs::is_directory(dir_path)) {
+				error_printf("Path exists but is not a directory: \"%s\"\n", dir.c_str());
+				return false;
+			}
+			return true;
+		} catch (const fs::filesystem_error& e) {
+			error_printf("Filesystem error: \"%s\"\n", e.what());
+			return false;
+		}
+	}
+
 	bool read_file_to_vec(const char* pFilename, uint8_vec& data)
 	{
 		FILE* pFile = nullptr;
