@@ -16,10 +16,10 @@
 #include "basisu_transcoder.h"
 #include "basisu_containers_impl.h"
 
+#include "basisu_astc_hdr_core.h"
+
 #define BASISU_ASTC_HELPERS_IMPLEMENTATION
 #include "basisu_astc_helpers.h"
-
-#include "basisu_astc_hdr_core.h"
 
 #include <limits.h>
 
