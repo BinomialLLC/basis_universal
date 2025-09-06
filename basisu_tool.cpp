@@ -4472,7 +4472,7 @@ static bool test_mode_hdr(command_line_params& opts, basist::basis_tex_format te
 {
 	BASISU_ASSUME(uastc_hdr_4x4_codec_options::cMaxLevel == 4);
 
-	fmt_printf("test_mode_hdr: Testing bais_tex_format {}, lambda {}\n", (uint32_t)tex_fmt, lambda);
+	fmt_printf("test_mode_hdr: Testing basis_tex_format {}, lambda {}\n", (uint32_t)tex_fmt, lambda);
 
 	uint32_t total_mismatches = 0;
 					
