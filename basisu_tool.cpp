@@ -1828,10 +1828,10 @@ static bool unpack_and_validate_ktx2_file(
 	printf("Levels:\n");
 	for (uint32_t i = 0; i < dec.get_levels(); i++)
 	{
-		printf("%u. Offset: %llu, Length: %llu, Uncompressed Length: %llu\n",
-			i, (long long unsigned int)dec.get_level_index()[i].m_byte_offset,
-			(long long unsigned int)dec.get_level_index()[i].m_byte_length,
-			(long long unsigned int)dec.get_level_index()[i].m_uncompressed_byte_length);
+		fmt_printf("{}. Offset: {}, Length: {}, Uncompressed Length: {}\n",
+			i, dec.get_level_index()[i].m_byte_offset.get_uint64(),
+			dec.get_level_index()[i].m_byte_length.get_uint64(),
+			dec.get_level_index()[i].m_uncompressed_byte_length.get_uint64());
 	}
 
 	const uint32_t total_layers = maximum<uint32_t>(1, dec.get_layers());

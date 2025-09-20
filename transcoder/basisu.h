@@ -348,6 +348,7 @@ namespace basisu
 						
 		inline packed_uint& operator= (uint64_t v) 
 		{ 
+			// TODO: Add assert on truncation?
 			for (uint32_t i = 0; i < NumBytes; i++) 
 				m_bytes[i] = static_cast<uint8_t>(v >> (i * 8)); 
 			return *this; 
@@ -358,69 +359,10 @@ namespace basisu
 			memcpy(m_bytes, rhs.m_bytes, sizeof(m_bytes)); 
 			return *this;
 		}
-
-#if 0
-#ifdef __GNUC__
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Warray-bounds"            
-#endif  
-		inline operator uint32_t() const
+				
+		inline uint64_t get_uint64() const
 		{
-			switch (NumBytes)
-			{
-				case 1:  
-				{
-					return  m_bytes[0];
-				}
-				case 2:  
-				{
-					return (m_bytes[1] << 8U) | m_bytes[0];
-				}
-				case 3:  
-				{
-					return (m_bytes[2] << 16U) | (m_bytes[1] << 8U) | m_bytes[0];
-				}
-				case 4:  
-				{
-					return read_le_dword(m_bytes);
-				}
-				case 5:
-				{
-					uint32_t l = read_le_dword(m_bytes);
-					uint32_t h = m_bytes[4];
-					return static_cast<uint64_t>(l) | (static_cast<uint64_t>(h) << 32U);
-				}
-				case 6:
-				{
-					uint32_t l = read_le_dword(m_bytes);
-					uint32_t h = (m_bytes[5] << 8U) | m_bytes[4];
-					return static_cast<uint64_t>(l) | (static_cast<uint64_t>(h) << 32U);
-				}
-				case 7:
-				{
-					uint32_t l = read_le_dword(m_bytes);
-					uint32_t h = (m_bytes[6] << 16U) | (m_bytes[5] << 8U) | m_bytes[4];
-					return static_cast<uint64_t>(l) | (static_cast<uint64_t>(h) << 32U);
-				}
-				case 8:  
-				{
-					uint32_t l = read_le_dword(m_bytes);
-					uint32_t h = read_le_dword(m_bytes + 4);
-					return static_cast<uint64_t>(l) | (static_cast<uint64_t>(h) << 32U);
-				}
-				default: 
-				{
-					assert(0);
-					return 0;
-				}
-			}
-		}
-#ifdef __GNUC__
-#pragma GCC diagnostic pop
-#endif
-#else
-		inline operator uint32_t() const
-		{
+			// Some compilers may warn about this code. It clearly cannot access beyond the end of the m_bytes struct here.
 			if constexpr (NumBytes == 1)
 			{
 				return m_bytes[0];
@@ -467,8 +409,18 @@ namespace basisu
 				return 0;
 			}
 		}
-		#endif
 
+		inline uint32_t get_uint32() const
+		{
+			static_assert(NumBytes <= sizeof(uint32_t), "packed_uint too large to use get_uint32");
+			return static_cast<uint32_t>(get_uint64());
+		}
+		
+		inline operator uint32_t() const
+		{
+			static_assert(NumBytes <= sizeof(uint32_t), "packed_uint too large to use operator uint32_t");
+			return static_cast<uint32_t>(get_uint64());
+		}
 	};
 
 	enum eZero { cZero };

@@ -741,6 +741,14 @@ struct ktx2_file
             return hdr;
 
         const basist::ktx2_header& h = m_transcoder.get_header();
+		
+		if ((h.m_sgd_byte_offset.get_uint64() > UINT32_MAX) || (h.m_sgd_byte_length.get_uint64() > UINT32_MAX))
+		{
+			// File is too large to handle with 32-bit WASM.
+			// (emscripten doesn't support binding uint64_t for some reason.)
+			assert(0);
+			return hdr;
+		}
 
         hdr.m_vk_format = h.m_vk_format;
         hdr.m_type_size = h.m_type_size;
@@ -755,12 +763,9 @@ struct ktx2_file
         hdr.m_dfd_byte_length = h.m_dfd_byte_length;
         hdr.m_kvd_byte_offset = h.m_kvd_byte_offset;
         hdr.m_kvd_byte_length = h.m_kvd_byte_length;
-
-        // emscripten doesn't support binding uint64_t for some reason
-        assert(h.m_sgd_byte_offset <= UINT32_MAX);
-        assert(h.m_sgd_byte_length <= UINT32_MAX);
-        hdr.m_sgd_byte_offset = (uint32_t)h.m_sgd_byte_offset;
-        hdr.m_sgd_byte_length = (uint32_t)h.m_sgd_byte_length;
+						
+        hdr.m_sgd_byte_offset = (uint32_t)h.m_sgd_byte_offset.get_uint64();
+        hdr.m_sgd_byte_length = (uint32_t)h.m_sgd_byte_length.get_uint64();
 
         return hdr;
     }
