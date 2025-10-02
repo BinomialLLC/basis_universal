@@ -197,6 +197,7 @@ set(ENCODER_LIB_HDR_LIST
     encoder/jpgd.h
     encoder/pvpngreader.h
     encoder/3rdparty/android_astc_decomp.h
+    encoder/3rdparty/qoi.h
     encoder/3rdparty/tinyexr.h
     transcoder/basisu_astc_hdr_core.h
     transcoder/basisu_astc_helpers.h
