@@ -2,8 +2,6 @@
 # It should also work without this option, but we do not test with it.
 cmake_minimum_required(VERSION 3.16)
 
-include(CMakePrintHelpers)
-
 project(basisu C CXX)
 set(CMAKE_CXX_STANDARD 17)
 option(BASISU_TOOL "Include basisu tool in build" TRUE)
@@ -231,9 +229,8 @@ if (NOT MSVC)
         set(CMAKE_C_FLAGS  "${CMAKE_C_FLAGS} -DBASISU_SUPPORT_OPENCL=1")
         set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -DBASISU_SUPPORT_OPENCL=1")    
         
-		target_include_directories(basisu_encoder PRIVATE ${OpenCL_INCLUDE_DIRS})
-        set(BASISU_EXTRA_INCLUDES ${OpenCL_INCLUDE_DIRS})
-        set(BASISU_EXTRA_LIBS ${OpenCL_LIBRARIES})
+		target_include_directories(basisu_encoder INTERFACE ${OpenCL_INCLUDE_DIRS})
+        target_link_libraries(basisu_encoder INTERFACE ${OpenCL_LIBRARIES})
     endif()
 else()
     # For Windows builds, we use our local copies of the OpenCL import lib and Khronos headers.
@@ -241,25 +238,18 @@ else()
         set(CMAKE_C_FLAGS  "${CMAKE_C_FLAGS} -DBASISU_SUPPORT_OPENCL=1")
         set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -DBASISU_SUPPORT_OPENCL=1")    
         
-		target_include_directories(basisu_encoder PRIVATE "OpenCL")
-        set(BASISU_EXTRA_INCLUDES OpenCL)
+		target_include_directories(basisu_encoder INTERFACE "OpenCL")
 
         if (BASISU_BUILD_X64)
-            set(BASISU_EXTRA_LIBS "${CMAKE_SOURCE_DIR}/OpenCL/lib/OpenCL64.lib")
+            target_link_libraries(basisu_encoder INTERFACE "${CMAKE_SOURCE_DIR}/OpenCL/lib/OpenCL64.lib")
         else()
-            set(BASISU_EXTRA_LIBS "${CMAKE_SOURCE_DIR}/OpenCL/lib/OpenCL.lib")
+            target_link_libraries(basisu_encoder INTERFACE "${CMAKE_SOURCE_DIR}/OpenCL/lib/OpenCL.lib")
         endif()
     endif()
 endif()    
 
 macro(set_common_executable_properties target)
     target_link_libraries(${target} PRIVATE basisu_encoder)
-    if (NOT MSVC)
-        target_link_libraries(${target} PRIVATE m pthread ${BASISU_EXTRA_LIBS})
-    else()
-        target_link_libraries(${target} PRIVATE ${BASISU_EXTRA_LIBS})
-    endif()
-    target_include_directories(${target} PRIVATE ${BASISU_EXTRA_INCLUDE_DIRS})
     target_compile_definitions(${target} PRIVATE BASISD_SUPPORT_KTX2_ZSTD=$<IF:$<BOOL:BASISU_ZSTD>,1,0>)
 endmacro()
 
