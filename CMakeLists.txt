@@ -2,8 +2,13 @@
 # It should also work without this option, but we do not test with it.
 cmake_minimum_required(VERSION 3.16)
 
+include(CMakePrintHelpers)
+
 project(basisu C CXX)
 set(CMAKE_CXX_STANDARD 17)
+option(BASISU_TOOL "Include basisu tool in build" TRUE)
+option(BASISU_EXAMPLES "Include examples in build" TRUE)
+
 option(BASISU_STATIC "static linking" FALSE)
 option(BASISU_SAN "sanitize" FALSE)
 
@@ -35,8 +40,10 @@ message("Initial BASISU_SSE=${BASISU_SSE}")
 message("Initial BASISU_ZSTD=${BASISU_ZSTD}")
 message("Initial BASISU_OPENCL=${BASISU_OPENCL}")
 message("Initial BASISU_SAN=${BASISU_SAN}")
+message("initial BASISU_TOOL=${BASISU_TOOL}")
+message("initial BASISU_EXAMPLES=${BASISU_EXAMPLES}")
 
-if ((NOT MSVC) AND OPENCL)
+if ((NOT MSVC) AND BASISU_OPENCL)
     # With MSVC builds we use the Khronos lib/include files in the project's "OpenCL" directory, to completely avoid requiring fiddly to install vendor SDK's.
     # Otherwise we use the system's (if any).
     find_package(OpenCL)
@@ -218,31 +225,14 @@ endif()
 # Create the static library
 add_library(basisu_encoder STATIC ${ENCODER_LIB_SRC_LIST} ${ENCODER_LIB_HDR_LIST})
 
-# Create the basisu executable and link against the static library
-add_executable(basisu basisu_tool.cpp)
-target_link_libraries(basisu PRIVATE basisu_encoder)
-
-# Create the new example executable and link against the static library
-add_executable(examples example/example.cpp)
-target_link_libraries(examples PRIVATE basisu_encoder)
-
-if (BASISU_ZSTD)
-    target_compile_definitions(basisu PRIVATE BASISD_SUPPORT_KTX2_ZSTD=1)
-    target_compile_definitions(examples PRIVATE BASISD_SUPPORT_KTX2_ZSTD=1)
-else()
-    target_compile_definitions(basisu PRIVATE BASISD_SUPPORT_KTX2_ZSTD=0)
-    target_compile_definitions(examples PRIVATE BASISD_SUPPORT_KTX2_ZSTD=0)
-endif()
-
 if (NOT MSVC)
     # For Non-Windows builds, let cmake try and find the system OpenCL headers/libs for us.
     if (BASISU_OPENCL AND OPENCL_FOUND)
         set(CMAKE_C_FLAGS  "${CMAKE_C_FLAGS} -DBASISU_SUPPORT_OPENCL=1")
         set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -DBASISU_SUPPORT_OPENCL=1")    
         
-        target_include_directories(basisu PRIVATE ${OpenCL_INCLUDE_DIRS})
-        target_include_directories(examples PRIVATE ${OpenCL_INCLUDE_DIRS})
 		target_include_directories(basisu_encoder PRIVATE ${OpenCL_INCLUDE_DIRS})
+        set(BASISU_EXTRA_INCLUDES ${OpenCL_INCLUDE_DIRS})
         set(BASISU_EXTRA_LIBS ${OpenCL_LIBRARIES})
     endif()
 else()
@@ -251,26 +241,41 @@ else()
         set(CMAKE_C_FLAGS  "${CMAKE_C_FLAGS} -DBASISU_SUPPORT_OPENCL=1")
         set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -DBASISU_SUPPORT_OPENCL=1")    
         
-        target_include_directories(basisu PRIVATE "OpenCL")
-        target_include_directories(examples PRIVATE "OpenCL")
 		target_include_directories(basisu_encoder PRIVATE "OpenCL")
+        set(BASISU_EXTRA_INCLUDES OpenCL)
 
         if (BASISU_BUILD_X64)
-            target_link_libraries(basisu PRIVATE "${CMAKE_SOURCE_DIR}/OpenCL/lib/OpenCL64.lib")
-            target_link_libraries(examples PRIVATE "${CMAKE_SOURCE_DIR}/OpenCL/lib/OpenCL64.lib")
+            set(BASISU_EXTRA_LIBS "${CMAKE_SOURCE_DIR}/OpenCL/lib/OpenCL64.lib")
         else()
-            target_link_libraries(basisu PRIVATE "${CMAKE_SOURCE_DIR}/OpenCL/lib/OpenCL.lib")
-            target_link_libraries(examples PRIVATE "${CMAKE_SOURCE_DIR}/OpenCL/lib/OpenCL.lib")
+            set(BASISU_EXTRA_LIBS "${CMAKE_SOURCE_DIR}/OpenCL/lib/OpenCL.lib")
         endif()
     endif()
 endif()    
 
-if (NOT MSVC)
-    target_link_libraries(basisu PRIVATE m pthread ${BASISU_EXTRA_LIBS})
-    target_link_libraries(examples PRIVATE m pthread ${BASISU_EXTRA_LIBS})
+macro(set_common_executable_properties target)
+    target_link_libraries(${target} PRIVATE basisu_encoder)
+    if (NOT MSVC)
+        target_link_libraries(${target} PRIVATE m pthread ${BASISU_EXTRA_LIBS})
+    else()
+        target_link_libraries(${target} PRIVATE ${BASISU_EXTRA_LIBS})
+    endif()
+    target_include_directories(${target} PRIVATE ${BASISU_EXTRA_INCLUDE_DIRS})
+    target_compile_definitions(${target} PRIVATE BASISD_SUPPORT_KTX2_ZSTD=$<IF:$<BOOL:BASISU_ZSTD>,1,0>)
+endmacro()
+
+if (BASISU_TOOL)
+    # Create the basisu executable and link against the static library
+    add_executable(basisu basisu_tool.cpp)
+    set_common_executable_properties(basisu)
 endif()
 
-if (NOT EMSCRIPTEN)
+if (BASISU_EXAMPLES)
+    # Create the new example executable and link against the static library
+    add_executable(examples example/example.cpp)
+    set_common_executable_properties(examples)
+endif()
+
+if (BASISU_TOOL AND NOT EMSCRIPTEN)
     if (UNIX)
         if (CMAKE_BUILD_TYPE STREQUAL Release)
             if (APPLE)
