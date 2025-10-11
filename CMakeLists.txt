@@ -232,6 +232,7 @@ if (NOT MSVC)
 		target_include_directories(basisu_encoder INTERFACE ${OpenCL_INCLUDE_DIRS})
         target_link_libraries(basisu_encoder INTERFACE ${OpenCL_LIBRARIES})
     endif()
+    target_link_libraries(basisu_encoder INTERFACE m pthread)
 else()
     # For Windows builds, we use our local copies of the OpenCL import lib and Khronos headers.
     if (BASISU_OPENCL)
