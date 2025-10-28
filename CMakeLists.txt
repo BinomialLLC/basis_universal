@@ -3,7 +3,6 @@
 cmake_minimum_required(VERSION 3.16)
 
 project(basisu C CXX)
-set(CMAKE_CXX_STANDARD 17)
 option(BASISU_TOOL "Include basisu tool in build" TRUE)
 option(BASISU_EXAMPLES "Include examples in build" TRUE)
 
@@ -14,6 +13,9 @@ option(BASISU_SAN "sanitize" FALSE)
 # from appending a per-configuration subdirectory. NOTE: This means the output could be overwritten
 # by a subsequent build for a different configuration.
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY $<1:${CMAKE_SOURCE_DIR}/bin>)
+
+# Otherwise Xcode builds only for the most recent version of macOS.
+set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "macOS Deployment Target")
 
 # For MSVC builds default to SSE enabled, and determine if it's a 64-bit (-A x64) vs. 32-bit (-A Win32) build.
 if (MSVC)
@@ -75,73 +77,36 @@ else()
 endif()
 
 if (NOT MSVC)
-    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -g")
-    set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -g")
-   
-    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
-    set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE}")
+    add_compile_options(-g)
 
     if (BASISU_SAN)
 		message("Enabling SAN")
 		
-		  set(SANITIZE_FLAGS "-fsanitize=address -fno-omit-frame-pointer -fsanitize=undefined -fno-sanitize=alignment")
-		
-		  set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} ${SANITIZE_FLAGS}")
-        set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} ${SANITIZE_FLAGS}")
-	
-        set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} ${SANITIZE_FLAGS}")
-        set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} ${SANITIZE_FLAGS}")
-    endif()
-
-    set(CMAKE_CXX_FLAGS -std=c++17)
-    set(GCC_COMPILE_FLAGS "-fvisibility=hidden -fPIC -fno-strict-aliasing -D_LARGEFILE64_SOURCE=1 -D_FILE_OFFSET_BITS=64 -Wall -Wextra -Wno-unused-local-typedefs -Wno-unused-value -Wno-unused-parameter -Wno-unused-variable -Wno-reorder -Wno-misleading-indentation -Wno-class-memaccess -Wno-deprecated-copy -Wno-maybe-uninitialized -Wno-unused-function -Wno-stringop-overflow -Wno-unknown-warning-option")
-   
-    if (NOT BASISU_BUILD_X64)
-        set(GCC_COMPILE_FLAGS "${GCC_COMPILE_FLAGS} -m32")
+        add_compile_options(-fsanitize=address -fno-omit-frame-pointer -fsanitize=undefined -fno-sanitize=alignment)
     endif()
 
     if (EMSCRIPTEN)
-        set(CMAKE_C_FLAGS  "${CMAKE_C_FLAGS} -s ALLOW_MEMORY_GROWTH=1 -DBASISU_SUPPORT_SSE=0")
-        set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -s ALLOW_MEMORY_GROWTH=1 -DBASISU_SUPPORT_SSE=0")
-
-        set(CMAKE_EXE_LINKER_FLAGS  "${CMAKE_EXE_LINKER_FLAGS} ${GCC_LINK_FLAGS}")
-    elseif (BASISU_STATIC)
-        if (BASISU_SSE)
-            set(CMAKE_C_FLAGS  "${CMAKE_C_FLAGS} -DBASISU_SUPPORT_SSE=1 -msse4.1")
-            set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -DBASISU_SUPPORT_SSE=1 -msse4.1")
-        else()
-            set(CMAKE_C_FLAGS  "${CMAKE_C_FLAGS} -DBASISU_SUPPORT_SSE=0")
-            set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -DBASISU_SUPPORT_SSE=0")
-        endif()
-      
-        set(CMAKE_EXE_LINKER_FLAGS  "${CMAKE_EXE_LINKER_FLAGS} ${GCC_LINK_FLAGS} -static-libgcc -static-libstdc++ -static")
+        # BASISU_SUPPORT_SSE does not appear in basisu_tool or examples so this can be
+        # target_compile_definitions and moved to after the lib target has been created.
+        add_compile_definitions(BASISU_SUPPORT_SSE=0)
+        add_compile_options("SHELL:-s ALLOW_MEMORY_GROWTH=1")
     else()
-        if (BASISU_SSE)
-            set(CMAKE_C_FLAGS  "${CMAKE_C_FLAGS} -DBASISU_SUPPORT_SSE=1 -msse4.1")
-            set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -DBASISU_SUPPORT_SSE=1 -msse4.1")
-        else()
-            set(CMAKE_C_FLAGS  "${CMAKE_C_FLAGS} -DBASISU_SUPPORT_SSE=0")
-            set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -DBASISU_SUPPORT_SSE=0")
-        endif()
-      
-        set(CMAKE_EXE_LINKER_FLAGS  "${CMAKE_EXE_LINKER_FLAGS} ${GCC_LINK_FLAGS} -Wl,-rpath .")
+        message("BASISU_SSE = ${BASISU_SSE}")
+        add_compile_options("$<IF:$<BOOL:${BASISU_SSE}>,-DBASISU_SUPPORT_SSE=1;-msse4.1,-DBASISU_SUPPORT_SSE=0>")
     endif()
 
-    set(CMAKE_C_FLAGS  "${CMAKE_C_FLAGS} ${GCC_COMPILE_FLAGS}")
-    set(CMAKE_C_FLAGS_RELEASE  "${CMAKE_C_FLAGS_RELEASE} ${GCC_COMPILE_FLAGS}")
-    set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} ${GCC_COMPILE_FLAGS} -D_DEBUG")
+    add_compile_options(-fvisibility=hidden -fPIC -fno-strict-aliasing -D_LARGEFILE64_SOURCE=1
+                        -D_FILE_OFFSET_BITS=64 -Wall -Wextra -Wno-unused-local-typedefs
+                        -Wno-unused-value -Wno-unused-parameter -Wno-unused-variable
+                        -Wno-reorder -Wno-misleading-indentation -Wno-class-memaccess
+                        -Wno-deprecated-copy -Wno-maybe-uninitialized -Wno-unused-function
+                        -Wno-stringop-overflow -Wno-unknown-warning-option)
 
-    set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} ${GCC_COMPILE_FLAGS}")
-    set(CMAKE_CXX_FLAGS_RELEASE  "${CMAKE_CXX_FLAGS_RELEASE} ${GCC_COMPILE_FLAGS}")
-    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} ${GCC_COMPILE_FLAGS} -D_DEBUG")
+    add_compile_options($<$<NOT:$<BOOL:BASISU_BUILD_X64>>:-m32>)
+    add_compile_definitions($<$<CONFIG:Debug>:_DEBUG>)
 else()
-    if (BASISU_SSE)
-        set(CMAKE_C_FLAGS  "${CMAKE_C_FLAGS} -DBASISU_SUPPORT_SSE=1")
-        set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -DBASISU_SUPPORT_SSE=1")
-    else()
-        set(CMAKE_C_FLAGS  "${CMAKE_C_FLAGS} -DBASISU_SUPPORT_SSE=0")
-        set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -DBASISU_SUPPORT_SSE=0")
-    endif()
+    # This could be moved to lib target as BASISU_SUPPORT_SSE does not appear in app code.
+    add_compile_definitions(BASISU_SUPPORT_SSE=$<IF:$<BOOL:${BASISU_SSE}>,1,0>)
 endif()
 
 # Define the source files for the static library
@@ -224,11 +189,12 @@ endif()
 add_library(basisu_encoder STATIC ${ENCODER_LIB_SRC_LIST} ${ENCODER_LIB_HDR_LIST})
 
 if (NOT MSVC)
+    # PUBLIC so it will be exported to dependent programs.
+    target_compile_features(basisu_encoder PUBLIC cxx_std_17)
     # For Non-Windows builds, let cmake try and find the system OpenCL headers/libs for us.
     if (BASISU_OPENCL AND OPENCL_FOUND)
-        set(CMAKE_C_FLAGS  "${CMAKE_C_FLAGS} -DBASISU_SUPPORT_OPENCL=1")
-        set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -DBASISU_SUPPORT_OPENCL=1")    
-        
+        target_compile_definitions(${target} PRIVATE BASISU_SUPPORT_OPENCL=1)        
+
 		target_include_directories(basisu_encoder INTERFACE ${OpenCL_INCLUDE_DIRS})
         target_link_libraries(basisu_encoder INTERFACE ${OpenCL_LIBRARIES})
     endif()
@@ -236,9 +202,7 @@ if (NOT MSVC)
 else()
     # For Windows builds, we use our local copies of the OpenCL import lib and Khronos headers.
     if (BASISU_OPENCL)
-        set(CMAKE_C_FLAGS  "${CMAKE_C_FLAGS} -DBASISU_SUPPORT_OPENCL=1")
-        set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -DBASISU_SUPPORT_OPENCL=1")    
-        
+        target_compile_definitions(${target} PRIVATE BASISU_SUPPORT_OPENCL=1)
 		target_include_directories(basisu_encoder INTERFACE "OpenCL")
 
         if (BASISU_BUILD_X64)
@@ -250,8 +214,18 @@ else()
 endif()    
 
 macro(set_common_executable_properties target)
+    target_compile_definitions(${target} PRIVATE BASISD_SUPPORT_KTX2_ZSTD=$<IF:$<BOOL:${BASISU_ZSTD}>,1,0>)
     target_link_libraries(${target} PRIVATE basisu_encoder)
-    target_compile_definitions(${target} PRIVATE BASISD_SUPPORT_KTX2_ZSTD=$<IF:$<BOOL:BASISU_ZSTD>,1,0>)
+    if (NOT EMSCRIPTEN)
+        if (BASISU_STATIC)
+            target_link_options(${target} PUBLIC -static-libgcc -static-libstdc++ -static)
+            #set(CMAKE_EXE_LINKER_FLAGS  "${CMAKE_EXE_LINKER_FLAGS} ${GCC_LINK_FLAGS} -static-libgcc -static-libstdc++ -static")
+        else()
+            target_link_options(${target} PUBLIC -Wl,-rpath .)
+            #set(CMAKE_EXE_LINKER_FLAGS  "${CMAKE_EXE_LINKER_FLAGS} ${GCC_LINK_FLAGS} -Wl,-rpath .")
+        endif()
+    endif()
+
 endmacro()
 
 if (BASISU_TOOL)
