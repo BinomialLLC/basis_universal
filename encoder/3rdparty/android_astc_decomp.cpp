@@ -1880,7 +1880,7 @@ half_float float_to_half(float val, bool toward_zero)
             if (toward_zero)
                 m = (int)truncf((1 << 24) * fabsf(fi.f));
             else
-                m = lrintf((1 << 24) * fabsf(fi.f));
+                m = (int)lrintf((1 << 24) * fabsf(fi.f));
         }
         else
         {
@@ -1888,7 +1888,7 @@ half_float float_to_half(float val, bool toward_zero)
             if (toward_zero)
                 m = (int)truncf((float)flt_m * (1.0f / (float)(1 << 13)));
             else
-                m = lrintf((float)flt_m * (1.0f / (float)(1 << 13)));
+                m = (int)lrintf((float)flt_m * (1.0f / (float)(1 << 13)));
         }
     }
 
