@@ -187,13 +187,17 @@ endif()
 
 # Create the static library
 add_library(basisu_encoder STATIC ${ENCODER_LIB_SRC_LIST} ${ENCODER_LIB_HDR_LIST})
-
+target_include_directories(basisu_encoder
+INTERFACE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/zstd> // So KTX-Software can use it.
+)
 if (NOT MSVC)
     # PUBLIC so it will be exported to dependent programs.
     target_compile_features(basisu_encoder PUBLIC cxx_std_17)
     # For Non-Windows builds, let cmake try and find the system OpenCL headers/libs for us.
     if (BASISU_OPENCL AND OPENCL_FOUND)
-        target_compile_definitions(${target} PRIVATE BASISU_SUPPORT_OPENCL=1)        
+        target_compile_definitions(basisu_encoder PRIVATE BASISU_SUPPORT_OPENCL=1)
 
 		target_include_directories(basisu_encoder INTERFACE ${OpenCL_INCLUDE_DIRS})
         target_link_libraries(basisu_encoder INTERFACE ${OpenCL_LIBRARIES})
@@ -202,13 +206,13 @@ if (NOT MSVC)
 else()
     # For Windows builds, we use our local copies of the OpenCL import lib and Khronos headers.
     if (BASISU_OPENCL)
-        target_compile_definitions(${target} PRIVATE BASISU_SUPPORT_OPENCL=1)
+        target_compile_definitions(basisu_encoder PRIVATE BASISU_SUPPORT_OPENCL=1)
 		target_include_directories(basisu_encoder INTERFACE "OpenCL")
 
         if (BASISU_BUILD_X64)
-            target_link_libraries(basisu_encoder INTERFACE "${CMAKE_SOURCE_DIR}/OpenCL/lib/OpenCL64.lib")
+            target_link_libraries(basisu_encoder INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/OpenCL/lib/OpenCL64.lib")
         else()
-            target_link_libraries(basisu_encoder INTERFACE "${CMAKE_SOURCE_DIR}/OpenCL/lib/OpenCL.lib")
+            target_link_libraries(basisu_encoder INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/OpenCL/lib/OpenCL.lib")
         endif()
     endif()
 endif()    
