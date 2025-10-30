@@ -2164,7 +2164,7 @@ namespace basisu
 		uint32_t max_threads, job_pool *pJob_pool,
 		bool even_odd_input_pairs_equal)
 	{
-		typedef bit_hasher<typename Quantizer::training_vec_type> training_vec_bit_hasher;
+		//typedef bit_hasher<typename Quantizer::training_vec_type> training_vec_bit_hasher;
 
 		// rg 6/24/2025 - Cross platform determinism
 #if 0
