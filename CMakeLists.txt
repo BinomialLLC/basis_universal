@@ -2,6 +2,10 @@
 # It should also work without this option, but we do not test with it.
 cmake_minimum_required(VERSION 3.16)
 
+# Otherwise Xcode builds only for the most recent version of macOS.
+# Must be before project(), otherwise CMake ignores it.
+set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "macOS Deployment Target")
+
 project(basisu C CXX)
 option(BASISU_TOOL "Include basisu tool in build" TRUE)
 option(BASISU_EXAMPLES "Include examples in build" TRUE)
@@ -13,9 +17,6 @@ option(BASISU_SAN "sanitize" FALSE)
 # from appending a per-configuration subdirectory. NOTE: This means the output could be overwritten
 # by a subsequent build for a different configuration.
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY $<1:${CMAKE_SOURCE_DIR}/bin>)
-
-# Otherwise Xcode builds only for the most recent version of macOS.
-set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "macOS Deployment Target")
 
 # For MSVC builds default to SSE enabled, and determine if it's a 64-bit (-A x64) vs. 32-bit (-A Win32) build.
 if (MSVC)
@@ -89,7 +90,7 @@ if (NOT MSVC)
         # BASISU_SUPPORT_SSE does not appear in basisu_tool or examples so this can be
         # target_compile_definitions and moved to after the lib target has been created.
         add_compile_definitions(BASISU_SUPPORT_SSE=0)
-        add_compile_options("SHELL:-s ALLOW_MEMORY_GROWTH=1")
+        add_link_options("SHELL:-s ALLOW_MEMORY_GROWTH=1")
     else()
         message("BASISU_SSE = ${BASISU_SSE}")
         add_compile_options("$<IF:$<BOOL:${BASISU_SSE}>,-DBASISU_SUPPORT_SSE=1;-msse4.1,-DBASISU_SUPPORT_SSE=0>")
@@ -98,9 +99,12 @@ if (NOT MSVC)
     add_compile_options(-fvisibility=hidden -fPIC -fno-strict-aliasing -D_LARGEFILE64_SOURCE=1
                         -D_FILE_OFFSET_BITS=64 -Wall -Wextra -Wno-unused-local-typedefs
                         -Wno-unused-value -Wno-unused-parameter -Wno-unused-variable
-                        -Wno-reorder -Wno-misleading-indentation -Wno-class-memaccess
-                        -Wno-deprecated-copy -Wno-maybe-uninitialized -Wno-unused-function
+                        -Wno-misleading-indentation
+                        -Wno-maybe-uninitialized -Wno-unused-function
                         -Wno-stringop-overflow -Wno-unknown-warning-option)
+
+    add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:-Wno-reorder;-Wno-class-memaccess;-Wno-deprecated-copy>")
+
 
     add_compile_options($<$<NOT:$<BOOL:BASISU_BUILD_X64>>:-m32>)
     add_compile_definitions($<$<CONFIG:Debug>:_DEBUG>)
@@ -189,8 +193,8 @@ endif()
 add_library(basisu_encoder STATIC ${ENCODER_LIB_SRC_LIST} ${ENCODER_LIB_HDR_LIST})
 target_include_directories(basisu_encoder
 INTERFACE
-    ${CMAKE_CURRENT_SOURCE_DIR}
-     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/zstd> // So KTX-Software can use it.
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/zstd> # So KTX-Software can use it.
 )
 if (NOT MSVC)
     # PUBLIC so it will be exported to dependent programs.

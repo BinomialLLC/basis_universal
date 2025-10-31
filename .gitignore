@@ -1,5 +1,8 @@
+# Build and output directories
 bin/
 build/
+
+CMakeUserPresets.json
 
 # VS project and working files
 *.vcxproj.user
