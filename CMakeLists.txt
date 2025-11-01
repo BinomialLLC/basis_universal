@@ -106,6 +106,9 @@ if (NOT MSVC)
                         -Wno-maybe-uninitialized -Wno-unused-function
                         -Wno-stringop-overflow -Wno-unknown-warning-option)
 
+    # AppleClang 14 raises this warning in zstd.cpp.
+    add_compile_options("$<$<AND:$<CXX_COMPILER_ID:Clang,AppleClang>,$<VERSION_LESS:$<CXX_COMPILER_VERSION>,15>>:-Wno-bitwise-instead-of-logical>")
+
     add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:-Wno-reorder;-Wno-class-memaccess;-Wno-deprecated-copy>")
 
     add_compile_options($<$<NOT:$<BOOL:BASISU_BUILD_X64>>:-m32>)
