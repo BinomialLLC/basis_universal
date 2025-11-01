@@ -106,7 +106,7 @@ if (NOT MSVC)
                         -Wno-maybe-uninitialized -Wno-unused-function
                         -Wno-stringop-overflow -Wno-unknown-warning-option)
 
-    add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-Wno-reorder;-Wno-class-memaccess;-Wno-deprecated-copy>)
+    add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:-Wno-reorder;-Wno-class-memaccess;-Wno-deprecated-copy>")
 
     add_compile_options($<$<NOT:$<BOOL:BASISU_BUILD_X64>>:-m32>)
     add_compile_definitions($<$<CONFIG:Debug>:_DEBUG>)
