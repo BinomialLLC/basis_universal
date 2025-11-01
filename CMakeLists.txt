@@ -2,11 +2,14 @@
 # It should also work without this option, but we do not test with it.
 cmake_minimum_required(VERSION 3.16)
 
-# Otherwise Xcode builds only for the most recent version of macOS.
-# Must be before project(), otherwise CMake ignores it.
-set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "macOS Deployment Target")
+if (NOT CMAKE_OSX_DEPLOYMENT_TARGET)
+    # Needed otherwise Xcode builds with the default installed SDK which can often be
+    # more recent than the macOS version being used.
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "macOS Deployment Target")
+endif()
 
 project(basisu C CXX)
+
 option(BASISU_TOOL "Include basisu tool in build" TRUE)
 option(BASISU_EXAMPLES "Include examples in build" TRUE)
 
