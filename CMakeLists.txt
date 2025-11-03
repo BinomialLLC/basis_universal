@@ -81,6 +81,10 @@ else()
     message("Zstandard disabled")
 endif()
 
+if (EMSCRIPTEN)
+    add_link_options("SHELL:-s ALLOW_MEMORY_GROWTH=1")
+endif()
+
 if (NOT MSVC)
     add_compile_options(-g)
 
@@ -90,14 +94,7 @@ if (NOT MSVC)
         add_compile_options(-fsanitize=address -fno-omit-frame-pointer -fsanitize=undefined -fno-sanitize=alignment)
     endif()
 
-    if (EMSCRIPTEN)
-        # BASISU_SUPPORT_SSE does not appear in basisu_tool or examples so this can be
-        # target_compile_definitions and moved to after the lib target has been created.
-        add_compile_definitions(BASISU_SUPPORT_SSE=0)
-        add_link_options("SHELL:-s ALLOW_MEMORY_GROWTH=1")
-    else()
-        add_compile_options("$<IF:$<BOOL:${BASISU_SSE}>,-DBASISU_SUPPORT_SSE=1;-msse4.1,-DBASISU_SUPPORT_SSE=0>")
-    endif()
+
 
     add_compile_options(-fvisibility=hidden -fPIC -fno-strict-aliasing -D_LARGEFILE64_SOURCE=1
                         -D_FILE_OFFSET_BITS=64 -Wall -Wextra -Wno-unused-local-typedefs
@@ -114,9 +111,6 @@ if (NOT MSVC)
     add_compile_options($<$<NOT:$<BOOL:BASISU_BUILD_X64>>:-m32>)
     add_compile_definitions($<$<CONFIG:Debug>:_DEBUG>)
 else()
-    # This could be moved to lib target as BASISU_SUPPORT_SSE does not appear in app code.
-    add_compile_definitions(BASISU_SUPPORT_SSE=$<IF:$<BOOL:${BASISU_SSE}>,1,0>)
-
     add_compile_options("$<$<CXX_COMPILER_ID:Clang>:-Wno-unused-variable;-Wno-unused-function>")
 endif()
 
@@ -206,6 +200,15 @@ INTERFACE
 )
 # PUBLIC so it will be exported to dependent programs.
 target_compile_features(basisu_encoder PUBLIC cxx_std_17)
+
+if (EMSCRIPTEN)
+    target_compile_definitions(basisu_encoder PRIVATE BASISU_SUPPORT_SSE=0)
+else()
+    target_compile_options(basisu_encoder PRIVATE
+        "$<IF:$<BOOL:${BASISU_SSE}>,-DBASISU_SUPPORT_SSE=1;$<$<CXX_COMPILER_ID:AppleClang,Clang,GNU>:-msse4.1>,-DBASISU_SUPPORT_SSE=0>"
+    )
+endif()
+
 if (NOT MSVC)
     # For Non-Windows builds, let cmake try and find the system OpenCL headers/libs for us.
     if (BASISU_OPENCL AND OPENCL_FOUND)
@@ -235,10 +238,8 @@ macro(set_common_executable_properties target)
     if (NOT EMSCRIPTEN)
         if (BASISU_STATIC)
             target_link_options(${target} PUBLIC -static-libgcc -static-libstdc++ -static)
-            #set(CMAKE_EXE_LINKER_FLAGS  "${CMAKE_EXE_LINKER_FLAGS} ${GCC_LINK_FLAGS} -static-libgcc -static-libstdc++ -static")
-        else()
+        elseif(NOT WIN32)
             target_link_options(${target} PUBLIC -Wl,-rpath .)
-            #set(CMAKE_EXE_LINKER_FLAGS  "${CMAKE_EXE_LINKER_FLAGS} ${GCC_LINK_FLAGS} -Wl,-rpath .")
         endif()
     endif()
 
