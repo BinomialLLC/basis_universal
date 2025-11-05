@@ -609,7 +609,7 @@ int png_decoder::fetch_next_chunk_data(uint8_t* buf, int bytes)
 #endif
 
 	if (check_crc32)
-		m_chunk_crc32 = buminiz::mz_crc32(m_chunk_crc32, buf, bytes);
+		m_chunk_crc32 = static_cast<uint32_t>(buminiz::mz_crc32(m_chunk_crc32, buf, bytes));
 
 	if ((m_chunk_left -= bytes) == 0)
 	{
