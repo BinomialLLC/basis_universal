@@ -1,6 +1,3 @@
-# Build and output directories
-bin/
-build/
 
 CMakeUserPresets.json
 
