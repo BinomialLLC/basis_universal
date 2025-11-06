@@ -19973,11 +19973,11 @@ namespace basist
 			if (new_exp > 15)
 				e = 31;
 			else if (new_exp < -14)
-				m = lrintf((1 << 24) * fabsf(fi.f));
+				m = (int)lrintf((1 << 24) * fabsf(fi.f));
 			else
 			{
 				e = new_exp + 15;
-				m = lrintf(flt_m * (1.0f / ((float)(1 << 13))));
+				m = (int)lrintf(flt_m * (1.0f / ((float)(1 << 13))));
 			}
 		}
 
@@ -22344,7 +22344,7 @@ namespace basist
 						if (d >= mid_dots[mid]) low = mid + 1;
 
 						best_idx = low;
-						assert((best_idx >= 0) && (best_idx <= 15));
+						assert((best_idx <= 15));
 
 						pWeights[i] = (uint8_t)best_idx;
 
@@ -22376,7 +22376,7 @@ namespace basist
 						if (d >= mid_dots[mid]) low = mid + 1;
 
 						best_idx = low;
-						assert((best_idx >= 0) && (best_idx <= 15));
+						assert((best_idx <= 15));
 
 						float err = basisu::squaref(qr - cr[best_idx]) + basisu::squaref(qg - cg[best_idx]) + basisu::squaref(qb - cb[best_idx]);
 

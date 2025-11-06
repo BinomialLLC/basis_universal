@@ -1194,7 +1194,7 @@ namespace astc_helpers
 		for (uint32_t i = 0; i < total_levels; i++)
 		{
 			const int qv = dequant_bise_endpoint(i, ise_range);
-			int e = labs(v - qv);
+			int e = (int)labs(v - qv);
 			if (e < best_e)
 			{
 				best_e = e;
@@ -1217,7 +1217,7 @@ namespace astc_helpers
 		for (uint32_t i = 0; i < total_levels; i++)
 		{
 			const int qv = dequant_bise_weight(i, ise_range);
-			int e = labs(v - qv);
+			int e = (int)labs(v - qv);
 			if (e < best_e)
 			{
 				best_e = e;
@@ -2183,7 +2183,7 @@ namespace astc_helpers
 				if (toward_zero)
 					m = (int)truncf((1 << 24) * fabsf(fi.f));
 				else
-					m = lrintf((1 << 24) * fabsf(fi.f));
+					m = (int)lrintf((1 << 24) * fabsf(fi.f));
 			}
 			else
 			{
@@ -2191,7 +2191,7 @@ namespace astc_helpers
 				if (toward_zero)
 					m = (int)truncf((float)flt_m * (1.0f / (float)(1 << 13)));
 				else
-					m = lrintf((float)flt_m * (1.0f / (float)(1 << 13)));
+					m = (int)lrintf((float)flt_m * (1.0f / (float)(1 << 13)));
 			}
 		}
 

@@ -2164,7 +2164,7 @@ namespace basisu
 		uint32_t max_threads, job_pool *pJob_pool,
 		bool even_odd_input_pairs_equal)
 	{
-		typedef bit_hasher<typename Quantizer::training_vec_type> training_vec_bit_hasher;
+		//typedef bit_hasher<typename Quantizer::training_vec_type> training_vec_bit_hasher;
 
 		// rg 6/24/2025 - Cross platform determinism
 #if 0
@@ -4216,11 +4216,11 @@ namespace basisu
 			if (new_exp > 15)
 				e = 31;
 			else if (new_exp < -14)
-				m = lrintf((1 << 24) * fabsf(fi.f));
+				m = (int)lrintf((1 << 24) * fabsf(fi.f));
 			else
 			{
 				e = new_exp + 15;
-				m = lrintf(flt_m * (1.0f / ((float)(1 << 13))));
+				m = (int)lrintf(flt_m * (1.0f / ((float)(1 << 13))));
 			}
 		}
 
