@@ -2,7 +2,7 @@
 # It should also work without this option, but we do not test with it.
 cmake_minimum_required(VERSION 3.5)
 
-project(basisu C CXX)
+project(basisu LANGUAGES C CXX VERSION 1.60)
 set(CMAKE_CXX_STANDARD 17)
 option(STATIC "static linking" FALSE)
 option(SAN "sanitize" FALSE)
@@ -297,3 +297,43 @@ if (MSVC)
     )	
 endif()
 
+# Package configuration
+include(CMakePackageConfigHelpers)
+write_basic_package_version_file(
+    "${CMAKE_CURRENT_BINARY_DIR}/basisuConfigVersion.cmake"
+    VERSION ${PROJECT_VERSION}
+    COMPATIBILITY AnyNewerVersion
+)
+
+configure_package_config_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/basisuConfig.cmake.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/basisuConfig.cmake"
+    INSTALL_DESTINATION lib/cmake/basisu
+)
+
+# Installation targets
+
+install(TARGETS basisu basisu_encoder examples
+    EXPORT basisuTargets
+    RUNTIME DESTINATION bin
+    ARCHIVE DESTINATION lib
+    LIBRARY DESTINATION lib
+    INCLUDES DESTINATION include
+)
+
+install(DIRECTORY encoder/ transcoder/
+    DESTINATION include/basisu
+    FILES_MATCHING PATTERN "*.h"
+)
+
+install(EXPORT basisuTargets
+    FILE basisuTargets.cmake
+    NAMESPACE basisu::
+    DESTINATION lib/cmake/basisu
+)
+
+install(FILES
+    "${CMAKE_CURRENT_BINARY_DIR}/basisuConfig.cmake"
+    "${CMAKE_CURRENT_BINARY_DIR}/basisuConfigVersion.cmake"
+    DESTINATION lib/cmake/basisu
+)
