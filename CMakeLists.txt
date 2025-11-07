@@ -2,7 +2,8 @@
 # It should also work without this option, but we do not test with it.
 cmake_minimum_required(VERSION 3.5)
 
-project(basisu)
+project(basisu C CXX)
+set(CMAKE_CXX_STANDARD 17)
 option(STATIC "static linking" FALSE)
 option(SAN "sanitize" FALSE)
 option(EXAMPLES "Build examples" TRUE)
@@ -76,22 +77,20 @@ if (NOT MSVC)
     if (SAN)
 		message("Enabling SAN")
 		
-		set(SANITIZE_FLAGS "-fsanitize=address -fno-omit-frame-pointer -fsanitize=undefined -fno-sanitize=alignment")
+		  set(SANITIZE_FLAGS "-fsanitize=address -fno-omit-frame-pointer -fsanitize=undefined -fno-sanitize=alignment")
 		
-		set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} ${SANITIZE_FLAGS}")
+		  set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} ${SANITIZE_FLAGS}")
         set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} ${SANITIZE_FLAGS}")
 	
         set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} ${SANITIZE_FLAGS}")
         set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} ${SANITIZE_FLAGS}")
     endif()
 
-    set(CMAKE_CXX_FLAGS -std=c++11)
-    set(GCC_COMPILE_FLAGS "-fvisibility=hidden -fPIC -fno-strict-aliasing -D_LARGEFILE64_SOURCE=1 -D_FILE_OFFSET_BITS=64 -Wall -Wextra -Wno-unused-local-typedefs -Wno-unused-value -Wno-unused-parameter -Wno-unused-variable -Wno-misleading-indentation -Wno-maybe-uninitialized -Wno-unused-function -Wno-stringop-overflow -Wno-unknown-warning-option")
-    set(GCC_CXX_COMPILE_FLAGS "-fvisibility=hidden -fPIC -fno-strict-aliasing -D_LARGEFILE64_SOURCE=1 -D_FILE_OFFSET_BITS=64 -Wall -Wextra -Wno-unused-local-typedefs -Wno-unused-value -Wno-unused-parameter -Wno-unused-variable -Wno-reorder -Wno-misleading-indentation -Wno-class-memaccess -Wno-deprecated-copy -Wno-maybe-uninitialized -Wno-unused-function -Wno-stringop-overflow -Wno-unknown-warning-option")
+    set(CMAKE_CXX_FLAGS -std=c++17)
+    set(GCC_COMPILE_FLAGS "-fvisibility=hidden -fPIC -fno-strict-aliasing -D_LARGEFILE64_SOURCE=1 -D_FILE_OFFSET_BITS=64 -Wall -Wextra -Wno-unused-local-typedefs -Wno-unused-value -Wno-unused-parameter -Wno-unused-variable -Wno-reorder -Wno-misleading-indentation -Wno-class-memaccess -Wno-deprecated-copy -Wno-maybe-uninitialized -Wno-unused-function -Wno-stringop-overflow -Wno-unknown-warning-option")
    
     if (NOT BUILD_X64)
         set(GCC_COMPILE_FLAGS "${GCC_COMPILE_FLAGS} -m32")
-        set(GCC_CXX_COMPILE_FLAGS "${GCC_CXX_COMPILE_FLAGS} -m32")
     endif()
 
     if (EMSCRIPTEN)
@@ -125,9 +124,9 @@ if (NOT MSVC)
     set(CMAKE_C_FLAGS_RELEASE  "${CMAKE_C_FLAGS_RELEASE} ${GCC_COMPILE_FLAGS}")
     set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} ${GCC_COMPILE_FLAGS} -D_DEBUG")
 
-    set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} ${GCC_CXX_COMPILE_FLAGS}")
-    set(CMAKE_CXX_FLAGS_RELEASE  "${CMAKE_CXX_FLAGS_RELEASE} ${GCC_CXX_COMPILE_FLAGS}")
-    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} ${GCC_CXX_COMPILE_FLAGS} -D_DEBUG")
+    set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} ${GCC_COMPILE_FLAGS}")
+    set(CMAKE_CXX_FLAGS_RELEASE  "${CMAKE_CXX_FLAGS_RELEASE} ${GCC_COMPILE_FLAGS}")
+    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} ${GCC_COMPILE_FLAGS} -D_DEBUG")
 else()
     if (SSE)
         set(CMAKE_C_FLAGS  "${CMAKE_C_FLAGS} -DBASISU_SUPPORT_SSE=1")
@@ -157,10 +156,55 @@ set(ENCODER_LIB_SRC_LIST
     encoder/basisu_kernels_sse.cpp
     encoder/basisu_opencl.cpp
     encoder/pvpngreader.cpp
-    encoder/basisu_astc_hdr_enc.cpp
-	encoder/3rdparty/android_astc_decomp.cpp
+    encoder/basisu_uastc_hdr_4x4_enc.cpp
+    encoder/basisu_astc_hdr_6x6_enc.cpp
+    encoder/basisu_astc_hdr_common.cpp
+    encoder/3rdparty/android_astc_decomp.cpp
     encoder/3rdparty/tinyexr.cpp
     transcoder/basisu_transcoder.cpp
+	
+	encoder/basisu_astc_hdr_6x6_enc.h
+    encoder/basisu_astc_hdr_common.h
+    encoder/basisu_backend.h
+    encoder/basisu_basis_file.h
+    encoder/basisu_bc7enc.h
+    encoder/basisu_comp.h
+    encoder/basisu_enc.h
+    encoder/basisu_etc.h
+    encoder/basisu_frontend.h
+    encoder/basisu_gpu_texture.h
+    encoder/basisu_kernels_declares.h
+    encoder/basisu_kernels_imp.h
+    encoder/basisu_math.h
+    encoder/basisu_miniz.h
+    encoder/basisu_ocl_kernels.h
+    encoder/basisu_opencl.h
+    encoder/basisu_pvrtc1_4.h
+    encoder/basisu_resampler_filters.h
+    encoder/basisu_resampler.h
+    encoder/basisu_ssim.h
+    encoder/basisu_uastc_enc.h
+    encoder/basisu_uastc_hdr_4x4_enc.h
+    encoder/cppspmd_flow.h
+    encoder/cppspmd_math_declares.h
+    encoder/cppspmd_math.h
+    encoder/cppspmd_sse.h
+    encoder/cppspmd_type_aliases.h
+    encoder/jpgd.h
+    encoder/pvpngreader.h
+    encoder/3rdparty/android_astc_decomp.h
+    encoder/3rdparty/qoi.h
+    encoder/3rdparty/tinyexr.h
+    transcoder/basisu_astc_hdr_core.h
+    transcoder/basisu_astc_helpers.h
+    transcoder/basisu_containers_impl.h
+    transcoder/basisu_containers.h
+    transcoder/basisu_file_headers.h
+    transcoder/basisu_transcoder_internal.h
+    transcoder/basisu_transcoder_uastc.h
+    transcoder/basisu_transcoder.h
+    transcoder/basisu.h
+	zstd/zstd.h
 )
 
 if (ZSTD)

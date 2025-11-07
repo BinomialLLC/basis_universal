@@ -1,6 +1,6 @@
 # WebGL Examples
 
-Requires WebAssembly and WebGL support. The WebGL demos are hosted live [here](https://subquantumtech.com/uastchdr2/).
+Requires WebAssembly and WebGL support. The WebGL demos are hosted live [here](https://subquantumtech.com/bu_6x6/).
 
 To build the encoder and transcoder WASM libraries using Emscripten, see the various README.md files in the 'webgl/transcoder' and 'webgl/encoder' folders. The Javascript API wrappers to the C/C++ library are located in [`webgl/transcoder/basis_wrappers.cpp`](https://github.com/BinomialLLC/basis_universal/blob/master/webgl/transcoder/basis_wrappers.cpp).
 
@@ -59,3 +59,4 @@ You can locally host the files under the "webgl" folder. One way is to use [Pyth
 cd webgl
 python3 -m http.server 8000
 ```
+Note: For WASM multithreading to be available and enabled, the server must be properly configured. 
