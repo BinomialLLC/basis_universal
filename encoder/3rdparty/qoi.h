@@ -631,14 +631,30 @@ void *qoi_read(const char *filename, qoi_desc *desc, int channels) {
 #endif
 	size_t size, bytes_read;
 	void *pixels, *data;
+	long sz;
 
 	if (!f) {
 		return NULL;
 	}
 
 	fseek(f, 0, SEEK_END);
-	size = ftell(f);
-	if (size <= 0 || fseek(f, 0, SEEK_SET) != 0) {
+	
+	sz = ftell(f);
+	if (sz <= 0)
+	{
+		fclose(f);
+		return NULL;
+	}
+
+	size = (size_t)sz;
+
+	if (size != sz)
+	{
+		fclose(f);
+		return NULL;
+	}
+
+	if (fseek(f, 0, SEEK_SET) != 0) {
 		fclose(f);
 		return NULL;
 	}
