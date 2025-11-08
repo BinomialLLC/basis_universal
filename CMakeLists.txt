@@ -225,6 +225,13 @@ if(EXAMPLES)
 	target_link_libraries(examples PRIVATE basisu_encoder)
 endif()	
 
+#if (MSVC)
+    target_sources(basisu PRIVATE "${CMAKE_SOURCE_DIR}/basisu.manifest")
+	if(EXAMPLES)
+    	target_sources(examples PRIVATE "${CMAKE_SOURCE_DIR}/basisu.manifest")
+	endif()			
+#endif()
+
 if (ZSTD)
     target_compile_definitions(basisu PRIVATE BASISD_SUPPORT_KTX2_ZSTD=1)
 	if(EXAMPLES)
