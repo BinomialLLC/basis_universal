@@ -648,7 +648,7 @@ void *qoi_read(const char *filename, qoi_desc *desc, int channels) {
 
 	size = (size_t)sz;
 
-	if (size != sz)
+	if (size != (unsigned long)sz)
 	{
 		fclose(f);
 		return NULL;
