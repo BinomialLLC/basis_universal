@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 # Tool to bundle multiple C/C++ source files, inlining any includes.
-# 
+#
 # Note: there are two types of exclusion options: the '-x' flag, which besides
 # excluding a file also adds an #error directive in place of the #include, and
 # the '-k' flag, which keeps the #include and doesn't inline the file. The
@@ -10,10 +10,10 @@
 # occurrence adds the error, and '-k' for headers that we wish to manually
 # include, such as a project's public API, for which occurrences after the first
 # are removed.
-# 
+#
 # Todo: the error handling could be better, which currently throws and halts
 # (which is functional just not very friendly).
-# 
+#
 # Author: Carl Woffenden, Numfum GmbH (this script is released under a CC0 license/Public Domain)
 
 import argparse, re, sys
@@ -42,29 +42,29 @@ destn:TextIO = sys.stdout
 found: Set[Path] = set()
 
 # Compiled regex Patern to handle the following type of file includes:
-# 
+#
 #   #include "file"
 #     #include "file"
 #   #  include "file"
 #   #include   "file"
 #   #include "file" // comment
 #   #include "file" // comment with quote "
-# 
+#
 # And all combinations of, as well as ignoring the following:
-# 
+#
 #   #include <file>
 #   //#include "file"
 #   /*#include "file"*/
-# 
+#
 # We don't try to catch errors since the compiler will do this (and the code is
 # expected to be valid before processing) and we don't care what follows the
 # file (whether it's a valid comment or not, since anything after the quoted
 # string is ignored)
-# 
+#
 include_regex: Pattern = re.compile(r'^\s*#\s*include\s*"(.+?)"')
 
 # Simple tests to prove include_regex's cases.
-# 
+#
 def test_match_include() -> bool:
     if (include_regex.match('#include "file"')   and
         include_regex.match('  #include "file"') and
@@ -81,19 +81,19 @@ def test_match_include() -> bool:
     return False
 
 # Compiled regex Patern to handle "#pragma once" in various formats:
-# 
+#
 #   #pragma once
 #     #pragma once
 #   #  pragma once
 #   #pragma   once
 #   #pragma once // comment
-# 
+#
 # Ignoring commented versions, same as include_regex.
-# 
+#
 pragma_regex: Pattern = re.compile(r'^\s*#\s*pragma\s*once\s*')
 
 # Simple tests to prove pragma_regex's cases.
-# 
+#
 def text_match_pragma() -> bool:
     if (pragma_regex.match('#pragma once')   and
         pragma_regex.match('  #pragma once') and
@@ -109,7 +109,7 @@ def text_match_pragma() -> bool:
 # Finds 'file'. First the list of 'root' paths are searched, followed by the
 # the currently processing file's 'parent' path, returning a valid Path in
 # canonical form. If no match is found None is returned.
-# 
+#
 def resolve_include(file: str, parent: Optional[Path] = None) -> Optional[Path]:
     for root in roots:
         found = root.joinpath(file).resolve()
@@ -127,7 +127,7 @@ def resolve_include(file: str, parent: Optional[Path] = None) -> Optional[Path]:
 # and each entry resolved to its canonical path (like any include entry, either
 # from the list of root paths or the owning file's 'parent', which in this case
 # is case is the input file). The results are stored in 'resolved'.
-# 
+#
 def resolve_excluded_files(file_list: Optional[List[str]], resolved: Set[Path], parent: Optional[Path] = None) -> None:
     if (file_list):
         for filename in file_list:
@@ -138,23 +138,23 @@ def resolve_excluded_files(file_list: Optional[List[str]], resolved: Set[Path], 
                 error_line(f'Warning: excluded file not found: {filename}')
 
 # Writes 'line' to the open 'destn' (or stdout).
-# 
+#
 def write_line(line: str) -> None:
     print(line, file=destn)
 
 # Logs 'line' to stderr. This is also used for general notifications that we
 # don't want to go to stdout (so the source can be piped).
-# 
+#
 def error_line(line: Any) -> None:
     print(line, file=sys.stderr)
 
 # Inline the contents of 'file' (with any of its includes also inlined, etc.).
-# 
+#
 # Note: text encoding errors are ignored and replaced with ? when reading the
 # input files. This isn't ideal, but it's more than likely in the comments than
 # code and a) the text editor has probably also failed to read the same content,
 # and b) the compiler probably did too.
-# 
+#
 def add_file(file: Path, file_name: str = None) -> None:
     if (file.is_file()):
         if (not file_name):
