@@ -1,4 +1,5 @@
-build/
+
+CMakeUserPresets.json
 
 # VS project and working files
 *.vcxproj.user
