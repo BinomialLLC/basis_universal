@@ -25,7 +25,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY $<1:${CMAKE_SOURCE_DIR}/bin>)
 if (MSVC)
     # TODO: Fix me for Windows ARM
     option(BASISU_SSE "SSE 4.1 support" TRUE)
-    if ( CMAKE_GENERATOR_PLATFORM STREQUAL Win32 )
+    if ( CMAKE_GENERATOR_PLATFORM STREQUAL "Win32" )
         set(BASISU_BUILD_X64 0)
     else()
         set(BASISU_BUILD_X64 1)
@@ -48,7 +48,7 @@ message("Initial BASISU_SAN=${BASISU_SAN}")
 message("initial BASISU_TOOL=${BASISU_TOOL}")
 message("initial BASISU_EXAMPLES=${BASISU_EXAMPLES}")
 
-if(WIN32 AND MINGW)
+if(MINGW)
     # Check if the Threads package is provided; if using Mingw it MIGHT be
     find_package(Threads)
 elseif(LINUX)
@@ -89,7 +89,9 @@ else()
 endif()
 
 if (NOT MSVC)
-    add_compile_options(-g)
+    add_compile_options($<$<CONFIG:Debug>:-g>)
+    # If you want to set an optimization option for non-debug too, use this instead.
+    #add_compile_options($<IF:$<CONFIG:Debug>,-g,-O3>)
 
     if (BASISU_SAN)
         message("Enabling SAN")
@@ -98,7 +100,7 @@ if (NOT MSVC)
     endif()
 
     # Add common non-MSVC flags excluding -fPIC.
-    add_compile_options(-fvisibility=hidden -fPIC -fno-strict-aliasing -D_LARGEFILE64_SOURCE=1
+    add_compile_options(-fvisibility=hidden -fno-strict-aliasing -D_LARGEFILE64_SOURCE=1
                         -D_FILE_OFFSET_BITS=64 -Wall -Wextra -Wno-unused-local-typedefs
                         -Wno-unused-value -Wno-unused-parameter -Wno-unused-variable
                         -Wno-misleading-indentation
@@ -224,12 +226,12 @@ if (NOT MSVC)
     if (BASISU_OPENCL AND OPENCL_FOUND)
         target_compile_definitions(basisu_encoder PRIVATE BASISU_SUPPORT_OPENCL=1)
 
-		target_include_directories(basisu_encoder INTERFACE ${OpenCL_INCLUDE_DIRS})
+        target_include_directories(basisu_encoder INTERFACE ${OpenCL_INCLUDE_DIRS})
         target_link_libraries(basisu_encoder INTERFACE ${OpenCL_LIBRARIES})
     endif()
     # Only link 'm' on non-Windows platforms (Linux, macOS)
     if (NOT WIN32)
-        target_link_libraries(basisu_encoder INTERFACE m) 
+        target_link_libraries(basisu_encoder INTERFACE m)
     endif()
     if(Threads_FOUND AND CMAKE_USE_PTHREADS_INIT)
         target_link_libraries(basisu_encoder INTERFACE Threads::Threads)
@@ -243,7 +245,7 @@ else()
     # For Windows builds, we use our local copies of the OpenCL import lib and Khronos headers.
     if (BASISU_OPENCL)
         target_compile_definitions(basisu_encoder PRIVATE BASISU_SUPPORT_OPENCL=1)
-		target_include_directories(basisu_encoder INTERFACE "OpenCL")
+        target_include_directories(basisu_encoder INTERFACE "OpenCL")
 
         if (BASISU_BUILD_X64)
             target_link_libraries(basisu_encoder INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/OpenCL/lib/OpenCL64.lib")
@@ -251,7 +253,7 @@ else()
             target_link_libraries(basisu_encoder INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/OpenCL/lib/OpenCL.lib")
         endif()
     endif()
-endif()    
+endif()
 
 macro(set_common_executable_properties target)
     #if (MSVC)
@@ -277,13 +279,13 @@ endif()
 
 if (BASISU_TOOL AND NOT EMSCRIPTEN)
     if (UNIX)
-        if (CMAKE_BUILD_TYPE STREQUAL Release)
+        if (CMAKE_BUILD_TYPE STREQUAL "Release")
             if (APPLE)
                 add_custom_command(TARGET basisu POST_BUILD COMMAND strip -X -x ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/basisu)
-				#message("strip command: strip -X -x ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/basisu")
+                #message("strip command: strip -X -x ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/basisu")
             else()
                 add_custom_command(TARGET basisu POST_BUILD COMMAND strip -g -X -x ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/basisu)
-				#message("strip command: strip -g -X -x ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/basisu")
+                #message("strip command: strip -g -X -x ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/basisu")
             endif()
         endif()
     endif()
