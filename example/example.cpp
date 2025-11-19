@@ -578,7 +578,7 @@ enum class codec_class
 bool random_compression_fuzz_test()
 {
     printf("Random XUASTC/ASTC LDR 4x4-12x12 compression test:\n");
-
+    
     //const uint32_t N = 256;
     const uint32_t N = 64;
     const uint32_t MAX_WIDTH = 1024, MAX_HEIGHT = 1024;
@@ -916,7 +916,7 @@ bool random_compression_fuzz_test()
             basisu::vector<basisu::image> ldr_source_images;
             ldr_source_images.push_back(src_img);
 
-            save_png("test.png", src_img);
+            //save_png("test.png", src_img);
 
             pComp_data = basisu::basis_compress(tex_mode, ldr_source_images, flags, quality, &comp_size, &stats);
         }
