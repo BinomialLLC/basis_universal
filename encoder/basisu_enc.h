@@ -3898,7 +3898,9 @@ namespace basisu
 
 	bool save_png(const char* pFilename, const image& img, uint32_t image_save_flags = 0, uint32_t grayscale_comp = 0);
 	inline bool save_png(const std::string &filename, const image &img, uint32_t image_save_flags = 0, uint32_t grayscale_comp = 0) { return save_png(filename.c_str(), img, image_save_flags, grayscale_comp); }
-	
+
+	bool create_directory_if_not_exists(std::string &dir);
+
 	bool read_file_to_vec(const char* pFilename, uint8_vec& data);
 	bool read_file_to_data(const char* pFilename, void *pData, size_t len);	
 
