@@ -13,6 +13,7 @@
 #include "3rdparty/android_astc_decomp.h"
 
 #include <array>
+#include <cfloat>
 
 using namespace basisu;
 using namespace buminiz;
