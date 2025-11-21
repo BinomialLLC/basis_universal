@@ -2723,7 +2723,9 @@ struct candidate_encoding
 
 	int m_reuse_delta_index;
 
-	float m_t, m_d, m_bits;
+	// m_t can get VERY large
+	double m_t, m_d; 
+	float m_bits;
 					
 	candidate_encoding()
 	{
@@ -5967,7 +5969,7 @@ static bool compress_strip_task(
 				}
 
 				// Find best overall candidate
-				double best_t = BIG_FLOAT_VAL;
+				double best_t = DBL_MAX;
 				int best_candidate_index = -1;
 
 				float best_d_ssim = BIG_FLOAT_VAL;
@@ -6114,10 +6116,13 @@ static bool compress_strip_task(
 							mode_penalty *= (complex_block ? RUN_PENALTY * 2.0f : RUN_PENALTY);
 
 						float candidate_bits = (float)candidate.m_coder.get_total_bits();
-						float candidate_d = candidate_mse * mode_penalty;
+						
+						double candidate_d = (double)candidate_mse * mode_penalty;
 
 						const float D_POWER = 2.0f;
-						float candidate_t = perceptual_scale * powf(candidate_d, D_POWER) + candidate_bits * (global_cfg.m_lambda * 1000.0f);
+						
+						// this value can get VERY large after squaring on random (fuzzed) HDR inputs
+						double candidate_t = perceptual_scale * pow(candidate_d, D_POWER) + candidate_bits * (global_cfg.m_lambda * 1000.0f); 
 
 						candidate.m_t = candidate_t;
 						candidate.m_d = candidate_d;
@@ -6130,6 +6135,14 @@ static bool compress_strip_task(
 						}
 
 					} // candidate_iter
+
+					if (best_candidate_index < 0)
+					{
+						assert(0);
+						
+						// Should never happen
+						best_candidate_index = 0;
+					}
 
 					if (global_cfg.m_gaussian1_fallback && (outer_pass == 0) && (very_complex_block) && (best_d_ssim > SWITCH_TO_GAUSSIAN_FILTERED_THRESH1_D_SSIM))
 					{
@@ -6152,7 +6165,7 @@ static bool compress_strip_task(
 						// candidate diversity boosting - consider candidates along/near the Pareto front
 						const candidate_encoding& comp_candidate = candidates[best_candidate_index];
 
-						float best_d = BIG_FLOAT_VAL;
+						double best_d = DBL_MAX;
 
 						for (uint32_t candidate_iter = 0; candidate_iter < candidates.size_u32(); candidate_iter++)
 						{

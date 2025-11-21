@@ -811,7 +811,8 @@ namespace basisu
 
 #if defined(DEBUG) || defined(_DEBUG)
 		{
-			// sanity check the returned error
+			// Ultimate sanity check on the returned error. 
+			// If this check fails, it likely means the SSE code diverged from C++ somehow, or there was an overflow somewhere.
 			color_rgba block_colors[4];
 			m_best_solution.m_coords.get_block_colors(block_colors);
 
@@ -1234,6 +1235,8 @@ namespace basisu
 						perceptual_distance_rgb_4_N_sse41((int64_t*)&total_error, pSelectors_to_use, block_colors, pSrc_pixels, n, trial_solution.m_error);
 					else
 						linear_distance_rgb_4_N_sse41((int64_t*)&total_error, pSelectors_to_use, block_colors, pSrc_pixels, n, trial_solution.m_error);
+					for (uint32_t i = 0; i < n; i++)
+						m_temp_selectors[i] = pSelectors_to_use[i];
 				}
 				else
 				{

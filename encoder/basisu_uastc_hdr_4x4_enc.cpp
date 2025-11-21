@@ -357,7 +357,9 @@ static void pack_mode11(
 							unpacked_astc_blk_rgb[y][x][c] = unpacked_astc_blk_rgba[y][x][c];
 
 				double cmp_err = compute_block_error(16, &block_pixels_half[0][0], &unpacked_astc_blk_rgb[0][0][0], coptions);
-				assert(results.m_best_block_error == cmp_err);
+				// can't use full equality test due to precision
+				//assert(results.m_best_block_error == cmp_err);
+				assert(equal_rel_tol(results.m_best_block_error, cmp_err, .001));
 			}
 #endif
 

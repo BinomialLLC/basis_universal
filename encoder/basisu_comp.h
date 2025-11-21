@@ -784,7 +784,9 @@ namespace basisu
 		
 		cFlagDebugImages = 1 << 20,		// enable status output
 
-		cFlagREC2020 = 1 << 21			// ASTC 6x6 modes: treat input as REC 2020 vs. the default 709
+		cFlagREC2020 = 1 << 21,			// ASTC 6x6 modes: treat input as REC 2020 vs. the default 709
+
+		cFlagValidateOutput = 1 << 22,	// transcode the output after encoding for testing
 	};
 
 	// This function accepts an array of source images. 

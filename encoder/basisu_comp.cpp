@@ -4123,6 +4123,8 @@ namespace basisu
 			comp_params.m_astc_hdr_6x6_options.m_rec2020_bt2100_color_gamut = (flags_and_quality & cFlagREC2020) != 0;
 		}
 
+		comp_params.m_validate_output_data = (flags_and_quality & cFlagValidateOutput) != 0;
+
 		// Create the compressor, initialize it, and process the input
 		basis_compressor comp;
 		if (!comp.init(comp_params))

@@ -17,6 +17,11 @@ using namespace CPPSPMD;
 
 namespace CPPSPMD_NAME(basisu_kernels_namespace)
 {
+    static inline int64_t reduce_add64(const vint &x)
+    {
+        return (int64_t)VINT_EXTRACT(x, 0) + (int64_t)VINT_EXTRACT(x, 1) + 
+            (int64_t)VINT_EXTRACT(x, 2) + (int64_t)VINT_EXTRACT(x, 3);
+    }
    struct perceptual_distance_rgb_4_N : spmd_kernel
    {
       void _call(int64_t* pDistance,
@@ -66,15 +71,15 @@ namespace CPPSPMD_NAME(basisu_kernels_namespace)
             vint dg = base_g - g;
             vint db = base_b - b;
 
-            vint delta_l = dr * 27 + dg * 92 + db * 9;
-            vint delta_cr = dr * 128 - delta_l;
-            vint delta_cb = db * 128 - delta_l;
+            vint delta_l = dr * 14 + dg * 45 + db * 5;
+            vint delta_cr = dr * 64 - delta_l;
+            vint delta_cb = db * 64 - delta_l;
 
-            vint id = ((delta_l * delta_l) >> 7) +
-               ((((delta_cr * delta_cr) >> 7) * 26) >> 7) +
-               ((((delta_cb * delta_cb) >> 7) * 3) >> 7);
+            vint id = ((delta_l * delta_l) >> 5) +
+               ((((delta_cr * delta_cr) >> 5) * 26) >> 7) +
+               ((((delta_cb * delta_cb) >> 5) * 3) >> 7);
 
-            *pDistance += reduce_add(id);
+            *pDistance += reduce_add64(id);
             if (*pDistance >= early_out_err)
                return;
          }
@@ -90,13 +95,13 @@ namespace CPPSPMD_NAME(basisu_kernels_namespace)
             int dg = base_g - g;
             int db = base_b - b;
 
-            int delta_l = dr * 27 + dg * 92 + db * 9;
-            int delta_cr = dr * 128 - delta_l;
-            int delta_cb = db * 128 - delta_l;
+            int delta_l = dr * 14 + dg * 45 + db * 5;
+            int delta_cr = dr * 64 - delta_l;
+            int delta_cb = db * 64 - delta_l;
 
-            int id = ((delta_l * delta_l) >> 7) +
-               ((((delta_cr * delta_cr) >> 7) * 26) >> 7) +
-               ((((delta_cb * delta_cb) >> 7) * 3) >> 7);
+            int id = ((delta_l * delta_l) >> 5) +
+               ((((delta_cr * delta_cr) >> 5) * 26) >> 7) +
+               ((((delta_cb * delta_cb) >> 5) * 3) >> 7);
 
             *pDistance += id;
             if (*pDistance >= early_out_err)
@@ -156,7 +161,7 @@ namespace CPPSPMD_NAME(basisu_kernels_namespace)
 
             vint id = dr * dr + dg * dg + db * db;
 
-            *pDistance += reduce_add(id);
+            *pDistance += reduce_add64(id);
             if (*pDistance >= early_out_err)
                return;
          }
@@ -191,13 +196,13 @@ namespace CPPSPMD_NAME(basisu_kernels_namespace)
          vint dg = base_g - g;
          vint db = base_b - b;
 
-         vint delta_l = dr * 27 + dg * 92 + db * 9;
-         vint delta_cr = dr * 128 - delta_l;
-         vint delta_cb = db * 128 - delta_l;
+          vint delta_l = dr * 14 + dg * 45 + db * 5;
+          vint delta_cr = dr * 64 - delta_l;
+          vint delta_cb = db * 64 - delta_l;
 
-         vint id = VINT_SHIFT_RIGHT(delta_l * delta_l, 7) +
-            VINT_SHIFT_RIGHT(VINT_SHIFT_RIGHT(delta_cr * delta_cr, 7) * 26, 7) +
-            VINT_SHIFT_RIGHT(VINT_SHIFT_RIGHT(delta_cb * delta_cb, 7) * 3, 7);
+          vint id = VINT_SHIFT_RIGHT(delta_l * delta_l, 5) +
+             VINT_SHIFT_RIGHT(VINT_SHIFT_RIGHT(delta_cr * delta_cr, 5) * 26, 7) +
+             VINT_SHIFT_RIGHT(VINT_SHIFT_RIGHT(delta_cb * delta_cb, 5) * 3, 7);
 
          return id;
       }
@@ -243,7 +248,7 @@ namespace CPPSPMD_NAME(basisu_kernels_namespace)
             __m128i vsels = shuffle_epi8(sels.m_value, shuf);
             storeu_si32((void *)(pSelectors + i), vsels);
 
-            *pDistance += reduce_add(min_dist);
+            *pDistance += reduce_add64(min_dist);
             if (*pDistance >= early_out_err)
                return;
          }
@@ -261,13 +266,13 @@ namespace CPPSPMD_NAME(basisu_kernels_namespace)
                int dg = base_g - g;
                int db = base_b - b;
 
-               int delta_l = dr * 27 + dg * 92 + db * 9;
-               int delta_cr = dr * 128 - delta_l;
-               int delta_cb = db * 128 - delta_l;
+               int delta_l = dr * 14 + dg * 45 + db * 5;
+               int delta_cr = dr * 64 - delta_l;
+               int delta_cb = db * 64 - delta_l;
 
-               int id = ((delta_l * delta_l) >> 7) +
-                  ((((delta_cr * delta_cr) >> 7) * 26) >> 7) +
-                  ((((delta_cb * delta_cb) >> 7) * 3) >> 7);
+               int id = ((delta_l * delta_l) >> 5) +
+                  ((((delta_cr * delta_cr) >> 5) * 26) >> 7) +
+                  ((((delta_cb * delta_cb) >> 5) * 3) >> 7);
                if (id < best_err)
                {
                   best_err = id;
@@ -339,7 +344,7 @@ namespace CPPSPMD_NAME(basisu_kernels_namespace)
             __m128i vsels = shuffle_epi8(sels.m_value, shuf);
             storeu_si32((void *)(pSelectors + i), vsels);
 
-            *pDistance += reduce_add(min_dist);
+            *pDistance += reduce_add64(min_dist);
             if (*pDistance >= early_out_err)
                return;
          }
@@ -384,13 +389,13 @@ namespace CPPSPMD_NAME(basisu_kernels_namespace)
          vint dg = base_g - g;
          vint db = base_b - b;
 
-         vint delta_l = dr * 27 + dg * 92 + db * 9;
-         vint delta_cr = dr * 128 - delta_l;
-         vint delta_cb = db * 128 - delta_l;
+         vint delta_l = dr * 14 + dg * 45 + db * 5;
+         vint delta_cr = dr * 64 - delta_l;
+         vint delta_cb = db * 64 - delta_l;
 
-         vint id = VINT_SHIFT_RIGHT(delta_l * delta_l, 7) +
-            VINT_SHIFT_RIGHT(VINT_SHIFT_RIGHT(delta_cr * delta_cr, 7) * 26, 7) +
-            VINT_SHIFT_RIGHT(VINT_SHIFT_RIGHT(delta_cb * delta_cb, 7) * 3, 7);
+         vint id = VINT_SHIFT_RIGHT(delta_l * delta_l, 5) +
+            VINT_SHIFT_RIGHT(VINT_SHIFT_RIGHT(delta_cr * delta_cr, 5) * 26, 7) +
+            VINT_SHIFT_RIGHT(VINT_SHIFT_RIGHT(delta_cb * delta_cb, 5) * 3, 7);
 
          return id;
       }
@@ -428,7 +433,7 @@ namespace CPPSPMD_NAME(basisu_kernels_namespace)
 
             vint min_dist = min(min(min(dist0, dist1), dist2), dist3);
 
-            *pDistance += reduce_add(min_dist);
+            *pDistance += reduce_add64(min_dist);
             if (*pDistance > early_out_error)
                return;
          }
@@ -446,13 +451,13 @@ namespace CPPSPMD_NAME(basisu_kernels_namespace)
                int dg = base_g - g;
                int db = base_b - b;
 
-               int delta_l = dr * 27 + dg * 92 + db * 9;
-               int delta_cr = dr * 128 - delta_l;
-               int delta_cb = db * 128 - delta_l;
+               int delta_l = dr * 14 + dg * 45 + db * 5;
+               int delta_cr = dr * 64 - delta_l;
+               int delta_cb = db * 64 - delta_l;
 
-               int id = ((delta_l * delta_l) >> 7) +
-                  ((((delta_cr * delta_cr) >> 7) * 26) >> 7) +
-                  ((((delta_cb * delta_cb) >> 7) * 3) >> 7);
+               int id = ((delta_l * delta_l) >> 5) +
+                  ((((delta_cr * delta_cr) >> 5) * 26) >> 7) +
+                  ((((delta_cb * delta_cb) >> 5) * 3) >> 7);
                
                if (id < best_err)
                {
@@ -515,7 +520,7 @@ namespace CPPSPMD_NAME(basisu_kernels_namespace)
 
             vint min_dist = min(min(min(dist0, dist1), dist2), dist3);
 
-            *pDistance += reduce_add(min_dist);
+            *pDistance += reduce_add64(min_dist);
             if (*pDistance > early_out_error)
                return;
          }

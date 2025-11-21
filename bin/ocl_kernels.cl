@@ -72,40 +72,18 @@ uint color_distance(bool perceptual, color_rgba e1, color_rgba e2, bool alpha)
 {
 	if (perceptual)
 	{
-#if 0
-		float3 delta_rgb = (float3)(e1.x - e2.x, e1.y - e2.y, e1.z - e2.z);
-
-		float3 delta_ycbcr;
-		delta_ycbcr.x = dot(delta_rgb, (float3)(.2126f, .7152f, .0722f)); // y
-		delta_ycbcr.y = delta_rgb.x - delta_ycbcr.x; // cr
-		delta_ycbcr.z = delta_rgb.z - delta_ycbcr.x; // cb
-
-		delta_ycbcr *= delta_ycbcr;
-
-		float d = dot(delta_ycbcr, (float3)(1.0f, 0.203125f, 0.0234375f));
-
-		if (alpha)
-		{
-			int delta_a = e1.w - e2.w;
-			d += delta_a * delta_a;
-		}
-
-		d = clamp(d * 256.0f + .5f, 0.0f, (float)UINT32_MAX);
-
-		return (uint)(d);
-#else
 		// This matches the CPU code, which is useful for testing.
 		int dr = e1.x - e2.x;
 		int dg = e1.y - e2.y;
 		int db = e1.z - e2.z;
 
-		int delta_l = dr * 27 + dg * 92 + db * 9;
-		int delta_cr = dr * 128 - delta_l;
-		int delta_cb = db * 128 - delta_l;
+		int delta_l = dr * 14 + dg * 45 + db * 5;
+		int delta_cr = dr * 64 - delta_l;
+		int delta_cb = db * 64 - delta_l;
 
-		uint id = ((uint)(delta_l * delta_l) >> 7U) +
-			((((uint)(delta_cr * delta_cr) >> 7U) * 26U) >> 7U) +
-			((((uint)(delta_cb * delta_cb) >> 7U) * 3U) >> 7U);
+		uint id = ((uint)(delta_l * delta_l) >> 5U) +
+			((((uint)(delta_cr * delta_cr) >> 5U) * 26U) >> 7U) +
+			((((uint)(delta_cb * delta_cb) >> 5U) * 3U) >> 7U);
 
 		if (alpha)
 		{
@@ -114,7 +92,6 @@ uint color_distance(bool perceptual, color_rgba e1, color_rgba e2, bool alpha)
 		}
 		
 		return id;
-#endif
 	}
 	else if (alpha)
 	{
