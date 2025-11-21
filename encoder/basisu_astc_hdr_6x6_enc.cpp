@@ -1,4 +1,5 @@
 // File: basisu_astc_hdr_6x6_enc.cpp
+#include <cfloat>
 #include "basisu_astc_hdr_6x6_enc.h"
 #include "basisu_enc.h"
 #include "basisu_astc_hdr_common.h"
