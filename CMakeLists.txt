@@ -55,10 +55,10 @@ elseif(LINUX)
     find_package(Threads REQUIRED)
 endif()
 
-if ((NOT MSVC) AND BASISU_OPENCL)
-    # With MSVC builds we use the Khronos lib/include files in the project's "OpenCL" directory, to completely avoid requiring fiddly to install vendor SDK's.
+if ((NOT WIN32) AND BASISU_OPENCL)
+    # For Windows builds we use the Khronos lib/include files in the project's "OpenCL" directory, to completely avoid requiring fiddly to install vendor SDK's.
     # Otherwise we use the system's (if any).
-    find_package(OpenCL)
+    find_package(OpenCL REQUIRED)
     message(STATUS "OpenCL found: ${OPENCL_FOUND}")
     message(STATUS "OpenCL includes: ${OpenCL_INCLUDE_DIRS}")
     message(STATUS "OpenCL libraries: ${OpenCL_LIBRARIES}")
@@ -213,22 +213,38 @@ INTERFACE
 target_compile_features(basisu_encoder PUBLIC cxx_std_17)
 
 if (EMSCRIPTEN)
-    target_compile_definitions(basisu_encoder PRIVATE BASISU_SUPPORT_SSE=0)
+    target_compile_definitions(basisu_encoder PUBLIC BASISU_SUPPORT_SSE=0)
 else()
+    target_compile_definitions(basisu_encoder PUBLIC
+        BASISU_SUPPORT_SSE=$<IF:$<BOOL:${BASISU_SSE}>,1,0>
+    )
     target_compile_options(basisu_encoder PRIVATE
-        "$<IF:$<BOOL:${BASISU_SSE}>,-DBASISU_SUPPORT_SSE=1;$<$<CXX_COMPILER_ID:AppleClang,Clang,GNU>:-msse4.1>,-DBASISU_SUPPORT_SSE=0>"
+        "$<$<AND:$<BOOL:${BASISU_SSE}>,$<CXX_COMPILER_ID:AppleClang,Clang,GNU>>:-msse4.1>"
     )
 endif()
 
 target_compile_definitions(basisu_encoder PRIVATE "BASISD_SUPPORT_KTX2_ZSTD=$<IF:$<BOOL:${BASISU_ZSTD}>,1,0>")
-if (NOT MSVC)
-    # For Non-Windows builds, let cmake try and find the system OpenCL headers/libs for us.
-    if (BASISU_OPENCL AND OPENCL_FOUND)
-        target_compile_definitions(basisu_encoder PRIVATE BASISU_SUPPORT_OPENCL=1)
-
-        target_include_directories(basisu_encoder INTERFACE ${OpenCL_INCLUDE_DIRS})
-        target_link_libraries(basisu_encoder INTERFACE ${OpenCL_LIBRARIES})
+if (BASISU_OPENCL)
+    # basisu uses this to confirm the library has been compiled with OpenCL support hence PUBLIC.
+    target_compile_definitions(basisu_encoder PUBLIC BASISU_SUPPORT_OPENCL=1)
+    if (NOT WIN32) # True when the target system is Windows.
+        # For Non-Windows builds, use the system OpenCL headers/libs, if cmake found them.
+        target_include_directories(basisu_encoder PRIVATE ${OpenCL_INCLUDE_DIRS})
+        target_link_libraries(basisu_encoder PRIVATE ${OpenCL_LIBRARIES})
+    else()
+        # For Windows builds, we use our local copies of the OpenCL import lib and Khronos headers.
+        target_include_directories(basisu_encoder PRIVATE "OpenCL")
+        if (BASISU_BUILD_X64)
+            target_link_libraries(basisu_encoder PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/OpenCL/lib/OpenCL64.lib")
+        else()
+            target_link_libraries(basisu_encoder PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/OpenCL/lib/OpenCL.lib")
+        endif()
     endif()
+else()
+    target_compile_definitions(basisu_encoder PUBLIC BASISU_SUPPORT_OPENCL=0)
+endif()
+
+if (NOT MSVC)
     # Only link 'm' on non-Windows platforms (Linux, macOS)
     if (NOT WIN32)
         target_link_libraries(basisu_encoder INTERFACE m)
@@ -240,18 +256,6 @@ if (NOT MSVC)
     endif()
     if (BASISU_STATIC AND MINGW)
         target_link_options(basisu_encoder INTERFACE -static-libgcc -static-libstdc++ -static)
-    endif()
-else()
-    # For Windows builds, we use our local copies of the OpenCL import lib and Khronos headers.
-    if (BASISU_OPENCL)
-        target_compile_definitions(basisu_encoder PRIVATE BASISU_SUPPORT_OPENCL=1)
-        target_include_directories(basisu_encoder INTERFACE "OpenCL")
-
-        if (BASISU_BUILD_X64)
-            target_link_libraries(basisu_encoder INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/OpenCL/lib/OpenCL64.lib")
-        else()
-            target_link_libraries(basisu_encoder INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/OpenCL/lib/OpenCL.lib")
-        endif()
     endif()
 endif()
 
