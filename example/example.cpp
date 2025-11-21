@@ -564,6 +564,400 @@ static void fuzz_uastc_hdr_transcoder_test()
     printf("OK\n");
 }
 
+enum class codec_class
+{
+    cETC1S = 0,
+    cUASTC_LDR_4x4 = 1,
+    cUASTC_HDR_4x4 = 2,
+    cASTC_HDR_6x6 = 3,
+    cUASTC_HDR_6x6 = 4,
+    cTOTAL
+};
+
+// The main point of this test is to exercise lots of internal compressor code paths, and transcoder code paths.
+bool random_compression_fuzz_test()
+{
+    printf("Random XUASTC/ASTC LDR 4x4-12x12 compression test:\n");
+    
+    //const uint32_t N = 256;
+    const uint32_t N = 64;
+    const uint32_t MAX_WIDTH = 1024, MAX_HEIGHT = 1024;
+
+    basisu::rand rnd;
+
+    float lowest_psnr1 = BIG_FLOAT_VAL, lowest_psnr2 = BIG_FLOAT_VAL;
+
+    struct result
+    {
+        uint32_t m_seed;
+        basist::basis_tex_format m_fmt;
+        float m_psnr1;
+        float m_psnr2;
+    };
+    basisu::vector<result> results;
+
+    for (uint32_t i = 0; i < N; i++)
+    {
+        uint32_t seed = 0x2603455 + i;
+
+        //seed = 23082246; // ETC1S perceptual colorspace error overflow test
+
+        fmt_printf("------------------------------ Seed: {}\n", seed);
+        rnd.seed(seed);
+
+        const uint32_t w = rnd.irand(1, MAX_WIDTH);
+        const uint32_t h = rnd.irand(1, MAX_HEIGHT);
+        const bool mips = rnd.bit();
+        const bool use_a = rnd.bit();
+
+        fmt_printf("Trying {}x{}, mips: {}, use_a: {}\n", w, h, mips, use_a);
+
+        // Chose a random codec/block size to test
+        basist::basis_tex_format tex_mode = basist::basis_tex_format::cETC1S;
+
+        bool is_hdr = false;
+
+        uint32_t rnd_codec_class = rnd.irand(0, (uint32_t)codec_class::cTOTAL - 1);
+
+        //rnd_codec_class = (uint32_t)codec_class::cETC1S;
+
+        switch (rnd_codec_class)
+        {
+        case (uint32_t)codec_class::cETC1S:
+        {
+            tex_mode = basist::basis_tex_format::cETC1S;
+            break;
+        }
+        case (uint32_t)codec_class::cUASTC_LDR_4x4:
+        {
+            tex_mode = basist::basis_tex_format::cUASTC4x4;
+            break;
+        }
+        case (uint32_t)codec_class::cUASTC_HDR_4x4:
+        {
+            tex_mode = basist::basis_tex_format::cUASTC_HDR_4x4;
+            is_hdr = true;
+            break;
+        }
+        case (uint32_t)codec_class::cASTC_HDR_6x6:
+        {
+            tex_mode = basist::basis_tex_format::cASTC_HDR_6x6;
+            is_hdr = true;
+            break;
+        }
+        case (uint32_t)codec_class::cUASTC_HDR_6x6:
+        {
+            tex_mode = basist::basis_tex_format::cASTC_HDR_6x6_INTERMEDIATE;
+            is_hdr = true;
+            break;
+        }
+        default:
+            assert(0);
+            tex_mode = basist::basis_tex_format::cETC1S;
+            break;
+        }
+
+        fmt_printf("Testing basis_tex_format={}\n", (uint32_t)tex_mode);
+
+        size_t comp_size = 0;
+
+        // Create random LDR source image to compress
+        image src_img;
+        src_img.resize(w, h, w, color_rgba(rnd.byte(), rnd.byte(), rnd.byte(), use_a ? rnd.byte() : 255));
+
+        if (rnd.irand(0, 7) >= 1)
+        {
+            const uint32_t nt = rnd.irand(0, 1000);
+
+            for (uint32_t k = 0; k < nt; k++)
+            {
+                color_rgba c(rnd.byte(), rnd.byte(), rnd.byte(), use_a ? rnd.byte() : 255);
+
+                uint32_t r = rnd.irand(0, 25);
+                if (r == 0)
+                {
+                    uint32_t xs = rnd.irand(0, w - 1);
+                    uint32_t xe = rnd.irand(0, w - 1);
+                    if (xs > xe)
+                        std::swap(xs, xe);
+
+                    uint32_t ys = rnd.irand(0, h - 1);
+                    uint32_t ye = rnd.irand(0, h - 1);
+                    if (ys > ye)
+                        std::swap(ys, ye);
+
+                    src_img.fill_box(xs, ys, xe - xs + 1, ye - ys + 1, c);
+                }
+                else if (r <= 5)
+                {
+                    uint32_t xs = rnd.irand(0, w - 1);
+                    uint32_t xe = rnd.irand(0, w - 1);
+
+                    uint32_t ys = rnd.irand(0, h - 1);
+                    uint32_t ye = rnd.irand(0, h - 1);
+
+                    basisu::draw_line(src_img, xs, ys, xe, ye, c);
+                }
+                else if (r == 6)
+                {
+                    uint32_t cx = rnd.irand(0, w - 1);
+                    uint32_t cy = rnd.irand(0, h - 1);
+                    uint32_t ra = rnd.irand(0, 100);
+
+                    basisu::draw_circle(src_img, cx, cy, ra, c);
+                }
+                else if (r < 10)
+                {
+                    uint32_t x = rnd.irand(0, w - 1);
+                    uint32_t y = rnd.irand(0, h - 1);
+                    uint32_t sx = rnd.irand(1, 3);
+                    uint32_t sy = rnd.irand(1, 3);
+
+                    uint32_t l = rnd.irand(1, 10);
+
+                    char buf[32] = {};
+                    for (uint32_t j = 0; j < l; j++)
+                        buf[j] = (char)rnd.irand(32, 127);
+
+                    src_img.debug_text(x, y, sx, sy, c, nullptr, rnd.bit(), "%s", buf);
+                }
+                else if (r < 12)
+                {
+                    uint32_t xs = rnd.irand(0, w - 1);
+                    uint32_t ys = rnd.irand(0, h - 1);
+
+                    uint32_t xl = rnd.irand(1, 100);
+                    uint32_t yl = rnd.irand(1, 100);
+
+                    uint32_t xe = minimum<int>(xs + xl - 1, w - 1);
+                    uint32_t ye = minimum<int>(ys + yl - 1, h - 1);
+
+                    color_rgba cols[4];
+                    cols[0] = c;
+                    for (uint32_t j = 1; j < 4; j++)
+                        cols[j] = color_rgba(rnd.byte(), rnd.byte(), rnd.byte(), use_a ? rnd.byte() : 255);
+
+                    const bool a_only = rnd.bit();
+                    const bool rgb_only = rnd.bit();
+                    const bool noise_flag = rnd.irand(0, 9) == 0;
+
+                    for (uint32_t y = ys; y <= ye; y++)
+                    {
+                        float fy = (ye != ys) ? (float(y - ys) / float(ye - ys)) : 0;
+
+                        for (uint32_t x = xs; x <= xe; x++)
+                        {
+                            float fx = (xe != xs) ? (float(x - xs) / float(xe - xs)) : 0;
+
+                            color_rgba q;
+                            if (noise_flag)
+                            {
+                                for (uint32_t j = 0; j < 4; j++)
+                                    q[j] = rnd.byte();
+                            }
+                            else
+                            {
+                                for (uint32_t j = 0; j < 4; j++)
+                                {
+                                    float lx0 = lerp((float)cols[0][j], (float)cols[1][j], fx);
+                                    float lx1 = lerp((float)cols[2][j], (float)cols[3][j], fx);
+
+                                    int ly = (int)std::round(lerp(lx0, lx1, fy));
+
+                                    q[j] = (uint8_t)clamp(ly, 0, 255);
+                                }
+                            }
+
+                            if (a_only)
+                                src_img(x, y).a = q.a;
+                            else if (rgb_only)
+                            {
+                                src_img(x, y).r = q.r;
+                                src_img(x, y).g = q.g;
+                                src_img(x, y).b = q.b;
+                            }
+                            else
+                                src_img(x, y) = q;
+                        } // x 
+                    } // y
+                }
+                else
+                {
+                    src_img(rnd.irand(0, w - 1), rnd.irand(0, h - 1)) = c;
+                }
+            }
+        }
+
+        if ((use_a) && (rnd.irand(0, 3) >= 2))
+        {
+            const uint32_t nt = rnd.irand(0, 1000);
+
+            for (uint32_t k = 0; k < nt; k++)
+                src_img(rnd.irand(0, w - 1), rnd.irand(0, h - 1)).a = rnd.byte();
+        }
+
+        if (!use_a)
+        {
+            for (uint32_t y = 0; y < h; y++)
+                for (uint32_t x = 0; x < w; x++)
+                    src_img(x, y).a = 255;
+        }
+
+        //save_png("test.png", src_img);
+        //fmt_printf("Has alpha: {}\n", src_img.has_alpha());
+
+        // Choose randomized codec parameters
+        uint32_t flags = cFlagPrintStats | cFlagValidateOutput | cFlagPrintStatus;
+
+        //flags |= cFlagDebug;
+
+        flags |= cFlagThreaded;
+
+        if (rnd.bit())
+            flags |= cFlagSRGB;
+
+        if (rnd.bit())
+            flags |= cFlagKTX2;
+
+        if (mips)
+            flags |= (rnd.bit() ? cFlagGenMipsClamp : cFlagGenMipsWrap);
+
+        if (rnd.bit())
+            flags |= cFlagREC2020;
+
+        float quality = 0.0f;
+
+        switch (rnd_codec_class)
+        {
+        case (uint32_t)codec_class::cETC1S:
+        {
+            // ETC1S
+
+            // Choose random ETC1S quality level
+            flags |= rnd.irand(1, 255);
+
+            break;
+        }
+        case (uint32_t)codec_class::cUASTC_LDR_4x4:
+        {
+            // UASTC LDR 4x4
+
+            if (rnd.bit())
+            {
+                // Choose random RDO lambda
+                quality = rnd.frand(0.0, 10.0f);
+                flags |= cFlagUASTCRDO;
+            }
+
+            // Choose random effort level
+            flags |= rnd.irand(cPackUASTCLevelFastest, cPackUASTCLevelVerySlow);
+
+            break;
+        }
+        case (uint32_t)codec_class::cUASTC_HDR_4x4:
+        {
+            // UASTC HDR 4x4
+
+            // Choose random effort level.
+            flags |= rnd.irand(uastc_hdr_4x4_codec_options::cMinLevel, uastc_hdr_4x4_codec_options::cMaxLevel);
+
+            break;
+        }
+        case (uint32_t)codec_class::cASTC_HDR_6x6:
+        case (uint32_t)codec_class::cUASTC_HDR_6x6:
+        {
+            // RDO ASTC HDR 6x6 or UASTC HDR 6x6
+
+            // Chose random effort level
+            flags |= rnd.irand(0, astc_6x6_hdr::ASTC_HDR_6X6_MAX_USER_COMP_LEVEL);
+
+            if (rnd.bit())
+            {
+                // Random RDO lambda
+                quality = rnd.frand(0.0, 2000.0f);
+            }
+
+            break;
+        }
+        default:
+        {
+            assert(0);
+        }
+        }
+
+        void* pComp_data = nullptr;
+        image_stats stats;
+
+        if (is_hdr)
+        {
+            basisu::vector<imagef> hdr_source_images;
+            imagef hdr_src_img(src_img.get_width(), src_img.get_height());
+
+            const float max_y = rnd.frand(.000125f, 30000.0f) / 255.0f;
+
+            for (uint32_t y = 0; y < src_img.get_height(); y++)
+            {
+                for (uint32_t x = 0; x < src_img.get_width(); x++)
+                {
+                    hdr_src_img(x, y)[0] = (float)src_img(x, y).r * max_y;
+                    hdr_src_img(x, y)[1] = (float)src_img(x, y).g * max_y;
+                    hdr_src_img(x, y)[2] = (float)src_img(x, y).b * max_y;
+                    hdr_src_img(x, y)[3] = 1.0f;
+                }
+            }
+
+            //write_exr("test.exr", hdr_src_img, 3, 0);
+
+            hdr_source_images.push_back(hdr_src_img);
+            pComp_data = basisu::basis_compress(tex_mode, hdr_source_images, flags, quality, &comp_size, &stats);
+        }
+        else
+        {
+            basisu::vector<basisu::image> ldr_source_images;
+            ldr_source_images.push_back(src_img);
+
+            //save_png("test.png", src_img);
+
+            pComp_data = basisu::basis_compress(tex_mode, ldr_source_images, flags, quality, &comp_size, &stats);
+        }
+
+        if (!pComp_data)
+        {
+            fprintf(stderr, "basisu::basis_compress() failed\n");
+            return false;
+        }
+
+        basisu::basis_free_data(pComp_data);
+
+        const float psnr1 = stats.m_basis_rgba_avg_psnr ? stats.m_basis_rgba_avg_psnr : stats.m_basis_rgb_avg_psnr;
+        const float psnr2 = stats.m_bc7_rgba_avg_psnr ? stats.m_bc7_rgba_avg_psnr : stats.m_basis_rgb_avg_bc6h_psnr;
+
+        lowest_psnr1 = minimum(lowest_psnr1, psnr1);
+        lowest_psnr2 = minimum(lowest_psnr2, psnr2);
+
+        results.push_back(
+            result{ seed, tex_mode,
+            psnr1,
+            psnr2 });
+
+    } // i
+
+    printf("PSNR Results:\n");
+
+    for (uint32_t i = 0; i < results.size(); i++)
+        fmt_printf("{},{},{},{}\n", results[i].m_seed, (uint32_t)results[i].m_fmt, results[i].m_psnr1, results[i].m_psnr2);
+
+    printf("\n");
+
+    for (uint32_t i = 0; i < results.size(); i++)
+        fmt_printf("seed={} tex_mode={}, psnr1={}, psnr2={}\n", results[i].m_seed, (uint32_t)results[i].m_fmt, results[i].m_psnr1, results[i].m_psnr2);
+
+    // Success here is essentially not crashing or asserting or SAN'ing earlier
+    printf("Success\n");
+        
+    return true;
+}
+
 int main(int arg_c, char* arg_v[])
 {
     BASISU_NOTE_UNUSED(arg_c);
@@ -571,6 +965,9 @@ int main(int arg_c, char* arg_v[])
         
 #if USE_ENCODER
 	basisu_encoder_init(USE_OPENCL, false);
+
+    if (!random_compression_fuzz_test())
+        return EXIT_FAILURE;
 
     if (!block_unpack_and_transcode_example())
         return EXIT_FAILURE;

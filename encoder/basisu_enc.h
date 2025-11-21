@@ -31,9 +31,6 @@
 
 // This module is really just a huge grab bag of classes and helper functions needed by the encoder.
 
-// If BASISU_USE_HIGH_PRECISION_COLOR_DISTANCE is 1, quality in perceptual mode will be slightly greater, but at a large increase in encoding CPU time.
-#define BASISU_USE_HIGH_PRECISION_COLOR_DISTANCE (0)
-
 #if BASISU_SUPPORT_SSE
 // Declared in basisu_kernels_imp.h, but we can't include that here otherwise it would lead to circular type errors.
 extern void update_covar_matrix_16x16_sse41(uint32_t num_vecs, const void* pWeighted_vecs, const void* pOrigin, const uint32_t *pVec_indices, void* pMatrix16x16);
@@ -174,6 +171,20 @@ namespace basisu
 	// Closed interval
 	inline int bounds_check_incl(int v, int l, int h) { (void)v; (void)l; (void)h; assert(v >= l && v <= h); return v; }
 	inline uint32_t bounds_check_incl(uint32_t v, uint32_t l, uint32_t h) { (void)v; (void)l; (void)h; assert(v >= l && v <= h); return v; }
+
+	inline bool equal_rel_tol(float a, float b, float rel_tol)
+	{
+		float diff = std::fabs(a - b);
+		float max_abs = std::max(std::fabs(a), std::fabs(b));
+		return diff <= (max_abs * rel_tol);
+	}
+
+	inline bool equal_rel_tol(double a, double b, double rel_tol)
+	{
+		double diff = std::fabs(a - b);
+		double max_abs = std::max(std::fabs(a), std::fabs(b));
+		return diff <= (max_abs * rel_tol);
+	}
 
 	inline uint32_t clz(uint32_t x)
 	{
@@ -1072,48 +1083,15 @@ namespace basisu
 			return color_distance(c0.r, c0.g, c0.b, c1.r, c1.g, c1.b);
 	}
 		
-	// TODO: Allow user to control channel weightings.
-	inline uint32_t color_distance(bool perceptual, const color_rgba &e1, const color_rgba &e2, bool alpha)
+	// Original library color_distance(), for testing
+	inline uint32_t color_distance_orig(bool perceptual, const color_rgba& e1, const color_rgba& e2, bool alpha)
 	{
 		if (perceptual)
 		{
-#if BASISU_USE_HIGH_PRECISION_COLOR_DISTANCE
-			const float l1 = e1.r * .2126f + e1.g * .715f + e1.b * .0722f;
-			const float l2 = e2.r * .2126f + e2.g * .715f + e2.b * .0722f;
-
-			const float cr1 = e1.r - l1;
-			const float cr2 = e2.r - l2;
-
-			const float cb1 = e1.b - l1;
-			const float cb2 = e2.b - l2;
-
-			const float dl = l1 - l2;
-			const float dcr = cr1 - cr2;
-			const float dcb = cb1 - cb2;
-
-			uint32_t d = static_cast<uint32_t>(32.0f*4.0f*dl*dl + 32.0f*2.0f*(.5f / (1.0f - .2126f))*(.5f / (1.0f - .2126f))*dcr*dcr + 32.0f*.25f*(.5f / (1.0f - .0722f))*(.5f / (1.0f - .0722f))*dcb*dcb);
-			
-			if (alpha)
-			{
-				int da = static_cast<int>(e1.a) - static_cast<int>(e2.a);
-				d += static_cast<uint32_t>(128.0f*da*da);
-			}
-
-			return d;
-#elif 1
 			int dr = e1.r - e2.r;
 			int dg = e1.g - e2.g;
 			int db = e1.b - e2.b;
 
-#if 0
-			int delta_l = dr * 27 + dg * 92 + db * 9;
-			int delta_cr = dr * 128 - delta_l;
-			int delta_cb = db * 128 - delta_l;
-															
-			uint32_t id = ((uint32_t)(delta_l * delta_l) >> 7U) +
-				((((uint32_t)(delta_cr * delta_cr) >> 7U) * 26U) >> 7U) +
-				((((uint32_t)(delta_cb * delta_cb) >> 7U) * 3U) >> 7U);
-#else
 			int64_t delta_l = dr * 27 + dg * 92 + db * 9;
 			int64_t delta_cr = dr * 128 - delta_l;
 			int64_t delta_cb = db * 128 - delta_l;
@@ -1121,7 +1099,6 @@ namespace basisu
 			uint32_t id = ((uint32_t)((delta_l * delta_l) >> 7U)) +
 				((((uint32_t)((delta_cr * delta_cr) >> 7U)) * 26U) >> 7U) +
 				((((uint32_t)((delta_cb * delta_cb) >> 7U)) * 3U) >> 7U);
-#endif
 
 			if (alpha)
 			{
@@ -1131,32 +1108,67 @@ namespace basisu
 			}
 
 			return id;
-#else
+		}
+		else
+		{
+			return color_distance(e1, e2, alpha);
+		}
+	}
+
+	inline uint32_t color_distance(bool perceptual, const color_rgba &e1, const color_rgba &e2, bool alpha)
+	{
+		if (perceptual)
+		{
 			int dr = e1.r - e2.r;
 			int dg = e1.g - e2.g;
 			int db = e1.b - e2.b;
 
-			int64_t delta_l = dr * 27 + dg * 92 + db * 9;
-			int64_t delta_cr = dr * 128 - delta_l;
-			int64_t delta_cb = db * 128 - delta_l;
+			// This calc can't overflow or the SSE variants will overflow too.
+			int delta_l = dr * 14 + dg * 45 + db * 5;
+			int delta_cr = dr * 64 - delta_l;
+			int delta_cb = db * 64 - delta_l;
+													
+			// not >> 6, so the output is scaled by 7 bits, not 6 (to match the original function which scaled by 7, but had rare overflow issues)
+			uint32_t id = ((uint32_t)(delta_l * delta_l) >> 5U) +
+				((((uint32_t)(delta_cr * delta_cr) >> 5U) * 26U) >> 7U) +
+				((((uint32_t)(delta_cb * delta_cb) >> 5U) * 3U) >> 7U);
 
-			int64_t id = ((delta_l * delta_l) * 128) +
-				((delta_cr * delta_cr) * 26) +
-				((delta_cb * delta_cb) * 3);
+#if defined(DEBUG) || defined(_DEBUG)
+			// Shouldn't need 64-bit now, but make sure
+			{
+				int64_t alt_delta_l = dr * 14 + dg * 45 + db * 5;
+				int64_t alt_delta_cr = dr * 64 - alt_delta_l;
+				int64_t alt_delta_cb = db * 64 - alt_delta_l;
+
+				int64_t alt_id = ((alt_delta_l * alt_delta_l) >> 5) +
+					((((alt_delta_cr * alt_delta_cr) >> 5) * 26) >> 7) +
+					((((alt_delta_cb * alt_delta_cb) >> 5) * 3) >> 7);
+
+				assert(alt_id == id);
+			}
+#endif
 
 			if (alpha)
 			{
-				int64_t da = (e1.a - e2.a);
-				id += (da * da) * 128;
+				int da = (e1.a - e2.a) << 7;
+				
+				// This shouldn't overflow if da is 255 or -255: 29.99 bits after squaring.
+				uint32_t ea = ((uint32_t)(da * da) >> 7U);
+				id += ea;
+
+#if defined(DEBUG) || defined(_DEBUG)
+				// Make sure it can't overflow
+				assert((((int64_t)da * (int64_t)da) >> 7) == ea);
+#endif
+				
 			}
 
-			int d = (id + 8192) >> 14;
-
-			return d;
-#endif
+			return id;
 		}
 		else
+		{
 			return color_distance(e1, e2, alpha);
+		}
 	}
 
 	static inline uint32_t color_distance_la(const color_rgba& a, const color_rgba& b)
@@ -2906,6 +2918,9 @@ namespace basisu
 
 		image &fill_box(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const color_rgba &c)
 		{
+			assert((int)w >= 0);
+			assert((int)h >= 0);
+
 			for (uint32_t iy = 0; iy < h; iy++)
 				for (uint32_t ix = 0; ix < w; ix++)
 					set_clipped(x + ix, y + iy, c);
@@ -2914,6 +2929,9 @@ namespace basisu
 
 		image& fill_box_alpha(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const color_rgba& c)
 		{
+			assert((int)w >= 0);
+			assert((int)h >= 0);
+
 			for (uint32_t iy = 0; iy < h; iy++)
 				for (uint32_t ix = 0; ix < w; ix++)
 					set_clipped_alpha(x + ix, y + iy, c);
@@ -3197,6 +3215,7 @@ namespace basisu
 
 		void debug_text(uint32_t x_ofs, uint32_t y_ofs, uint32_t x_scale, uint32_t y_scale, const color_rgba &fg, const color_rgba *pBG, bool alpha_only, const char* p, ...);
 				
+		// bilinear filtering
 		vec4F get_filtered_vec4F(float x, float y) const
 		{
 			x -= .5f;
@@ -3243,6 +3262,36 @@ namespace basisu
 		uint32_t m_width, m_height, m_pitch;  // all in pixels
 		color_rgba_vec m_pixels;
 	};
+
+	void draw_line(image& dst, int xs, int ys, int xe, int ye, const color_rgba& color);
+	void draw_circle(image& dst, int cx, int cy, int r, const color_rgba& color);
+
+	inline bool is_solid_block(uint32_t n, const color_rgba* pPixels)
+	{
+		assert(n);
+		
+		if (n <= 1)
+			return true;
+
+		const color_rgba c(pPixels[0]);
+
+		for (uint32_t i = 1; i < n; i++)
+			if (c != pPixels[i])
+				return false;
+
+		return true;
+	}
+
+	inline bool is_alpha_block(uint32_t n, const color_rgba* pPixels)
+	{
+		assert(n);
+
+		for (uint32_t i = 0; i < n; i++)
+			if (pPixels[i][3] != 255)
+				return true;
+
+		return false;
+	}
 
 	// Float images
 

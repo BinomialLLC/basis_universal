@@ -3987,5 +3987,133 @@ namespace basisu
 
 		return true;
 	}
+
+	static void rasterize_line(image& dst, int xs, int ys, int xe, int ye, int pred, int inc_dec, int e, int e_inc, int e_no_inc, const color_rgba& color)
+	{
+		int start, end, var;
+
+		if (pred)
+		{
+			start = ys; end = ye; var = xs;
+			for (int i = start; i <= end; i++)
+			{
+				dst.set_clipped(var, i, color);
+				if (e < 0)
+					e += e_no_inc;
+				else
+				{
+					var += inc_dec;
+					e += e_inc;
+				}
+			}
+		}
+		else
+		{
+			start = xs; end = xe; var = ys;
+			for (int i = start; i <= end; i++)
+			{
+				dst.set_clipped(i, var, color);
+				if (e < 0)
+					e += e_no_inc;
+				else
+				{
+					var += inc_dec;
+					e += e_inc;
+				}
+			}
+		}
+	}
+	void draw_line(image& dst, int xs, int ys, int xe, int ye, const color_rgba& color)
+	{
+		if (xs > xe)
+		{
+			std::swap(xs, xe);
+			std::swap(ys, ye);
+		}
+
+		int dx = xe - xs, dy = ye - ys;
+		if (!dx)
+		{
+			if (ys > ye)
+				std::swap(ys, ye);
+			for (int i = ys; i <= ye; i++)
+				dst.set_clipped(xs, i, color);
+		}
+		else if (!dy)
+		{
+			for (int i = xs; i < xe; i++)
+				dst.set_clipped(i, ys, color);
+		}
+		else if (dy > 0)
+		{
+			if (dy <= dx)
+			{
+				int e = 2 * dy - dx, e_no_inc = 2 * dy, e_inc = 2 * (dy - dx);
+				rasterize_line(dst, xs, ys, xe, ye, 0, 1, e, e_inc, e_no_inc, color);
+			}
+			else
+			{
+				int e = 2 * dx - dy, e_no_inc = 2 * dx, e_inc = 2 * (dx - dy);
+				rasterize_line(dst, xs, ys, xe, ye, 1, 1, e, e_inc, e_no_inc, color);
+			}
+		}
+		else
+		{
+			dy = -dy;
+			if (dy <= dx)
+			{
+				int e = 2 * dy - dx, e_no_inc = 2 * dy, e_inc = 2 * (dy - dx);
+				rasterize_line(dst, xs, ys, xe, ye, 0, -1, e, e_inc, e_no_inc, color);
+			}
+			else
+			{
+				int e = 2 * dx - dy, e_no_inc = (2 * dx), e_inc = 2 * (dx - dy);
+				rasterize_line(dst, xe, ye, xs, ys, 1, -1, e, e_inc, e_no_inc, color);
+			}
+		}
+	}
+
+	// Used for generating random test data
+	void draw_circle(image& dst, int cx, int cy, int r, const color_rgba& color)
+	{
+		assert(r >= 0);
+		if (r < 0)
+			return;
+
+		int x = r;
+		int y = 0;
+		int err = 1 - x;
+
+		while (x >= y) 
+		{
+			dst.set_clipped(cx + x, cy + y, color);
+			dst.set_clipped(cx + y, cy + x, color);
+			dst.set_clipped(cx - y, cy + x, color);
+			dst.set_clipped(cx - x, cy + y, color);
+			dst.set_clipped(cx - x, cy - y, color);
+			dst.set_clipped(cx - y, cy - x, color);
+			dst.set_clipped(cx + y, cy - x, color);
+			dst.set_clipped(cx + x, cy - y, color);
+
+			++y;
+
+			if (err < 0) 
+			{
+				err += 2 * y + 1;
+			}
+			else 
+			{
+				--x;
+				err += 2 * (y - x) + 1;
+			}
+		}
+	}
+
+	void set_image_alpha(image& img, uint32_t a)
+	{
+		for (uint32_t y = 0; y < img.get_height(); y++)
+			for (uint32_t x = 0; x < img.get_width(); x++)
+				img(x, y).a = (uint8_t)a;
+	}
 							
 } // namespace basisu
