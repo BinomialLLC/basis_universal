@@ -1508,14 +1508,12 @@ namespace basisu
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wclass-memaccess"
 #endif
-#endif
 				if ((m_p) && (other.m_p))
 				{
 					memcpy(m_p, other.m_p, m_size * sizeof(T));
 				}
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic pop
-#endif
 #endif
 			}
 			else
@@ -1651,12 +1649,10 @@ namespace basisu
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wclass-memaccess"
 #endif
-#endif
 				if ((m_p) && (other.m_p))
 					memcpy((void *)m_p, other.m_p, other.m_size * sizeof(T));
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic pop
-#endif
 #endif
 			}
 			else
@@ -2240,7 +2236,6 @@ namespace basisu
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic pop
 #endif
-#endif
 			}
 			else
 			{
@@ -2489,12 +2484,10 @@ namespace basisu
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wclass-memaccess"
 #endif
-#endif
 				memset(m_p, *reinterpret_cast<const uint8_t*>(&o), m_size);
 
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic pop
-#endif
 #endif
 			}
 			else

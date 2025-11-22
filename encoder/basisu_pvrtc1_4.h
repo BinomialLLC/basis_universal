@@ -235,7 +235,7 @@ namespace basisu
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wclass-memaccess"
 #endif
-#endif
+
 			memset(m_blocks.get_ptr(), 0, m_blocks.size_in_bytes());
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic pop
