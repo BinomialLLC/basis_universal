@@ -21,10 +21,10 @@ uastc_hdr_4x4_codec_options::uastc_hdr_4x4_codec_options() :
 void uastc_hdr_4x4_codec_options::init()
 {
 	astc_hdr_codec_base_options::init();
-	
+
 	// This was the log bias we used on the initial release. It's too low.
 	//m_q_log_bias = Q_LOG_BIAS_4x4;
-		
+
 	m_q_log_bias = Q_LOG_BIAS_6x6;
 
 	m_bc6h_err_weight = .85f;
@@ -35,7 +35,7 @@ void uastc_hdr_4x4_codec_options::init()
 	m_take_first_non_clamping_mode11_submode = false;
 	m_take_first_non_clamping_mode7_submode = false;
 #endif
-				
+
 	// Must set the quality level at least once to reset this struct.
 	set_quality_level(cDefaultLevel);
 }
@@ -300,11 +300,11 @@ static void pack_mode11(
 
 	clear_obj(trial_endpoints);
 	clear_obj(trial_weights);
-		
+
 	for (uint32_t weight_ise_range = first_weight_ise_range; weight_ise_range <= last_weight_ise_range; weight_ise_range++)
 	{
 		const bool direct_only = coptions.m_mode11_direct_only;
-		
+
 		uint32_t endpoint_ise_range = astc_helpers::BISE_256_LEVELS;
 		if (weight_ise_range == astc_helpers::BISE_16_LEVELS)
 			endpoint_ise_range = astc_helpers::BISE_192_LEVELS;
@@ -312,7 +312,7 @@ static void pack_mode11(
 		{
 			assert(weight_ise_range < astc_helpers::BISE_16_LEVELS);
 		}
-				
+
 		double trial_error = encode_astc_hdr_block_mode_11(16, pBlock_pixels_half, pBlock_pixels_q16, weight_ise_range, trial_submode11, BIG_FLOAT_VAL, trial_endpoints, trial_weights, coptions, direct_only,
 			endpoint_ise_range, coptions.m_mode11_uber_mode && (weight_ise_range >= astc_helpers::BISE_4_LEVELS) && coptions.m_allow_uber_mode, constrain_ise_weight_selectors, coptions.m_first_mode11_submode, coptions.m_last_mode11_submode, false, cOrdinaryLeastSquares);
 
@@ -325,12 +325,12 @@ static void pack_mode11(
 
 			results.m_best_submodes[0] = trial_submode11;
 			results.m_constrained_weights = constrain_ise_weight_selectors;
-						
+
 			results.m_best_blk.m_num_partitions = 1;
 			results.m_best_blk.m_color_endpoint_modes[0] = 11;
 			results.m_best_blk.m_weight_ise_range = (uint8_t)weight_ise_range;
 			results.m_best_blk.m_endpoint_ise_range = (uint8_t)endpoint_ise_range;
-			
+
 			memcpy(results.m_best_blk.m_endpoints, trial_endpoints, NUM_MODE11_ENDPOINTS);
 			memcpy(results.m_best_blk.m_weights, trial_weights, 16);
 
@@ -338,14 +338,14 @@ static void pack_mode11(
 			// Sanity checking
 			{
 				half_float block_pixels_half[16][3];
-								
+
 				for (uint32_t i = 0; i < 16; i++)
 				{
 					block_pixels_half[i][0] = float_to_half_non_neg_no_nan_inf(pBlock_linear_colors[i][0]);
 					block_pixels_half[i][1] = float_to_half_non_neg_no_nan_inf(pBlock_linear_colors[i][1]);
 					block_pixels_half[i][2] = float_to_half_non_neg_no_nan_inf(pBlock_linear_colors[i][2]);
 				}
-				
+
 				half_float unpacked_astc_blk_rgba[4][4][4];
 				bool res = astc_helpers::decode_block(results.m_best_blk, unpacked_astc_blk_rgba, 4, 4, astc_helpers::cDecodeModeHDR16);
 				assert(res);
@@ -365,7 +365,7 @@ static void pack_mode11(
 
 			// transcode to BC6H
 			assert(results.m_best_blk.m_color_endpoint_modes[0] == 11);
-			
+
 			// Get qlog12 endpoints
 			int e[2][3];
 			bool success = decode_mode11_to_qlog12(results.m_best_blk.m_endpoints, e, results.m_best_blk.m_endpoint_ise_range);
@@ -418,18 +418,18 @@ static void pack_mode7_single_part(
 			results.m_best_block_error = trial_error;
 
 			results.m_best_submodes[0] = trial_submode7;
-			
+
 			results.m_best_blk.m_num_partitions = 1;
 			results.m_best_blk.m_color_endpoint_modes[0] = 7;
 			results.m_best_blk.m_weight_ise_range = (uint8_t)weight_ise_range;
 			results.m_best_blk.m_endpoint_ise_range = (uint8_t)ise_endpoint_range;
-			
+
 			memcpy(results.m_best_blk.m_endpoints, trial_endpoints, NUM_MODE7_ENDPOINTS);
 			memcpy(results.m_best_blk.m_weights, trial_weights, 16);
 
 			// transcode to BC6H
 			assert(results.m_best_blk.m_color_endpoint_modes[0] == 7);
-			
+
 			// Get qlog12 endpoints
 			int e[2][3];
 			if (!decode_mode7_to_qlog12(results.m_best_blk.m_endpoints, e, nullptr, results.m_best_blk.m_endpoint_ise_range))
@@ -583,13 +583,13 @@ static void pack_mode7_2part(
 	trial_blk.m_color_endpoint_modes[1] = 7;
 
 	uint32_t first_part_index = 0, last_part_index = basist::TOTAL_ASTC_BC6H_COMMON_PARTITIONS2;
-		
+
 	if (num_estimated_partitions)
 	{
 		first_part_index = 0;
 		last_part_index = num_estimated_partitions;
 	}
-	
+
 	for (uint32_t part_index_iter = first_part_index; part_index_iter < last_part_index; ++part_index_iter)
 	{
 		uint32_t part_index;
@@ -604,11 +604,11 @@ static void pack_mode7_2part(
 			if (((1U << part_index) & coptions.m_mode7_part2_part_masks) == 0)
 				continue;
 		}
-								
+
 		const uint32_t astc_pattern = basist::g_astc_bc7_common_partitions2[part_index].m_astc;
 		const uint32_t bc7_pattern = basist::g_astc_bc7_common_partitions2[part_index].m_bc7;
 		const bool invert_flag = basist::g_astc_bc7_common_partitions2[part_index].m_invert;
-				
+
 		half_float part_pixels_half[2][16][3];
 		vec4F part_pixels_q16[2][16];
 
@@ -625,7 +625,7 @@ static void pack_mode7_2part(
 					part = 1 - part;
 
 				pixel_part_index[y][x] = part;
-								
+
 				const uint32_t n = num_part_pixels[part];
 
 				part_pixels_half[part][n][0] = pBlock_pixels_half[x + y * 4][0];
@@ -638,7 +638,7 @@ static void pack_mode7_2part(
 		}
 
 		trial_blk.m_partition_id = (uint16_t)astc_pattern;
-				
+
 		for (uint32_t weight_ise_range = first_weight_ise_range; weight_ise_range <= last_weight_ise_range; weight_ise_range++)
 		{
 			assert(weight_ise_range <= astc_helpers::BISE_8_LEVELS);
@@ -685,7 +685,7 @@ static void pack_mode7_2part(
 						trial_blk.m_weights[x + y * 4] = trial_weights[p][src_pixel_index[p]++];
 					}
 				}
-								
+
 				astc_hdr_4x4_pack_results results;
 				results.clear();
 
@@ -725,7 +725,7 @@ static void pack_mode11_2part(
 	trial_blk.m_num_partitions = 2;
 	trial_blk.m_color_endpoint_modes[0] = 11;
 	trial_blk.m_color_endpoint_modes[1] = 11;
-			
+
 	uint32_t first_part_index = 0, last_part_index = basist::TOTAL_ASTC_BC6H_COMMON_PARTITIONS2;
 
 	if (num_estimated_partitions)
@@ -769,7 +769,7 @@ static void pack_mode11_2part(
 					part = 1 - part;
 
 				pixel_part_index[y][x] = part;
-				
+
 				const uint32_t n = num_part_pixels[part];
 
 				part_pixels_half[part][n][0] = pBlock_pixels_half[x + y * 4][0];
@@ -780,9 +780,9 @@ static void pack_mode11_2part(
 				num_part_pixels[part] = n + 1;
 			}
 		}
-				
+
 		trial_blk.m_partition_id = (uint16_t)astc_pattern;
-						
+
 		for (uint32_t weight_ise_range = coptions.m_first_mode11_part2_weight_ise_range; weight_ise_range <= coptions.m_last_mode11_part2_weight_ise_range; weight_ise_range++)
 		{
 			bool direct_only = false;
@@ -793,7 +793,7 @@ static void pack_mode11_2part(
 			uint8_t trial_endpoints[2][NUM_MODE11_ENDPOINTS], trial_weights[2][16];
 			uint32_t trial_submode11[2];
 
-			clear_obj(trial_endpoints); 
+			clear_obj(trial_endpoints);
 			clear_obj(trial_weights);
 			clear_obj(trial_submode11);
 
@@ -826,7 +826,7 @@ static void pack_mode11_2part(
 						trial_blk.m_weights[x + y * 4] = trial_weights[p][src_pixel_index[p]++];
 					}
 				}
-								
+
 				astc_hdr_4x4_pack_results results;
 				results.clear();
 
@@ -867,12 +867,12 @@ bool astc_hdr_4x4_enc_block(
 	all_results.resize(0);
 
 	const half_float (*pBlock_pixels_half)[16][3] = reinterpret_cast<const half_float(*)[16][3]>(pRGBPixelsHalf);
-				
+
 	vec4F block_linear_colors[16];
 	vec4F block_pixels_q16[16];
 
 	bool is_greyscale = true;
-		
+
 	for (uint32_t i = 0; i < 16; i++)
 	{
 		const float fr = pRGBPixels[i * 3 + 0], fg = pRGBPixels[i * 3 + 1], fb = pRGBPixels[i * 3 + 2];
@@ -895,13 +895,13 @@ bool astc_hdr_4x4_enc_block(
 		const half_float hb = (*pBlock_pixels_half)[i][2];
 		assert(hb == basist::float_to_half(fb));
 		block_pixels_q16[i][2] = (float)half_to_qlog16(hb);
-		
+
 		block_pixels_q16[i][3] = 0.0f;
 
 		if ((hr != hg) || (hr != hb))
 			is_greyscale = false;
 	} // i
-							
+
 	bool is_solid = false;
 	if (coptions.m_use_solid)
 		is_solid = pack_solid(block_linear_colors, all_results, coptions);
@@ -921,14 +921,14 @@ bool astc_hdr_4x4_enc_block(
 				const size_t cur_num_results = all_results.size();
 
 				pack_mode11(block_linear_colors, *pBlock_pixels_half, block_pixels_q16, all_results, coptions, coptions.m_first_mode11_weight_ise_range, coptions.m_last_mode11_weight_ise_range, false);
-								
+
 				if (coptions.m_last_mode11_weight_ise_range >= astc_helpers::BISE_12_LEVELS)
 				{
 					// Try constrained weights if we're allowed to use 12/16 level ISE weight modes
 					pack_mode11(block_linear_colors, *pBlock_pixels_half, block_pixels_q16, all_results, coptions, maximum<uint32_t>(coptions.m_first_mode11_weight_ise_range, astc_helpers::BISE_12_LEVELS), coptions.m_last_mode11_weight_ise_range, true);
 				}
 
-				// If we couldn't get any mode 11 results at all, and we were restricted to just trying weight ISE range 8 (which required endpoint quantization) then 
+				// If we couldn't get any mode 11 results at all, and we were restricted to just trying weight ISE range 8 (which required endpoint quantization) then
 				// fall back to weight ISE range 7 (which doesn't need any endpoint quantization).
 				// This is to guarantee we always get at least 1 non-solid result.
 				if (all_results.size() == cur_num_results)
@@ -952,7 +952,7 @@ bool astc_hdr_4x4_enc_block(
 				pack_mode7_single_part(*pBlock_pixels_half, block_pixels_q16, all_results, coptions, UHDR_MODE7_PART1_LAST_ISE_RANGE, UHDR_MODE7_PART1_LAST_ISE_RANGE);
 			}
 		}
-						
+
 		bool have_est = false;
 		int best_parts[basist::TOTAL_ASTC_BC6H_COMMON_PARTITIONS2];
 
@@ -967,22 +967,22 @@ bool astc_hdr_4x4_enc_block(
 			const size_t cur_num_results = all_results.size();
 
 			pack_mode7_2part(*pBlock_pixels_half, block_pixels_q16,
-				all_results, coptions, have_est ? coptions.m_max_estimated_partitions : 0, best_parts, 
+				all_results, coptions, have_est ? coptions.m_max_estimated_partitions : 0, best_parts,
 				coptions.m_first_mode7_part2_weight_ise_range, coptions.m_last_mode7_part2_weight_ise_range);
 
-			// If we couldn't find any packable 2-subset mode 7 results at weight levels >= 5 levels (which always requires endpoint quant), then try falling back to 
+			// If we couldn't find any packable 2-subset mode 7 results at weight levels >= 5 levels (which always requires endpoint quant), then try falling back to
 			// 5 levels which doesn't require endpoint quantization.
 			if (all_results.size() == cur_num_results)
 			{
 				if (coptions.m_first_mode7_part2_weight_ise_range >= astc_helpers::BISE_5_LEVELS)
 				{
 					pack_mode7_2part(*pBlock_pixels_half, block_pixels_q16,
-						all_results, coptions, have_est ? coptions.m_max_estimated_partitions : 0, best_parts, 
+						all_results, coptions, have_est ? coptions.m_max_estimated_partitions : 0, best_parts,
 						astc_helpers::BISE_4_LEVELS, astc_helpers::BISE_4_LEVELS);
 				}
 			}
 		}
-		
+
 		if (coptions.m_use_mode11_part2)
 		{
 			// This always requires endpoint quant, so it could fail to find any usable solutions.
@@ -1029,7 +1029,7 @@ bool astc_hdr_4x4_pack_results_to_block(astc_blk& dst_blk, const astc_hdr_4x4_pa
 }
 
 // Refines a block's chosen weight indices, balancing BC6H and ASTC HDR error.
-bool astc_hdr_4x4_refine_weights(const half_float *pSource_block, 
+bool astc_hdr_4x4_refine_weights(const half_float *pSource_block,
 	astc_hdr_4x4_pack_results& cur_results, const uastc_hdr_4x4_codec_options& coptions, float bc6h_weight, bool *pImproved_flag)
 {
 	if (pImproved_flag)
@@ -1061,7 +1061,7 @@ bool astc_hdr_4x4_refine_weights(const half_float *pSource_block,
 		temp_results = cur_results;
 		for (uint32_t i = 0; i < 16; i++)
 			temp_results.m_best_blk.m_weights[i] = (uint8_t)weight_index;
-		
+
 		half_float unpacked_astc_blk_rgba[4][4][4];
 		bool res = astc_helpers::decode_block(temp_results.m_best_blk, unpacked_astc_blk_rgba, 4, 4, astc_helpers::cDecodeModeHDR16);
 		assert(res);
@@ -1069,7 +1069,7 @@ bool astc_hdr_4x4_refine_weights(const half_float *pSource_block,
 		basist::bc6h_block trial_bc6h_blk;
 		res = basist::astc_hdr_transcode_to_bc6h(temp_results.m_best_blk, trial_bc6h_blk);
 		assert(res);
-				
+
 		half_float unpacked_bc6h_blk[4][4][3];
 		res = unpack_bc6h(&trial_bc6h_blk, unpacked_bc6h_blk, false);
 		assert(res);
@@ -1085,11 +1085,11 @@ bool astc_hdr_4x4_refine_weights(const half_float *pSource_block,
 				{
 					const half_float orig_c = pSource_block[(x + y * 4) * 3 + c];
 					const double orig_c_q = q(orig_c, Q_LOG_BIAS_4x4);
-					
+
 					const half_float astc_c = unpacked_astc_blk_rgba[y][x][c];
 					const double astc_c_q = q(astc_c, Q_LOG_BIAS_4x4);
 					const double astc_e = square(astc_c_q - orig_c_q) * c_weights[c];
-					
+
 					const half_float bc6h_c = unpacked_bc6h_blk[y][x][c];
 					const double bc6h_c_q = q(bc6h_c, Q_LOG_BIAS_4x4);
 					const double bc6h_e = square(bc6h_c_q - orig_c_q) * c_weights[c];
@@ -1276,4 +1276,3 @@ void astc_hdr_4x4_block_stats::print()
 }
 
 } // namespace basisu
-

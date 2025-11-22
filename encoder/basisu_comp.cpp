@@ -63,7 +63,7 @@ namespace basisu
 		m_opencl_failed(false)
 	{
 		debug_printf("basis_compressor::basis_compressor\n");
-		
+
 		assert(g_library_initialized);
 	}
 
@@ -195,7 +195,7 @@ namespace basisu
 	bool basis_compressor::init(const basis_compressor_params &params)
 	{
 		debug_printf("basis_compressor::init\n");
-				
+
 		if (!g_library_initialized)
 		{
 			error_printf("basis_compressor::init: basisu_encoder_init() MUST be called before using any encoder functionality!\n");
@@ -207,7 +207,7 @@ namespace basisu
 			error_printf("basis_compressor::init: A non-null job_pool pointer must be specified\n");
 			return false;
 		}
-				
+
 		m_params = params;
 
 		if ((m_params.m_compute_stats) && (!m_params.m_validate_output_data))
@@ -218,7 +218,7 @@ namespace basisu
 		m_upconverted_any_ldr_images = false;
 
 		check_for_hdr_inputs();
-		
+
 		if (m_params.m_debug)
 		{
 			debug_printf("basis_compressor::init:\n");
@@ -227,7 +227,7 @@ namespace basisu
 #define PRINT_INT_VALUE(v) fmt_debug_printf("{}: {} {}\n", BASISU_STRINGIZE2(v), static_cast<int>(m_params.v), m_params.v.was_changed());
 #define PRINT_UINT_VALUE(v) fmt_debug_printf("{}: {} {}\n", BASISU_STRINGIZE2(v), static_cast<uint32_t>(m_params.v), m_params.v.was_changed());
 #define PRINT_FLOAT_VALUE(v) fmt_debug_printf("{}: {} {}\n", BASISU_STRINGIZE2(v), static_cast<float>(m_params.v), m_params.v.was_changed());
-						
+
 			fmt_debug_printf("Source LDR images: {}, HDR images: {}, filenames: {}, alpha filenames: {}, LDR mipmap images: {}, HDR mipmap images: {}\n",
 				(uint64_t)m_params.m_source_images.size(), (uint64_t)m_params.m_source_images_hdr.size(),
 				(uint64_t)m_params.m_source_filenames.size(), (uint64_t)m_params.m_source_alpha_filenames.size(),
@@ -296,10 +296,10 @@ namespace basisu
 			PRINT_BOOL_VALUE(m_renormalize);
 			PRINT_BOOL_VALUE(m_multithreading);
 			PRINT_BOOL_VALUE(m_disable_hierarchical_endpoint_codebooks);
-												
+
 			PRINT_FLOAT_VALUE(m_endpoint_rdo_thresh);
 			PRINT_FLOAT_VALUE(m_selector_rdo_thresh);
-			
+
 			PRINT_BOOL_VALUE(m_mip_gen);
 			PRINT_BOOL_VALUE(m_mip_renormalize);
 			PRINT_BOOL_VALUE(m_mip_wrapping);
@@ -319,7 +319,7 @@ namespace basisu
 			debug_printf("m_userdata0: 0x%X, m_userdata1: 0x%X\n", m_params.m_userdata0, m_params.m_userdata1);
 			debug_printf("m_us_per_frame: %i (%f fps)\n", m_params.m_us_per_frame, m_params.m_us_per_frame ? 1.0f / (m_params.m_us_per_frame / 1000000.0f) : 0);
 			debug_printf("m_pack_uastc_ldr_4x4_flags: 0x%X\n", m_params.m_pack_uastc_ldr_4x4_flags);
-			
+
 			PRINT_BOOL_VALUE(m_rdo_uastc_ldr_4x4);
 			PRINT_FLOAT_VALUE(m_rdo_uastc_ldr_4x4_quality_scalar);
 			PRINT_INT_VALUE(m_rdo_uastc_ldr_4x4_dict_size);
@@ -333,7 +333,7 @@ namespace basisu
 			PRINT_INT_VALUE(m_resample_width);
 			PRINT_INT_VALUE(m_resample_height);
 			PRINT_FLOAT_VALUE(m_resample_factor);
-			
+
 			debug_printf("Has global codebooks: %u\n", m_params.m_pGlobal_codebooks ? 1 : 0);
 			if (m_params.m_pGlobal_codebooks)
 			{
@@ -358,7 +358,7 @@ namespace basisu
 			debug_printf("Allow UASTC HDR 4x4 uber mode: %u\n", m_params.m_uastc_hdr_4x4_options.m_allow_uber_mode);
 			debug_printf("UASTC HDR 4x4 ultra quant: %u\n", m_params.m_uastc_hdr_4x4_options.m_ultra_quant);
 			PRINT_BOOL_VALUE(m_hdr_favor_astc);
-						
+
 #undef PRINT_BOOL_VALUE
 #undef PRINT_INT_VALUE
 #undef PRINT_UINT_VALUE
@@ -367,7 +367,7 @@ namespace basisu
 
 		if (!sanity_check_input_params())
 			return false;
-		
+
 		if ((m_params.m_use_opencl) && opencl_is_available() && !m_pOpenCL_context && !m_opencl_failed)
 		{
 			m_pOpenCL_context = opencl_create_context();
@@ -433,7 +433,7 @@ namespace basisu
 			}
 		}
 	}
-		
+
 	basis_compressor::error_code basis_compressor::process()
 	{
 		debug_printf("basis_compressor::process\n");
@@ -443,7 +443,7 @@ namespace basisu
 
 		// Note: After here m_params.m_hdr, m_params.m_uastc and m_fmt_mode cannot be changed.
 		pick_format_mode();
-		
+
 		if (!read_source_images())
 			return cECFailedReadingSourceImages;
 
@@ -474,7 +474,7 @@ namespace basisu
 				if (ec != cECSuccess)
 					return ec;
 			}
-			else 
+			else
 			{
 				assert((m_params.m_hdr_mode == hdr_modes::cASTC_HDR_6X6) || (m_params.m_hdr_mode == hdr_modes::cASTC_HDR_6X6_INTERMEDIATE));
 
@@ -507,7 +507,7 @@ namespace basisu
 			// ETC1S
 			if (m_params.m_status_output)
 				printf("Mode: ETC1S Quality %i, Level %i\n", m_params.m_etc1s_quality_level, (int)m_params.m_compression_level);
-			
+
 			if (!process_frontend())
 				return cECFailedFrontEnd;
 
@@ -553,7 +553,7 @@ namespace basisu
 			assert(0);
 			return cECFailedEncodeUASTC;
 		}
-				
+
 		m_uastc_backend_output.m_etc1s = false;
 		m_uastc_backend_output.m_srgb = false;
 		m_uastc_backend_output.m_slice_desc = m_slice_descs;
@@ -561,13 +561,13 @@ namespace basisu
 		m_uastc_backend_output.m_slice_image_crcs.resize(m_slice_descs.size());
 
 		astc_6x6_hdr::astc_hdr_6x6_global_config global_cfg(m_params.m_astc_hdr_6x6_options);
-		
+
 		global_cfg.m_image_stats = m_params.m_compute_stats;
 		global_cfg.m_debug_images = m_params.m_debug_images;
 		global_cfg.m_output_images = m_params.m_debug_images;
 		global_cfg.m_debug_output = m_params.m_debug;
 		global_cfg.m_status_output = m_params.m_status_output || m_params.m_debug;
-				
+
 		for (uint32_t slice_index = 0; slice_index < m_slice_descs.size(); slice_index++)
 		{
 			gpu_image& dst_tex = m_uastc_slice_textures[slice_index];
@@ -578,7 +578,7 @@ namespace basisu
 
 			const imagef& source_image = m_slice_images_hdr[slice_index];
 			assert(source_image.get_width() && source_image.get_height());
-						
+
 			uint8_vec intermediate_tex_data, astc_tex_data;
 
 			global_cfg.m_debug_image_prefix = m_params.m_astc_hdr_6x6_options.m_debug_image_prefix;
@@ -586,7 +586,7 @@ namespace basisu
 
 			global_cfg.m_output_image_prefix = m_params.m_astc_hdr_6x6_options.m_output_image_prefix;
 			global_cfg.m_output_image_prefix += fmt_string("slice_{}_", slice_index);
-						
+
 			if (m_params.m_debug)
 				fmt_debug_printf("----------------------------------------------------------------------------\n");
 
@@ -648,7 +648,7 @@ namespace basisu
 			m_params.m_uastc_hdr_4x4_options.m_r_err_scale = 1.0f;
 			m_params.m_uastc_hdr_4x4_options.m_g_err_scale = 1.0f;
 		}
-		
+
 		const float DEFAULT_BC6H_ERROR_WEIGHT = .65f;// .85f;
 		const float LOWEST_BC6H_ERROR_WEIGHT = .1f;
 		m_params.m_uastc_hdr_4x4_options.m_bc6h_err_weight = m_params.m_hdr_favor_astc ? LOWEST_BC6H_ERROR_WEIGHT : DEFAULT_BC6H_ERROR_WEIGHT;
@@ -657,7 +657,7 @@ namespace basisu
 		any_failures.store(false);
 
 		astc_hdr_4x4_block_stats enc_stats;
-				
+
 		struct uastc_blk_desc
 		{
 			uint32_t m_solid_flag;
@@ -681,7 +681,7 @@ namespace basisu
 
 				return false;
 			}
-			
+
 			bool operator== (const uastc_blk_desc& desc) const
 			{
 				if (this == &desc)
@@ -708,7 +708,7 @@ namespace basisu
 
 		std::map<uastc_blk_desc, uastc_blk_desc_stats> unique_block_descs;
 		std::mutex unique_block_desc_mutex;
-		
+
 		for (uint32_t slice_index = 0; slice_index < m_slice_descs.size(); slice_index++)
 		{
 			gpu_image& tex = m_uastc_slice_textures[slice_index];
@@ -722,14 +722,14 @@ namespace basisu
 
 			std::atomic<uint32_t> total_blocks_processed;
 			total_blocks_processed.store(0);
-						
+
 			const uint32_t N = 256;
 			for (uint32_t block_index_iter = 0; block_index_iter < total_blocks; block_index_iter += N)
 			{
 				const uint32_t first_index = block_index_iter;
 				const uint32_t last_index = minimum<uint32_t>(total_blocks, block_index_iter + N);
-							
-				m_params.m_pJob_pool->add_job([this, first_index, last_index, num_blocks_x, num_blocks_y, total_blocks, &source_image, 
+
+				m_params.m_pJob_pool->add_job([this, first_index, last_index, num_blocks_x, num_blocks_y, total_blocks, &source_image,
 					&tex, &total_blocks_processed, &any_failures, &enc_stats, &unique_block_descs, &unique_block_desc_mutex]
 					{
 						BASISU_NOTE_UNUSED(num_blocks_y);
@@ -750,7 +750,7 @@ namespace basisu
 							source_image.extract_block_clamped(&block_pixels[0], block_x * 4, block_y * 4, 4, 4);
 
 							basist::astc_blk& dest_block = *(basist::astc_blk*)tex.get_block_ptr(block_x, block_y);
-														
+
 							float rgb_pixels[16 * 3];
 							basist::half_float rgb_pixels_half[16 * 3];
 							for (uint32_t i = 0; i < 16; i++)
@@ -764,7 +764,7 @@ namespace basisu
 								rgb_pixels[i * 3 + 2] = block_pixels[i][2];
 								rgb_pixels_half[i * 3 + 2] = float_to_half_non_neg_no_nan_inf(block_pixels[i][2]);
 							}
-														
+
 							bool status = astc_hdr_4x4_enc_block(&rgb_pixels[0], rgb_pixels_half, m_params.m_uastc_hdr_4x4_options, all_results);
 							if (!status)
 							{
@@ -774,10 +774,10 @@ namespace basisu
 
 							double best_err = 1e+30f;
 							int best_result_index = -1;
-											
+
 							const double bc6h_err_weight = m_params.m_uastc_hdr_4x4_options.m_bc6h_err_weight;
 							const double astc_err_weight = (1.0f - bc6h_err_weight);
-										
+
 							for (uint32_t i = 0; i < all_results.size(); i++)
 							{
 								basist::half_float unpacked_bc6h_block[4 * 4 * 3];
@@ -795,9 +795,9 @@ namespace basisu
 							}
 
 							const astc_hdr_4x4_pack_results& best_results = all_results[best_result_index];
-							
+
 							astc_hdr_4x4_pack_results_to_block(dest_block, best_results);
-								
+
 							// Verify that this block is valid UASTC HDR and we can successfully transcode it to BC6H.
 							// (Well, except in fastest mode.)
 							if (m_params.m_uastc_hdr_4x4_options.m_level > 0)
@@ -830,12 +830,12 @@ namespace basisu
 									blk_desc.m_weight_ise_range = best_results.m_best_blk.m_weight_ise_range;
 									blk_desc.m_endpoint_ise_range = best_results.m_best_blk.m_endpoint_ise_range;
 								}
-								
+
 								{
 									std::lock_guard<std::mutex> lck(unique_block_desc_mutex);
-																		
+
 									auto res = unique_block_descs.insert(std::make_pair(blk_desc, uastc_blk_desc_stats()));
-									
+
 									(res.first)->second.m_count++;
 #ifdef UASTC_HDR_DEBUG_SAVE_CATEGORIZED_BLOCKS
 									(res.first)->second.m_blks.push_back(dest_block);
@@ -853,7 +853,7 @@ namespace basisu
 						}
 
 					});
-			
+
 			} // block_index_iter
 
 			m_params.m_pJob_pool->wait_for_all();
@@ -867,7 +867,7 @@ namespace basisu
 			m_uastc_backend_output.m_slice_image_crcs[slice_index] = basist::crc16(tex.get_ptr(), tex.get_size_in_bytes(), 0);
 
 		} // slice_index
-		
+
 		debug_printf("basis_compressor::encode_slices_to_uastc_4x4_hdr: Total time: %3.3f secs\n", tm.get_elapsed_secs());
 
 		if (m_params.m_debug)
@@ -914,11 +914,11 @@ namespace basisu
 					debug_printf(" }\n");
 				}
 #endif
-					
+
 				c++;
 			}
 			printf("\n");
-			
+
 			enc_stats.print();
 		}
 
@@ -938,7 +938,7 @@ namespace basisu
 		m_uastc_backend_output.m_slice_desc = m_slice_descs;
 		m_uastc_backend_output.m_slice_image_data.resize(m_slice_descs.size());
 		m_uastc_backend_output.m_slice_image_crcs.resize(m_slice_descs.size());
-				
+
 		for (uint32_t slice_index = 0; slice_index < m_slice_descs.size(); slice_index++)
 		{
 			gpu_image& tex = m_uastc_slice_textures[slice_index];
@@ -949,7 +949,7 @@ namespace basisu
 			const uint32_t num_blocks_y = tex.get_blocks_y();
 			const uint32_t total_blocks = tex.get_total_blocks();
 			const image& source_image = m_slice_images[slice_index];
-			
+
 			std::atomic<uint32_t> total_blocks_processed;
 			total_blocks_processed.store(0);
 
@@ -958,11 +958,11 @@ namespace basisu
 			{
 				const uint32_t first_index = block_index_iter;
 				const uint32_t last_index = minimum<uint32_t>(total_blocks, block_index_iter + N);
-								
+
 				m_params.m_pJob_pool->add_job([this, first_index, last_index, num_blocks_x, num_blocks_y, total_blocks, &source_image, &tex, &total_blocks_processed]
 					{
 						BASISU_NOTE_UNUSED(num_blocks_y);
-						
+
 						uint32_t uastc_flags = m_params.m_pack_uastc_ldr_4x4_flags;
 						if ((m_params.m_rdo_uastc_ldr_4x4) && (m_params.m_rdo_uastc_ldr_4x4_favor_simpler_modes_in_rdo_mode))
 							uastc_flags |= cPackUASTCFavorSimplerModes;
@@ -981,7 +981,7 @@ namespace basisu
 							encode_uastc(&block_pixels[0][0].r, dest_block, uastc_flags);
 
 							total_blocks_processed++;
-							
+
 							uint32_t val = total_blocks_processed;
 							if (((val & 16383) == 16383) && m_params.m_status_output)
 							{
@@ -1005,7 +1005,7 @@ namespace basisu
 				rdo_params.m_lz_dict_size = m_params.m_rdo_uastc_ldr_4x4_dict_size;
 				rdo_params.m_smooth_block_max_error_scale = m_params.m_rdo_uastc_ldr_4x4_max_smooth_block_error_scale;
 				rdo_params.m_max_smooth_block_std_dev = m_params.m_rdo_uastc_ldr_4x4_smooth_block_max_std_dev;
-								
+
 				bool status = uastc_rdo(tex.get_total_blocks(), (basist::uastc_block*)tex.get_ptr(),
 					(const color_rgba *)m_source_blocks[slice_desc.m_first_block_index].m_pixels, rdo_params, m_params.m_pack_uastc_ldr_4x4_flags, m_params.m_rdo_uastc_ldr_4x4_multithreading ? m_params.m_pJob_pool : nullptr,
 					(m_params.m_rdo_uastc_ldr_4x4_multithreading && m_params.m_pJob_pool) ? basisu::minimum<uint32_t>(4, (uint32_t)m_params.m_pJob_pool->get_total_threads()) : 0);
@@ -1017,11 +1017,11 @@ namespace basisu
 
 			m_uastc_backend_output.m_slice_image_data[slice_index].resize(tex.get_size_in_bytes());
 			memcpy(&m_uastc_backend_output.m_slice_image_data[slice_index][0], tex.get_ptr(), tex.get_size_in_bytes());
-			
+
 			m_uastc_backend_output.m_slice_image_crcs[slice_index] = basist::crc16(tex.get_ptr(), tex.get_size_in_bytes(), 0);
-						
+
 		} // slice_index
-				
+
 		return cECSuccess;
 	}
 
@@ -1057,8 +1057,8 @@ namespace basisu
 					pSource_image = &mips[level - 1];
 			}
 
-			bool status = image_resample(*pSource_image, level_img, 
-				//m_params.m_mip_filter.c_str(), 
+			bool status = image_resample(*pSource_image, level_img,
+				//m_params.m_mip_filter.c_str(),
 				"box", // TODO: negative lobes in the filter are causing negative colors, try Mitchell
 				m_params.m_mip_scale, m_params.m_mip_wrapping, 0, has_alpha ? 4 : 3);
 			if (!status)
@@ -1113,12 +1113,12 @@ namespace basisu
 
 			image &level_img = *enlarge_vector(mips, 1);
 			level_img.resize(level_width, level_height);
-						
-			int result = stbir_resize_uint8_generic( 
+
+			int result = stbir_resize_uint8_generic(
 				(const uint8_t *)img.get_ptr(), img.get_width(), img.get_height(), img.get_pitch() * sizeof(color_rgba),
             (uint8_t *)level_img.get_ptr(), level_img.get_width(), level_img.get_height(), level_img.get_pitch() * sizeof(color_rgba),
             has_alpha ? 4 : 3, has_alpha ? 3 : STBIR_ALPHA_CHANNEL_NONE, m_params.m_mip_premultiplied ? STBIR_FLAG_ALPHA_PREMULTIPLIED : 0,
-            m_params.m_mip_wrapping ? STBIR_EDGE_WRAP : STBIR_EDGE_CLAMP, filter, m_params.m_mip_srgb ? STBIR_COLORSPACE_SRGB : STBIR_COLORSPACE_LINEAR, 
+            m_params.m_mip_wrapping ? STBIR_EDGE_WRAP : STBIR_EDGE_CLAMP, filter, m_params.m_mip_srgb ? STBIR_COLORSPACE_SRGB : STBIR_COLORSPACE_LINEAR,
 				nullptr);
 
 			if (result == 0)
@@ -1126,7 +1126,7 @@ namespace basisu
 				error_printf("basis_compressor::generate_mipmaps: stbir_resize_uint8_generic() failed!\n");
 				return false;
 			}
-			
+
 			if (m_params.m_mip_renormalize)
 				level_img.renormalize_normal_map();
 		}
@@ -1250,7 +1250,7 @@ namespace basisu
 
 		if (m_params.m_source_mipmap_images.size() || m_params.m_source_mipmap_images_hdr.size())
 			return true;
-				
+
 		// See if any input filenames are .DDS
 		bool any_dds = false, all_dds = true;
 		for (uint32_t i = 0; i < m_params.m_source_filenames.size(); i++)
@@ -1319,7 +1319,7 @@ namespace basisu
 					ldr_mips.erase_index(0U);
 
 					m_params.m_source_mipmap_images.back().swap(ldr_mips);
-					
+
 					any_mipmaps = true;
 				}
 			}
@@ -1339,7 +1339,7 @@ namespace basisu
 					hdr_mips.erase_index(0U);
 
 					m_params.m_source_mipmap_images_hdr.back().swap(hdr_mips);
-					
+
 					any_mipmaps = true;
 				}
 
@@ -1363,7 +1363,7 @@ namespace basisu
 			error_printf("HDR mode enabled, but only LDR .DDS files were loaded. HDR mode requires half or float (HDR) .DDS inputs.\n");
 			return false;
 		}
-		
+
 		return true;
 	}
 
@@ -1371,7 +1371,7 @@ namespace basisu
 	{
 		debug_printf("basis_compressor::read_source_images\n");
 
-		const uint32_t total_source_files = m_params.m_read_source_images ? (uint32_t)m_params.m_source_filenames.size() : 
+		const uint32_t total_source_files = m_params.m_read_source_images ? (uint32_t)m_params.m_source_filenames.size() :
 			(m_params.m_hdr ? (uint32_t)m_params.m_source_images_hdr.size() : (uint32_t)m_params.m_source_images.size());
 
 		if (!total_source_files)
@@ -1395,7 +1395,7 @@ namespace basisu
 		basisu::vector<imagef> source_images_hdr;
 
 		basisu::vector<std::string> source_filenames;
-		
+
 		// TODO: Note HDR images don't support alpha here, currently.
 
 		// First load all source images, and determine if any have an alpha channel.
@@ -1530,7 +1530,7 @@ namespace basisu
 						for (uint32_t x = 0; x < file_image_hdr.get_width(); x++)
 						{
 							const vec4F& c = file_image_hdr(x, y);
-							
+
 							// For now, alpha is always 1.0f in UASTC HDR.
 							file_image_hdr(x, y).set(c[m_params.m_swizzle[0]], c[m_params.m_swizzle[1]], c[m_params.m_swizzle[2]], 1.0f); // c[m_params.m_swizzle[3]]);
 						}
@@ -1648,7 +1648,7 @@ namespace basisu
 			source_filenames.push_back(pSource_filename);
 		}
 
-		// Check if the caller has generated their own mipmaps. 
+		// Check if the caller has generated their own mipmaps.
 		if (m_params.m_hdr)
 		{
 			if (m_params.m_source_mipmap_images_hdr.size())
@@ -1661,7 +1661,7 @@ namespace basisu
 				}
 			}
 		}
-		else 
+		else
 		{
 			if (m_params.m_source_mipmap_images.size())
 			{
@@ -1702,23 +1702,23 @@ namespace basisu
 		for (uint32_t source_file_index = 0; source_file_index < total_source_files; source_file_index++)
 		{
 			const std::string &source_filename = source_filenames[source_file_index];
-						
+
 			basisu::vector<image> slices;
 			basisu::vector<imagef> slices_hdr;
-			
+
 			slices.reserve(32);
 			slices_hdr.reserve(32);
-						
+
 			// The first (largest) mipmap level.
 			image *pFile_image = source_images.size() ? &source_images[source_file_index] : nullptr;
 			imagef *pFile_image_hdr = source_images_hdr.size() ? &source_images_hdr[source_file_index] : nullptr;
-									
+
 			// Reserve a slot for mip0.
 			if (m_params.m_hdr)
 				slices_hdr.resize(1);
 			else
 				slices.resize(1);
-			
+
 			if ((!m_params.m_hdr) && (m_params.m_source_mipmap_images.size()))
 			{
 				// User-provided mipmaps for each layer or image in the texture array.
@@ -1800,10 +1800,10 @@ namespace basisu
 			uint_vec mip_indices(m_params.m_hdr ? slices_hdr.size() : slices.size());
 			for (uint32_t i = 0; i < (m_params.m_hdr ? slices_hdr.size() : slices.size()); i++)
 				mip_indices[i] = i;
-						
+
 			if ((!m_params.m_hdr) && (m_any_source_image_has_alpha) && (!m_params.m_uastc))
 			{
-				// For ETC1S, if source has alpha, then even mips will have RGB, and odd mips will have alpha in RGB. 
+				// For ETC1S, if source has alpha, then even mips will have RGB, and odd mips will have alpha in RGB.
 				basisu::vector<image> alpha_slices;
 				uint_vec new_mip_indices;
 
@@ -1822,7 +1822,7 @@ namespace basisu
 							lvl_a(x, y).set_noclamp_rgba(a, a, a, 255);
 						}
 					}
-					
+
 					lvl_rgb.set_alpha(255);
 
 					alpha_slices.push_back(lvl_rgb);
@@ -1844,7 +1844,7 @@ namespace basisu
 			{
 				assert(slices.size() == mip_indices.size());
 			}
-					
+
 			for (uint32_t slice_index = 0; slice_index < (m_params.m_hdr ? slices_hdr.size() : slices.size()); slice_index++)
 			{
 				image *pSlice_image = m_params.m_hdr ? nullptr : &slices[slice_index];
@@ -1903,10 +1903,10 @@ namespace basisu
 				m_stats[dest_image_index].m_width = orig_width;
 				m_stats[dest_image_index].m_height = orig_height;
 
-				debug_printf("****** Slice %u: mip %u, alpha_slice: %u, filename: \"%s\", original: %ux%u actual: %ux%u\n", 
-					m_slice_descs.size() - 1, mip_indices[slice_index], is_alpha_slice, source_filename.c_str(), 
-					orig_width, orig_height, 
-					m_params.m_hdr ? pSlice_image_hdr->get_width() : pSlice_image->get_width(), 
+				debug_printf("****** Slice %u: mip %u, alpha_slice: %u, filename: \"%s\", original: %ux%u actual: %ux%u\n",
+					m_slice_descs.size() - 1, mip_indices[slice_index], is_alpha_slice, source_filename.c_str(),
+					orig_width, orig_height,
+					m_params.m_hdr ? pSlice_image_hdr->get_width() : pSlice_image->get_width(),
 					m_params.m_hdr ? pSlice_image_hdr->get_height() : pSlice_image->get_height());
 
 				basisu_backend_slice_desc& slice_desc = m_slice_descs[dest_image_index];
@@ -1969,7 +1969,7 @@ namespace basisu
 			error_printf("Too many slices!\n");
 			return false;
 		}
-				
+
 		// Basic sanity check on the slices
 		for (uint32_t i = 1; i < m_slice_descs.size(); i++)
 		{
@@ -1979,7 +1979,7 @@ namespace basisu
 			// Make sure images are in order
 			int image_delta = (int)slice_desc.m_source_file_index - (int)prev_slice_desc.m_source_file_index;
 			if (image_delta > 1)
-				return false;	
+				return false;
 
 			// Make sure mipmap levels are in order
 			if (!image_delta)
@@ -2002,8 +2002,8 @@ namespace basisu
 			if (m_params.m_status_output)
 			{
 				printf("Slice: %u, alpha: %u, orig width/height: %ux%u, width/height: %ux%u, first_block: %u, image_index: %u, mip_level: %u, iframe: %u\n",
-					i, slice_desc.m_alpha, slice_desc.m_orig_width, slice_desc.m_orig_height, 
-					slice_desc.m_width, slice_desc.m_height, 
+					i, slice_desc.m_alpha, slice_desc.m_orig_width, slice_desc.m_orig_height,
+					slice_desc.m_width, slice_desc.m_height,
 					slice_desc.m_first_block_index, slice_desc.m_source_file_index, slice_desc.m_mip_index, slice_desc.m_iframe);
 			}
 
@@ -2058,20 +2058,20 @@ namespace basisu
 	}
 
 	// Do some basic validation for 2D arrays, cubemaps, video, and volumes.
-	bool basis_compressor::validate_texture_type_constraints() 
+	bool basis_compressor::validate_texture_type_constraints()
 	{
 		debug_printf("basis_compressor::validate_texture_type_constraints\n");
 
 		// In 2D mode anything goes (each image may have a different resolution and # of mipmap levels).
 		if (m_params.m_tex_type == basist::cBASISTexType2D)
 			return true;
-				
+
 		uint32_t total_basis_images = 0;
 
 		for (uint32_t slice_index = 0; slice_index < (m_params.m_hdr ? m_slice_images_hdr.size() : m_slice_images.size()); slice_index++)
 		{
 			const basisu_backend_slice_desc &slice_desc = m_slice_descs[slice_index];
-				
+
 			total_basis_images = maximum<uint32_t>(total_basis_images, slice_desc.m_source_file_index + 1);
 		}
 
@@ -2094,7 +2094,7 @@ namespace basisu
 			const basisu_backend_slice_desc &slice_desc = m_slice_descs[slice_index];
 
 			image_mipmap_levels[slice_desc.m_source_file_index] = maximum(image_mipmap_levels[slice_desc.m_source_file_index], slice_desc.m_mip_index + 1);
-				
+
 			if (slice_desc.m_mip_index != 0)
 				continue;
 
@@ -2184,7 +2184,7 @@ namespace basisu
 	bool basis_compressor::process_frontend()
 	{
 		debug_printf("basis_compressor::process_frontend\n");
-						
+
 #if 0
 		// TODO
 		basis_etc1_pack_params pack_params;
@@ -2235,21 +2235,21 @@ namespace basisu
 			error_printf("Too many selector clusters! (%u but max is %u)\n", selector_clusters, basisu_frontend::cMaxSelectorClusters);
 			return false;
 		}
-		
+
 		if (m_params.m_etc1s_quality_level != -1)
 		{
 			const float quality = saturate(m_params.m_etc1s_quality_level / 255.0f);
-									
+
 			const float bits_per_endpoint_cluster = 14.0f;
 			const float max_desired_endpoint_cluster_bits_per_texel = 1.0f; // .15f
 			int max_endpoints = static_cast<int>((max_desired_endpoint_cluster_bits_per_texel * total_texels) / bits_per_endpoint_cluster);
-			
+
 			const float mid = 128.0f / 255.0f;
 
 			float color_endpoint_quality = quality;
 
 			const float endpoint_split_point = 0.5f;
-			
+
 			// In v1.2 and in previous versions, the endpoint codebook size at quality 128 was 3072. This wasn't quite large enough.
 			const int ENDPOINT_CODEBOOK_MID_QUALITY_CODEBOOK_SIZE = 4800;
 			const int MAX_ENDPOINT_CODEBOOK_SIZE = 8192;
@@ -2260,7 +2260,7 @@ namespace basisu
 
 				max_endpoints = clamp<int>(max_endpoints, 256, ENDPOINT_CODEBOOK_MID_QUALITY_CODEBOOK_SIZE);
 				max_endpoints = minimum<uint32_t>(max_endpoints, m_total_blocks);
-								
+
 				if (max_endpoints < 64)
 					max_endpoints = 64;
 				endpoint_clusters = clamp<uint32_t>((uint32_t)(.5f + lerp<float>(32, static_cast<float>(max_endpoints), color_endpoint_quality)), 32, basisu_frontend::cMaxEndpointClusters);
@@ -2271,12 +2271,12 @@ namespace basisu
 
 				max_endpoints = clamp<int>(max_endpoints, 256, MAX_ENDPOINT_CODEBOOK_SIZE);
 				max_endpoints = minimum<uint32_t>(max_endpoints, m_total_blocks);
-								
+
 				if (max_endpoints < ENDPOINT_CODEBOOK_MID_QUALITY_CODEBOOK_SIZE)
 					max_endpoints = ENDPOINT_CODEBOOK_MID_QUALITY_CODEBOOK_SIZE;
 				endpoint_clusters = clamp<uint32_t>((uint32_t)(.5f + lerp<float>(ENDPOINT_CODEBOOK_MID_QUALITY_CODEBOOK_SIZE, static_cast<float>(max_endpoints), color_endpoint_quality)), 32, basisu_frontend::cMaxEndpointClusters);
 			}
-						
+
 			float bits_per_selector_cluster = 14.0f;
 
 			const float max_desired_selector_cluster_bits_per_texel = 1.0f; // .15f
@@ -2300,7 +2300,7 @@ namespace basisu
 				{
 					if (!m_params.m_endpoint_rdo_thresh.was_changed())
 						m_params.m_endpoint_rdo_thresh *= .25f;
-					
+
 					if (!m_params.m_selector_rdo_thresh.was_changed())
 						m_params.m_selector_rdo_thresh *= .25f;
 				}
@@ -2327,12 +2327,12 @@ namespace basisu
 
 				if (!m_params.m_endpoint_rdo_thresh.was_changed())
 					m_params.m_endpoint_rdo_thresh *= lerp<float>(1.0f, .75f, l);
-				
+
 				if (!m_params.m_selector_rdo_thresh.was_changed())
 					m_params.m_selector_rdo_thresh *= lerp<float>(1.0f, .75f, l);
 			}
 		}
-				
+
 		basisu_frontend::params p;
 		p.m_num_source_blocks = m_total_blocks;
 		p.m_pSource_blocks = &m_source_blocks[0];
@@ -2348,7 +2348,7 @@ namespace basisu
 		p.m_validate = m_params.m_validate_etc1s;
 		p.m_pJob_pool = m_params.m_pJob_pool;
 		p.m_pGlobal_codebooks = m_params.m_pGlobal_codebooks;
-		
+
 		// Don't keep trying to use OpenCL if it ever fails.
 		p.m_pOpenCL_context = !m_opencl_failed ? m_pOpenCL_context : nullptr;
 
@@ -2357,7 +2357,7 @@ namespace basisu
 			error_printf("basisu_frontend::init() failed!\n");
 			return false;
 		}
-				
+
 		m_frontend.compress();
 
 		if (m_frontend.get_opencl_failed())
@@ -2368,18 +2368,18 @@ namespace basisu
 			for (uint32_t i = 0; i < m_slice_descs.size(); i++)
 			{
 				char filename[1024];
-#ifdef _WIN32				
+#ifdef _WIN32
 				sprintf_s(filename, sizeof(filename), "rdo_frontend_output_output_blocks_%u.png", i);
 #else
 				snprintf(filename, sizeof(filename), "rdo_frontend_output_output_blocks_%u.png", i);
-#endif				
+#endif
 				m_frontend.dump_debug_image(filename, m_slice_descs[i].m_first_block_index, m_slice_descs[i].m_num_blocks_x, m_slice_descs[i].m_num_blocks_y, true);
 
 #ifdef _WIN32
 				sprintf_s(filename, sizeof(filename), "rdo_frontend_output_api_%u.png", i);
 #else
 				snprintf(filename, sizeof(filename), "rdo_frontend_output_api_%u.png", i);
-#endif				
+#endif
 				m_frontend.dump_debug_image(filename, m_slice_descs[i].m_first_block_index, m_slice_descs[i].m_num_blocks_x, m_slice_descs[i].m_num_blocks_y, false);
 			}
 		}
@@ -2484,7 +2484,7 @@ namespace basisu
 		m_output_basis_file = comp_data;
 
 		uint32_t total_orig_pixels = 0;
-		
+
 		for (uint32_t i = 0; i < m_slice_descs.size(); i++)
 		{
 			const basisu_backend_slice_desc& slice_desc = m_slice_descs[i];
@@ -2500,14 +2500,14 @@ namespace basisu
 		// HDR 6x6 TODO
 		// HACK HACK
 		const bool is_hdr_6x6 = m_params.m_hdr && (m_params.m_hdr_mode != hdr_modes::cUASTC_HDR_4X4);
-				
+
 		if (m_params.m_validate_output_data)
 		{
 			interval_timer tm;
 			tm.start();
 
 			basist::basisu_transcoder_init();
-			
+
 			debug_printf("basist::basisu_transcoder_init: Took %f ms\n", tm.get_elapsed_ms());
 
 			// Verify the compressed data by transcoding it to ASTC (or ETC1)/BC7 and validating the CRC's.
@@ -2715,7 +2715,7 @@ namespace basisu
 			}
 
 		} // if (m_params.m_validate_output_data)
-				
+
 		return true;
 	}
 
@@ -2756,7 +2756,7 @@ namespace basisu
 		{
 			const std::string filename(string_format("%s_compressive_tonemapped.png", pBasename));
 			image compressive_tonemapped_img;
-			
+
 			bool status = tonemap_image_compressive(compressive_tonemapped_img, hdr_img);
 			if (!status)
 			{
@@ -2824,7 +2824,7 @@ namespace basisu
 			uint32_t total_texels = 0;
 			for (uint32_t i = 0; i < m_slice_descs.size(); i++)
 				total_texels += (m_slice_descs[i].m_orig_width * m_slice_descs[i].m_orig_height);
-			
+
 			m_basis_bits_per_texel = ((float)comp_size * 8.0f) / total_texels;
 
 			fmt_debug_printf("Output file size: {}, {3.2} bits/texel, LZ compressed file size: {}, {3.2} bits/texel\n",
@@ -2833,7 +2833,7 @@ namespace basisu
 		}
 
 		m_stats.resize(m_slice_descs.size());
-		
+
 		if (m_params.m_validate_output_data)
 		{
 			if (m_params.m_hdr)
@@ -2906,7 +2906,7 @@ namespace basisu
 
 						im.calc(m_slice_images_hdr[slice_index], m_decoded_output_textures_astc_hdr_unpacked[slice_index], 0, 3, true, true);
 						s.m_basis_rgb_avg_log2_psnr = (float)im.m_psnr;
-						
+
 						if (m_params.m_print_stats)
 						{
 							printf("\nASTC Log2 RGB: ");
@@ -2924,7 +2924,7 @@ namespace basisu
 							printf("\n");
 						}
 					}
-					
+
 					if (m_params.m_debug_images)
 					{
 						std::string out_basename;
@@ -2940,7 +2940,7 @@ namespace basisu
 						{
 							gpu_image bc6h_tex(m_decoded_output_textures[slice_index]);
 							bc6h_tex.override_dimensions(slice_desc.m_orig_width, slice_desc.m_orig_height);
-							
+
 							std::string filename(out_basename + "_bc6h.dds");
 							write_compressed_texture_file(filename.c_str(), bc6h_tex, true);
 							printf("Wrote .DDS file %s\n", filename.c_str());
@@ -2950,9 +2950,9 @@ namespace basisu
 						{
 							gpu_image astc_tex(m_decoded_output_textures_astc_hdr[slice_index]);
 							astc_tex.override_dimensions(slice_desc.m_orig_width, slice_desc.m_orig_height);
-							
+
 							std::string filename1(out_basename + "_astc.astc");
-							
+
 							uint32_t block_width = 4, block_height = 4;
 							if ((m_params.m_hdr_mode == hdr_modes::cASTC_HDR_6X6) || (m_params.m_hdr_mode == hdr_modes::cASTC_HDR_6X6_INTERMEDIATE))
 							{
@@ -2972,7 +2972,7 @@ namespace basisu
 						{
 							imagef astc_img(m_decoded_output_textures_astc_hdr_unpacked[slice_index]);
 							astc_img.resize(slice_desc.m_orig_width, slice_desc.m_orig_height);
-							
+
 							std::string filename(out_basename + "_unpacked_astc.exr");
 							write_exr(filename.c_str(), astc_img, 3, 0);
 							printf("Wrote .EXR file %s\n", filename.c_str());
@@ -3007,7 +3007,7 @@ namespace basisu
 							printf("Slice: %u\n", slice_index);
 
 						image_stats& s = m_stats[slice_index];
-												
+
 						image_metrics em;
 
 						// ---- .basis stats
@@ -3183,10 +3183,10 @@ namespace basisu
 			} // if (m_params.m_hdr)
 
 		} // if (m_params.m_validate_output_data)
-				
+
 		return true;
 	}
-	
+
 	// Make sure all the mip 0's have the same dimensions and number of mipmap levels, or we can't encode the KTX2 file.
 	bool basis_compressor::validate_ktx2_constraints()
 	{
@@ -3232,7 +3232,7 @@ namespace basisu
 	// LDR ETC1S texture data in a custom format, with global codebooks
 	static uint8_t g_ktx2_etc1s_nonalpha_dfd[44] = { 0x2C,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x2,0x0,0x28,0x0,0xA3,0x1,0x2,0x0,0x3,0x3,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x3F,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0xFF,0xFF,0xFF,0xFF };
 	static uint8_t g_ktx2_etc1s_alpha_dfd[60]    = { 0x3C,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x2,0x0,0x38,0x0,0xA3,0x1,0x2,0x0,0x3,0x3,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x3F,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0xFF,0xFF,0xFF,0xFF,0x40,0x0,0x3F,0xF,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0xFF,0xFF,0xFF,0xFF };
-	
+
 	// colorModel=KTX2_KDF_DF_MODEL_UASTC_LDR_4X4 (0xA6)
 	// LDR UASTC 4x4 texture data in a custom block format
 	static uint8_t g_ktx2_uastc_ldr_4x4_nonalpha_dfd[44] = { 0x2C,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x2,0x0,0x28,0x0,0xA6,0x1,0x2,0x0,0x3,0x3,0x0,0x0,0x10,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x7F,0x4,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0xFF,0xFF,0xFF,0xFF };
@@ -3240,7 +3240,7 @@ namespace basisu
 
 	// colorModel=KTX2_KDF_DF_MODEL_UASTC_HDR_4X4 (0xA7)
 	// Standard ASTC HDR 4x4 texture data but constrained for easy transcoding to BC6H, either highest quality or RDO optimized.
-	static uint8_t g_ktx2_uastc_hdr_4x4_nonalpha_dfd[44] = 
+	static uint8_t g_ktx2_uastc_hdr_4x4_nonalpha_dfd[44] =
 	{
 		0x2C,0x0,0x0,0x0,		// 0 totalSize
 		0x0,0x0,0x0,0x0,		// 1 descriptorType/vendorId
@@ -3288,7 +3288,7 @@ namespace basisu
 		0x0,0x0,0x0,0x0,		// 9 sampleLower (0.0)
 		0x00, 0x00, 0x80, 0x3F  // 10 sampleHigher (1.0)
 	};
-					
+
 	bool basis_compressor::get_dfd(uint8_vec &dfd, const basist::ktx2_header &header)
 	{
 		const uint8_t* pDFD;
@@ -3353,7 +3353,7 @@ namespace basisu
 				dfd_len = sizeof(g_ktx2_etc1s_nonalpha_dfd);
 			}
 		}
-				
+
 		assert(dfd_len >= 44);
 
 		dfd.resize(dfd_len);
@@ -3367,7 +3367,7 @@ namespace basisu
 			dfd_bits &= ~(0xFF << 8);
 			dfd_bits |= (basist::KTX2_DF_PRIMARIES_BT2020 << 8);
 		}
-		
+
 		// Transfer function
 		dfd_bits &= ~(0xFF << 16);
 
@@ -3401,7 +3401,7 @@ namespace basisu
 		if (m_params.m_uastc)
 		{
 			dfd_chan0 &= ~(0xF << 24);
-			
+
 			// TODO: Allow the caller to override this
 			if (m_any_source_image_has_alpha)
 				dfd_chan0 |= (basist::KTX2_DF_CHANNEL_UASTC_RGBA << 24);
@@ -3692,7 +3692,7 @@ namespace basisu
 
 		// Key values
 		basist::ktx2_transcoder::key_value_vec key_values(m_params.m_ktx2_key_values);
-		
+
 		basist::ktx2_add_key_value(key_values, "KTXwriter", fmt_string("Basis Universal {}", BASISU_LIB_VERSION_STRING));
 
 		if (m_params.m_hdr)
@@ -3764,7 +3764,7 @@ namespace basisu
 #if BASISU_DISABLE_KTX2_ALIGNMENT_WORKAROUND
 			break;
 #endif
-			
+
 			// Hack to ensure the KVD block ends on a 16 byte boundary, because we have no other official way of aligning the data.
 			uint32_t kvd_end_file_offset = kvd_file_offset + (uint32_t)key_value_data.size();
 			uint32_t bytes_needed_to_pad = (16 - (kvd_end_file_offset & 15)) & 15;
@@ -3786,13 +3786,13 @@ namespace basisu
 
 			// Just add the padding. It's likely not necessary anymore, but can't really hurt.
 			//printf("WARNING: Due to a KTX2 validator bug related to mipPadding, we must insert a dummy key into the KTX2 file of %u bytes\n", bytes_needed_to_pad);
-			
-			// We're not good - need to add a dummy key large enough to force file alignment so the mip level array gets aligned. 
+
+			// We're not good - need to add a dummy key large enough to force file alignment so the mip level array gets aligned.
 			// We can't just add some bytes before the mip level array because ktx2check will see that as extra data in the file that shouldn't be there in ktxValidator::validateDataSize().
 			key_values.enlarge(1);
 			for (uint32_t i = 0; i < (bytes_needed_to_pad - 4 - 1 - 1); i++)
 				key_values.back().m_key.push_back(127);
-			
+
 			key_values.back().m_key.push_back(0);
 
 			key_values.back().m_value.push_back(0);
@@ -3800,13 +3800,13 @@ namespace basisu
 			key_values.sort();
 
 			key_value_data.resize(0);
-			
+
 			// Try again
 		}
 
 		basisu::vector<basist::ktx2_level_index> level_index_array(total_levels);
 		memset((void *)level_index_array.data(), 0, level_index_array.size_in_bytes());
-				
+
 		m_output_ktx2_file.clear();
 		m_output_ktx2_file.reserve(m_output_basis_file.size());
 
@@ -3815,7 +3815,7 @@ namespace basisu
 
 		// Level index array
 		append_vector(m_output_ktx2_file, (const uint8_t*)level_index_array.data(), level_index_array.size_in_bytes());
-				
+
 		// DFD
 		const uint8_t* pDFD = dfd.data();
 		uint32_t dfd_len = (uint32_t)dfd.size();
@@ -3869,7 +3869,7 @@ namespace basisu
 		for (int level = total_levels - 1; level >= 0; level--)
 		{
 			level_index_array[level].m_byte_length = compressed_level_data_bytes[level].size();
-			
+
 			//if (m_params.m_uastc)
 			if (can_use_zstd)
 			{
@@ -3879,7 +3879,7 @@ namespace basisu
 			level_index_array[level].m_byte_offset = m_output_ktx2_file.size();
 			append_vector(m_output_ktx2_file, compressed_level_data_bytes[level]);
 		}
-		
+
 		// Write final header
 		memcpy(m_output_ktx2_file.data(), &header, sizeof(header));
 
@@ -3921,7 +3921,7 @@ namespace basisu
 
 		std::atomic<bool> result;
 		result.store(true);
-		
+
 		std::atomic<bool> opencl_failed;
 		opencl_failed.store(false);
 
@@ -3936,19 +3936,19 @@ namespace basisu
 				tm.start();
 
 				basis_compressor c;
-				
+
 				// Dummy job pool
 				job_pool task_jpool(1);
 				params.m_pJob_pool = &task_jpool;
 				// TODO: Remove this flag entirely
-				params.m_multithreading = true; 
-				
+				params.m_multithreading = true;
+
 				// Stop using OpenCL if a failure ever occurs.
 				if (opencl_failed)
 					params.m_use_opencl = false;
 
 				bool status = c.init(params);
-				
+
 				if (c.get_opencl_failed())
 					opencl_failed.store(true);
 
@@ -3977,7 +3977,7 @@ namespace basisu
 				else
 				{
 					results.m_error_code = basis_compressor::cECFailedInitializing;
-					
+
 					result = false;
 				}
 
@@ -4004,7 +4004,7 @@ namespace basisu
 	{
 		assert((pSource_images != nullptr) || (pSource_images_hdr != nullptr));
 		assert(!((pSource_images != nullptr) && (pSource_images_hdr != nullptr)));
-		
+
 		// Check input parameters
 		if (pSource_images)
 		{
@@ -4043,7 +4043,7 @@ namespace basisu
 		comp_params.m_y_flip = (flags_and_quality & cFlagYFlip) != 0;
 		comp_params.m_debug = (flags_and_quality & cFlagDebug) != 0;
 		comp_params.m_debug_images = (flags_and_quality & cFlagDebugImages) != 0;
-		
+
 		// Copy the largest mipmap level
 		if (pSource_images)
 		{
@@ -4075,7 +4075,7 @@ namespace basisu
 					comp_params.m_source_mipmap_images_hdr[0][i - 1] = (*pSource_images_hdr)[i];
 			}
 		}
-				
+
 		comp_params.m_multithreading = (flags_and_quality & cFlagThreaded) != 0;
 		comp_params.m_use_opencl = (flags_and_quality & cFlagUseOpenCL) != 0;
 
@@ -4096,9 +4096,9 @@ namespace basisu
 		{
 			comp_params.m_etc1s_quality_level = basisu::maximum<uint32_t>(1, flags_and_quality & 255);
 		}
-				
+
 		comp_params.m_create_ktx2_file = (flags_and_quality & cFlagKTX2) != 0;
-						
+
 		if (comp_params.m_create_ktx2_file)
 		{
 			// Set KTX2 specific parameters.
@@ -4241,7 +4241,7 @@ namespace basisu
 		const uint32_t W = 1024, H = 1024;
 		basisu::vector<image> images;
 		image& img = images.enlarge(1)->resize(W, H);
-		
+
 		const uint32_t NUM_RAND_LETTERS = 6000;// 40000;
 
 		rand r;
@@ -4283,7 +4283,7 @@ namespace basisu
 				error_printf("basis_benchmark_etc1s_opencl: basis_compress() failed (CPU)!\n");
 				return false;
 			}
-			
+
 			best_cpu_time = minimum(best_cpu_time, cpu_time);
 
 			basis_free_data(pComp_data);
@@ -4326,11 +4326,8 @@ namespace basisu
 		}
 
 		printf("Best GPU time: %3.3f\n", best_gpu_time);
-				
+
 		return best_gpu_time < best_cpu_time;
 	}
 
 } // namespace basisu
-
-
-

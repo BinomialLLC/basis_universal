@@ -45,7 +45,7 @@ extension that is [currently in development](https://github.com/KhronosGroup/glT
 
 Live demo: [`ktx2_encode_test/index.html'](https://subquantumtech.com/uastchdr2/ktx2_encode_test/)
 
-This demo shows how to use the compressor from JavaScript. To use it, select a .PNG file then hit the "Encode!" button. The compressor will dynamically generate a .ktx2 file in memory which will then be immediately transcoded and displayed. Hit the "Download!" button to locally download the generated .ktx2 file. 
+This demo shows how to use the compressor from JavaScript. To use it, select a .PNG file then hit the "Encode!" button. The compressor will dynamically generate a .ktx2 file in memory which will then be immediately transcoded and displayed. Hit the "Download!" button to locally download the generated .ktx2 file.
 
 To view the compressor's textual debug output, open your browser's developer debug console (under Developer Tools in Chrome) and enable the Debug checkbox before hitting the "Encode!" button. Multithreading is not currently supported when the compressor is compiled to WebAssembly, so compression will be slower than using the stand-alone command line tool.
 
@@ -59,4 +59,4 @@ You can locally host the files under the "webgl" folder. One way is to use [Pyth
 cd webgl
 python3 -m http.server 8000
 ```
-Note: For WASM multithreading to be available and enabled, the server must be properly configured. 
+Note: For WASM multithreading to be available and enabled, the server must be properly configured.
