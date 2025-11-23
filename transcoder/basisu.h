@@ -20,7 +20,7 @@
 	#pragma warning (disable : 4201)
 	#pragma warning (disable : 4127) // warning C4127: conditional expression is constant
 	#pragma warning (disable : 4530) // C++ exception handler used, but unwind semantics are not enabled.
-	
+
 #endif // _MSC_VER
 
 #include <stdlib.h>
@@ -109,14 +109,14 @@ namespace basisu
 
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wclass-memaccess"            
+#pragma GCC diagnostic ignored "-Wclass-memaccess"
 #endif
-		
+
 	template <typename T> inline void clear_obj(T& obj) { memset((void *)&obj, 0, sizeof(obj)); }
 
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic pop
-#endif                            
+#endif
 
 	constexpr double cPiD = 3.14159265358979323846264338327950288;
 	constexpr float REALLY_SMALL_FLOAT_VAL = .000000125f;
@@ -124,7 +124,7 @@ namespace basisu
 	constexpr float BIG_FLOAT_VAL = 1e+30f;
 
 	template <typename T0, typename T1> inline T0 lerp(T0 a, T0 b, T1 c) { return a + (b - a) * c; }
-		
+
 	inline float clampf(float value, float low, float high) { if (value < low) value = low; else if (value > high) value = high;	return value; }
 	inline float saturate(float value) { return clampf(value, 0, 1.0f); }
 	inline uint8_t minimumub(uint8_t a, uint8_t b) { return (a < b) ? a : b; }
@@ -140,7 +140,7 @@ namespace basisu
 	inline double squared(double i) { return i * i; }
 	template<typename T> inline T square(T a) { return a * a; }
 	template<typename T> inline T sign(T a) { return (a < 0) ? (T)-1 : ((a == 0) ? (T)0 : (T)1); }
-		
+
 	inline bool equal_tol(float a, float b, float t) { return fabsf(a - b) <= ((maximum(fabsf(a), fabsf(b)) + 1.0f) * t); }
 	inline bool equal_tol(double a, double b, double t) { return fabs(a - b) <= ((maximum(fabs(a), fabs(b)) + 1.0f) * t); }
 
@@ -161,11 +161,11 @@ namespace basisu
 			temp = 0;
 		return temp;
 	}
-		
+
 	inline uint32_t iabs(int32_t i) { return (i < 0) ? static_cast<uint32_t>(-i) : static_cast<uint32_t>(i);	}
 	inline uint64_t iabs64(int64_t i) {	return (i < 0) ? static_cast<uint64_t>(-i) : static_cast<uint64_t>(i); }
 
-	template<typename T> inline void clear_vector(T &vec) { vec.erase(vec.begin(), vec.end()); }		
+	template<typename T> inline void clear_vector(T &vec) { vec.erase(vec.begin(), vec.end()); }
 	template<typename T> inline typename T::value_type *enlarge_vector(T &vec, size_t n) { size_t cs = vec.size(); vec.resize(cs + n); return &vec[cs]; }
 
 	inline bool is_pow2(uint32_t x) { return x && ((x & (x - 1U)) == 0U); }
@@ -213,8 +213,8 @@ namespace basisu
 		return val;
 	}
 
-	template<typename T, typename R> inline void append_vector(T &vec, const R *pObjs, size_t n) 
-	{ 
+	template<typename T, typename R> inline void append_vector(T &vec, const R *pObjs, size_t n)
+	{
 		if (n)
 		{
 			if (vec.size())
@@ -265,7 +265,7 @@ namespace basisu
 		for (size_t i = 0; i < vec.size(); i++)
 			vec[i] = obj;
 	}
-		
+
 	inline uint64_t read_be64(const void *p)
 	{
 		uint64_t val = 0;
@@ -331,7 +331,7 @@ namespace basisu
 		pBytes[2] = (uint8_t)(val >> 16U);
 		pBytes[3] = (uint8_t)(val >> 24U);
 	}
-		
+
 	// Always little endian 1-8 byte unsigned int
 	template<uint32_t NumBytes>
 	struct packed_uint
@@ -341,21 +341,21 @@ namespace basisu
 		inline packed_uint() { static_assert(NumBytes <= sizeof(uint64_t), "Invalid NumBytes"); }
 		inline packed_uint(uint64_t v) { *this = v; }
 		inline packed_uint(const packed_uint& other) { *this = other; }
-						
-		inline packed_uint& operator= (uint64_t v) 
-		{ 
-			// TODO: Add assert on truncation?
-			for (uint32_t i = 0; i < NumBytes; i++) 
-				m_bytes[i] = static_cast<uint8_t>(v >> (i * 8)); 
-			return *this; 
-		}
 
-		inline packed_uint& operator= (const packed_uint& rhs) 
-		{ 
-			memcpy(m_bytes, rhs.m_bytes, sizeof(m_bytes)); 
+		inline packed_uint& operator= (uint64_t v)
+		{
+			// TODO: Add assert on truncation?
+			for (uint32_t i = 0; i < NumBytes; i++)
+				m_bytes[i] = static_cast<uint8_t>(v >> (i * 8));
 			return *this;
 		}
-				
+
+		inline packed_uint& operator= (const packed_uint& rhs)
+		{
+			memcpy(m_bytes, rhs.m_bytes, sizeof(m_bytes));
+			return *this;
+		}
+
 		inline uint64_t get_uint64() const
 		{
 			// Some compilers may warn about this code. It clearly cannot access beyond the end of the m_bytes struct here.
@@ -411,7 +411,7 @@ namespace basisu
 			static_assert(NumBytes <= sizeof(uint32_t), "packed_uint too large to use get_uint32");
 			return static_cast<uint32_t>(get_uint64());
 		}
-		
+
 		inline operator uint32_t() const
 		{
 			static_assert(NumBytes <= sizeof(uint32_t), "packed_uint too large to use operator uint32_t");
@@ -421,14 +421,14 @@ namespace basisu
 
 	enum eZero { cZero };
 	enum eNoClamp { cNoClamp };
-	
+
 	// Rice/Huffman entropy coding
-		
+
 	// This is basically Deflate-style canonical Huffman, except we allow for a lot more symbols.
 	enum
 	{
-		cHuffmanMaxSupportedCodeSize = 16, cHuffmanMaxSupportedInternalCodeSize = 31, 
-		cHuffmanFastLookupBits = 10, 
+		cHuffmanMaxSupportedCodeSize = 16, cHuffmanMaxSupportedInternalCodeSize = 31,
+		cHuffmanFastLookupBits = 10,
 		cHuffmanMaxSymsLog2 = 14, cHuffmanMaxSyms = 1 << cHuffmanMaxSymsLog2,
 
 		// Small zero runs
@@ -454,13 +454,13 @@ namespace basisu
 	enum class texture_format
 	{
 		cInvalidTextureFormat = -1,
-		
+
 		// Block-based formats
 		cETC1,				// ETC1
 		cETC1S,				// ETC1 (subset: diff colors only, no subblocks)
 		cETC2_RGB,			// ETC2 color block (basisu doesn't support ETC2 planar/T/H modes - just basic ETC1)
 		cETC2_RGBA,			// ETC2 EAC alpha block followed by ETC2 color block
-		cETC2_ALPHA,		// ETC2 EAC alpha block 
+		cETC2_ALPHA,		// ETC2 EAC alpha block
 		cBC1,				// DXT1
 		cBC3,				// DXT5 (BC4/DXT5A block followed by a BC1/DXT1 block)
 		cBC4,				// DXT5A
@@ -479,11 +479,11 @@ namespace basisu
 		cPVRTC2_4_RGBA,
 		cETC2_R11_EAC,
 		cETC2_RG11_EAC,
-		cUASTC4x4,		
+		cUASTC4x4,
 		cUASTC_HDR_4x4,
 		cBC1_NV,
 		cBC1_AMD,
-				
+
 		// Uncompressed/raw pixels
 		cRGBA32,
 		cRGB565,
@@ -555,7 +555,7 @@ namespace basisu
 		default:
 			break;
 		}
-		
+
 		// Everything else is 16 bytes/block.
 		return 16;
 	}
@@ -623,6 +623,5 @@ namespace basisu
 	{
 		return !is_hdr_texture_format(fmt);
 	}
-							
-} // namespace basisu
 
+} // namespace basisu

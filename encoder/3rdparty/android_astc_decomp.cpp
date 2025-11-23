@@ -21,7 +21,7 @@
  * rg: Removed external dependencies, minor fix to decompress() so it converts non-sRGB
  * output to 8-bits correctly. I've compared this decoder's output
  * vs. astc-codec with random inputs.
- * 
+ *
  *//*!
  * \file
  * \brief ASTC Utilities.
@@ -204,7 +204,7 @@ namespace basisu_astc
         return (v >= l) && (v < h);
     }
 
-namespace astc 
+namespace astc
 {
 
 using std::vector;
@@ -244,7 +244,7 @@ inline bool isBitSet (deUint32 src, int ndx)
 inline deUint32 reverseBits (deUint32 src, int numBits)
 {
     DE_ASSERT(basisu_astc::inRange(numBits, 0, 32));
-    
+
     deUint32 result = 0;
     for (int i = 0; i < numBits; i++)
         result |= ((src >> i) & 1) << (numBits-1-i);
@@ -516,7 +516,7 @@ public:
         const int high              = m_ndx + numBitsFromSrc - 1;
 
         m_ndx += num;
-        
+
         return m_forward ?             m_src.getBits(m_startNdxInSrc + low,  m_startNdxInSrc + high)
                          : reverseBits(m_src.getBits(m_startNdxInSrc - high, m_startNdxInSrc - low), numBitsFromSrc);
     }
@@ -593,7 +593,7 @@ ASTCBlockMode getASTCBlockMode (deUint32 blockModeData)
             const deUint32 r1   = getBit(blockModeData, 2);
             const deUint32 r2   = getBit(blockModeData, 3);
             const deUint32 i78  = getBits(blockModeData, 7, 8);
-            
+
             r = (r2 << 2) | (r1 << 1) | (r0 << 0);
 
             if (i78 == 3)
@@ -720,13 +720,13 @@ DecompressResult decodeVoidExtentBlock (void* dst, const Block128& blockData, in
     const deUint32  maxTExtent          = blockData.getBits(51, 63);
     const bool      allExtentsAllOnes   = (minSExtent == 0x1fff) && (maxSExtent == 0x1fff) && (minTExtent == 0x1fff) && (maxTExtent == 0x1fff);
     const bool      isHDRBlock          = blockData.isBitSet(9);
-    
+
     if ((isLDRMode && isHDRBlock) || (!allExtentsAllOnes && (minSExtent >= maxSExtent || minTExtent >= maxTExtent)))
     {
         setASTCErrorColorBlock(dst, blockWidth, blockHeight, isSRGB);
         return DECOMPRESS_RESULT_ERROR;
     }
-    
+
     const deUint32 rgba[4] =
     {
         blockData.getBits(64,  79),
@@ -839,8 +839,8 @@ void decodeISETritBlock (ISEDecodedResult* dst, int numValues, BitAccessStream& 
 #ifndef __EMSCRIPTEN__
 #ifdef __GNUC__
 #pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wimplicit-fallthrough="            
-#endif  
+#pragma GCC diagnostic ignored "-Wimplicit-fallthrough="
+#endif
 #endif
     switch (numValues)
     {
@@ -856,7 +856,7 @@ void decodeISETritBlock (ISEDecodedResult* dst, int numValues, BitAccessStream& 
 #ifndef __EMSCRIPTEN__
 #ifdef __GNUC__
 #pragma GCC diagnostic pop
-#endif 
+#endif
 #endif
 
     const deUint32 T = (T7 << 7) | (T56 << 5) | (T4 << 4) | (T23 << 2) | (T01 << 0);
@@ -905,8 +905,8 @@ void decodeISEQuintBlock (ISEDecodedResult* dst, int numValues, BitAccessStream&
 #ifndef __EMSCRIPTEN__
 #ifdef __GNUC__
 #pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wimplicit-fallthrough="            
-#endif  
+#pragma GCC diagnostic ignored "-Wimplicit-fallthrough="
+#endif
 #endif
     switch (numValues)
     {
@@ -920,7 +920,7 @@ void decodeISEQuintBlock (ISEDecodedResult* dst, int numValues, BitAccessStream&
 #ifndef __EMSCRIPTEN__
 #ifdef __GNUC__
 #pragma GCC diagnostic pop
-#endif 
+#endif
 #endif
 
     const deUint32 Q = (Q56 << 5) | (Q34 << 3) | (Q012 << 0);
@@ -1066,7 +1066,7 @@ void decodeHDREndpointMode7 (UVec4& e0, UVec4& e1, deUint32 v0, deUint32 v1, deU
     const deUint32 majComp  = (m10 != 3)  ? m10
                             : (m23 != 3)  ? m23
                             :             0;
-    
+
     const deUint32 mode     = (m10 != 3)  ? m23
                             : (m23 != 3)  ? 4
                             :             5;
@@ -1189,7 +1189,7 @@ void decodeHDREndpointMode11 (UVec4& e0, UVec4& e1, deUint32 v0, deUint32 v1, de
         DE_ASSERT(mode < DE_LENGTH_OF_ARRAY(numDBits));
         d0 = signExtend(d0, numDBits[mode]);
         d1 = signExtend(d1, numDBits[mode]);
-        
+
         const int shiftAmount = (mode >> 1) ^ 3;
         a   = (uint32_t)a  << shiftAmount;
         c   = (uint32_t)c  << shiftAmount;
@@ -1217,7 +1217,7 @@ void decodeHDREndpointMode11 (UVec4& e0, UVec4& e1, deUint32 v0, deUint32 v1, de
 void decodeHDREndpointMode15(UVec4& e0, UVec4& e1, deUint32 v0, deUint32 v1, deUint32 v2, deUint32 v3, deUint32 v4, deUint32 v5, deUint32 v6In, deUint32 v7In)
 {
     decodeHDREndpointMode11(e0, e1, v0, v1, v2, v3, v4, v5);
-    
+
     const deUint32  mode    = (getBit(v7In, 7) << 1) | getBit(v6In, 7);
     deInt32         v6      = (deInt32)getBits(v6In, 0, 6);
     deInt32         v7      = (deInt32)getBits(v7In, 0, 6);
@@ -1425,7 +1425,7 @@ void computeColorEndpoints (ColorEndpointPair* dst, const Block128& blockData, c
 {
     const int           colorEndpointDataStart = (numPartitions == 1) ? 17 : 29;
     ISEDecodedResult    colorEndpointData[18];
-    
+
     {
         BitAccessStream dataStream(blockData, colorEndpointDataStart, numBitsAvailable, true);
         decodeISE(&colorEndpointData[0], numColorEndpointValues, dataStream, iseParams);
@@ -1470,7 +1470,7 @@ void unquantizeWeights (deUint32 dst[64], const ISEDecodedResult* weightGrid, co
                 const deUint32 a = getBit(weightGrid[weightNdx].m, 0);
                 const deUint32 b = getBit(weightGrid[weightNdx].m, 1);
                 const deUint32 c = getBit(weightGrid[weightNdx].m, 2);
-                
+
                 const deUint32 A = (a == 0) ? 0 : (1<<7)-1;
                 const deUint32 B = (rangeCase == 2) ? 0
                                  : (rangeCase == 3) ? 0
@@ -1523,7 +1523,7 @@ void interpolateWeights (TexelWeightPair* dst, const deUint32 (&unquantizedWeigh
             const deUint32 i01  = i00 + 1;
             const deUint32 i10  = i00 + blockMode.weightGridWidth;
             const deUint32 i11  = i00 + blockMode.weightGridWidth + 1;
-            
+
             // These addresses can be out of bounds, but respective weights will be 0 then.
             DE_ASSERT(deInBounds32(i00, 0, blockMode.weightGridWidth*blockMode.weightGridHeight) || w00 == 0);
             DE_ASSERT(deInBounds32(i01, 0, blockMode.weightGridWidth*blockMode.weightGridHeight) || w01 == 0);
@@ -1537,7 +1537,7 @@ void interpolateWeights (TexelWeightPair* dst, const deUint32 (&unquantizedWeigh
                 const deUint32 p01  = unquantizedWeights[(i01 * numWeightsPerTexel + texelWeightNdx) & 0x3f];
                 const deUint32 p10  = unquantizedWeights[(i10 * numWeightsPerTexel + texelWeightNdx) & 0x3f];
                 const deUint32 p11  = unquantizedWeights[(i11 * numWeightsPerTexel + texelWeightNdx) & 0x3f];
-                                
+
                 dst[texelY*blockWidth + texelX].w[texelWeightNdx] = (p00*w00 + p01*w01 + p10*w10 + p11*w11 + 8) >> 4;
             }
         }
@@ -1713,7 +1713,7 @@ DecompressResult setTexelColors (void* dst, ColorEndpointPair* colorEndpoints, T
 
                         ((float*)dst)[texelNdx * 4 + channelNdx] = deFloat16To32(isFloat16InfOrNan(cf) ? 0x7bff : cf);
                     }
-                
+
                 } // channelNdx
             }
         } // texelX
@@ -1725,26 +1725,26 @@ DecompressResult setTexelColors (void* dst, ColorEndpointPair* colorEndpoints, T
 DecompressResult decompressBlock (void* dst, const Block128& blockData, int blockWidth, int blockHeight, bool isSRGB, bool isLDR)
 {
     DE_ASSERT(isLDR || !isSRGB);
-    
+
     // Decode block mode.
     const ASTCBlockMode blockMode = getASTCBlockMode(blockData.getBits(0, 10));
-    
+
     // Check for block mode errors.
     if (blockMode.isError)
     {
         setASTCErrorColorBlock(dst, blockWidth, blockHeight, isSRGB);
         return DECOMPRESS_RESULT_ERROR;
     }
-    
+
     // Separate path for void-extent.
     if (blockMode.isVoidExtent)
         return decodeVoidExtentBlock(dst, blockData, blockWidth, blockHeight, isSRGB, isLDR);
-    
+
     // Compute weight grid values.
     const int numWeights            = computeNumWeights(blockMode);
     const int numWeightDataBits     = computeNumRequiredBits(blockMode.weightISEParams, numWeights);
     const int numPartitions         = (int)blockData.getBits(11, 12) + 1;
-    
+
     // Check for errors in weight grid, partition and dual-plane parameters.
     if ((numWeights > 64)                               ||
         (numWeightDataBits > 96)                        ||
@@ -1756,7 +1756,7 @@ DecompressResult decompressBlock (void* dst, const Block128& blockData, int bloc
         setASTCErrorColorBlock(dst, blockWidth, blockHeight, isSRGB);
         return DECOMPRESS_RESULT_ERROR;
     }
-    
+
     // Compute number of bits available for color endpoint data.
     const bool  isSingleUniqueCem           = (numPartitions == 1) || (blockData.getBits(23, 24) == 0);
 
@@ -1770,28 +1770,28 @@ DecompressResult decompressBlock (void* dst, const Block128& blockData, int bloc
                                                                         : (numPartitions == 3)  ? 4
                                                                         : (numPartitions == 2)  ? 1
                                                                         : 0);
-    
+
     // Decode color endpoint modes.
     deUint32 colorEndpointModes[4];
     decodeColorEndpointModes(&colorEndpointModes[0], blockData, numPartitions, extraCemBitsStart);
     const int numColorEndpointValues = computeNumColorEndpointValues(colorEndpointModes, numPartitions);
-    
+
     // Check for errors in color endpoint value count.
     if ((numColorEndpointValues > 18) || (numBitsForColorEndpoints < (int)deDivRoundUp32(13*numColorEndpointValues, 5)))
     {
         setASTCErrorColorBlock(dst, blockWidth, blockHeight, isSRGB);
         return DECOMPRESS_RESULT_ERROR;
     }
-    
+
     // Compute color endpoints.
     ColorEndpointPair colorEndpoints[4];
     computeColorEndpoints(&colorEndpoints[0], blockData, &colorEndpointModes[0], numPartitions, numColorEndpointValues,
                           computeMaximumRangeISEParams(numBitsForColorEndpoints, numColorEndpointValues), numBitsForColorEndpoints);
-    
+
     // Compute texel weights.
     TexelWeightPair texelWeights[MAX_BLOCK_WIDTH*MAX_BLOCK_HEIGHT];
     computeTexelWeights(&texelWeights[0], blockData, blockWidth, blockHeight, blockMode);
-    
+
     // Set texel colors.
     const int       ccs                     = blockMode.isDualPlane ? (int)blockData.getBits(extraCemBitsStart-2, extraCemBitsStart-1) : -1;
     const deUint32  partitionIndexSeed      = (numPartitions > 1) ? blockData.getBits(13, 22) : (deUint32)-1;
@@ -1844,7 +1844,7 @@ int isHDR(const Block128& blockData, int blockWidth, int blockHeight)
     // Decode color endpoint modes.
     deUint32 colorEndpointModes[4];
     decodeColorEndpointModes(&colorEndpointModes[0], blockData, numPartitions, extraCemBitsStart);
-    
+
     for (int i = 0; i < numPartitions; i++)
     {
         if (isColorEndpointModeHDR(colorEndpointModes[i]))
@@ -1994,7 +1994,7 @@ bool decompress_ldr(uint8_t *pDst, const uint8_t * data, bool isSRGB, int blockW
     float linear[MAX_BLOCK_WIDTH * MAX_BLOCK_HEIGHT * 4];
 
     const Block128 blockData(data);
-    
+
     // isSRGB is true, this writes uint8_t's. Otherwise it writes floats.
     if (decompressBlock(isSRGB ? (void*)pDst : (void*)&linear[0], blockData, blockWidth, blockHeight, isSRGB, true) != DECOMPRESS_RESULT_VALID_BLOCK)
     {
@@ -2030,7 +2030,7 @@ bool decompress_hdr(float* pDstRGBA, const uint8_t* data, int blockWidth, int bl
     }
 
     convert_to_half_prec(blockWidth * blockHeight * 4, pDstRGBA);
-        
+
     return true;
 }
 
@@ -2039,7 +2039,7 @@ bool is_hdr(const uint8_t* data, int blockWidth, int blockHeight, bool &is_hdr)
     is_hdr = false;
 
     const Block128 blockData(data);
-    
+
     int status = isHDR(blockData, blockWidth, blockHeight);
     if (status < 0)
     {

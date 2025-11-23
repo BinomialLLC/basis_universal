@@ -1,7 +1,7 @@
 // File: example.cpp
 // This minimal LDR/HDR encoding/transcoder example relies on encoder_lib. It shows how to use the encoder in a few different ways, and the transcoder.
-// 
-// It should be compiled with the preprocessor macros BASISU_SUPPORT_SSE (typically 1) and BASISU_SUPPORT_OPENCL (typically 1). 
+//
+// It should be compiled with the preprocessor macros BASISU_SUPPORT_SSE (typically 1) and BASISU_SUPPORT_OPENCL (typically 1).
 // They should be set to the same preprocesor options as the encoder.
 // If OpenCL is enabled, the "..\OpenCL" directory should be in your compiler's include path. Additionally, link against "..\OpenCL\lib\opencl64.lib".
 #include "../encoder/basisu_comp.h"
@@ -17,7 +17,7 @@ const bool USE_OPENCL = false;
 using namespace basisu;
 
 // Quick function to create a visualization of the Mandelbrot set as an float HDR image.
-static void create_mandelbrot(imagef& img) 
+static void create_mandelbrot(imagef& img)
 {
     const int width = 256;
     const int height = 256;
@@ -25,30 +25,30 @@ static void create_mandelbrot(imagef& img)
 
     // Create a more interesting color palette
     uint8_t palette[256][3];
-    for (int i = 0; i < 256; i++) 
+    for (int i = 0; i < 256; i++)
     {
-        if (i < 64) 
+        if (i < 64)
         {
             // Blue to cyan transition
             palette[i][0] = static_cast<uint8_t>(0);                   // Red component
             palette[i][1] = static_cast<uint8_t>(i * 4);               // Green component
             palette[i][2] = static_cast<uint8_t>(255);                 // Blue component
         }
-        else if (i < 128) 
+        else if (i < 128)
         {
             // Cyan to green transition
             palette[i][0] = static_cast<uint8_t>(0);                   // Red component
             palette[i][1] = static_cast<uint8_t>(255);                 // Green component
             palette[i][2] = static_cast<uint8_t>(255 - (i - 64) * 4);  // Blue component
         }
-        else if (i < 192) 
+        else if (i < 192)
         {
             // Green to yellow transition
             palette[i][0] = static_cast<uint8_t>((i - 128) * 4);       // Red component
             palette[i][1] = static_cast<uint8_t>(255);                 // Green component
             palette[i][2] = static_cast<uint8_t>(0);                   // Blue component
         }
-        else 
+        else
         {
             // Yellow to red transition
             palette[i][0] = static_cast<uint8_t>(255);                 // Red component
@@ -58,9 +58,9 @@ static void create_mandelbrot(imagef& img)
     }
 
     // Iterate over each pixel in the image
-    for (int px = 0; px < width; px++) 
+    for (int px = 0; px < width; px++)
     {
-        for (int py = 0; py < height; py++) 
+        for (int py = 0; py < height; py++)
         {
             double x0 = (px - width / 2.0) * 4.0 / width;
             double y0 = (py - height / 2.0) * 4.0 / height;
@@ -71,7 +71,7 @@ static void create_mandelbrot(imagef& img)
             double x_temp;
 
             int iter;
-            for (iter = 0; iter < max_iter; iter++) 
+            for (iter = 0; iter < max_iter; iter++)
             {
                 zx_squared = zx * zx;
                 zy_squared = zy * zy;
@@ -173,7 +173,7 @@ static bool encode_uastc_ldr()
 static bool encode_uastc_hdr()
 {
 	const uint32_t W = 256, H = 256;
-	
+
     imagef img(W, H);
 
 #if 1
@@ -196,7 +196,7 @@ static bool encode_uastc_hdr()
 	params.m_write_output_basis_or_ktx2_files = true;
 	params.m_out_filename = "test_uastc_hdr.ktx2";
 	params.m_perceptual = true;
-    
+
 #if 1
     // Create a job pool containing 7 total threads (the calling thread plus 6 additional threads).
     // A job pool must be created, even if threading is disabled. It's fine to pass in 0 for NUM_THREADS.
@@ -219,13 +219,13 @@ static bool encode_uastc_hdr()
 	basisu::basis_compressor::error_code ec = comp.process();
 	if (ec != basisu::basis_compressor::cECSuccess)
 		return false;
-	
+
 	return true;
 }
 
 // This example function loads a .KTX2 file and then transcodes it to various compressed/uncompressed texture formats.
-// It writes .DDS and .ASTC files. 
-// ARM's astcenc tool can be used to unpack the .ASTC file: 
+// It writes .DDS and .ASTC files.
+// ARM's astcenc tool can be used to unpack the .ASTC file:
 // astcenc-avx2.exe -dh test_uastc_hdr_astc.astc out.exr
 static bool transcode_hdr()
 {
@@ -252,10 +252,10 @@ static bool transcode_hdr()
     // This example only transcodes UASTC HDR textures.
     if (!transcoder.is_hdr())
         return false;
-        
+
     // Begin transcoding (this will be a no-op with UASTC HDR textures, but you still need to do it. For ETC1S it'll unpack the global codebooks.)
     transcoder.start_transcoding();
-            
+
     // Transcode to BC6H and write a BC6H .DDS file.
     {
         gpu_image tex(texture_format::cBC6HUnsigned, width, height);
@@ -423,7 +423,7 @@ const uint32_t NUM_TEST_BLOCKS = (sizeof(g_test_blocks) / sizeof(g_test_blocks[0
 static bool block_unpack_and_transcode_example(void)
 {
     printf("block_unpack_and_transcode_example:\n");
-    
+
     for (uint32_t test_block_iter = 0; test_block_iter < NUM_TEST_BLOCKS; test_block_iter++)
     {
         printf("-- Test block %u:\n", test_block_iter);
@@ -431,7 +431,7 @@ static bool block_unpack_and_transcode_example(void)
         const uint8_t* pASTC_blk = &g_test_blocks[test_block_iter * 2 + 0][0];
         const uint8_t* pBC6H_blk = &g_test_blocks[test_block_iter * 2 + 1][0];
 
-        // Unpack the physical ASTC block to logical. 
+        // Unpack the physical ASTC block to logical.
         // Note this is a full ASTC block unpack, and is not specific to UASTC. It does not verify that the block follows the UASTC HDR spec, only ASTC.
         astc_helpers::log_astc_block log_blk;
         bool status = astc_helpers::unpack_block(pASTC_blk, log_blk, 4, 4);
@@ -470,7 +470,7 @@ static bool block_unpack_and_transcode_example(void)
             return false;
         }
     } // test_block_iter
-        
+
     printf("Transcode test OK\n");
 
     return true;
@@ -492,7 +492,7 @@ static void fuzz_uastc_hdr_transcoder_test()
     for (uint32_t t = 0; t < NUM_TRIES; t++)
     {
         basist::astc_blk astc_blk;
-                
+
         if (rg.frand(0.0f, 1.0f) < .3f)
         {
             // Fully random block
@@ -578,7 +578,7 @@ enum class codec_class
 bool random_compression_fuzz_test()
 {
     printf("Random XUASTC/ASTC LDR 4x4-12x12 compression test:\n");
-    
+
     //const uint32_t N = 256;
     const uint32_t N = 64;
     const uint32_t MAX_WIDTH = 1024, MAX_HEIGHT = 1024;
@@ -778,7 +778,7 @@ bool random_compression_fuzz_test()
                             }
                             else
                                 src_img(x, y) = q;
-                        } // x 
+                        } // x
                     } // y
                 }
                 else
@@ -954,7 +954,7 @@ bool random_compression_fuzz_test()
 
     // Success here is essentially not crashing or asserting or SAN'ing earlier
     printf("Success\n");
-        
+
     return true;
 }
 
@@ -962,7 +962,7 @@ int main(int arg_c, char* arg_v[])
 {
     BASISU_NOTE_UNUSED(arg_c);
     BASISU_NOTE_UNUSED(arg_v);
-        
+
 #if USE_ENCODER
 	basisu_encoder_init(USE_OPENCL, false);
 
@@ -973,7 +973,7 @@ int main(int arg_c, char* arg_v[])
         return EXIT_FAILURE;
 
     fuzz_uastc_hdr_transcoder_test();
-    
+
     if (!encode_etc1s())
     {
         fprintf(stderr, "encode_etc1s() failed!\n");

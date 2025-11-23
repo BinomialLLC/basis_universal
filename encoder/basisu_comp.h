@@ -43,10 +43,10 @@ namespace basisu
 	const uint32_t BASISU_MAX_SUPPORTED_TEXTURE_DIMENSION = 16384;
 
 	// Allow block's color distance to increase by 1.5 while searching for an alternative nearby endpoint.
-	const float BASISU_DEFAULT_ENDPOINT_RDO_THRESH = 1.5f; 
-	
+	const float BASISU_DEFAULT_ENDPOINT_RDO_THRESH = 1.5f;
+
 	// Allow block's color distance to increase by 1.25 while searching the selector history buffer for a close enough match.
-	const float BASISU_DEFAULT_SELECTOR_RDO_THRESH = 1.25f; 
+	const float BASISU_DEFAULT_SELECTOR_RDO_THRESH = 1.25f;
 
 	const int BASISU_DEFAULT_QUALITY = 128;
 	const float BASISU_DEFAULT_HYBRID_SEL_CB_QUALITY_THRESH = 2.0f;
@@ -75,7 +75,7 @@ namespace basisu
 			m_filename.clear();
 			m_width = 0;
 			m_height = 0;
-						
+
 			m_basis_rgb_avg_psnr = 0.0f;
 			m_basis_rgb_avg_log2_psnr = 0.0f;
 
@@ -94,7 +94,7 @@ namespace basisu
 			m_bc7_luma_709_psnr = 0.0f;
 			m_bc7_luma_601_psnr = 0.0f;
 			m_bc7_luma_709_ssim = 0.0f;
-						
+
 			m_best_etc1s_rgb_avg_psnr = 0.0f;
 			m_best_etc1s_luma_709_psnr = 0.0f;
 			m_best_etc1s_luma_601_psnr = 0.0f;
@@ -128,7 +128,7 @@ namespace basisu
 		float m_bc7_luma_709_psnr;
 		float m_bc7_luma_601_psnr;
 		float m_bc7_luma_709_ssim;
-		
+
 		// LDR: Highest achievable quality ETC1S statistics
 		float m_best_etc1s_rgb_avg_psnr;
 		float m_best_etc1s_luma_709_psnr;
@@ -141,7 +141,7 @@ namespace basisu
 	enum class hdr_modes
 	{
 		// standard but constrained ASTC HDR 4x4 tex data that can be rapidly transcoded to BC6H
-		cUASTC_HDR_4X4, 
+		cUASTC_HDR_4X4,
 		// standard RDO optimized or non-RDO (highest quality) ASTC HDR 6x6 tex data that can be rapidly re-encoded to BC6H
 		cASTC_HDR_6X6,
 		// a custom intermediate format based off ASTC HDR that can be rapidly decoded straight to ASTC HDR or re-encoded to BC6H
@@ -301,7 +301,7 @@ namespace basisu
 
 			m_no_endpoint_rdo.clear();
 			m_endpoint_rdo_thresh.clear();
-						
+
 			m_mip_gen.clear();
 			m_mip_scale.clear();
 			m_mip_filter = "kaiser";
@@ -349,13 +349,13 @@ namespace basisu
 			m_ldr_hdr_upconversion_srgb_to_linear.clear();
 
 			m_hdr_favor_astc.clear();
-			
+
 			m_uastc_hdr_4x4_options.init();
 			m_astc_hdr_6x6_options.clear();
 
 			m_ldr_hdr_upconversion_nit_multiplier.clear();
 			m_ldr_hdr_upconversion_black_bias.clear();
-			
+
 			m_pJob_pool = nullptr;
 		}
 
@@ -405,10 +405,10 @@ namespace basisu
 			}
 		}
 
-		// By default we generate LDR ETC1S data. 
+		// By default we generate LDR ETC1S data.
 		// if m_uastc is true but m_hdr is not true, we generate UASTC 4x4 LDR data (8bpp with or without RDO).
 		// if m_uastc is true and m_hdr is true, we generate 4x4 or 6x6 HDR data (either standard ASTC, constrained ASTC, RDO ASTC, or intermediate), controlled by m_hdr_mode.
-		
+
 		// True to generate UASTC .basis/.KTX2 file data, otherwise ETC1S.
 		// Should be true for any non-ETC1S format (UASTC 4x4 LDR, UASTC 4x4 HDR, RDO ASTC 6x6 HDR, and ASTC 6x6 HDR intermediate).
 		bool_param<false> m_uastc;
@@ -419,25 +419,25 @@ namespace basisu
 
 		// If m_hdr is true, this specifies which mode we operate in (currently UASTC 4x4 HDR or ASTC 6x6 HDR). Defaults to UASTC 4x4 HDR for backwards compatibility.
 		hdr_modes m_hdr_mode;
-				
+
 		bool_param<false> m_use_opencl;
 
-		// If m_read_source_images is true, m_source_filenames (and optionally m_source_alpha_filenames) contains the filenames of PNG etc. images to read. 
+		// If m_read_source_images is true, m_source_filenames (and optionally m_source_alpha_filenames) contains the filenames of PNG etc. images to read.
 		// Otherwise, the compressor processes the images in m_source_images or m_source_images_hdr.
 		basisu::vector<std::string> m_source_filenames;
 		basisu::vector<std::string> m_source_alpha_filenames;
-		
+
 		basisu::vector<image> m_source_images;
-		
+
 		basisu::vector<imagef> m_source_images_hdr;
-				
+
 		// Stores mipmaps starting from level 1. Level 0 is still stored in m_source_images, as usual.
 		// If m_source_mipmaps isn't empty, automatic mipmap generation isn't done. m_source_mipmaps.size() MUST equal m_source_images.size() or the compressor returns an error.
 		// The compressor applies the user-provided swizzling (in m_swizzle) to these images.
 		basisu::vector< basisu::vector<image> > m_source_mipmap_images;
 
 		basisu::vector< basisu::vector<imagef> > m_source_mipmap_images_hdr;
-						
+
 		// Filename of the output basis/ktx2 file
 		std::string m_out_filename;
 
@@ -448,19 +448,19 @@ namespace basisu
 
 		// If true, the compressor will print basis status to stdout during compression.
 		bool_param<true> m_status_output;
-		
+
 		// Output debug information during compression
 		bool_param<false> m_debug;
 		bool_param<false> m_validate_etc1s;
-		
+
 		// m_debug_images is pretty slow
 		bool_param<false> m_debug_images;
 
-		// ETC1S compression level, from 0 to BASISU_MAX_COMPRESSION_LEVEL (higher is slower). 
+		// ETC1S compression level, from 0 to BASISU_MAX_COMPRESSION_LEVEL (higher is slower).
 		// This parameter controls numerous internal encoding speed vs. compression efficiency/performance tradeoffs.
 		// Note this is NOT the same as the ETC1S quality level, and most users shouldn't change this.
 		param<int> m_compression_level;
-						
+
 		// Use perceptual sRGB colorspace metrics instead of linear
 		bool_param<true> m_perceptual;
 
@@ -476,20 +476,20 @@ namespace basisu
 
 		// Write the output basis/ktx2 file to disk using m_out_filename
 		bool_param<false> m_write_output_basis_or_ktx2_files;
-								
-		// Compute and display image metrics 
+
+		// Compute and display image metrics
 		bool_param<false> m_compute_stats;
 
 		// Print stats to stdout, if m_compute_stats is true.
 		bool_param<true> m_print_stats;
-		
+
 		// Check to see if any input image has an alpha channel, if so then the output basis/ktx2 file will have alpha channels
 		bool_param<true> m_check_for_alpha;
-		
+
 		// Always put alpha slices in the output basis/ktx2 file, even when the input doesn't have alpha
-		bool_param<false> m_force_alpha; 
+		bool_param<false> m_force_alpha;
 		bool_param<true> m_multithreading;
-		
+
 		// Split the R channel to RGB and the G channel to alpha, then write a basis/ktx2 file with alpha channels
 		uint8_t m_swizzle[4];
 
@@ -498,25 +498,25 @@ namespace basisu
 		// If true the front end will not use 2 level endpoint codebook searching, for slightly higher quality but much slower execution.
 		// Note some m_compression_level's disable this automatically.
 		bool_param<false> m_disable_hierarchical_endpoint_codebooks;
-						
+
 		// mipmap generation parameters
 		bool_param<false> m_mip_gen;
 		param<float> m_mip_scale;
 		std::string m_mip_filter;
 		bool_param<false> m_mip_srgb;
 		bool_param<true> m_mip_premultiplied; // not currently supported
-		bool_param<false> m_mip_renormalize; 
+		bool_param<false> m_mip_renormalize;
 		bool_param<true> m_mip_wrapping;
 		bool_param<true> m_mip_fast;
 		param<int> m_mip_smallest_dimension;
-						
-		// ETC1S codebook size (quality) control. 
+
+		// ETC1S codebook size (quality) control.
 		// If m_etc1s_quality_level != -1, it controls the quality level. It ranges from [1,255] or [BASISU_QUALITY_MIN, BASISU_QUALITY_MAX].
 		// Otherwise m_max_endpoint_clusters/m_max_selector_clusters controls the codebook sizes directly.
 		uint32_t m_etc1s_max_endpoint_clusters;
 		uint32_t m_etc1s_max_selector_clusters;
 		int m_etc1s_quality_level;
-		
+
 		// m_tex_type, m_userdata0, m_userdata1, m_framerate - These fields go directly into the .basis file header.
 		basist::basis_texture_type m_tex_type;
 		uint32_t m_userdata0;
@@ -556,11 +556,11 @@ namespace basisu
 		bool_param<false> m_validate_output_data;
 
 		// LDR->HDR upconversion parameters.
-		// 
-		// If true, LDR images (such as PNG) will be converted to normalized [0,1] linear light (via a sRGB->Linear conversion), or absolute luminance (nits or candelas per meter squared), and then processed as HDR. 
+		//
+		// If true, LDR images (such as PNG) will be converted to normalized [0,1] linear light (via a sRGB->Linear conversion), or absolute luminance (nits or candelas per meter squared), and then processed as HDR.
 		// Otherwise, LDR images are assumed to already be in linear light (i.e. they don't use the sRGB transfer function).
 		bool_param<true> m_ldr_hdr_upconversion_srgb_to_linear;
-		
+
 		// m_ldr_hdr_upconversion_nit_multiplier is only used when loading SDR/LDR images and compressing to an HDR output format.
 		// By default m_ldr_hdr_upconversion_nit_multiplier is 0. It's an override for the default.
 		// When loading LDR images, a default multiplier of 1.0 will be used in UASTC 4x4 HDR mode. Partially for backwards compatibility with previous library releases, and also because it doesn't really matter with this encoder what the multiplier is.
@@ -573,7 +573,7 @@ namespace basisu
 
 		// If true, ASTC HDR quality is favored more than BC6H quality. Otherwise it's a rough balance.
 		bool_param<false> m_hdr_favor_astc;
-						
+
 		job_pool *m_pJob_pool;
 	};
 
@@ -588,7 +588,7 @@ namespace basisu
 
 		// Note it *should* be possible to call init() multiple times with different inputs, but this scenario isn't well tested. Ideally, create 1 object, compress, then delete it.
 		bool init(const basis_compressor_params &params);
-		
+
 		enum error_code
 		{
 			cECSuccess = 0,
@@ -609,7 +609,7 @@ namespace basisu
 
 		// The output .basis file will always be valid of process() succeeded.
 		const uint8_vec &get_output_basis_file() const { return m_output_basis_file; }
-		
+
 		// The output .ktx2 file will only be valid if m_create_ktx2_file was true and process() succeeded.
 		const uint8_vec& get_output_ktx2_file() const { return m_output_ktx2_file; }
 
@@ -617,18 +617,18 @@ namespace basisu
 
 		uint32_t get_basis_file_size() const { return m_basis_file_size; }
 		double get_basis_bits_per_texel() const { return m_basis_bits_per_texel; }
-		
+
 		bool get_any_source_image_has_alpha() const { return m_any_source_image_has_alpha; }
 
 		bool get_opencl_failed() const { return m_opencl_failed; }
-								
+
 	private:
 		basis_compressor_params m_params;
-				
+
 		opencl_context_ptr m_pOpenCL_context;
 
 		basist::basis_tex_format m_fmt_mode;
-		
+
 		basisu::vector<image> m_slice_images;
 		basisu::vector<imagef> m_slice_images_hdr;
 
@@ -636,11 +636,11 @@ namespace basisu
 
 		uint32_t m_basis_file_size;
 		double m_basis_bits_per_texel;
-						
+
 		basisu_backend_slice_desc_vec m_slice_descs;
 
 		uint32_t m_total_blocks;
-		
+
 		basisu_frontend m_frontend;
 
 		// These are 4x4 blocks.
@@ -658,7 +658,7 @@ namespace basisu
 
 		basisu::vector<gpu_image> m_decoded_output_textures;			// BC6H in HDR mode
 		basisu::vector<image> m_decoded_output_textures_unpacked;
-		
+
 		basisu::vector<gpu_image> m_decoded_output_textures_bc7;
 		basisu::vector<image> m_decoded_output_textures_unpacked_bc7;
 
@@ -669,16 +669,16 @@ namespace basisu
 
 		uint8_vec m_output_basis_file;
 		uint8_vec m_output_ktx2_file;
-		
+
 		basisu::vector<gpu_image> m_uastc_slice_textures;
 		basisu_backend_output m_uastc_backend_output;
 
 		// The amount the HDR input has to be scaled up in case it had to be rescaled to fit into half floats.
-		float m_hdr_image_scale; 
-		
+		float m_hdr_image_scale;
+
 		// The upconversion multiplier used to load LDR images in HDR mode.
 		float m_ldr_to_hdr_upconversion_nit_multiplier;
-		
+
 		// True if any loaded source images were LDR and upconverted to HDR.
 		bool m_upconverted_any_ldr_images;
 
@@ -741,8 +741,8 @@ namespace basisu
 			return 4;
 		}
 	};
-				
-	// Alternative simple C-style wrapper API around the basis_compressor class. 
+
+	// Alternative simple C-style wrapper API around the basis_compressor class.
 	// This doesn't expose every encoder feature, but it's enough to get going.
 	// Important: basisu_encoder_init() MUST be called first before calling these functions.
 	//
@@ -751,16 +751,16 @@ namespace basisu
 	// OR
 	//   pImageRGBA: pointer to a 32-bpp RGBx or RGBA raster image, R first in memory, A last. Top scanline first in memory.
 	//   width/height/pitch_in_pixels: dimensions of pImageRGBA
-	//   
+	//
 	// flags_and_quality: Combination of the above flags logically OR'd with the ETC1S or UASTC level, i.e. "cFlagSRGB | cFlagGenMipsClamp | cFlagThreaded | 128" or "cFlagSRGB | cFlagGenMipsClamp | cFlagUASTC | cFlagThreaded | cPackUASTCLevelDefault".
 	//	  In ETC1S mode, the lower 8-bits are the ETC1S quality level which ranges from [1,255] (higher=better quality/larger files)
 	//	  In UASTC mode, the lower 8-bits are the UASTC LDR/HDR pack level (see cPackUASTCLevelFastest, etc.). Fastest/lowest quality is 0, so be sure to set it correctly. Valid values are [0,4] for both LDR/HDR.
 	//	  In UASTC mode, be sure to set this, otherwise it defaults to 0 (fastest/lowest quality).
-	// 
+	//
 	// uastc_rdo_quality: Float UASTC RDO quality level (0=no change, higher values lower quality but increase compressibility, initially try .5-1.5)
-	// 
+	//
 	// pSize: Returns the output data's compressed size in bytes
-	// 
+	//
 	// Return value is the compressed .basis or .ktx2 file data, or nullptr on failure. Must call basis_free() to free it.
 	enum
 	{
@@ -774,14 +774,14 @@ namespace basisu
 		cFlagSRGB = 1 << 13,			// input texture is sRGB, use perceptual colorspace metrics, also use sRGB filtering during mipmap gen, and also sets KTX2 output transfer func to sRGB
 		cFlagGenMipsClamp = 1 << 14,	// generate mipmaps with clamp addressing
 		cFlagGenMipsWrap = 1 << 15,		// generate mipmaps with wrap addressing
-		
+
 		cFlagYFlip = 1 << 16,			// flip source image on Y axis before compression
-		
+
 		cFlagUASTCRDO = 1 << 17,		// use RDO postprocessing when generating UASTC files (must set uastc_rdo_quality to the quality scalar)
-		
+
 		cFlagPrintStats = 1 << 18,		// print image stats to stdout
 		cFlagPrintStatus = 1 << 19,		// print status to stdout
-		
+
 		cFlagDebugImages = 1 << 20,		// enable status output
 
 		cFlagREC2020 = 1 << 21,			// ASTC 6x6 modes: treat input as REC 2020 vs. the default 709
@@ -789,9 +789,9 @@ namespace basisu
 		cFlagValidateOutput = 1 << 22,	// transcode the output after encoding for testing
 	};
 
-	// This function accepts an array of source images. 
+	// This function accepts an array of source images.
 	// If more than one image is provided, it's assumed the images form a mipmap pyramid and automatic mipmap generation is disabled.
-	// Returns a pointer to the compressed .basis or .ktx2 file data. *pSize is the size of the compressed data. 
+	// Returns a pointer to the compressed .basis or .ktx2 file data. *pSize is the size of the compressed data.
 	// Important: The returned block MUST be manually freed using basis_free_data().
 	// basisu_encoder_init() MUST be called first!
 	// LDR version. To compress the LDR source image as HDR: Use the cFlagHDR flag.
@@ -841,7 +841,7 @@ namespace basisu
 		double m_basis_bits_per_texel;
 		bool m_any_source_image_has_alpha;
 
-		parallel_results() 
+		parallel_results()
 		{
 			clear();
 		}
@@ -857,7 +857,7 @@ namespace basisu
 			m_any_source_image_has_alpha = false;
 		}
 	};
-		
+
 	// Compresses an array of input textures across total_threads threads using the basis_compressor class.
 	// Compressing multiple textures at a time is substantially more efficient than just compressing one at a time.
 	// total_threads must be >= 1.
@@ -865,6 +865,5 @@ namespace basisu
 		uint32_t total_threads,
 		const basisu::vector<basis_compressor_params> &params_vec,
 		basisu::vector< parallel_results > &results_vec);
-		
-} // namespace basisu
 
+} // namespace basisu

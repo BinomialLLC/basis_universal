@@ -272,7 +272,7 @@ namespace basisu
 		size_t c = a + b;
 		return c < a;
 	}
-		
+
 	// Returns false on overflow, true if OK.
 	template<typename T>
 	inline bool can_fit_into_size_t(T val)
@@ -294,7 +294,7 @@ namespace basisu
 
 	template<typename T>
 	class writable_span;
-		
+
 	template<typename T>
 	class readable_span
 	{
@@ -304,7 +304,7 @@ namespace basisu
 		using const_pointer = const T*;
 		using const_reference = const T&;
 		using const_iterator = const T*;
-		
+
 		inline readable_span() :
 			m_p(nullptr),
 			m_size(0)
@@ -941,7 +941,7 @@ namespace basisu
 
 		inline iterator begin() const { return m_p; }
 		inline iterator end() const { assert(m_p || !m_size); return m_p + m_size; }
-		
+
 		inline const_iterator cbegin() const { return m_p; }
 		inline const_iterator cend() const { assert(m_p || !m_size); return m_p + m_size; }
 
@@ -1506,7 +1506,7 @@ namespace basisu
 
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wclass-memaccess"            
+#pragma GCC diagnostic ignored "-Wclass-memaccess"
 #endif
 				if ((m_p) && (other.m_p))
 				{
@@ -1647,7 +1647,7 @@ namespace basisu
 			{
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wclass-memaccess"            
+#pragma GCC diagnostic ignored "-Wclass-memaccess"
 #endif
 				if ((m_p) && (other.m_p))
 					memcpy((void *)m_p, other.m_p, other.m_size * sizeof(T));
@@ -2147,7 +2147,7 @@ namespace basisu
 			if (!try_insert(p, obj))
 				container_abort("vector::insert() failed!\n");
 		}
-				
+
 		// push_front() isn't going to be very fast - it's only here for usability.
 		inline void push_front(const T& obj)
 		{
@@ -2228,7 +2228,7 @@ namespace basisu
 
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wclass-memaccess"            
+#pragma GCC diagnostic ignored "-Wclass-memaccess"
 #endif
 
 				memmove((void *)pDst, pSrc, num_to_move * sizeof(T));
@@ -2239,7 +2239,7 @@ namespace basisu
 			}
 			else
 			{
-				// Type is not bitwise copyable or movable. 
+				// Type is not bitwise copyable or movable.
 				// Move them down one at a time by using the equals operator, and destroying anything that's left over at the end.
 				T* pDst_end = pDst + num_to_move;
 
@@ -2482,7 +2482,7 @@ namespace basisu
 			{
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wclass-memaccess"            
+#pragma GCC diagnostic ignored "-Wclass-memaccess"
 #endif
 				memset(m_p, *reinterpret_cast<const uint8_t*>(&o), m_size);
 
@@ -3102,7 +3102,7 @@ namespace basisu
 		{
 			return try_insert(result, std::move(v.first), std::move(v.second));
 		}
-				
+
 		inline const_iterator find(const Key& k) const
 		{
 			return const_iterator(*this, find_index(k));
@@ -3721,11 +3721,11 @@ namespace basisu
 
 		va_list args;
 		va_start(args, pFmt);
-#ifdef _WIN32		
+#ifdef _WIN32
 		vsprintf_s(buf, sizeof(buf), pFmt, args);
 #else
 		vsnprintf(buf, sizeof(buf), pFmt, args);
-#endif		
+#endif
 		va_end(args);
 
 		return std::string(buf);
@@ -3893,7 +3893,7 @@ namespace basisu
             std::size_t copy_size = std::min(list.size(), N);
             std::copy_n(list.begin(), copy_size, m_data);  // Copy up to min(list.size(), N)
 
-            if (list.size() < N) 
+            if (list.size() < N)
 			{
                 // Initialize the rest of the array
                 std::fill(m_data + copy_size, m_data + N, T{});
@@ -3907,7 +3907,7 @@ namespace basisu
 			return m_data[index];
         }
 
-        BASISU_FORCE_INLINE const T& operator[](std::size_t index) const 
+        BASISU_FORCE_INLINE const T& operator[](std::size_t index) const
 		{
 			if (index >= N)
 				container_abort("fixed_array: Index out of bounds.");
@@ -3950,26 +3950,26 @@ namespace basisu
 		{
 			return writable_span<T>(m_data, N);
 		}
-				
+
     private:
 		BASISU_FORCE_INLINE void initialize_array()
 		{
-            if constexpr (std::is_integral<T>::value || std::is_floating_point<T>::value) 
+            if constexpr (std::is_integral<T>::value || std::is_floating_point<T>::value)
                 memset(m_data, 0, sizeof(m_data));
-            else 
+            else
                 std::fill(m_data, m_data + N, T{});
         }
 
 		BASISU_FORCE_INLINE T& access_element(std::size_t index)
 		{
-            if (index >= N) 
+            if (index >= N)
 				container_abort("fixed_array: Index out of bounds.");
             return m_data[index];
         }
 
 		BASISU_FORCE_INLINE const T& access_element(std::size_t index) const
 		{
-            if (index >= N) 
+            if (index >= N)
 				container_abort("fixed_array: Index out of bounds.");
             return m_data[index];
         }
@@ -4166,7 +4166,7 @@ namespace basisu
 			return *this;
 		}
 	};
-		
+
 } // namespace basisu
 
 namespace std

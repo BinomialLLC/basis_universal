@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #if _MSC_VER
-// For sprintf(), strcpy() 
+// For sprintf(), strcpy()
 #define _CRT_SECURE_NO_WARNINGS (1)
 #pragma warning(disable:4505) //  unreferenced function with internal linkage has been removed
 #pragma warning(disable:4189) // local variable is initialized but not referenced
@@ -88,7 +88,7 @@ enum tool_mode
 static void print_usage()
 {
 	printf("\nUsage: basisu filename [filename ...] <options>\n");
-	
+
 	puts("\n"
 		"The default processing mode is compression of one or more .PNG/.BMP/.TGA/.JPG/.QOI/.DDS/.EXR/.HDR files to a LDR or HDR .KTX2 file. Alternate modes:\n"
 		" -unpack: Use transcoder to unpack a .basis/.KTX2 file to one or more .KTX/.PNG files\n"
@@ -327,7 +327,7 @@ static bool load_listing_file(const std::string &f, basisu::vector<std::string> 
 		{
 			if (read_filename[0] == ' ')
 				read_filename.erase(0, 1);
-			else 
+			else
 				break;
 		}
 
@@ -336,7 +336,7 @@ static bool load_listing_file(const std::string &f, basisu::vector<std::string> 
 			const char c = read_filename.back();
 			if ((c == ' ') || (c == '\n') || (c == '\r'))
 				read_filename.erase(read_filename.size() - 1, 1);
-			else 
+			else
 				break;
 		}
 
@@ -449,7 +449,7 @@ class command_line_params
 
 			m_comp_params.m_astc_hdr_6x6_options.m_master_comp_level = minimum(lo_level, hi_level);
 			m_comp_params.m_astc_hdr_6x6_options.m_highest_comp_level = maximum(lo_level, hi_level);
-			
+
 			if (strcasecmp(pArg, "-hdr_6x6_comp_levels") == 0)
 				m_comp_params.set_format_mode(basist::basis_tex_format::cASTC_HDR_6x6);
 			else
@@ -539,7 +539,7 @@ public:
 		m_tonemap_dither_flag(false)
 	{
 		m_comp_params.m_compression_level = basisu::maximum<int>(0, BASISU_DEFAULT_COMPRESSION_LEVEL - 1);
-		
+
 		m_comp_params.m_uastc_hdr_4x4_options.set_quality_level(uastc_hdr_4x4_codec_options::cDefaultLevel);
 
 		m_test_file_dir = "../test_files";
@@ -559,7 +559,7 @@ public:
 				print_usage();
 				exit(EXIT_SUCCESS);
 			}
-			
+
 			if (strcasecmp(pArg, "-ktx2") == 0)
 			{
 				m_ktx2_mode = true;
@@ -713,15 +713,15 @@ public:
 				int uastc_level = atoi(arg_v[arg_index + 1]);
 
 				uastc_level = clamp<int>(uastc_level, 0, TOTAL_PACK_UASTC_LEVELS - 1);
-								
+
 				static_assert(TOTAL_PACK_UASTC_LEVELS == 5, "TOTAL_PACK_UASTC_LEVELS==5");
 				static const uint32_t s_level_flags[TOTAL_PACK_UASTC_LEVELS] = { cPackUASTCLevelFastest, cPackUASTCLevelFaster, cPackUASTCLevelDefault, cPackUASTCLevelSlower, cPackUASTCLevelVerySlow };
-				
+
 				m_comp_params.m_pack_uastc_ldr_4x4_flags &= ~cPackUASTCLevelMask;
 				m_comp_params.m_pack_uastc_ldr_4x4_flags |= s_level_flags[uastc_level];
 
 				m_comp_params.m_uastc_hdr_4x4_options.set_quality_level(uastc_level);
-												
+
 				arg_count++;
 			}
 			else if (strcasecmp(pArg, "-resample") == 0)
@@ -940,7 +940,7 @@ public:
 			{
 				REMAINING_ARGS_CHECK(1);
 				m_comp_params.m_mip_filter = arg_v[arg_index + 1];
-				// TODO: Check filter 
+				// TODO: Check filter
 				arg_count++;
 			}
 			else if (strcasecmp(pArg, "-mip_renorm") == 0)
@@ -1068,7 +1068,7 @@ public:
 			arg_index += arg_count;
 			assert(arg_index <= arg_c);
 		}
-		
+
 		if (m_comp_params.m_etc1s_quality_level != -1)
 		{
 			m_comp_params.m_etc1s_max_endpoint_clusters = 0;
@@ -1090,7 +1090,7 @@ public:
 			else
 				m_comp_params.m_mip_srgb = false;
 		}
-				
+
 		return true;
 	}
 
@@ -1121,12 +1121,12 @@ public:
 				new_input_alpha_filenames.push_back(m_input_alpha_filenames[i]);
 		}
 		new_input_alpha_filenames.swap(m_input_alpha_filenames);
-		
+
 		return true;
 	}
 
 	basis_compressor_params m_comp_params;
-		
+
 	tool_mode m_mode;
 
 	bool m_ktx2_mode;
@@ -1135,7 +1135,7 @@ public:
 	uint32_t m_ktx2_animdata_duration;
 	uint32_t m_ktx2_animdata_timescale;
 	uint32_t m_ktx2_animdata_loopcount;
-		
+
 	basisu::vector<std::string> m_input_filenames;
 	basisu::vector<std::string> m_input_alpha_filenames;
 
@@ -1153,9 +1153,9 @@ public:
 	std::string m_etc1s_use_global_codebooks_file;
 
 	std::string m_test_file_dir;
-	
+
 	uint32_t m_max_threads;
-		
+
 	bool m_individual;
 	bool m_no_ktx;
 	bool m_ktx_only;
@@ -1172,13 +1172,13 @@ static bool expand_multifile(command_line_params &opts)
 {
 	if (!opts.m_multifile_printf.size())
 		return true;
-	
+
 	if (!opts.m_multifile_num)
 	{
 		error_printf("-multifile_printf specified, but not -multifile_num\n");
 		return false;
 	}
-	
+
 	std::string fmt(opts.m_multifile_printf);
 	// Workaround for MSVC debugger issues. Questionable to leave in here.
 	size_t x = fmt.find_first_of('!');
@@ -1190,15 +1190,15 @@ static bool expand_multifile(command_line_params &opts)
 		error_printf("Must include C-style printf() format character '%%' in -multifile_printf string\n");
 		return false;
 	}
-		
+
 	for (uint32_t i = opts.m_multifile_first; i < opts.m_multifile_first + opts.m_multifile_num; i++)
 	{
 		char buf[1024];
-#ifdef _WIN32		
+#ifdef _WIN32
 		sprintf_s(buf, sizeof(buf), fmt.c_str(), i);
 #else
 		snprintf(buf, sizeof(buf), fmt.c_str(), i);
-#endif		
+#endif
 
 		if (buf[0])
 			opts.m_input_filenames.push_back(buf);
@@ -1209,8 +1209,8 @@ static bool expand_multifile(command_line_params &opts)
 
 struct basis_data
 {
-	basis_data() : 
-		m_transcoder() 
+	basis_data() :
+		m_transcoder()
 	{
 	}
 	uint8_vec m_file_data;
@@ -1275,7 +1275,7 @@ static bool compress_mode(command_line_params &opts)
 	job_pool compressor_jpool(opts.m_parallel_compression ? 1 : num_threads);
 	if (!opts.m_parallel_compression)
 		opts.m_comp_params.m_pJob_pool = &compressor_jpool;
-		
+
 	if (!expand_multifile(opts))
 	{
 		error_printf("-multifile expansion failed!\n");
@@ -1287,7 +1287,7 @@ static bool compress_mode(command_line_params &opts)
 		error_printf("No input files to process!\n");
 		return false;
 	}
-		
+
 	basis_data* pGlobal_codebook_data = nullptr;
 	if (opts.m_etc1s_use_global_codebooks_file.size())
 	{
@@ -1297,7 +1297,7 @@ static bool compress_mode(command_line_params &opts)
 
 		printf("Loaded global codebooks from .basis file \"%s\"\n", opts.m_etc1s_use_global_codebooks_file.c_str());
 	}
-						
+
 	basis_compressor_params &params = opts.m_comp_params;
 
 	if (opts.m_ktx2_mode)
@@ -1307,7 +1307,7 @@ static bool compress_mode(command_line_params &opts)
 			params.m_ktx2_uastc_supercompression = basist::KTX2_SS_ZSTANDARD;
 		else
 			params.m_ktx2_uastc_supercompression = basist::KTX2_SS_NONE;
-		
+
 		params.m_ktx2_srgb_transfer_func = opts.m_comp_params.m_perceptual;
 
 		if (params.m_tex_type == basist::basis_texture_type::cBASISTexTypeVideoFrames)
@@ -1319,7 +1319,7 @@ static bool compress_mode(command_line_params &opts)
 			const char* pAD = "KTXanimData";
 			kv.m_key.resize(strlen(pAD) + 1);
 			strcpy((char*)kv.m_key.data(), pAD);
-			
+
 			basist::ktx2_animdata ad;
 			ad.m_duration = opts.m_ktx2_animdata_duration;
 			ad.m_timescale = opts.m_ktx2_animdata_timescale;
@@ -1330,15 +1330,15 @@ static bool compress_mode(command_line_params &opts)
 
 			params.m_ktx2_key_values.push_back(kv);
 		}
-		
+
 		// TODO- expose this to command line.
 		params.m_ktx2_zstd_supercompression_level = opts.m_ktx2_zstandard_level;
 	}
 
 	params.m_read_source_images = true;
 	params.m_write_output_basis_or_ktx2_files = true;
-	params.m_pGlobal_codebooks = pGlobal_codebook_data ? &pGlobal_codebook_data->m_transcoder.get_lowlevel_etc1s_decoder() : nullptr; 
-	
+	params.m_pGlobal_codebooks = pGlobal_codebook_data ? &pGlobal_codebook_data->m_transcoder.get_lowlevel_etc1s_decoder() : nullptr;
+
 	FILE *pCSV_file = nullptr;
 	if (opts.m_csv_file.size())
 	{
@@ -1354,7 +1354,7 @@ static bool compress_mode(command_line_params &opts)
 	}
 
 	printf("Processing %u total file(s)\n", (uint32_t)opts.m_input_filenames.size());
-				
+
 	interval_timer all_tm;
 	all_tm.start();
 
@@ -1403,7 +1403,7 @@ static bool compress_mode(command_line_params &opts)
 			params.m_source_filenames = opts.m_input_filenames;
 			params.m_source_alpha_filenames = opts.m_input_alpha_filenames;
 		}
-								
+
 		if (opts.m_output_filename.size())
 			params.m_out_filename = opts.m_output_filename;
 		else
@@ -1591,7 +1591,7 @@ static bool compress_mode(command_line_params &opts)
 			comp_params_vec,
 			results);
 		BASISU_NOTE_UNUSED(any_failed);
-				
+
 		for (uint32_t i = 0; i < comp_params_vec.size(); i++)
 		{
 			if (results[i].m_error_code != basis_compressor::cECSuccess)
@@ -1600,8 +1600,8 @@ static bool compress_mode(command_line_params &opts)
 
 				total_failures++;
 
-				error_printf("File %u (first source image: \"%s\", output file: \"%s\") failed with error code %i!\n", i, 
-					comp_params_vec[i].m_source_filenames[0].c_str(), 
+				error_printf("File %u (first source image: \"%s\", output file: \"%s\") failed with error code %i!\n", i,
+					comp_params_vec[i].m_source_filenames[0].c_str(),
 					comp_params_vec[i].m_out_filename.c_str(),
 					(int)results[i].m_error_code);
 			}
@@ -1610,11 +1610,11 @@ static bool compress_mode(command_line_params &opts)
 				total_successes++;
 			}
 		}
-				
+
 	} // if (opts.m_parallel_compression)
 
 	printf("Total successes: %u failures: %u\n", total_successes, total_failures);
-		
+
 	all_tm.stop();
 
 	if (total_files > 1)
@@ -1625,7 +1625,7 @@ static bool compress_mode(command_line_params &opts)
 		fclose(pCSV_file);
 		pCSV_file = nullptr;
 	}
-	delete pGlobal_codebook_data; 
+	delete pGlobal_codebook_data;
 	pGlobal_codebook_data = nullptr;
 
 	return result;
@@ -1666,7 +1666,7 @@ static bool unpack_and_validate_ktx2_file(
 		error_printf("ktx2_transcoder::start_transcoding() failed! File either uses an unsupported feature, is invalid, was corrupted, or this is a bug.\n");
 		return false;
 	}
-		
+
 	printf("Resolution: %ux%u\n", dec.get_width(), dec.get_height());
 	fmt_printf("Block size: {}x{}\n", dec.get_block_width(), dec.get_block_height());
 	printf("Mipmap Levels: %u\n", dec.get_levels());
@@ -1676,9 +1676,9 @@ static bool unpack_and_validate_ktx2_file(
 
 	if (dec.is_hdr())
 		fmt_printf("LDR to HDR upconversion nit multiplier: {}\n", dec.get_ldr_hdr_upconversion_nit_multiplier());
-		
+
 	const bool is_etc1s = (dec.get_basis_tex_format() == basist::basis_tex_format::cETC1S);
-	
+
 	bool is_hdr = false;
 
 	const char* pFmt_str = nullptr;
@@ -1720,7 +1720,7 @@ static bool unpack_and_validate_ktx2_file(
 	}
 
 	printf("Supercompression Format: %s\n", pFmt_str);
-	
+
 	printf("Supercompression Scheme: ");
 	switch (dec.get_header().m_supercompression_scheme)
 	{
@@ -1733,9 +1733,9 @@ static bool unpack_and_validate_ktx2_file(
 	}
 
 	printf("Has Alpha: %u\n", (uint32_t)dec.get_has_alpha());
-	
+
 	printf("\nKTX2 header vk_format: 0x%X (decimal %u)\n", (uint32_t)dec.get_header().m_vk_format, (uint32_t)dec.get_header().m_vk_format);
-	
+
 	printf("\nData Format Descriptor (DFD):\n");
 	printf("DFD length in bytes: %zu\n", dec.get_dfd().size());
 	printf("DFD color model: %u\n", dec.get_dfd_color_model());
@@ -1752,7 +1752,7 @@ static bool unpack_and_validate_ktx2_file(
 	}
 	else
 		printf("DFD chan0: %s\n", basist::ktx2_get_uastc_df_channel_id_str(dec.get_dfd_channel_id0()));
-		
+
 	printf("DFD hex values:\n");
 	for (uint32_t i = 0; i < dec.get_dfd().size(); i++)
 	{
@@ -1772,13 +1772,13 @@ static bool unpack_and_validate_ktx2_file(
 
 		if (dec.get_key_values()[i].m_value.size() > 256)
 			continue;
-		
+
 		bool is_ascii = true;
 		for (uint32_t j = 0; j < dec.get_key_values()[i].m_value.size(); j++)
 		{
 			uint8_t c = dec.get_key_values()[i].m_value[j];
-			if (!( 
-				((c >= ' ') && (c < 0x80)) || 
+			if (!(
+				((c >= ' ') && (c < 0x80)) ||
 				((j == dec.get_key_values()[i].m_value.size() - 1) && (!c))
 				))
 			{
@@ -1851,10 +1851,10 @@ static bool unpack_and_validate_ktx2_file(
 					error_printf("Failed retrieving image level information (%u %u %u)!\n", layer_index, level_index, face_index);
 					return false;
 				}
-				
+
 				fmt_printf("--- Level Index: {}, Layer Index: {}, Face Index: {}\n",
 					level_info.m_level_index, level_info.m_layer_index, level_info.m_face_index);
-				
+
 				fmt_printf("Orig width/height: {}x{}\n", level_info.m_orig_width, level_info.m_orig_height);
 				fmt_printf("Width/height: {}x{}\n", level_info.m_width, level_info.m_height);
 				fmt_printf("Block width/height: {}x{}\n", level_info.m_block_width, level_info.m_block_height);
@@ -1883,7 +1883,7 @@ static bool unpack_and_validate_ktx2_file(
 		first_format = opts.m_format_only;
 		last_format = first_format + 1;
 	}
-		
+
 	for (int format_iter = first_format; format_iter < last_format; format_iter++)
 	{
 		basist::transcoder_texture_format tex_fmt = static_cast<basist::transcoder_texture_format>(format_iter);
@@ -1966,7 +1966,7 @@ static bool unpack_and_validate_ktx2_file(
 
 					double total_time = tm.get_elapsed_ms();
 
-					printf("Transcode of layer %u level %u face %u res %ux%u format %s succeeded in %3.3f ms\n", layer_index, level_index, face_index, 
+					printf("Transcode of layer %u level %u face %u res %ux%u format %s succeeded in %3.3f ms\n", layer_index, level_index, face_index,
 						level_info.m_orig_width, level_info.m_orig_height, basist::basis_get_format_name(transcoder_tex_fmt), total_time);
 				}
 
@@ -1987,7 +1987,7 @@ static bool unpack_and_validate_ktx2_file(
 	const bool is_mipmapped = dec.get_levels() > 1;
 	BASISU_NOTE_UNUSED(is_cubemap_array);
 	BASISU_NOTE_UNUSED(is_mipmapped);
-	
+
 	// The maximum Direct3D array size is 2048.
 	const uint32_t MAX_DDS_TEXARRAY_SIZE = 2048;
 
@@ -1995,7 +1995,7 @@ static bool unpack_and_validate_ktx2_file(
 	{
 		const basist::transcoder_texture_format transcoder_tex_fmt = static_cast<basist::transcoder_texture_format>(format_iter);
 		const basisu::texture_format tex_fmt = basis_get_basisu_texture_format(transcoder_tex_fmt);
-				
+
 		if (basist::basis_transcoder_format_is_uncompressed(transcoder_tex_fmt))
 			continue;
 		if (!basis_is_format_supported(transcoder_tex_fmt, dec.get_basis_tex_format()))
@@ -2004,7 +2004,7 @@ static bool unpack_and_validate_ktx2_file(
 			continue;
 
 		// TODO: Could write DDS texture arrays.
-		
+
 		// No KTX tool that we know of supports cubemap arrays, so write individual cubemap files for each layer.
 		if ((!opts.m_no_ktx) && (is_cubemap))
 		{
@@ -2025,7 +2025,7 @@ static bool unpack_and_validate_ktx2_file(
 					}
 					printf("Wrote .KTX cubemap file \"%s\"\n", ktx_filename.c_str());
 				}
-								
+
 				if (does_dds_support_format(cubemap[0][0].get_format()))
 				{
 					std::string dds_filename(base_filename + string_format("_transcoded_cubemap_%s_layer_%u.dds", basist::basis_get_format_name(transcoder_tex_fmt), layer_index));
@@ -2226,7 +2226,7 @@ static bool unpack_and_validate_ktx2_file(
 							}
 							printf("Wrote .PNG file \"%s\"\n", rgba_filename.c_str());
 						}
-						
+
 					} // is_hdr
 
 				} // level_index
@@ -2275,8 +2275,8 @@ static bool unpack_and_validate_ktx2_file(
 
 						double total_transcode_time = tm.get_elapsed_ms();
 
-						fmt_printf("Transcode of level {} layer {} face {} res {}x{} format {} succeeded in {} ms\n", 
-							level_index, layer_index, face_index, 
+						fmt_printf("Transcode of level {} layer {} face {} res {}x{} format {} succeeded in {} ms\n",
+							level_index, layer_index, face_index,
 							level_info.m_orig_width, level_info.m_orig_height, basist::basis_get_format_name(transcoder_tex_fmt), total_transcode_time);
 
 						if ((!validate_flag) && (!opts.m_ktx_only))
@@ -2299,7 +2299,7 @@ static bool unpack_and_validate_ktx2_file(
 						}
 
 					} // face_index
-				} // layer_index 
+				} // layer_index
 			} // level_index
 
 			// RGB HALF
@@ -2360,7 +2360,7 @@ static bool unpack_and_validate_ktx2_file(
 						}
 
 					} // face_index
-				} // layer_index 
+				} // layer_index
 			} // level_index
 
 			// RGB HALF
@@ -2420,9 +2420,9 @@ static bool unpack_and_validate_ktx2_file(
 						}
 
 					} // face_index
-				} // layer_index 
+				} // layer_index
 			} // level_index
-						
+
 		}
 		else
 		{
@@ -2437,7 +2437,7 @@ static bool unpack_and_validate_basis_file(
 	uint32_t file_index,
 	const std::string &base_filename,
 	uint8_vec &basis_file_data,
-	command_line_params& opts, 
+	command_line_params& opts,
 	FILE *pCSV_file,
 	basis_data* pGlobal_codebook_data,
 	uint32_t &total_unpack_warnings,
@@ -2460,7 +2460,7 @@ static bool unpack_and_validate_basis_file(
 		if (!dec.validate_file_checksums(&basis_file_data[0], (uint32_t)basis_file_data.size(), true))
 		{
 			error_printf("File version is unsupported, or file failed one or more CRC checks!\n");
-			
+
 			return false;
 		}
 	}
@@ -2489,7 +2489,7 @@ static bool unpack_and_validate_basis_file(
 	fmt_printf("  Block Dimensions: {}x{}\n", fileinfo.m_block_width, fileinfo.m_block_height);
 
 	bool is_hdr = false;
-	
+
 	const char* pFmt_str = nullptr;
 	switch (fileinfo.m_tex_format)
 	{
@@ -2529,7 +2529,7 @@ static bool unpack_and_validate_basis_file(
 	}
 
 	fmt_printf("  Texture format: {}\n", pFmt_str);
-		
+
 	printf("  Texture type: %s\n", basist::basis_get_texture_type_name(fileinfo.m_tex_type));
 	printf("  us per frame: %u (%f fps)\n", fileinfo.m_us_per_frame, fileinfo.m_us_per_frame ? (1.0f / ((float)fileinfo.m_us_per_frame / 1000000.0f)) : 0.0f);
 	printf("  Total slices: %u\n", (uint32_t)fileinfo.m_slice_info.size());
@@ -2623,7 +2623,7 @@ static bool unpack_and_validate_basis_file(
 	printf("start_transcoding time: %3.3f ms\n", start_transcoding_time_ms);
 
 	basisu::vector< gpu_image_vec > gpu_images[(int)basist::transcoder_texture_format::cTFTotalTextureFormats];
-	
+
 	double total_format_transcoding_time_ms[(int)basist::transcoder_texture_format::cTFTotalTextureFormats];
 	clear_obj(total_format_transcoding_time_ms);
 
@@ -2763,11 +2763,11 @@ static bool unpack_and_validate_basis_file(
 
 				// Fill the buffer with psuedo-random bytes, to help more visibly detect cases where the transcoder fails to write to part of the output.
 				fill_buffer_with_random_bytes(gi.get_ptr(), gi.get_size_in_bytes());
-								
+
 				tm.start();
 
 				if (!dec.transcode_slice(
-					&basis_file_data[0], (uint32_t)basis_file_data.size(), 
+					&basis_file_data[0], (uint32_t)basis_file_data.size(),
 					level_info.m_first_slice_index, gi.get_ptr(), gi.get_total_blocks(), basist::block_format::cUASTC_4x4, gi.get_bytes_per_block()))
 				{
 					error_printf("Failed transcoding image level (%u %u) to UASTC!\n", image_index, level_index);
@@ -3012,7 +3012,7 @@ static bool unpack_and_validate_basis_file(
 							}
 							printf("Wrote .PNG file \"%s\"\n", rgba_filename.c_str());
 						}
-					
+
 					} // is_hdr
 
 				} // level_index
@@ -3052,7 +3052,7 @@ static bool unpack_and_validate_basis_file(
 
 					tm.start();
 
-					if (!dec.transcode_image_level(&basis_file_data[0], (uint32_t)basis_file_data.size(), image_index, level_index, 
+					if (!dec.transcode_image_level(&basis_file_data[0], (uint32_t)basis_file_data.size(), image_index, level_index,
 						half_img.get_ptr(), total_pixels, transcoder_tex_fmt, 0, level_info.m_orig_width, nullptr, level_info.m_orig_height))
 					{
 						error_printf("Failed transcoding image level (%u %u %u)!\n", image_index, level_index, transcoder_tex_fmt);
@@ -3391,7 +3391,7 @@ static bool unpack_and_validate_basis_file(
 
 				} // level_index
 			} // image_index
-		
+
 		} // is_hdr
 
 	} // if ((opts.m_format_only == -1) && (!validate_flag))
@@ -3432,7 +3432,7 @@ static bool unpack_and_validate_mode(command_line_params &opts)
 	tm.start();
 
 	//const bool validate_flag = (opts.m_mode == cValidate);
-		
+
 	basis_data* pGlobal_codebook_data = nullptr;
 	if (opts.m_etc1s_use_global_codebooks_file.size())
 	{
@@ -3499,7 +3499,7 @@ static bool unpack_and_validate_mode(command_line_params &opts)
 			delete pGlobal_codebook_data; pGlobal_codebook_data = nullptr;
 			return false;
 		}
-		
+
 		bool is_ktx2 = false;
 		if (file_data.size() >= sizeof(basist::g_ktx2_file_identifier))
 		{
@@ -3536,10 +3536,10 @@ static bool unpack_and_validate_mode(command_line_params &opts)
 
 		if (!status)
 		{
-			if (pCSV_file) 
+			if (pCSV_file)
 				fclose(pCSV_file);
 
-			delete pGlobal_codebook_data; 
+			delete pGlobal_codebook_data;
 			pGlobal_codebook_data = nullptr;
 
 			return false;
@@ -3562,7 +3562,7 @@ static bool unpack_and_validate_mode(command_line_params &opts)
 		fclose(pCSV_file);
 		pCSV_file = nullptr;
 	}
-	delete pGlobal_codebook_data; 
+	delete pGlobal_codebook_data;
 	pGlobal_codebook_data = nullptr;
 
 	return true;
@@ -3608,7 +3608,7 @@ static bool hdr_compare_mode(command_line_params& opts)
 	printf("Comparison image res: %ux%u\n", a.get_width(), a.get_height());
 
 	image_metrics im;
-		
+
 	im.calc_half(a, b, 0, 1, true);
 	im.print("R      ");
 
@@ -3700,7 +3700,7 @@ static bool compare_mode(command_line_params &opts)
 
 	im.calc(a, b, 0, 0, true, true);
 	im.print("Y 601  " );
-	
+
 	if (opts.m_compare_ssim)
 	{
 		vec4F s_rgb(compute_ssim(a, b, false, false));
@@ -3743,7 +3743,7 @@ static bool compare_mode(command_line_params &opts)
 
 	save_png("delta_img_rgb.png", delta_img, cImageSaveIgnoreAlpha);
 	printf("Wrote delta_img_rgb.png\n");
-	
+
 	save_png("delta_img_a.png", delta_img, cImageSaveGrayscale, 3);
 	printf("Wrote delta_img_a.png\n");
 
@@ -3925,7 +3925,7 @@ static bool compare_mode(command_line_params &opts)
 		}
 
 	} // display_plot
-	
+
 	return true;
 }
 
@@ -3964,7 +3964,7 @@ static bool split_image_mode(command_line_params& opts)
 		}
 		printf("Wrote file %s\n", buf);
 	}
-	
+
 	return true;
 }
 
@@ -4009,7 +4009,7 @@ static bool combine_images_mode(command_line_params& opts)
 	const char* pOutput_filename = "combined.png";
 	if (opts.m_output_filename.size())
 		pOutput_filename = opts.m_output_filename.c_str();
-		
+
 	if (!save_png(pOutput_filename, combined_img))
 	{
 		fprintf(stderr, "Failed writing file %s\n", pOutput_filename);
@@ -4051,7 +4051,7 @@ static bool tonemap_image_mode(command_line_params& opts)
 		string_combine_path(output_filename, opts.m_output_path.c_str(), output_filename.c_str());
 
 	const char* pBasename = output_filename.c_str();
-	
+
 	image srgb_img(width, height);
 	image lin_img(width, height);
 
@@ -4064,7 +4064,7 @@ static bool tonemap_image_mode(command_line_params& opts)
 			p[0] = clamp(p[0], 0.0f, 1.0f);
 			p[1] = clamp(p[1], 0.0f, 1.0f);
 			p[2] = clamp(p[2], 0.0f, 1.0f);
-						
+
 			{
 				int rc = (int)std::round(linear_to_srgb(p[0]) * 255.0f);
 				int gc = (int)std::round(linear_to_srgb(p[1]) * 255.0f);
@@ -4116,7 +4116,7 @@ static bool tonemap_image_mode(command_line_params& opts)
 	for (int e = -6; e <= 6; e++)
 	{
 		const float scale = powf(2.0f, (float)e);
-				
+
 		tonemap_image_reinhard(tonemapped_img, hdr_img, scale, opts.m_tonemap_dither_flag);
 
 		std::string filename(string_format("%s_reinhard_tonemapped_scale_%f.png", pBasename, scale));
@@ -4183,10 +4183,10 @@ const struct test_file
 	uint32_t m_etc1s_size;
 	float m_etc1s_psnr;
 	float m_uastc_psnr;
-	
+
 	uint32_t m_etc1s_128_size;
     float m_etc1s_128_psnr;
-} g_test_files[] = 
+} g_test_files[] =
 {
 	{ "black_1x1.png", 189, 100.0f, 100.0f, 189, 100.0f },
 	{ "kodim01.png", 30993, 27.40f, 44.14f, 58354, 30.356064f },
@@ -4264,7 +4264,7 @@ static bool test_mode_ldr(command_line_params& opts)
 
 		// Test ETC1S
 		flags_and_quality = (opts.m_comp_params.m_multithreading ? cFlagThreaded : 0) | cFlagPrintStats | cFlagPrintStatus;
-		
+
 		{
 			printf("**** Testing ETC1S non-OpenCL level 1\n");
 
@@ -4475,7 +4475,7 @@ static bool test_mode_hdr(command_line_params& opts, basist::basis_tex_format te
 	fmt_printf("test_mode_hdr: Testing basis_tex_format {}, lambda {}\n", (uint32_t)tex_fmt, lambda);
 
 	uint32_t total_mismatches = 0;
-					
+
 #ifdef USE_TIGHTER_TEST_TOLERANCES
 	// The PSNR's above were created with a MSVC compiled executable, x64. Hopefully this is not too low a threshold.
 	const float PSNR_THRESHOLD = .125f;
@@ -4483,7 +4483,7 @@ static bool test_mode_hdr(command_line_params& opts, basist::basis_tex_format te
 	// Minor differences in how floating point code is optimized can result in slightly different generated files.
 	const float PSNR_THRESHOLD = .3f;
 #endif
-	
+
 	double highest_delta = 0.0f;
 
 	// TODO: This doesn't test all 6x6 levels, but that's fine for now.
@@ -4509,7 +4509,7 @@ static bool test_mode_hdr(command_line_params& opts, basist::basis_tex_format te
 		}
 
 		printf("Loaded file \"%s\", dimemsions %ux%u\n", filename.c_str(), source_image.get_width(), source_image.get_height());
-				
+
 		for (uint32_t uastc_hdr_level = 0; uastc_hdr_level <= MAX_ASTC_HDR_4x4_TEST_LEVEL; uastc_hdr_level++)
 		{
 			image_stats stats;
@@ -4523,7 +4523,7 @@ static bool test_mode_hdr(command_line_params& opts, basist::basis_tex_format te
 			flags_and_quality |= uastc_hdr_level;
 
 			void* pData = basis_compress(tex_fmt,
-				source_imagesf, flags_and_quality, lambda, 
+				source_imagesf, flags_and_quality, lambda,
 				&data_size, &stats);
 			if (!pData)
 			{
@@ -4534,7 +4534,7 @@ static bool test_mode_hdr(command_line_params& opts, basist::basis_tex_format te
 
 			double delta1, delta2;
 
-			printf("ASTC PSNR: %f (expected %f, delta %f), BC6H PSNR: %f (expected %f, delta %f)\n", 
+			printf("ASTC PSNR: %f (expected %f, delta %f), BC6H PSNR: %f (expected %f, delta %f)\n",
 				stats.m_basis_rgb_avg_log2_psnr, pTest_files[i].m_level_psnr_astc[uastc_hdr_level], delta1 = fabs(stats.m_basis_rgb_avg_log2_psnr - pTest_files[i].m_level_psnr_astc[uastc_hdr_level]),
 				stats.m_basis_rgb_avg_bc6h_log2_psnr, pTest_files[i].m_level_psnr_bc6h[uastc_hdr_level], delta2 = fabs(stats.m_basis_rgb_avg_bc6h_log2_psnr - pTest_files[i].m_level_psnr_bc6h[uastc_hdr_level]));
 
@@ -4608,7 +4608,7 @@ static bool test_mode_hdr(command_line_params& opts, basist::basis_tex_format te
 static bool clbench_mode(command_line_params& opts)
 {
 	BASISU_NOTE_UNUSED(opts);
-	
+
 	bool opencl_failed = false;
 	bool use_cl = basis_benchmark_etc1s_opencl(&opencl_failed);
 	if (use_cl)
@@ -4641,7 +4641,7 @@ static void force_san_failure()
 
 static int main_internal(int argc, const char **argv)
 {
-	printf("Basis Universal LDR/HDR GPU Texture Compression and Transcoding System v" BASISU_TOOL_VERSION 
+	printf("Basis Universal LDR/HDR GPU Texture Compression and Transcoding System v" BASISU_TOOL_VERSION
 #if defined(_ARM64EC_) || defined(_ARM64_)
 	" (ARM64)"
 #elif defined(_M_IX86)
@@ -4661,7 +4661,7 @@ static int main_internal(int argc, const char **argv)
 	// See if OpenCL support has been disabled. We don't want to parse the command line until the lib is initialized
 	bool use_opencl = false;
 	bool opencl_force_serialization = false;
-	
+
 	for (int i = 1; i < argc; i++)
 	{
 		if ((strcmp(argv[i], "-opencl") == 0) || (strcmp(argv[i], "-clbench") == 0))
@@ -4676,17 +4676,17 @@ static int main_internal(int argc, const char **argv)
 		fprintf(stderr, "WARNING: -opencl specified, but OpenCL support was not enabled at compile time! With cmake, use -D BASISU_OPENCL=1. Falling back to CPU compression.\n");
 	}
 #endif
-		
+
 	basisu_encoder_init(use_opencl, opencl_force_serialization);
 
 	//printf("Encoder and transcoder libraries initialized in %3.3f ms\n", tm.get_elapsed_ms());
-		
+
 	if (argc == 1)
 	{
 		print_usage();
 		return EXIT_FAILURE;
 	}
-		
+
 	command_line_params opts;
 	if (!opts.parse(argc, argv))
 	{
@@ -4699,7 +4699,7 @@ static int main_internal(int argc, const char **argv)
 #else
 	printf("No SSE, Multithreading: %u, Zstandard support: %u, OpenCL: %u\n", (uint32_t)opts.m_comp_params.m_multithreading, basist::basisu_transcoder_supports_ktx2_zstd(), opencl_is_available());
 #endif
-		
+
 	if (!opts.process_listing_files())
 		return EXIT_FAILURE;
 
@@ -4756,7 +4756,7 @@ static int main_internal(int argc, const char **argv)
 		break;
 	case cTestHDR_6x6i:
 		status = test_mode_hdr(opts, basist::basis_tex_format::cASTC_HDR_6x6_INTERMEDIATE, std::size(g_hdr_6x6i_test_files), g_hdr_6x6i_test_files, 0.0f);
-		
+
 		if (status)
 		{
 			status = test_mode_hdr(opts, basist::basis_tex_format::cASTC_HDR_6x6_INTERMEDIATE, std::size(g_hdr_6x6i_l_test_files), g_hdr_6x6i_l_test_files, 500.0f);
@@ -4786,7 +4786,7 @@ static int main_internal(int argc, const char **argv)
 //-----------------------------------------------------------------------------------
 
 #if CLEAR_WIN32_CONSOLE
-void clear_console() 
+void clear_console()
 {
 	//if (!IsDebuggerPresent())
 	//	return;
@@ -4826,7 +4826,7 @@ int main(int argc, const char** argv)
 #ifdef __SANITIZE_ADDRESS__
 	printf("Address sanitizer enabled\n");
 #endif
-		
+
 	int status = EXIT_FAILURE;
 
 #if BASISU_CATCH_EXCEPTIONS
@@ -4848,4 +4848,3 @@ int main(int argc, const char** argv)
 
 	return status;
 }
-

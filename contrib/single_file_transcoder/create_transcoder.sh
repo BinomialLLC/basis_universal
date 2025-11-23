@@ -39,5 +39,3 @@ else
   fi
   echo "Running simple.cpp: PASSED"
 fi
-
-

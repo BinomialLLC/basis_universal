@@ -29,7 +29,7 @@ namespace basisu
 
 	extern const resample_filter g_resample_filters[];
 	extern const int g_num_resample_filters;
-		
+
 	const float BASISU_BOX_FILTER_SUPPORT = 0.5f;
 	float box_filter(float t); /* pulse/Fourier window */
 

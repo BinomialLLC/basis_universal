@@ -3,7 +3,7 @@
 // Supports box and linear chroma upsampling.
 //
 // Released under two licenses. You are free to choose which license you want:
-// License 1: 
+// License 1:
 // Public Domain
 //
 // License 2:
@@ -138,7 +138,7 @@ namespace jpgd {
 	{
 		static void idct(int* pTemp, const jpgd_block_t* pSrc)
 		{
-			(void)pTemp; 
+			(void)pTemp;
 			(void)pSrc;
 		}
 	};
@@ -253,10 +253,10 @@ namespace jpgd {
 	  8,8,8,8,8,7,6,4, 8,8,8,8,8,7,6,5, 8,8,8,8,8,7,6,6, 8,8,8,8,8,7,7,6, 8,8,8,8,8,8,7,6, 8,8,8,8,8,8,8,6, 8,8,8,8,8,8,8,7, 8,8,8,8,8,8,8,8,
 	};
 
-	static const uint8 s_idct_col_table[] = 
-	{ 
-		1, 1, 2, 3, 3, 3, 3, 3, 3, 4, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 6, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 
-		7, 7, 7, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8 
+	static const uint8 s_idct_col_table[] =
+	{
+		1, 1, 2, 3, 3, 3, 3, 3, 3, 4, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 6, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+		7, 7, 7, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8
 	};
 
 	// Scalar "fast pathing" IDCT.
