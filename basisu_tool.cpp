@@ -1,3 +1,5 @@
+TEST - purposely breaking the build for testing purposes. Remove this line.
+
 // basisu_tool.cpp
 // Copyright (C) 2019-2025 Binomial LLC. All Rights Reserved.
 // Licensed under the Apache License, Version 2.0 (the "License");
