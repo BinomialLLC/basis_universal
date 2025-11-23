@@ -19,7 +19,7 @@ option(BASISU_SAN "sanitize" FALSE)
 # Using a generator expression here prevents multi-config generators (VS, Xcode, Ninja Multi-Config)
 # from appending a per-configuration subdirectory. NOTE: This means the output could be overwritten
 # by a subsequent build for a different configuration.
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY $<1:${CMAKE_SOURCE_DIR}/bin>)
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY $<1:${CMAKE_CURRENT_SOURCE_DIR}/bin>)
 
 # For MSVC builds default to SSE enabled, and determine if it's a 64-bit (-A x64) vs. 32-bit (-A Win32) build.
 if (MSVC)
@@ -261,7 +261,7 @@ endif()
 
 macro(set_common_executable_properties target)
     #if (MSVC)
-        target_sources(${target} PRIVATE "${CMAKE_SOURCE_DIR}/basisu.manifest")
+        target_sources(${target} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/basisu.manifest")
     #endif()
     target_link_libraries(${target} PRIVATE basisu_encoder)
     if (NOT BASISU_STATIC AND NOT EMSCRIPTEN AND NOT WIN32)
