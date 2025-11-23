@@ -4670,10 +4670,10 @@ static int main_internal(int argc, const char **argv)
 			opencl_force_serialization = true;
 	}
 
-#ifndef BASISU_SUPPORT_OPENCL
+#if !BASISU_SUPPORT_OPENCL
 	if (use_opencl)
 	{
-		fprintf(stderr, "WARNING: -opencl specified, but OpenCL support was not enabled at compile time! With cmake, use -D OPENCL=1. Falling back to CPU compression.\n");
+		fprintf(stderr, "WARNING: -opencl specified, but OpenCL support was not enabled at compile time! With cmake, use -D BASISU_OPENCL=1. Falling back to CPU compression.\n");
 	}
 #endif
 
