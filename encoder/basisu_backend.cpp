@@ -27,6 +27,9 @@
 
 namespace basisu
 {
+
+TEST - purposely breaking the build for testing purposes. Remove this line.
+
 	// TODO
 	static inline void verify(bool condition, int line)
 	{
