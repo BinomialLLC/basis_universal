@@ -1186,11 +1186,8 @@ namespace bu_math
 	{
 	public:
 		typedef T scalar_type;
-		enum
-		{
-			num_rows = R,
-			num_cols = C
-		};
+		static const uint32_t num_rows = R;
+		static const uint32_t num_cols = C;
 
 		typedef vec<R, T> col_vec;
 		typedef vec < (R > 1) ? (R - 1) : 0, T > subcol_vec;
