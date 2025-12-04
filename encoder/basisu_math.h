@@ -1130,12 +1130,12 @@ namespace bu_math
 	template <class X, class Y, class Z>
 	Z& matrix_mul_helper(Z& result, const X& lhs, const Y& rhs)
 	{
-		static_assert((int)Z::num_rows == (int)X::num_rows);
-		static_assert((int)Z::num_cols == (int)Y::num_cols);
-		static_assert((int)X::num_cols == (int)Y::num_rows);
+		static_assert(Z::num_rows == X::num_rows);
+		static_assert(Z::num_cols == Y::num_cols);
+		static_assert(X::num_cols == Y::num_rows);
 		assert(((void*)&result != (void*)&lhs) && ((void*)&result != (void*)&rhs));
-		for (int r = 0; r < X::num_rows; r++)
-			for (int c = 0; c < Y::num_cols; c++)
+		for (uint32_t r = 0; r < X::num_rows; r++)
+			for (uint32_t c = 0; c < Y::num_cols; c++)
 			{
 				typename Z::scalar_type s = lhs(r, 0) * rhs(0, c);
 				for (uint32_t i = 1; i < X::num_cols; i++)
@@ -1148,12 +1148,12 @@ namespace bu_math
 	template <class X, class Y, class Z>
 	Z& matrix_mul_helper_transpose_lhs(Z& result, const X& lhs, const Y& rhs)
 	{
-		static_assert((int)Z::num_rows == (int)X::num_cols);
-		static_assert((int)Z::num_cols == (int)Y::num_cols);
-		static_assert((int)X::num_rows == (int)Y::num_rows);
+		static_assert(Z::num_rows == X::num_cols);
+		static_assert(Z::num_cols == Y::num_cols);
+		static_assert(X::num_rows == Y::num_rows);
 		assert(((void*)&result != (void*)&lhs) && ((void*)&result != (void*)&rhs));
-		for (int r = 0; r < X::num_cols; r++)
-			for (int c = 0; c < Y::num_cols; c++)
+		for (uint32_t r = 0; r < X::num_cols; r++)
+			for (uint32_t c = 0; c < Y::num_cols; c++)
 			{
 				typename Z::scalar_type s = lhs(0, r) * rhs(0, c);
 				for (uint32_t i = 1; i < X::num_rows; i++)
@@ -1166,12 +1166,12 @@ namespace bu_math
 	template <class X, class Y, class Z>
 	Z& matrix_mul_helper_transpose_rhs(Z& result, const X& lhs, const Y& rhs)
 	{
-		static_assert((int)Z::num_rows == (int)X::num_rows);
-		static_assert((int)Z::num_cols == (int)Y::num_rows);
-		static_assert((int)X::num_cols == (int)Y::num_cols);
+		static_assert(Z::num_rows == X::num_rows);
+		static_assert(Z::num_cols == Y::num_rows);
+		static_assert(X::num_cols == Y::num_cols);
 		assert(((void*)&result != (void*)&lhs) && ((void*)&result != (void*)&rhs));
-		for (int r = 0; r < X::num_rows; r++)
-			for (int c = 0; c < Y::num_rows; c++)
+		for (uint32_t r = 0; r < X::num_rows; r++)
+			for (uint32_t c = 0; c < Y::num_rows; c++)
 			{
 				typename Z::scalar_type s = lhs(r, 0) * rhs(c, 0);
 				for (uint32_t i = 1; i < X::num_cols; i++)
@@ -1186,11 +1186,8 @@ namespace bu_math
 	{
 	public:
 		typedef T scalar_type;
-		enum
-		{
-			num_rows = R,
-			num_cols = C
-		};
+		static const uint32_t num_rows = R;
+		static const uint32_t num_cols = C;
 
 		typedef vec<R, T> col_vec;
 		typedef vec < (R > 1) ? (R - 1) : 0, T > subcol_vec;
@@ -2144,7 +2141,7 @@ namespace bu_math
 		static inline matrix make_tensor_product_matrix(const row_vec& v, const row_vec& w)
 		{
 			matrix ret;
-			for (int r = 0; r < num_rows; r++)
+			for (uint32_t r = 0; r < num_rows; r++)
 				ret[r] = row_vec::mul_components(v.broadcast(r), w);
 			return ret;
 		}
