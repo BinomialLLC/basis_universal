@@ -226,9 +226,9 @@ if(EXAMPLES)
 endif()
 
 #if (MSVC)
-    target_sources(basisu PRIVATE "${CMAKE_SOURCE_DIR}/basisu.manifest")
+    target_sources(basisu PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/basisu.manifest")
 	if(EXAMPLES)
-    	target_sources(examples PRIVATE "${CMAKE_SOURCE_DIR}/basisu.manifest")
+    	target_sources(examples PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/basisu.manifest")
 	endif()
 #endif()
 
