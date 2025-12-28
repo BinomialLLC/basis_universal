@@ -88,6 +88,66 @@ else()
     message("Zstandard disabled")
 endif()
 
+#######################################################################
+# Specify floating point handling
+#
+# For deterministic results specify FP compile options for uniform
+# handling of floating point operations across platforms and compilers
+
+# Compiler info query helpers
+
+# On CMake 3.25 or older CXX_COMPILER_FRONTEND_VARIANT is not always set
+if(CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "")
+    set(CMAKE_CXX_COMPILER_FRONTEND_VARIANT "${CMAKE_CXX_COMPILER_ID}")
+endif()
+
+#cmake_print_variables(
+#    CMAKE_CXX_COMPILER_ID
+#    CMAKE_CXX_COMPILER_VERSION
+#    CMAKE_CXX_COMPILER_FRONTEND_VARIANT
+#)
+
+# Compiler accepts MSVC-style command line options
+set(is_msvc_fe "$<STREQUAL:${CMAKE_CXX_COMPILER_FRONTEND_VARIANT},MSVC>")
+# Compiler accepts GNU-style command line options
+set(is_gnu_fe1 "$<STREQUAL:${CMAKE_CXX_COMPILER_FRONTEND_VARIANT},GNU>")
+# Compiler accepts AppleClang-style command line options, which is also GNU-style
+set(is_gnu_fe2 "$<STREQUAL:${CMAKE_CXX_COMPILER_FRONTEND_VARIANT},AppleClang>")
+# Compiler accepts GNU-style command line options
+set(is_gnu_fe "$<OR:${is_gnu_fe1},${is_gnu_fe2}>")
+
+# Compiler is Visual Studio cl.exe
+set(is_msvccl "$<AND:${is_msvc_fe},$<CXX_COMPILER_ID:MSVC>>")
+# Compiler is Visual Studio clangcl.exe
+set(is_clangcl "$<AND:${is_msvc_fe},$<CXX_COMPILER_ID:Clang>>")
+# Compiler is upstream clang with the standard frontend
+set(is_clang "$<AND:${is_gnu_fe},$<CXX_COMPILER_ID:Clang,AppleClang>>")
+
+# Genex debug helper. Note that CXX_COMPILER_ID can only be used in
+# compilation targets so won't work in a custom target.
+#if(NOT TARGET debug_isgnufe1)
+#    add_custom_target(debug_isgnufe1
+#        COMMAND ${CMAKE_COMMAND} -E echo "is_gnufe1_exp = $<STREQUAL:${CMAKE_CXX_COMPILER_FRONTEND_VARIANT},GNU>"
+#    )
+#endif()
+
+# On MSVC and CLangCL, set /fp:strict and /fp:precise, on clang
+# -ffp-model=precise and on GNU CC -ffp-contract=off. These result in
+# precise semantics always being used and fused multiply-add never
+# being used,
+add_compile_options(
+    $<$<AND:${is_msvccl},$<VERSION_LESS:$<CXX_COMPILER_VERSION>,19.30>>:/fp:strict>
+    $<$<AND:${is_msvccl},$<VERSION_GREATER_EQUAL:$<CXX_COMPILER_VERSION>,19.30>>:/fp:precise>
+    $<${is_clangcl}:/fp:precise>
+    $<$<AND:${is_clangcl},$<VERSION_GREATER_EQUAL:$<CXX_COMPILER_VERSION>,14.0.0>>:-Xclang$<SEMICOLON>-ffp-contract=off>
+    $<$<AND:${is_clang},$<VERSION_GREATER_EQUAL:$<CXX_COMPILER_VERSION>,10.0.0>>:-ffp-model=precise>
+    $<${is_gnu_fe}:-ffp-contract=off>
+    # Hide noise from clang and clangcl 20 warning the 2nd fp option changes
+    # one of the settings made the first.
+    $<$<AND:${is_clang},$<VERSION_GREATER_EQUAL:$<CXX_COMPILER_VERSION>,20.0.0>>:-Wno-overriding-option>
+)
+#######################################################################
+
 if (NOT MSVC)
     add_compile_options($<$<CONFIG:Debug>:-g>)
     # If you want to set an optimization option for non-debug too, use this instead.
