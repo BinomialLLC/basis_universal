@@ -11,19 +11,51 @@ environment:
   APPVEYOR_YML_DISABLE_PS_LINUX: true
 
 build_script:
+  # ============================
+  # Windows (PowerShell)
+  # ============================
   - ps: |
       New-Item -Path . -Name "build" -ItemType "directory"
       cd build
+
       cmake --version
+
       cmake ../ -DCMAKE_BUILD_TYPE:STRING="$env:CONFIGURATION"
+      if ($LASTEXITCODE -ne 0) {
+          Write-Host "ERROR: CMake configuration failed"
+          exit $LASTEXITCODE
+      }
+
       cmake --build . --config $env:CONFIGURATION
+      if ($LASTEXITCODE -ne 0) {
+          Write-Host "ERROR: Build failed"
+          exit $LASTEXITCODE
+      }
+
       cd ../
+
+
+  # ============================
+  # Linux + macOS (sh)
+  # ============================
   - sh: |
       mkdir build
       cd build
+
       cmake --version
+
       cmake ../ -DCMAKE_BUILD_TYPE:STRING="${CONFIGURATION}"
+      if [ $? -ne 0 ]; then
+          echo "ERROR: CMake configuration failed"
+          exit 1
+      fi
+
       cmake --build . --config ${CONFIGURATION}
+      if [ $? -ne 0 ]; then
+          echo "ERROR: Build failed"
+          exit 1
+      fi
+
       cd ../
 
 artifacts:
@@ -32,4 +64,4 @@ artifacts:
   # MacOS
   - path: bin/basisu
   # Windows
-  - path: bin\$(configuration)\basisu.exe
+  - path: bin\$(CONFIGURATION)\basisu.exe
