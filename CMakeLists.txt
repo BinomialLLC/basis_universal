@@ -323,3 +323,105 @@ if (MSVC)
     	)
 	endif()
 endif()
+
+# Installation rules
+include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
+
+# Install the static library with export
+install(TARGETS basisu_encoder
+    EXPORT basisuTargets
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+)
+
+# Install the basisu executable
+install(TARGETS basisu
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
+
+# Install examples executable if built
+if(EXAMPLES)
+    install(TARGETS examples
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    )
+endif()
+
+# Install transcoder headers (public API)
+install(FILES
+    transcoder/basisu_transcoder.h
+    transcoder/basisu.h
+    transcoder/basisu_containers.h
+    transcoder/basisu_containers_impl.h
+    transcoder/basisu_file_headers.h
+    transcoder/basisu_transcoder_internal.h
+    transcoder/basisu_transcoder_uastc.h
+    transcoder/basisu_astc_hdr_core.h
+    transcoder/basisu_astc_helpers.h
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/basisu/transcoder
+)
+
+# Install encoder headers (for users who need encoder functionality)
+install(FILES
+    encoder/basisu_enc.h
+    encoder/basisu_comp.h
+    encoder/basisu_backend.h
+    encoder/basisu_frontend.h
+    encoder/basisu_basis_file.h
+    encoder/basisu_gpu_texture.h
+    encoder/basisu_etc.h
+    encoder/basisu_resampler.h
+    encoder/basisu_resampler_filters.h
+    encoder/basisu_kernels_declares.h
+    encoder/basisu_math.h
+    encoder/basisu_miniz.h
+    encoder/basisu_ssim.h
+    encoder/basisu_uastc_enc.h
+    encoder/basisu_uastc_hdr_4x4_enc.h
+    encoder/basisu_astc_hdr_6x6_enc.h
+    encoder/basisu_astc_hdr_common.h
+    encoder/basisu_bc7enc.h
+    encoder/basisu_pvrtc1_4.h
+    encoder/jpgd.h
+    encoder/pvpngreader.h
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/basisu/encoder
+)
+
+# Install zstd header if enabled
+if(ZSTD)
+    install(FILES
+        zstd/zstd.h
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/basisu/zstd
+    )
+endif()
+
+# Install CMake package configuration files
+install(EXPORT basisuTargets
+    FILE basisuTargets.cmake
+    NAMESPACE basisu::
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/basisu
+)
+
+# Generate the config file that includes the exports
+configure_package_config_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/basisuConfig.cmake.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/basisuConfig.cmake"
+    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/basisu
+    NO_SET_AND_CHECK_MACRO
+    NO_CHECK_REQUIRED_COMPONENTS_MACRO
+)
+
+# Generate the version file for the config file
+write_basic_package_version_file(
+    "${CMAKE_CURRENT_BINARY_DIR}/basisuConfigVersion.cmake"
+    VERSION "1.16.0"
+    COMPATIBILITY AnyNewerVersion
+)
+
+# Install the config and version files
+install(FILES
+    "${CMAKE_CURRENT_BINARY_DIR}/basisuConfig.cmake"
+    "${CMAKE_CURRENT_BINARY_DIR}/basisuConfigVersion.cmake"
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/basisu
+)
