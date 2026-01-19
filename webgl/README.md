@@ -59,4 +59,5 @@ You can locally host the files under the "webgl" folder. One way is to use [Pyth
 cd webgl
 python3 -m http.server 8000
 ```
-Note: For WASM multithreading to be available and enabled, the server must be properly configured.
+
+Note: For WASM multithreading to be available and enabled, the server must be properly configured. See the `webgl/start_webserver.py` and `webgl/webserver_cross_origin.py` example scripts.
