@@ -99,7 +99,7 @@ Supported ASTC configurations: L/LA/RGB/RGBA CEM's, base+scale or RGB/RGBA direc
 Here is the [XUASTC LDR specification](https://github.com/BinomialLLC/basis_universal/wiki/XUASTC-LDR-Specification-v1.0).
 
 Notes:  
-- Modes #3 and #4 output 100% standard or plain ASTC texture data (with or without RDO), like any other ASTC encoder. The .KTX2 files are just plain textures.
+- Modes #3 (UASTC HDR 4x4) and #4 (plain or RDO ASTC HDR 6x6) output 100% standard or plain ASTC texture data (with or without RDO), like any other ASTC encoder. The .KTX2 files are just plain textures.
 - The other modes (#1, #2, #5) output compressed data in various custom formats, which our transcoder library can convert in real-time to various GPU texture or pixel formats.
 - Modes #4 and #5 internally use the same unified ASTC HDR 6x6 encoder.
 - Modes #6 and #7 internally use the same unified ASTC LDR ASTC encoder.
