@@ -79,7 +79,7 @@ This mode supports an optional [Rate-Distortion Optimized (RDO)](https://en.wiki
 
 Here is the [UASTC LDR 4x4 specification document](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-LDR-4x4-Texture-Specification).
 
-3. **[UASTC HDR 4x4](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-HDR-4x4-Texture-Specification-v1.0)**: An 8 bits/pixel HDR high quality mode. This is a 24 mode subset of the standard [ASTC HDR](https://en.wikipedia.org/wiki/Adaptive_scalable_texture_compression) 4x4 (8bpp) texture format. It's designed to be high quality, supporting the 27 partition patterns in common between BC6H and ASTC, and fast to transcode with very little loss (typically a fraction of a dB PSNR) to the BC6H HDR texture format. Notably, **UASTC HDR 4x4 data is 100% standard ASTC texture data**, so no transcoding at all is required on devices or API's that support ASTC HDR. This mode can also be transcoded to various 32-64bpp uncompressed HDR texture/image formats.
+3. **[UASTC HDR 4x4](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-HDR-4x4-Texture-Specification-v1.0)**: An 8 bits/pixel HDR high quality mode. This is a 24 mode subset of the standard [ASTC HDR](https://en.wikipedia.org/wiki/Adaptive_scalable_texture_compression) 4x4 (8bpp) texture format. It's designed to be high quality, supporting the 27 partition patterns in common between BC6H and ASTC, and fast to transcode with very little loss (typically a fraction of a dB PSNR) to the BC6H HDR texture format. Notably, **UASTC HDR 4x4 data is 100% standard ASTC texture data**, so no transcoding at all is required on devices or APIs that support ASTC HDR. This mode can also be transcoded to various 32-64bpp uncompressed HDR texture/image formats.
 
 Here is the [UASTC HDR 4x4 specification document](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-HDR-4x4-Texture-Specification-v1.0), and here are some compressed [example images](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-HDR-Examples).
 
@@ -403,14 +403,14 @@ emcmake cmake ..
 make
 ```
 
-There are two simple encoding/transcoding web demos, located in `webgl/ktx2_encode_test` and `webgl/texture_test`, that show how to use the encoder's and transcoder's Javascript wrapper API's.
+There are two simple encoding/transcoding web demos, located in `webgl/ktx2_encode_test` and `webgl/texture_test`, that show how to use the encoder's and transcoder's Javascript wrapper APIs.
 
 ----
 
 Low-level C++ Encoder/Transcoder API Examples
 ---------------------------------------------
 
-Some simple examples showing how to directly call the C++ encoder and transcoder library API's are in [`example/examples.cpp`](https://github.com/BinomialLLC/basis_universal/blob/master/example/example.cpp).
+Some simple examples showing how to directly call the C++ encoder and transcoder library APIs are in [`example/examples.cpp`](https://github.com/BinomialLLC/basis_universal/blob/master/example/example.cpp).
 
 ETC1S Texture Video Tips
 ------------------------
