@@ -291,7 +291,7 @@ More Example Command Lines
 
 `-uastc_rdo_l X` controls the RDO ([Rate-Distortion Optimization](https://en.wikipedia.org/wiki/Rate%E2%80%93distortion_optimization)) quality setting. The lower this value, the higher the quality, but the larger the compressed file size. Good values to try are between .2-3.0. The default is 1.0.
 
-- To add automatically generated mipmaps to a ETC1S .KTX2 file:
+- To add automatically generated mipmaps to an ETC1S .KTX2 file:
 
 `basisu -mipmap -quality 75 x.png`
 
