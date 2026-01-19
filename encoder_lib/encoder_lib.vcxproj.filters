@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
     <Filter Include="Source Files">
@@ -97,6 +97,12 @@
       <Filter>Source Files\encoder</Filter>
     </ClCompile>
     <ClCompile Include="..\encoder\basisu_astc_hdr_6x6_enc.cpp">
+      <Filter>Source Files\encoder</Filter>
+    </ClCompile>
+    <ClCompile Include="..\encoder\basisu_astc_ldr_common.cpp">
+      <Filter>Source Files\encoder</Filter>
+    </ClCompile>
+    <ClCompile Include="..\encoder\basisu_astc_ldr_encode.cpp">
       <Filter>Source Files\encoder</Filter>
     </ClCompile>
   </ItemGroup>
@@ -227,6 +233,15 @@
     <ClInclude Include="..\encoder\basisu_astc_hdr_6x6_enc.h">
       <Filter>Source Files\encoder</Filter>
     </ClInclude>
+    <ClInclude Include="..\encoder\basisu_astc_ldr_common.h">
+      <Filter>Source Files\encoder</Filter>
+    </ClInclude>
+    <ClInclude Include="..\encoder\basisu_astc_ldr_encode.h">
+      <Filter>Source Files\encoder</Filter>
+    </ClInclude>
+    <ClInclude Include="..\transcoder\basisu_idct.h">
+      <Filter>Source Files\transcoder</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="..\transcoder\basisu_transcoder_tables_astc.inc">
@@ -255,6 +270,9 @@
     </None>
     <None Include="..\bin\ocl_kernels.cl">
       <Filter>Source Files\encoder</Filter>
+    </None>
+    <None Include="..\transcoder\basisu_astc_cfgs.inl">
+      <Filter>Source Files\transcoder</Filter>
     </None>
   </ItemGroup>
 </Project>

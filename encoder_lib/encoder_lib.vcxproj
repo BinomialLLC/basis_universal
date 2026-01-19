@@ -31,6 +31,8 @@
     <ClCompile Include="..\encoder\3rdparty\tinyexr.cpp" />
     <ClCompile Include="..\encoder\basisu_astc_hdr_6x6_enc.cpp" />
     <ClCompile Include="..\encoder\basisu_astc_hdr_common.cpp" />
+    <ClCompile Include="..\encoder\basisu_astc_ldr_common.cpp" />
+    <ClCompile Include="..\encoder\basisu_astc_ldr_encode.cpp" />
     <ClCompile Include="..\encoder\basisu_uastc_hdr_4x4_enc.cpp" />
     <ClCompile Include="..\encoder\basisu_backend.cpp" />
     <ClCompile Include="..\encoder\basisu_basis_file.cpp" />
@@ -59,6 +61,8 @@
     <ClInclude Include="..\encoder\3rdparty\tinyexr.h" />
     <ClInclude Include="..\encoder\basisu_astc_hdr_6x6_enc.h" />
     <ClInclude Include="..\encoder\basisu_astc_hdr_common.h" />
+    <ClInclude Include="..\encoder\basisu_astc_ldr_common.h" />
+    <ClInclude Include="..\encoder\basisu_astc_ldr_encode.h" />
     <ClInclude Include="..\encoder\basisu_uastc_hdr_4x4_enc.h" />
     <ClInclude Include="..\encoder\basisu_backend.h" />
     <ClInclude Include="..\encoder\basisu_basis_file.h" />
@@ -92,12 +96,14 @@
     <ClInclude Include="..\transcoder\basisu_containers.h" />
     <ClInclude Include="..\transcoder\basisu_containers_impl.h" />
     <ClInclude Include="..\transcoder\basisu_file_headers.h" />
+    <ClInclude Include="..\transcoder\basisu_idct.h" />
     <ClInclude Include="..\transcoder\basisu_transcoder.h" />
     <ClInclude Include="..\transcoder\basisu_transcoder_internal.h" />
     <ClInclude Include="..\transcoder\basisu_transcoder_uastc.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="..\bin\ocl_kernels.cl" />
+    <None Include="..\transcoder\basisu_astc_cfgs.inl" />
     <None Include="..\transcoder\basisu_transcoder_tables_astc.inc" />
     <None Include="..\transcoder\basisu_transcoder_tables_astc_0_255.inc" />
     <None Include="..\transcoder\basisu_transcoder_tables_atc_55.inc" />
@@ -119,40 +125,40 @@
     <ConfigurationType>StaticLibrary</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
     <CharacterSet>Unicode</CharacterSet>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v145</PlatformToolset>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
     <ConfigurationType>StaticLibrary</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v145</PlatformToolset>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
     <ConfigurationType>StaticLibrary</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
     <CharacterSet>Unicode</CharacterSet>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v145</PlatformToolset>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64EC'" Label="Configuration">
     <ConfigurationType>StaticLibrary</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
     <CharacterSet>Unicode</CharacterSet>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v145</PlatformToolset>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
     <ConfigurationType>StaticLibrary</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v145</PlatformToolset>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|ARM64EC'" Label="Configuration">
     <ConfigurationType>StaticLibrary</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v145</PlatformToolset>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <ImportGroup Label="ExtensionSettings">
@@ -188,7 +194,7 @@
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <AdditionalIncludeDirectories>..\OpenCL</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp17</LanguageStandard>
-      <EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet>
+      <EnableEnhancedInstructionSet>AdvancedVectorExtensions</EnableEnhancedInstructionSet>
     </ClCompile>
     <Link>
       <SubSystem>
@@ -207,7 +213,7 @@
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <AdditionalIncludeDirectories>..\OpenCL</AdditionalIncludeDirectories>
-      <EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet>
+      <EnableEnhancedInstructionSet>AdvancedVectorExtensions</EnableEnhancedInstructionSet>
       <ExceptionHandling>false</ExceptionHandling>
       <BufferSecurityCheck>false</BufferSecurityCheck>
       <LanguageStandard>stdcpp17</LanguageStandard>
@@ -227,7 +233,7 @@
       <ConformanceMode>true</ConformanceMode>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
-      <EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet>
+      <EnableEnhancedInstructionSet>AdvancedVectorExtensions</EnableEnhancedInstructionSet>
       <AdditionalIncludeDirectories>..\OpenCL</AdditionalIncludeDirectories>
       <WarningLevel>Level4</WarningLevel>
       <LanguageStandard>stdcpp17</LanguageStandard>
@@ -267,7 +273,7 @@
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <BufferSecurityCheck>false</BufferSecurityCheck>
       <ExceptionHandling>false</ExceptionHandling>
-      <EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet>
+      <EnableEnhancedInstructionSet>AdvancedVectorExtensions</EnableEnhancedInstructionSet>
       <AdditionalIncludeDirectories>..\OpenCL</AdditionalIncludeDirectories>
       <Optimization>Full</Optimization>
       <InlineFunctionExpansion>AnySuitable</InlineFunctionExpansion>

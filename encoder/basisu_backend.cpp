@@ -1,5 +1,5 @@
 // basisu_backend.cpp
-// Copyright (C) 2019-2024 Binomial LLC. All Rights Reserved.
+// Copyright (C) 2019-2026 Binomial LLC. All Rights Reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -54,7 +54,7 @@ namespace basisu
 		m_pFront_end = pFront_end;
 		m_params = params;
 		m_slices = slice_descs;
-
+		
 		debug_printf("basisu_backend::Init: Slices: %u, ETC1S: %u, EndpointRDOQualityThresh: %f, SelectorRDOQualityThresh: %f\n",
 			m_slices.size(),
 			params.m_etc1s,
@@ -196,7 +196,7 @@ namespace basisu
 			m_endpoint_remap_table_old_to_new = reorderer.get_remap_table();
 		}
 
-		// For endpoints, old_to_new[] may not be bijective!
+		// For endpoints, old_to_new[] may not be bijective! 
 		// Some "old" entries may be unused and don't get remapped into the "new" array.
 
 		m_old_endpoint_was_used.clear();
@@ -220,13 +220,13 @@ namespace basisu
 		} // slice_index
 
 		debug_printf("basisu_backend::reoptimize_and_sort_endpoints_codebook: First old entry index: %u\n", first_old_entry_index);
-
+						
 		m_new_endpoint_was_used.clear();
 		m_new_endpoint_was_used.resize(r.get_total_endpoint_clusters());
 
 		m_endpoint_remap_table_new_to_old.clear();
 		m_endpoint_remap_table_new_to_old.resize(r.get_total_endpoint_clusters());
-
+		
 		// Set unused entries in the new array to point to the first used entry in the old array.
 		m_endpoint_remap_table_new_to_old.set_all(first_old_entry_index);
 
@@ -235,7 +235,7 @@ namespace basisu
 			if (m_old_endpoint_was_used[old_index])
 			{
 				const uint32_t new_index = m_endpoint_remap_table_old_to_new[old_index];
-
+				
 				m_new_endpoint_was_used[new_index] = true;
 
 				m_endpoint_remap_table_new_to_old[new_index] = old_index;
@@ -612,7 +612,7 @@ namespace basisu
 
 		sort_selector_codebook();
 		check_for_valid_cr_blocks();
-
+		
 		debug_printf("Elapsed time: %3.3f secs\n", tm.get_elapsed_secs());
 	}
 
@@ -666,14 +666,14 @@ namespace basisu
 			if (m_params.m_debug_images)
 			{
 				image gi_unpacked;
-				gi.unpack(gi_unpacked);
+				gi.unpack(gi_unpacked, false);
 
 				char buf[256];
-#ifdef _WIN32
+#ifdef _WIN32				
 				sprintf_s(buf, sizeof(buf), "basisu_backend_slice_%u.png", slice_index);
 #else
 				snprintf(buf, sizeof(buf), "basisu_backend_slice_%u.png", slice_index);
-#endif
+#endif				
 				save_png(buf, gi_unpacked);
 			}
 
@@ -682,7 +682,7 @@ namespace basisu
 
 	//uint32_t g_color_delta_hist[255 * 3 + 1];
 	//uint32_t g_color_delta_bad_hist[255 * 3 + 1];
-
+		
 	// TODO: Split this into multiple methods.
 	bool basisu_backend::encode_image()
 	{
@@ -718,7 +718,7 @@ namespace basisu
 
 		const int COLOR_DELTA_THRESH = 8;
 		const int SEL_DIFF_THRESHOLD = 11;
-
+		
 		for (uint32_t slice_index = 0; slice_index < m_slices.size(); slice_index++)
 		{
 			//const int prev_frame_slice_index = is_video ? find_video_frame(slice_index, -1) : -1;
@@ -764,7 +764,7 @@ namespace basisu
 
 				}  // block_x
 			} // block_y
-
+						
 			for (uint32_t block_y = 0; block_y < num_blocks_y; block_y++)
 			{
 				for (uint32_t block_x = 0; block_x < num_blocks_x; block_x++)
@@ -842,7 +842,7 @@ namespace basisu
 							const uint32_t cur_inten5 = etc_blk.get_inten_table(0);
 
 							const etc1_endpoint_palette_entry& cur_endpoints = m_endpoint_palette[m.m_endpoint_index];
-
+														
 							if (cur_err)
 							{
 								const float endpoint_remap_thresh = maximum(1.0f, m_params.m_endpoint_rdo_quality_thresh);
@@ -858,7 +858,7 @@ namespace basisu
 									int best_trial_idx = 0;
 
 									etc_block trial_etc_blk(etc_blk);
-
+																		
 									const int search_dist = minimum<int>(iabs(endpoint_delta) - 1, MAX_ENDPOINT_SEARCH_DIST);
 									for (int d = -search_dist; d < search_dist; d++)
 									{
@@ -876,7 +876,7 @@ namespace basisu
 											continue;
 
 										const etc1_endpoint_palette_entry& p = m_endpoint_palette[m_endpoint_remap_table_new_to_old[trial_idx]];
-
+																				
 										if (m_params.m_compression_level <= 1)
 										{
 											if (p.m_inten5 > cur_inten5)
@@ -886,7 +886,7 @@ namespace basisu
 											int delta_g = iabs(cur_endpoints.m_color5.g - p.m_color5.g);
 											int delta_b = iabs(cur_endpoints.m_color5.b - p.m_color5.b);
 											int color_delta = delta_r + delta_g + delta_b;
-
+																						
 											if (color_delta > COLOR_DELTA_THRESH)
 												continue;
 										}
@@ -924,7 +924,7 @@ namespace basisu
 									const int64_t initial_best_trial_err = INT64_MAX;
 									int64_t best_trial_err = initial_best_trial_err;
 									int best_trial_idx = 0;
-
+																																				
 									const int search_dist = minimum<int>(iabs(endpoint_delta) - 1, MAX_ENDPOINT_SEARCH_DIST);
 									for (int d = -search_dist; d < search_dist; d++)
 									{
@@ -942,7 +942,7 @@ namespace basisu
 											continue;
 
 										const etc1_endpoint_palette_entry& p = m_endpoint_palette[m_endpoint_remap_table_new_to_old[trial_idx]];
-
+																				
 										if (m_params.m_compression_level <= 1)
 										{
 											if (p.m_inten5 > cur_inten5)
@@ -952,7 +952,7 @@ namespace basisu
 											int delta_g = iabs(cur_endpoints.m_color5.g - p.m_color5.g);
 											int delta_b = iabs(cur_endpoints.m_color5.b - p.m_color5.b);
 											int color_delta = delta_r + delta_g + delta_b;
-
+											
 											if (color_delta > COLOR_DELTA_THRESH)
 												continue;
 										}
@@ -992,7 +992,7 @@ namespace basisu
 									}
 #endif // BASISU_SUPPORT_SSE
 								} // if (!g_cpu_supports_sse41)
-
+															
 							} // if (cur_err)
 
 						} // if ((m_params.m_endpoint_rdo_quality_thresh > 1.0f) && (iabs(endpoint_delta) > 1) && (!block_endpoints_are_referenced(block_x, block_y)))
@@ -1011,7 +1011,7 @@ namespace basisu
 					if ((!is_video) || (m.m_endpoint_predictor != basist::CR_ENDPOINT_PRED_INDEX))
 					{
 						int new_selector_index = m_selector_remap_table_old_to_new[m.m_selector_index];
-
+												
 						const float selector_remap_thresh = maximum(1.0f, m_params.m_selector_rdo_quality_thresh); //2.5f;
 
 						int selector_history_buf_index = -1;
@@ -1060,7 +1060,7 @@ namespace basisu
 								for (uint32_t p = 0; p < 16; p++)
 									cur_err += color_distance(false, src_pixels.get_ptr()[p], block_colors[pCur_selectors[p]], false);
 							}
-
+							
 							const uint64_t limit_err = (uint64_t)ceilf(cur_err * selector_remap_thresh);
 
 							// Even if cur_err==limit_err, we still want to scan the history buffer because there may be equivalent entries that are cheaper to code.
@@ -1091,7 +1091,7 @@ namespace basisu
 									if (sel_diff >= SEL_DIFF_THRESHOLD)
 										continue;
 								}
-
+									
 								const uint64_t thresh_err = minimum(limit_err, best_trial_err);
 								uint64_t trial_err = 0;
 
@@ -1266,7 +1266,7 @@ namespace basisu
 		//{
 		//	printf("%u, %u, %f\n", g_color_delta_bad_hist[i], g_color_delta_hist[i], g_color_delta_hist[i] ? g_color_delta_bad_hist[i] / (float)g_color_delta_hist[i] : 0);
 		//}
-
+				
 		double total_prep_time = tm.get_elapsed_secs();
 		debug_printf("basisu_backend::encode_image: Total prep time: %3.2f\n", total_prep_time);
 
@@ -1521,7 +1521,7 @@ namespace basisu
 			if (old_endpoint_was_used[old_endpoint_index])
 			{
 				const uint32_t new_endpoint_index = m_endpoint_remap_table_old_to_new[old_endpoint_index];
-
+				
 				new_endpoint_was_used[new_endpoint_index] = true;
 
 				endpoint_remap_table_new_to_old[new_endpoint_index] = old_endpoint_index;
@@ -1660,7 +1660,7 @@ namespace basisu
 	bool basisu_backend::encode_selector_palette()
 	{
 		const basisu_frontend& r = *m_pFront_end;
-
+		
 		histogram delta_selector_pal_histogram(256);
 
 		for (uint32_t q = 0; q < r.get_total_selector_clusters(); q++)
