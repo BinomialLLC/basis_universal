@@ -186,6 +186,8 @@ cd bin
 wasmtime run --dir=. --dir=../test_files ./basisu_st.wasm -test
 ```
 
+Also see the `runw.sh` and `runwt.sh` helper scripts.
+
 ----
 
 ### Testing the Codec
@@ -261,6 +263,8 @@ basisu -hdr_6x6i x.exr
 basisu -hdr_6x6i -lambda 500 x.exr  
 basisu -hdr_6x6i_level 5 -lambda 500 x.exr
 ```
+
+Note the unified `-quality` and `-effort` options work in HDR, too. These examples use the older non-unified options, which allow more direct/precise control.
 
 Be aware that the .EXR reader we're using is [TinyEXR's](https://github.com/syoyo/tinyexr), which doesn't support all possible .EXR compression modes. Tools like [ImageMagick](https://imagemagick.org/) can be used to create .EXR files that TinyEXR can read.
 
