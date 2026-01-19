@@ -21,7 +21,7 @@ The system supports seven modes (or codecs):
 6. **ASTC LDR 4x4-12x12 (all 14 standard ASTC block sizes)**: Standard ASTC LDR 4x4-12x12
 7. **XUASTC LDR 4x4-12x12 (all 14 standard ASTC block sizes)**: Supercompressed ASTC LDR 4x4-12x12, very high quality, utilizes weight grid ([DCT - Discrete Cosine Transform](https://grokipedia.com/page/Discrete_cosine_transform)) for very high compression ratios
 
-The C/C++ encoder and transcoder libraries can be compiled to native code or WebAssembly (web or WASI), and all encoder/transcoder features can be accessed from Javascript via a C++ wrapper library which optionally supports [WASM multithreading](https://web.dev/articles/webassembly-threads) for fast encoding in the browser. [WASM WASI](https://wasi.dev/) builds, for the command line tool and the encoder/transcoder as a WASI module using a pure C API, are also supported. 
+The C/C++ encoder and transcoder libraries can be compiled to native code or WebAssembly (web or WASI), and all encoder/transcoder features can be accessed from JavaScript via a C++ wrapper library which optionally supports [WASM multithreading](https://web.dev/articles/webassembly-threads) for fast encoding in the browser. [WASM WASI](https://wasi.dev/) builds, for the command line tool and the encoder/transcoder as a WASI module using a pure C API, are also supported. 
 
 Full Python support for encoding/transcoding is now available, supporting native or WASM modules, but is still in the early stages of development.
 
@@ -32,7 +32,7 @@ Links
 - [Release Notes](https://github.com/BinomialLLC/basis_universal/wiki/Release-Notes)
 - [Live Compression/Transcoding Testbed](https://subquantumtech.com/xu/ktx2_encode_test/)
 - [Live WebGL Examples](https://subquantumtech.com/xu/)
-- [Javascript API/WASM/WebGL info](https://github.com/BinomialLLC/basis_universal/tree/master/webgl)
+- [JavaScript API/WASM/WebGL info](https://github.com/BinomialLLC/basis_universal/tree/master/webgl)
 - [XUASTC LDR Specification](https://github.com/BinomialLLC/basis_universal/wiki/XUASTC-LDR-Specification-v1.0)
 
 ### UASTC HDR 4x4/6x6 Specific Links:
@@ -125,7 +125,7 @@ The encoding library and command line tool have no required 3rd party dependenci
 We build and test under:
 - Windows x86/x64 using Visual Studio 2026, MSVC or clang
 - Windows ARM using Visual Studio 2022 ARM v17.13.0 or later
-- Mac OSX (M1) with clang v16.0.0
+- macOS (M1) with clang v16.0.0
 - Ubuntu Linux with gcc v11.4 or clang v14
 - Arch Linux ARM, on a [Pinebook Pro](https://pine64.org/devices/pinebook_pro/), with gcc v12.1.
 - Ubuntu Linux 24.04 on RISC-V (Orange PI RV2)
@@ -166,7 +166,7 @@ cmake -DCMAKE_TOOLCHAIN_FILE=$WASI_SDK_PATH/share/cmake/wasi-sdk.cmake -DCMAKE_B
 make
 ```
 
-The WASM WASI executables will be placed in the `bin/basisu` directory. These platform independent executables are fully functional, and can be executed using a WASM WASI runtime such as [wasmtime](https://github.com/bytecodealliance/wasmtime).
+The WASM WASI executables will be placed in the `bin/basisu` directory. These platform-independent executables are fully functional, and can be executed using a WASM WASI runtime such as [wasmtime](https://github.com/bytecodealliance/wasmtime).
 
 ----
 
@@ -403,7 +403,7 @@ emcmake cmake ..
 make
 ```
 
-There are two simple encoding/transcoding web demos, located in `webgl/ktx2_encode_test` and `webgl/texture_test`, that show how to use the encoder's and transcoder's Javascript wrapper APIs.
+There are two simple encoding/transcoding web demos, located in `webgl/ktx2_encode_test` and `webgl/texture_test`, that show how to use the encoder's and transcoder's JavaScript wrapper APIs.
 
 ----
 
