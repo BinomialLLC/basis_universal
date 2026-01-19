@@ -19,7 +19,7 @@ The system supports seven modes (or codecs):
 4. **ASTC HDR 6x6 (with or without RDO)**: Standard ASTC HDR 6x6
 5. **UASTC HDR 6x6 Intermediate ("GPU Photo")**: Supercompressed ASTC HDR 6x6
 6. **ASTC LDR 4x4-12x12 (all 14 standard ASTC block sizes)**: Standard ASTC LDR 4x4-12x12
-7. **XUASTC LDR 4x4-12x12 (all 14 standard ASTC block sizes)**: Supercompressed ASTC LDR 4x4-12x12, very high quality, utilizes weight grid ([DCT - Discrete Cosine Transform](https://grokipedia.com/page/Discrete_cosine_transform) for very high compression ratios
+7. **XUASTC LDR 4x4-12x12 (all 14 standard ASTC block sizes)**: Supercompressed ASTC LDR 4x4-12x12, very high quality, utilizes weight grid ([DCT - Discrete Cosine Transform](https://grokipedia.com/page/Discrete_cosine_transform)) for very high compression ratios
 
 The C/C++ encoder and transcoder libaries can be compiled to native code or WebAssembly (web or WASI), and all encoder/transcoder features can be accessed from Javascript via a C++ wrapper library which optionally supports [WASM multithreading](https://web.dev/articles/webassembly-threads) for fast encoding in the browser. [WASM WASI](https://wasi.dev/) builds, for the command line tool and the encoder/transcoder as a WASI module using a pure C API, are also supported. 
 
