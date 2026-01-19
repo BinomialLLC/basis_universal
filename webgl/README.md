@@ -60,4 +60,4 @@ cd webgl
 python3 -m http.server 8000
 ```
 
-Note: For WASM multithreading to be available and enabled, the server must be properly configured. See the `webgl/start_webserver.py` and `webgl/webserver_cross_origin.py` example scripts.
+Note: For WASM multithreading to be available and enabled, the server [must be properly configured](https://unlimited3d.wordpress.com/2021/12/21/webassembly-and-multi-threading/). See the `webgl/start_webserver.sh` and `webgl/webserver_cross_origin.py` example scripts.
