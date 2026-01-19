@@ -95,9 +95,7 @@ The ASTC LDR decoder, used in the transcoder module, supports the entire standar
  
 7. **XUASTC LDR 4x4-12x12**: Supercompressed ASTC with weight grid DCT. Bitrate ranges between approximately .3-5.7bpp, depending on profile, block size, and weight grid DCT quality settings. Supports context-based range/arithmetic coding (for higher ratios), Zstd (for faster transcoding), or a hybrid profile using both. Supports all 14 ASTC block sizes. Transcodable to all other supported LDR texture formats. Certain common block sizes (4x4, 6x6, and 8x6) have specializations for particularly fast transcoding directly to BC7.
 
-Supported ASTC configurations: L/LA/RGB/RGBA CEM's, base+scale or RGB/RGBA direct, base+ofs CEM's, Blue Contraction encoding, 1-3 subsets, all partition patterns, single or dual plane.
-
-Here is the [XUASTC LDR specification](https://github.com/BinomialLLC/basis_universal/wiki/XUASTC-LDR-Specification-v1.0).
+Supported ASTC configurations: L/LA/RGB/RGBA CEM's, base+scale or RGB/RGBA direct, base+ofs CEM's, Blue Contraction encoding, 1-3 subsets, all partition patterns, single or dual plane. Here is the [XUASTC LDR specification](https://github.com/BinomialLLC/basis_universal/wiki/XUASTC-LDR-Specification-v1.0).
 
 Notes:  
 - Modes #3 (UASTC HDR 4x4) and #4 (RDO ASTC HDR 6x6), and #6 (ASTC LDR 4x4-12x12) output 100% standard or plain ASTC texture data (with or without RDO), like any other ASTC encoder. The .KTX2 files are just plain textures.
