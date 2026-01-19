@@ -28,7 +28,7 @@ Full Python support for encoding/transcoding is now available, supporting native
 Links
 -----
 
-- [XUASTC LDR Wiki, Specification Docs](https://github.com/BinomialLLC/xuastc_preview/wiki)
+- [Wiki/Specifications](https://github.com/BinomialLLC/basis_universal/wiki)
 - [Release Notes](https://github.com/BinomialLLC/basis_universal/wiki/Release-Notes)
 - [Live Compression/Transcoding Testbed](https://subquantumtech.com/xu/ktx2_encode_test/)
 - [Live WebGL Examples](https://subquantumtech.com/xu/)
@@ -96,7 +96,7 @@ The ASTC LDR decoder, used in the transcoder module, supports the entire standar
 
 Supported ASTC configurations: L/LA/RGB/RGBA CEM's, base+scale or RGB/RGBA direct, base+ofs CEM's, Blue Contraction encoding, 1-3 subsets, all partition patterns, single or dual plane.
 
-Here is the [XUASTC LDR specification](https://github.com/BinomialLLC/xuastc_preview/wiki/XUASTC-LDR-Specification-v1.0).
+Here is the [XUASTC LDR specification](https://github.com/BinomialLLC/basis_universal/wiki/XUASTC-LDR-Specification-v1.0).
 
 Notes:  
 - Modes #3 and #4 output 100% standard or plain ASTC texture data (with or without RDO), like any other ASTC encoder. The .KTX2 files are just plain textures.
