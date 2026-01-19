@@ -18,21 +18,15 @@ Links
 -----
 
 - [Release Notes](https://github.com/BinomialLLC/basis_universal/wiki/Release-Notes)
-
 - [Live Compression/Transcoding Testbed](https://subquantumtech.com/xu/ktx2_encode_test/)
-
 - [Live WebGL Examples](https://subquantumtech.com/xu/)
-
 - [Javascript API/WASM/WebGL info](https://github.com/BinomialLLC/basis_universal/tree/master/webgl)
-
 - [UASTC HDR 4x4 Example Images](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-HDR-Examples)
 
 ### UASTC 6x6 HDR Specific Links:
 
 - [UASTC HDR 6x6 Example Images](https://github.com/BinomialLLC/basis_universal/wiki/ASTC-HDR-6x6-Example-Images)
-
 - [UASTC HDR 6x6 Support Nodes](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-HDR-6x6-Support-Notes)
-
 - [Quick comparison of ARM's astcenc HDR 6x6 encoder vs. ours](https://github.com/richgel999/junkdrawer/wiki/ASTC-6x6-HDR:-astcenc-%E2%80%90thorough-%E2%80%90exhausive-vs.-basis-universal-comp_level-3)
 
 Supported LDR GPU Texture Formats
