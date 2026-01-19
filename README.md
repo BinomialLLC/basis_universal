@@ -339,7 +339,7 @@ The written mipmapped, cubemap, or texture array .KTX/.DDS files will be in a wi
 Python Support
 --------------
 
-All key encoder, and all transcoder functionality is now available from Python, but this is still in the early stages of development. See the README files in the python directory for how to build the native SO's/PYD's. The Python support module supports both native and WASM modules, which is used as a fallback if native libraries can't be loaded. Python support has been tested under Ubuntu Linux and Windows 11 so far.
+All key encoder and all transcoder functionality is now available from Python, but this is still in the early stages of development. See the README files in the python directory for how to build the native SO's/PYD's. The Python support module supports both native and WASM modules, which is used as a fallback if native libraries can't be loaded. Python support has been tested under Ubuntu Linux and Windows 11 so far.
 
 Example:
 ```
