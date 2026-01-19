@@ -8,7 +8,7 @@ An LDR/HDR portable GPU supercompressed texture transcoding system.
 Intro
 -----
 
-Basis Universal v2.0 is an open source [supercompressed](http://gamma.cs.unc.edu/GST/gst.pdf) LDR/HDR GPU compressed texture interchange system from Binomial LLC that supports two intermediate file formats: the [.KTX2 open standard from the Khronos Group](https://registry.khronos.org/KTX/specs/2.0/ktxspec.v2.html), and our own ".basis" file format. These file formats support rapid transcoding to virtually any compressed [GPU texture format](https://en.wikipedia.org/wiki/Texture_compression) released in the past ~25 years. 
+Basis Universal v2.0 is an open source [supercompressed](http://gamma.cs.unc.edu/GST/gst.pdf) LDR/HDR GPU compressed texture interchange system from Binomial LLC that supports two intermediate file formats: the [.KTX2 open standard from the Khronos Group](https://registry.khronos.org/KTX/specs/2.0/ktxspec.v2.html), and our own ".basis" file format. These file formats support rapid transcoding to virtually any compressed [GPU texture format](https://en.wikipedia.org/wiki/Texture_compression) released over the past ~25 years. 
 
 Our overall goal is to simplify the encoding and efficient distribution of *portable* LDR and HDR GPU texture, image, and short texture video content in a way that is compatible with any GPU or rendering/graphics API.
 
@@ -21,7 +21,7 @@ The system supports seven modes (or codecs):
 6. **ASTC LDR 4x4-12x12 (all 14 standard ASTC block sizes)**: Standard ASTC LDR 4x4-12x12
 7. **XUASTC LDR 4x4-12x12 (all 14 standard ASTC block sizes)**: Supercompressed ASTC LDR 4x4-12x12, very high quality, utilizes weight grid ([DCT - Discrete Cosine Transform](https://grokipedia.com/page/Discrete_cosine_transform)) for very high compression ratios
 
-The C/C++ encoder and transcoder libaries can be compiled to native code or WebAssembly (web or WASI), and all encoder/transcoder features can be accessed from Javascript via a C++ wrapper library which optionally supports [WASM multithreading](https://web.dev/articles/webassembly-threads) for fast encoding in the browser. [WASM WASI](https://wasi.dev/) builds, for the command line tool and the encoder/transcoder as a WASI module using a pure C API, are also supported. 
+The C/C++ encoder and transcoder libraries can be compiled to native code or WebAssembly (web or WASI), and all encoder/transcoder features can be accessed from Javascript via a C++ wrapper library which optionally supports [WASM multithreading](https://web.dev/articles/webassembly-threads) for fast encoding in the browser. [WASM WASI](https://wasi.dev/) builds, for the command line tool and the encoder/transcoder as a WASI module using a pure C API, are also supported. 
 
 Full Python support for encoding/transcoding is now available, supporting native or WASM modules, but is still in the early stages of development.
 
@@ -75,11 +75,11 @@ Supported Texture Compression/Supercompression Modes
 
 2. **[UASTC LDR 4x4](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-LDR-4x4-Texture-Specification)**: An 8 bits/pixel LDR high quality mode. UASTC LDR is a 19 mode subset of the standard [ASTC LDR](https://en.wikipedia.org/wiki/Adaptive_scalable_texture_compression) 4x4 (8bpp) texture format, but with a custom block format containing transcoding hints. Transcoding UASTC LDR to ASTC LDR and BC7 are particularly fast and simple, because UASTC LDR is a common subset of both BC7 and ASTC. The transcoders for the other texture formats are accelerated by several format-specific hint bits present in each UASTC LDR block.
 
-This mode supports an optional [Rate-Distortion Optimizated (RDO)](https://en.wikipedia.org/wiki/Rate%E2%80%93distortion_optimization) post-process stage that conditions the encoded UASTC LDR texture data in the .KTX2/.basis file so it can be more effectively LZ compressed. More details [here](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-implementation-details).
+This mode supports an optional [Rate-Distortion Optimized (RDO)](https://en.wikipedia.org/wiki/Rate%E2%80%93distortion_optimization) post-process stage that conditions the encoded UASTC LDR texture data in the .KTX2/.basis file so it can be more effectively LZ compressed. More details [here](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-implementation-details).
 
 Here is the [UASTC LDR 4x4 specification document](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-LDR-4x4-Texture-Specification).
 
-3. **[UASTC HDR 4x4](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-HDR-4x4-Texture-Specification-v1.0)**: An 8 bits/pixel HDR high quality mode. This is a 24 mode subset of the standard [ASTC HDR](https://en.wikipedia.org/wiki/Adaptive_scalable_texture_compression) 4x4 (8bpp) texture format. It's designed to be high quality, supporting the 27 partition patterns in common between BC6H and ASTC, and fast to transcode with very little loss (typically a fraction of a dB PSNR) to the BC6H HDR texture format. Notably, **UASTC HDR 4x4 data is 100% standard ASTC texture data**, so no transcoding at all is required on devices or API's supporting ASTC HDR. This mode can also be transcoded to various 32-64bpp uncompressed HDR texture/image formats.
+3. **[UASTC HDR 4x4](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-HDR-4x4-Texture-Specification-v1.0)**: An 8 bits/pixel HDR high quality mode. This is a 24 mode subset of the standard [ASTC HDR](https://en.wikipedia.org/wiki/Adaptive_scalable_texture_compression) 4x4 (8bpp) texture format. It's designed to be high quality, supporting the 27 partition patterns in common between BC6H and ASTC, and fast to transcode with very little loss (typically a fraction of a dB PSNR) to the BC6H HDR texture format. Notably, **UASTC HDR 4x4 data is 100% standard ASTC texture data**, so no transcoding at all is required on devices or API's that support ASTC HDR. This mode can also be transcoded to various 32-64bpp uncompressed HDR texture/image formats.
 
 Here is the [UASTC HDR 4x4 specification document](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-HDR-4x4-Texture-Specification-v1.0), and here are some compressed [example images](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-HDR-Examples).
 
@@ -143,7 +143,7 @@ make
 
 To build with SSE 4.1 support on x86/x64 systems (ETC1S encoding is roughly 15-30% faster), add `-DBASISU_SSE=TRUE` to the cmake command line. Add `-DBASISU_OPENCL=TRUE` to build with (optional) OpenCL support. Use `-DCMAKE_BUILD_TYPE=Debug` to build in debug. To build 32-bit executables, add `-DBASISU_BUILD_X64=FALSE`.
 
-After building, the native command line tool used to create, validate, and transcode/unpack .basis/.KTX2 files is `bin/basisu`.
+After building, the native command line tool used to create, validate, and transcode/unpack .KTX2/.basis files is `bin/basisu`.
 
 Building (WASM WASI)
 --------------------
@@ -301,7 +301,7 @@ There are several mipmap options to change the filter kernel, the filter colorsp
 
 `basisu -comp_level 2 x.png`
 
-On some rare images (ones with blue sky gradients come to bind), you may need to increase the ETC1S `-comp_level` setting, which ranges from 1,6. This controls the amount of overall effort the encoder uses to optimize the ETC1S codebooks and the compressed data stream. Higher comp_level's are *significantly* slower. 
+On some rare images (ones with blue sky gradients come to mind), you may need to increase the ETC1S `-comp_level` setting, which ranges from 1,6. This controls the amount of overall effort the encoder uses to optimize the ETC1S codebooks and the compressed data stream. Higher comp_level's are *significantly* slower. 
 
 - To manually set the ETC1S codebook sizes (instead of using -quality, or the older -q options), with a higher codebook generation level (this is useful with texture video):
 
