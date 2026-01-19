@@ -186,6 +186,8 @@ cd bin
 wasmtime run --dir=. --dir=../test_files ./basisu_st.wasm -test
 ```
 
+Also see the `runw.sh` and `runwt.sh` helper scripts.
+
 ----
 
 ### Testing the Codec
