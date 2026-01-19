@@ -301,7 +301,7 @@ There are several mipmap options to change the filter kernel, the filter colorsp
 
 `basisu -comp_level 2 x.png`
 
-On some rare images (ones with blue sky gradients come to mind), you may need to increase the ETC1S `-comp_level` setting, which ranges from 1,6. This controls the amount of overall effort the encoder uses to optimize the ETC1S codebooks and the compressed data stream. Higher comp_level's are *significantly* slower. 
+On some rare images (ones with blue sky gradients come to mind), you may need to increase the ETC1S `-comp_level` setting, which ranges from 1 to 6. This controls the amount of overall effort the encoder uses to optimize the ETC1S codebooks and the compressed data stream. Higher comp_level's are *significantly* slower. 
 
 - To manually set the ETC1S codebook sizes (instead of using -quality, or the older -q options), with a higher codebook generation level (this is useful with texture video):
 
@@ -324,7 +324,7 @@ See the help text for a complete listing of the tool's command line options. The
 Unpacking .KTX2/.basis files to .PNG/.EXR/.KTX/.DDS files
 ---------------------------------------------------------
 
-You can either use the command line tool or [call the transcoder directly](https://github.com/BinomialLLC/basis_universal/wiki/How-to-Use-and-Configure-the-Transcoder) from JavaScript or C/C++ code to decompress .KTX2/.basis files to GPU texture data or uncompressed image data. To unpack a .KTX2 or.basis file to multiple .png/.exr/.ktx/.dds files:
+You can either use the command line tool or [call the transcoder directly](https://github.com/BinomialLLC/basis_universal/wiki/How-to-Use-and-Configure-the-Transcoder) from JavaScript or C/C++ code to decompress .KTX2/.basis files to GPU texture data or uncompressed image data. To unpack a .KTX2 or .basis file to multiple .png/.exr/.ktx/.dds files:
 
 `basisu x.ktx2`
 
