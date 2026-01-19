@@ -264,6 +264,8 @@ basisu -hdr_6x6i -lambda 500 x.exr
 basisu -hdr_6x6i_level 5 -lambda 500 x.exr
 ```
 
+Note the unified `-quality` and `-effort` options work in HDR, too. These examples use the older non-unified options, which allow more direct/precise control.
+
 Be aware that the .EXR reader we're using is [TinyEXR's](https://github.com/syoyo/tinyexr), which doesn't support all possible .EXR compression modes. Tools like [ImageMagick](https://imagemagick.org/) can be used to create .EXR files that TinyEXR can read.
 
 Alternatively, LDR images (such as .PNG) can be compressed to an HDR format by specifying `-hdr`, `-hdr_6x6`, or `-hdr_6x6i`. By default LDR images, when compressed to an HDR format, are first upconverted to HDR by converting them from sRGB to linear light and scaled to 100 [nits](https://en.wikipedia.org/wiki/Candela_per_square_metre) (candelas per square meter). The sRGB conversion step can be disabled by specifying `-hdr_ldr_no_srgb_to_linear`, and the normalized RGB linear light to nit multiplier can be changed by specifying `-hdr_ldr_upconversion_nit_multiplier X`.
