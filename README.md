@@ -1,5 +1,6 @@
-# basis_universal
-An LDR/HDR portable GPU compressed texture transcoding system.
+# basis_universal - Private XUASTC LDR development repo (preview)
+
+An LDR/HDR portable GPU supercompressed texture transcoding system.
 
 [![Build status](https://ci.appveyor.com/api/projects/status/87eb0o96pjho4sh0?svg=true)](https://ci.appveyor.com/project/BinomialLLC/basis-universal)
 
@@ -8,15 +9,27 @@ An LDR/HDR portable GPU compressed texture transcoding system.
 Intro
 -----
 
-Basis Universal is an open source [supercompressed](http://gamma.cs.unc.edu/GST/gst.pdf) LDR/HDR GPU compressed texture interchange system from Binomial LLC that supports two intermediate file formats: the [.KTX2 open standard from the Khronos Group](https://registry.khronos.org/KTX/specs/2.0/ktxspec.v2.html), and our own ".basis" file format. These file formats support rapid transcoding to virtually any compressed [GPU texture format](https://en.wikipedia.org/wiki/Texture_compression) released in the past ~25 years.
+Basis Universal v2.0 is an open source [supercompressed](http://gamma.cs.unc.edu/GST/gst.pdf) LDR/HDR GPU compressed texture interchange system from Binomial LLC that supports two intermediate file formats: the [.KTX2 open standard from the Khronos Group](https://registry.khronos.org/KTX/specs/2.0/ktxspec.v2.html), and our own ".basis" file format. These file formats support rapid transcoding to virtually any compressed [GPU texture format](https://en.wikipedia.org/wiki/Texture_compression) released in the past ~25 years. 
 
 Our overall goal with this project is to simplify the encoding and efficient distribution of *portable* LDR and HDR GPU texture, image, and short texture video content in a way that is compatible with any GPU or rendering/graphics API.
 
-The system supports five modes: ETC1S, UASTC LDR 4x4, UASTC HDR 4x4, UASTC HDR 6x6 (with or without RDO), or UASTC HDR 6x6 Intermediate ("GPU Photo"). The C/C++ encoder and transcoder libaries can be compiled to native code or WebAssembly, and all encoder/transcoder features can be accessed from Javascript via a C++ wrapper library which optionally supports [WASM multithreading](https://web.dev/articles/webassembly-threads) for fast encoding in the browser. ETC1S transcoding (which uses no SIMD code) is slightly faster than libjpeg when compiled to native code.
+The system supports seven modes (or codecs): 
+1. ETC1S: A supercompressed subset of ETC1 designed for very fast transcoding to other LDR texture formats, low/medium quality but high compression
+2. UASTC LDR 4x4 (with or without RDO): Custom ASTC 4x4-like format designed for very fast transcoding to other LDR texture formats, high quality
+3. UASTC HDR 4x4: Standard ASTC HDR 4x4 texture data, but constrained for very fast transcoding to BC6H
+4. ASTC HDR 6x6 (with or without RDO): Standard ASTC HDR 6x6
+5. UASTC HDR 6x6 Intermediate ("GPU Photo"): Supercompressed ASTC HDR 6x6
+6. ASTC LDR 4x4-12x12 (all 14 standard ASTC block sizes): Standard ASTC LDR 4x4-12x12
+7. XUASTC LDR 4x4-12x12 (all 14 XUASTC block sizes): Supercompressed ASTC LDR 4x4-12x12, very high quality, utilizes weight grid DCT for very high compression ratios
+
+The C/C++ encoder and transcoder libaries can be compiled to native code or WebAssembly, and all encoder/transcoder features can be accessed from Javascript via a C++ wrapper library which optionally supports [WASM multithreading](https://web.dev/articles/webassembly-threads) for fast encoding in the browser. [WASM WASI](https://wasi.dev/) builds, for the command line tool and the encoder/transcoder as a WASI module using a pure C API, are also supported. 
+
+Full Python support for encoding/transcoding is now available, supporting native or WASM modules, but is still in the early stages of development.
 
 Links
 -----
 
+- [XUASTC LDR Wiki, Specification Docs](https://github.com/BinomialLLC/xuastc_preview/wiki)
 - [Release Notes](https://github.com/BinomialLLC/basis_universal/wiki/Release-Notes)
 - [Live Compression/Transcoding Testbed](https://subquantumtech.com/xu/ktx2_encode_test/)
 - [Live WebGL Examples](https://subquantumtech.com/xu/)
@@ -29,12 +42,14 @@ Links
 - [UASTC HDR 6x6 Support Nodes](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-HDR-6x6-Support-Notes)
 - [Quick comparison of ARM's astcenc HDR 6x6 encoder vs. ours](https://github.com/richgel999/junkdrawer/wiki/ASTC-6x6-HDR:-astcenc-%E2%80%90thorough-%E2%80%90exhausive-vs.-basis-universal-comp_level-3)
 
+----
+
 Supported LDR GPU Texture Formats
 ---------------------------------
 
-ETC1S and UASTC LDR 4x4 files can be transcoded to:
-
+ETC1S, UASTC LDR 4x4, XUASTC LDR 4x4-12x12 and ASTC LDR 4x4-12x12 files can be transcoded to:
 - ASTC LDR 4x4 L/LA/RGB/RGBA 8bpp
+- ASTC LDR 4x4-12x12 (XUASTC/ASTC), .89-8bpp
 - BC1-5 RGB/RGBA/X/XY
 - BC7 RGB/RGBA
 - ETC1 RGB, ETC2 RGBA, and ETC2 EAC R11/RG11
@@ -45,14 +60,16 @@ ETC1S and UASTC LDR 4x4 files can be transcoded to:
 Supported HDR GPU Texture Formats
 ---------------------------------
 
-UASTC HDR 4x4 and UASTC HDR 6x6 files can be transcoded to:
+UASTC HDR 4x4, ASTC HDR 6x6, and UASTC HDR 6x6 files can be transcoded to:
 - ASTC HDR 4x4 (8bpp, UASTC HDR 4x4 only)
 - ASTC HDR 6x6 RGB (3.56bpp, ASTC HDR 6x6 or UASTC HDR 6x6 intermediate only)
 - BC6H RGB (8bpp, either UASTC HDR 4x4 or UASTC HDR 6x6)
 - Uncompressed HDR raster image formats: RGB_16F/RGBA_16F (half float/FP16 RGB, 48 or 64bpp), or 32-bit/pixel shared exponent [RGB_9E5](https://registry.khronos.org/OpenGL/extensions/EXT/EXT_texture_shared_exponent.txt)
 
-Supported Texture Compression Modes
------------------------------------
+----
+
+Supported Texture Compression/Supercompression Modes
+----------------------------------------------------
 
 1. [ETC1S](https://github.com/BinomialLLC/basis_universal/wiki/.basis-File-Format-and-ETC1S-Texture-Video-Specification): A roughly .3-3bpp low to medium quality supercompressed mode based off a subset of [ETC1](https://en.wikipedia.org/wiki/Ericsson_Texture_Compression) called "ETC1S". This mode supports variable quality vs. file size levels (like JPEG), alpha channels, built-in compression, and texture arrays optionally compressed as a video sequence using skip blocks ([Conditional Replenishment](https://en.wikipedia.org/wiki/MPEG-1)). This mode can be rapidly transcoded to all of the supported LDR texture formats.
 
@@ -66,14 +83,27 @@ Here is the [UASTC LDR 4x4 specification document](https://github.com/BinomialLL
 
 Here is the [UASTC HDR 4x4 specification document](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-HDR-4x4-Texture-Specification-v1.0), and here are some compressed [example images](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-HDR-Examples).
 
-4. UASTC HDR 6x6 or RDO UASTC HDR 6x6: A 3.56 bits/pixel (or less with RDO+Zstd) HDR high quality mode. Just like mode #3, **UASTC HDR 6x6 data is 100% standard ASTC texture data**. Here's a [page with details](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-HDR-6x6-Support-Notes). The current encoder supports weight grid upsampling, 1-3 subsets, single or dual planes, CEM's 7 and 11, and all unique ASTC partition patterns.
+4. ASTC HDR 6x6 or RDO ASTC HDR 6x6: A 3.56 bits/pixel (or less with RDO+Zstd) HDR high quality mode. Just like mode #3, **ASTC HDR 6x6 data is 100% standard ASTC texture data**. Here's a [page with details](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-HDR-6x6-Support-Notes). The current encoder supports weight grid upsampling, 1-3 subsets, single or dual planes, CEM's 7 and 11, and all unique ASTC partition patterns.
+
+The ASTC HDR decoder, used in the transcoder module, supports the entire ASTC HDR format.
 
 5. UASTC HDR 6x6 Intermediate ("GPU Photo"): A custom compressed intermediate format that can be rapidly transcoded to ASTC HDR 6x6, BC6H, and various uncompressed HDR formats. The custom compressed file format is [described here](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-HDR-6x6-Intermediate-File-Format-(Basis-GPU-Photo-6x6)). The format supports 75 unique ASTC configurations, weight grid upsampling, 1-3 subsets, single or dual planes, CEM's 7 and 11, and all unique ASTC partition patterns.
 
-Notes:
+6. Standard ASTC LDR-4x4-12x12. Supports all 14 ASTC block sizes. Transcodable to any other supported LDR texture format.
+
+The ASTC LDR decoder, used in the transcoder module, supports the entire standard ASTC LDR format.
+ 
+7. XUASTC LDR 4x4-12x12: Supercompressed ASTC with weight grid DCT. Bitrate ranges between approximately .3-5.7bpp, depending on profile, block size, and weight grid DCT quality settings. Supports context-based range/arithmetic coding (for higher ratios), Zstd (for faster transcoding), or a hybrid profile using both. Supports all 14 ASTC block sizes. Transcodable to all other supported LDR texture formats. Certain common block sizes (4x4, 6x6, and 8x6) have specializations for particularly fast transcoding directly to BC7.
+
+Supported ASTC configurations: L/LA/RGB/RGBA CEM's, base+scale or RGB/RGBA direct, base+ofs CEM's, Blue Contraction encoding, 1-3 subsets, all partition patterns, single or dual plane.
+
+Here is the [XUASTC LDR specification](https://github.com/BinomialLLC/xuastc_preview/wiki/XUASTC-LDR-Specification-v1.0).
+
+Notes:  
 - Modes #3 and #4 output 100% standard or plain ASTC texture data (with or without RDO), like any other ASTC encoder. The .KTX2 files are just plain textures.
 - The other modes (#1, #2, #5) output compressed data in various custom formats, which our transcoder library can convert in real-time to various GPU texture or pixel formats.
-- Modes #4 and #5 internally use the same unified HDR 6x6 encoder.
+- Modes #4 and #5 internally use the same unified ASTC HDR 6x6 encoder.
+- Modes #6 and #7 internally use the same unified ASTC LDR ASTC encoder.
 
 ### Other Features
 
@@ -85,15 +115,17 @@ The LDR image formats supported for reading are .PNG, [.DDS with mipmaps](https:
 
 The system now supports loading basic 2D .DDS files with optional mipmaps, but the .DDS file must be in one of the supported uncompressed formats: 24bpp RGB, 32bpp RGBA/BGRA, half-float RGBA, or float RGBA. Using .DDS files allows the user to control exactly how the mipmaps are generated before compression.
 
-Building
---------
+----
+
+Building (Native)
+-----------------
 
 The encoding library and command line tool have no required 3rd party dependencies that are not already in the repo itself. The transcoder is a single .cpp source file (in `transcoder/basisu_transcoder.cpp`) which has no 3rd party dependencies.
 
 We build and test under:
-- Windows x86/x64 using Visual Studio 2019/2022, MSVC or clang
+- Windows x86/x64 using Visual Studio 2026, MSVC or clang
 - Windows ARM using Visual Studio 2022 ARM v17.13.0 or later
-- Mac OSX (M1) with clang v15.0
+- Mac OSX (M1) with clang v16.0.0
 - Ubuntu Linux with gcc v11.4 or clang v14
 - Arch Linux ARM, on a [Pinebook Pro](https://pine64.org/devices/pinebook_pro/), with gcc v12.1.
 - Ubuntu Linux 24.04 on RISC-V (Orange PI RV2)
@@ -109,9 +141,52 @@ cmake ..
 make
 ```
 
-To build with SSE 4.1 support on x86/x64 systems (encoding is roughly 15-30% faster), add `-DSSE=TRUE` to the cmake command line. Add `-DOPENCL=TRUE` to build with (optional) OpenCL support. Use `-DCMAKE_BUILD_TYPE=Debug` to build in debug. To build 32-bit executables, add `-DBUILD_X64=FALSE`.
+To build with SSE 4.1 support on x86/x64 systems (ETC1S encoding is roughly 15-30% faster), add `-DBASISU_SSE=TRUE` to the cmake command line. Add `-DBASISU_OPENCL=TRUE` to build with (optional) OpenCL support. Use `-DCMAKE_BUILD_TYPE=Debug` to build in debug. To build 32-bit executables, add `-DBASISU_BUILD_X64=FALSE`.
 
 After building, the native command line tool used to create, validate, and transcode/unpack .basis/.KTX2 files is `bin/basisu`.
+
+Building (WASM WASI)
+--------------------
+
+To build the WASM WASI executables, you will need the [WASM WASI SDK](https://github.com/WebAssembly/wasi-sdk) installed. The `WASI_SDK_PATH` environment variable must be set to the correct path where the SDK is installed. 
+
+Multithreaded:
+```
+mkdir build_wasm_mt
+cd build_wasm_mt
+cmake -DCMAKE_TOOLCHAIN_FILE=$WASI_SDK_PATH/share/cmake/wasi-sdk-pthread.cmake -DCMAKE_BUILD_TYPE=Release -DBASISU_WASM_THREADING=ON ..
+make
+```
+
+Single threaded:
+```
+mkdir build_wasm_st
+cd build_wasm_st
+cmake -DCMAKE_TOOLCHAIN_FILE=$WASI_SDK_PATH/share/cmake/wasi-sdk.cmake -DCMAKE_BUILD_TYPE=Release -DBASISU_WASM_THREADING=OFF ..
+make
+```
+
+The WASM WASI executables will be placed in the `bin/basisu` directory. These platform independent executables are fully functional, and can be executed using a WASM WASI runtime such as [wasmtime](https://github.com/bytecodealliance/wasmtime).
+
+----
+
+### Running the WASM WASI Builds
+
+Precompiled single and multithreaded WASM WASI executables have been checked into the `bin` directory. A WASM WASI runtime, like [wasmtime](https://github.com/bytecodealliance/wasmtime), is required to run them. The WASM executables have been so far tested under Windows, Ubuntu Linux, and OSX. Examples:
+
+Multithreaded (greatly recommended):
+```
+cd bin
+wasmtime run --dir=. --dir=../test_files --wasm threads=yes --wasi threads=yes ./basisu_mt.wasm -test
+```
+
+Single threaded example:
+```
+cd bin
+wasmtime run --dir=. --dir=../test_files ./basisu_st.wasm -test
+```
+
+----
 
 ### Testing the Codec
 
@@ -123,26 +198,45 @@ basisu -test
 basisu -test_hdr_4x4
 basisu -test_hdr_6x6
 basisu -test_hdr_6x6i
+basisu -test_xuastc_ldr
 ```
 
-To test the codec in OpenCL mode (must have OpenCL libs/headers/drivers installed and have compiled OpenCL support in by running cmake with `-DOPENCL=TRUE`):
+To test the codec in OpenCL mode (must have OpenCL libs/headers/drivers installed and have compiled OpenCL support in by running cmake with `-DBASISU_OPENCL=TRUE`):
 
 ```
 basisu -test -opencl
 ```
 
+----
+
 Compressing and Unpacking .KTX2/.basis Files
 --------------------------------------------
 
-- To compress an LDR sRGB PNG/QOI/TGA/JPEG/DDS image to an ETC1S .KTX2 file, at quality level 255 (the highest):
+- To compress an LDR sRGB PNG/QOI/TGA/JPEG/DDS image to an supercompressed XUASTC LDR 6x6 .KTX2 file, at quality level 75 (valid quality levels 1-100, where higher values=higher quality), effort level 4 (valid effort levels 0-10, higher values=slower compression):
 
-`basisu -q 255 x.png`
+`basisu -xuastc_ldr_6x6 -quality 75 -effort 4 x.png`
 
-- For a linear LDR image, in ETC1S mode, at default quality (128):
+The options `-xuastc_arith`, `-xuastc_zstd` (the default), and `-xuastc_hybrid` control the XUASTC LDR profile used. An alias for `-xuastc_ldr_6x6` is `-ldr_6x6i` (where 'i'="intermediate"). 
+
+All [14 standard ASTC block sizes](https://developer.nvidia.com/astc-texture-compression-for-game-assets) are supported, from 4x4-12x12.
+
+- To compress an LDR sRGB image to a standard ASTC LDR 6x6 .KTX2 file, using effort level 4 (valid effort levels 0-10):
+
+`basisu -astc_ldr_6x6 -effort 4 x.png`
+
+An alias for `-astc_ldr_6x6` is `-ldr_6x6`. 
+
+All 14 standard ASTC block sizes are supported, from 4x4-12x12.
+
+- To compress an LDR sRGB image to an ETC1S .KTX2 file, at quality level 100 (the highest):
+
+`basisu -quality 100 x.png`
+
+- For a linear LDR image, in ETC1S mode, at default quality (`-quality 50`, or the older `-q 128`):
 
 `basisu -linear x.png`
 
-- To compress to UASTC LDR, which is much higher quality than ETC1S:
+- To compress to UASTC LDR 4x4, which is much higher quality than ETC1S:
 
 `basisu -uastc x.png`
 
@@ -153,20 +247,20 @@ Compressing and Unpacking .KTX2/.basis Files
 - To compress an HDR 6x6 file:
 
 ```
-basisu -hdr_6x6 x.exr
-basisu -hdr_6x6 -lambda 500 x.exr
+basisu -hdr_6x6 x.exr  
+basisu -hdr_6x6 -lambda 500 x.exr  
 basisu -hdr_6x6_level 5 -lambda 500 x.exr
 ```
 
 - To compress an HDR 6x6 file using the compressed intermediate format for smaller files:
 
 ```
-basisu -hdr_6x6i x.exr
-basisu -hdr_6x6i -lambda 500 x.exr
+basisu -hdr_6x6i x.exr  
+basisu -hdr_6x6i -lambda 500 x.exr  
 basisu -hdr_6x6i_level 5 -lambda 500 x.exr
 ```
 
-Note the .EXR reader we're using is [TinyEXR's](https://github.com/syoyo/tinyexr), which doesn't support all possible .EXR compression modes. Tools like [ImageMagick](https://imagemagick.org/) can be used to create .EXR files that TinyEXR can read.
+Be aware that the .EXR reader we're using is [TinyEXR's](https://github.com/syoyo/tinyexr), which doesn't support all possible .EXR compression modes. Tools like [ImageMagick](https://imagemagick.org/) can be used to create .EXR files that TinyEXR can read.
 
 Alternatively, LDR images (such as .PNG) can be compressed to an HDR format by specifying `-hdr`, `-hdr_6x6`, or `-hdr_6x6i`. By default LDR images, when compressed to an HDR format, are first upconverted to HDR by converting them from sRGB to linear light and scaled to 100 [nits](https://en.wikipedia.org/wiki/Candela_per_square_metre) (candelas per square meter). The sRGB conversion step can be disabled by specifying `-hdr_ldr_no_srgb_to_linear`, and the normalized RGB linear light to nit multiplier can be changed by specifying `-hdr_ldr_upconversion_nit_multiplier X`.
 
@@ -174,15 +268,11 @@ Note: If you're compressing LDR/SDR image files to an HDR format, the codec's de
 
 ### Some Useful Command Line Options
 
-- `-fastest` (which is equivalent to `-uastc_level 0`) puts the UASTC LDR/HDR encoders in their fastest (but lower quality) modes.
-
-- `-slower` puts the UASTC LDR/HDR encoders in higher quality but slower modes (equivalent to `-uastc_level 3`). The default level is 1, and the highest is 4 (which is quite slow).
-
-- `-q X`, where X ranges from [1,255], controls the ETC1S mode's quality vs. file size tradeoff level. 255 is the highest quality, and the default is 128.
+- All codecs now support simple unified "quality" and "effort" settings. `-effort X` [0,10] controls how much of the search space (and how slowly) compression proceeds, and `quality X` [1,100] controls the quality vs. bitrate tradeoff. Internally these settings will be mapped to each codec's specific configuration settings: lambda, or , etc. Almost all the older settings still work, however. (Previously, `-q X`, where X ranged from [1,255], controlled the ETC1S quality setting. This option is still available, but `-quality` is preferred now.)
 
 - `-debug` causes the encoder to print internal and developer-oriented verbose debug information.
 
-- `-stats` to see various quality (PSNR) statistics.
+- `-stats` to see various quality (PSNR) statistics. 
 
 - `-linear`: ETC1S defaults to sRGB colorspace metrics, UASTC LDR currently always uses linear metrics, and UASTC HDR defaults to weighted RGB metrics (with 2,3,1 weights). If the input is a normal map, or some other type of non-sRGB (non-photographic) texture content, be sure to use `-linear` to avoid extra unnecessary artifacts. (Angular normal map metrics for UASTC LDR/HDR are definitely doable and on our TODO list.)
 
@@ -199,9 +289,9 @@ More Example Command Lines
 
 `-uastc_rdo_l X` controls the RDO ([Rate-Distortion Optimization](https://en.wikipedia.org/wiki/Rate%E2%80%93distortion_optimization)) quality setting. The lower this value, the higher the quality, but the larger the compressed file size. Good values to try are between .2-3.0. The default is 1.0.
 
-- To add automatically generated mipmaps to a ETC1S .KTX2 file, at a higher than default quality level (which ranges from [1,255]):
+- To add automatically generated mipmaps to a ETC1S .KTX2 file:
 
-`basisu -mipmap -q 200 x.png`
+`basisu -mipmap -quality 75 x.png`
 
 There are several mipmap options to change the filter kernel, the filter colorspace for the RGB channels (linear vs. sRGB), the smallest mipmap dimension, etc. The tool also supports generating cubemap files, 2D/cubemap texture arrays, etc. To bypass the automatic mipmap generator, you can create LDR or HDR uncompressed [.DDS texture files](https://learn.microsoft.com/en-us/windows/win32/direct3ddds/dx-graphics-dds-pguide) and feed them to the compressor.
 
@@ -209,9 +299,9 @@ There are several mipmap options to change the filter kernel, the filter colorsp
 
 `basisu -comp_level 2 x.png`
 
-On some rare images (ones with blue sky gradients come to bind), you may need to increase the ETC1S `-comp_level` setting, which ranges from 1,6. This controls the amount of overall effort the encoder uses to optimize the ETC1S codebooks and the compressed data stream. Higher comp_level's are *significantly* slower.
+On some rare images (ones with blue sky gradients come to bind), you may need to increase the ETC1S `-comp_level` setting, which ranges from 1,6. This controls the amount of overall effort the encoder uses to optimize the ETC1S codebooks and the compressed data stream. Higher comp_level's are *significantly* slower. 
 
-- To manually set the ETC1S codebook sizes (instead of using -q), with a higher codebook generation level (this is useful with texture video):
+- To manually set the ETC1S codebook sizes (instead of using -quality, or the older -q options), with a higher codebook generation level (this is useful with texture video):
 
 `basisu x.png -comp_level 2 -max_endpoints 16128 -max_selectors 16128`
 
@@ -236,25 +326,64 @@ You can either use the command line tool or [call the transcoder directly](https
 
 `basisu x.ktx2`
 
-Use the `-no_ktx` and `-etc1_only`/`-format_only` options to unpack to less files.
+Use the `-no_ktx` and `-etc1_only`/`-format_only` options to unpack to less files. 
 
-`-info` and `-validate` will just display file information and not output any files.
+`-info` and `-validate` will just display file information and not output any files. 
 
-The written mipmapped, cubemap, or texture array .KTX/.DDS files will be in a wide variety of compressed GPU texture formats (PVRTC1 4bpp, ETC1-2, BC1-5, BC7, etc.), and to our knowledge there is unfortunately (as of 2024) still no single .KTX or .DDS viewer tool that correctly and reliably supports every GPU texture format that we support. BC1-5 and BC7 files are viewable using AMD's Compressonator, ETC1/2 using Mali's Texture Compression Tool, and PVRTC1 using Imagination Tech's PVRTexTool. [RenderDoc](https://renderdoc.org/) has a useful texture file viewer for many formats. The Mac OSX Finder supports previewing .EXR and .KTX files in various GPU formats. The Windows 11 Explorer can preview .DDS files. The [online OpenHDR Viewer](https://viewer.openhdr.org/) is useful for viewing .EXR/.HDR image files.
+The written mipmapped, cubemap, or texture array .KTX/.DDS files will be in a wide variety of compressed GPU texture formats (PVRTC1 4bpp, ETC1-2, BC1-5, BC7, etc.), and to our knowledge there is unfortunately (as of 2024) still no single .KTX or .DDS viewer tool that correctly and reliably supports every GPU texture format that we support. BC1-5 and BC7 files are viewable using AMD's Compressonator, ETC1/2 using Mali's Texture Compression Tool, and PVRTC1 using Imagination Tech's PVRTexTool. [RenderDoc](https://renderdoc.org/) has a useful texture file viewer for many formats. The Mac OSX Finder supports previewing .EXR and .KTX files in various GPU formats. The Windows 11 Explorer can preview .DDS files. The [online OpenHDR Viewer](https://viewer.openhdr.org/) is useful for viewing .EXR/.HDR image files. 
+
+----
+
+Python Support
+--------------
+
+All key encoder, and all transcoder functionality is now available from Python, but this is still in the early stages of development. See the README files in the python directory for how to build the native SO's/PYD's. The Python support module supports both native and WASM modules, which is used as a fallback if native libraries can't be loaded. Python support has been tested under Ubuntu Linux and Windows 11 so far.
+
+Example:
+```
+cd python
+python3 -m tests.test_backend_loading
+========== BACKEND LOADING TEST ==========
+
+Testing native backend...
+[Encoder] Using native backend
+  [OK] Native backend loaded
+Hello from basisu_wasm_api.cpp version 200
+  Native get_version() ? 200
+  Native alloc() returned ptr = 190977024
+  Native free() OK
+  [OK] Native basic operations working.
+
+Testing WASM backend...
+[WASM Encoder] Loaded: /mnt/c/dev/xuastc4/python/basisu_py/wasm/basisu_module_st.wasm
+[Encoder] Using WASM backend
+  [OK] WASM backend loaded
+Hello from basisu_wasm_api.cpp version 200
+  WASM get_version() ? 200
+  WASM alloc() returned ptr = 26920160
+  WASM free() OK
+  [OK] WASM basic operations working.
+
+========== DONE ==========
+```
+
+----
 
 WebGL Examples
 --------------
 
-The 'WebGL' directory contains several simple WebGL demos that use the transcoder and compressor compiled to [WASM](https://webassembly.org/) with [emscripten](https://emscripten.org/). These demos are online [here](https://subquantumtech.com/uastchdr2/). See more details in the readme file [here](webgl/README.md).
+The 'WebGL' directory contains several simple WebGL demos that use the transcoder and compressor compiled to [WASM](https://webassembly.org/) with [emscripten](https://emscripten.org/). These demos are online [here](https://subquantumtech.com/xu/). See more details in the readme file [here](webgl/README.md).
 
 ![Screenshot of 'texture' example running in a browser.](webgl/texture_test/preview.png)
 ![Screenshot of 'gltf' example running in a browser.](webgl/gltf/preview.png)
 ![Screenshot of 'encode_test' example running in a browser.](webgl/ktx2_encode_test/preview.png)
 
-Building the WASM Modules with [Emscripten](https://emscripten.org/)
+----
+
+Building the WASM Modules with [Emscripten](https://emscripten.org/) 
 --------------------------------------------------------------------
 
-Both the transcoder and encoder may be compiled using emscripten to WebAssembly and used on the web. A set of JavaScript wrappers to the codec, written in C++ with emscripten extensions, is located in `webgl/transcoding/basis_wrappers.cpp`. The JavaScript wrapper supports nearly all features and modes, including texture video. See the README.md and CMakeLists.txt files in `webgl/transcoder` and `webgl/encoder`.
+Both the transcoder and encoder may be compiled using emscripten to WebAssembly and used on the web. A set of JavaScript wrappers to the codec, written in C++ with emscripten extensions, is located in `webgl/transcoding/basis_wrappers.cpp`. The JavaScript wrapper supports nearly all features and modes, including texture video. See the README.md and CMakeLists.txt files in `webgl/transcoder` and `webgl/encoder`. 
 
 To build the WASM transcoder, after installing emscripten:
 
@@ -274,6 +403,8 @@ make
 
 There are two simple encoding/transcoding web demos, located in `webgl/ktx2_encode_test` and `webgl/texture_test`, that show how to use the encoder's and transcoder's Javascript wrapper API's.
 
+----
+
 Low-level C++ Encoder/Transcoder API Examples
 ---------------------------------------------
 
@@ -283,6 +414,8 @@ ETC1S Texture Video Tips
 ------------------------
 
 See the wiki [here](https://github.com/BinomialLLC/basis_universal/wiki/Encoding-ETC1S-Texture-Video-Tips).
+
+----
 
 Installation using the vcpkg dependency manager
 -----------------------------------------------
@@ -296,6 +429,8 @@ You can download and install Basis Universal using the [vcpkg](https://github.co
     vcpkg install basisu
 
 The Basis Universal port in vcpkg is kept up to date by Microsoft team members and community contributors. If the version is out of date, please [create an issue or pull request](https://github.com/Microsoft/vcpkg) on the vcpkg repository. (9/10/2024: UASTC HDR support is not available here yet.)
+
+----
 
 License
 -------
