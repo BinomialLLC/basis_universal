@@ -21,7 +21,7 @@ The system supports seven modes (or codecs):
 6. ASTC LDR 4x4-12x12 (all 14 standard ASTC block sizes): Standard ASTC LDR 4x4-12x12
 7. XUASTC LDR 4x4-12x12 (all 14 XUASTC block sizes): Supercompressed ASTC LDR 4x4-12x12, very high quality, utilizes weight grid DCT for very high compression ratios
 
-The C/C++ encoder and transcoder libaries can be compiled to native code or WebAssembly, and all encoder/transcoder features can be accessed from Javascript via a C++ wrapper library which optionally supports [WASM multithreading](https://web.dev/articles/webassembly-threads) for fast encoding in the browser. [WASM WASI](https://wasi.dev/) builds, for the command line tool and the encoder/transcoder as a WASI module using a pure C API, are also supported. 
+The C/C++ encoder and transcoder libaries can be compiled to native code or WebAssembly (web or WASI), and all encoder/transcoder features can be accessed from Javascript via a C++ wrapper library which optionally supports [WASM multithreading](https://web.dev/articles/webassembly-threads) for fast encoding in the browser. [WASM WASI](https://wasi.dev/) builds, for the command line tool and the encoder/transcoder as a WASI module using a pure C API, are also supported. 
 
 Full Python support for encoding/transcoding is now available, supporting native or WASM modules, but is still in the early stages of development.
 
