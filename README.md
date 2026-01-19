@@ -211,11 +211,13 @@ basisu -test -opencl
 Compressing and Unpacking .KTX2/.basis Files
 --------------------------------------------
 
-- To compress an LDR sRGB PNG/QOI/TGA/JPEG/DDS image to an supercompressed XUASTC LDR 6x6 .KTX2 file, at quality level 75 (valid quality levels 1-100, where higher values=higher quality), effort level 4 (valid effort levels 0-10, higher values=slower compression):
+- To compress an LDR sRGB PNG/QOI/TGA/JPEG/DDS image to a supercompressed XUASTC LDR 6x6 .KTX2 file, at quality level 75 (valid quality levels 1-100, where higher values=higher quality), effort level 4 (valid effort levels 0-10, higher values=slower compression):
 
 `basisu -xuastc_ldr_6x6 -quality 75 -effort 4 x.png`
 
-The options `-xuastc_arith`, `-xuastc_zstd` (the default), and `-xuastc_hybrid` control the XUASTC LDR profile used. An alias for `-xuastc_ldr_6x6` is `-ldr_6x6i` (where 'i'="intermediate"). 
+An alias for `-xuastc_ldr_6x6` is `-ldr_6x6i` (where 'i'="intermediate"). 
+
+The options `-xuastc_arith`, `-xuastc_zstd` (the default), and `-xuastc_hybrid` control the XUASTC LDR profile used. The arithmetic profile trades off transcoding throughput for 5-18% better compression vs. the Zstd profile, and the hybrid profile is a balance between the two. 
 
 All [14 standard ASTC block sizes](https://developer.nvidia.com/astc-texture-compression-for-game-assets) are supported, from 4x4-12x12.
 
@@ -225,7 +227,7 @@ All [14 standard ASTC block sizes](https://developer.nvidia.com/astc-texture-com
 
 An alias for `-astc_ldr_6x6` is `-ldr_6x6`. 
 
-All 14 standard ASTC block sizes are supported, from 4x4-12x12.
+All 14 standard ASTC block sizes are supported, from 4x4-12x12. Internally the XUASTC LDR encoder is used, but standard ASTC block data is output, instead of supercompressed XUASTC LDR.
 
 - To compress an LDR sRGB image to an ETC1S .KTX2 file, at quality level 100 (the highest):
 
