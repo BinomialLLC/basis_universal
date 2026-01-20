@@ -12,7 +12,7 @@ Basis Universal v2.0 is an open source [supercompressed](http://gamma.cs.unc.edu
 
 Our overall goal is to simplify the encoding and efficient distribution of *portable* LDR and HDR GPU texture, image, and short texture video content in a way that is compatible with any GPU or rendering/graphics API.
 
-The system supports seven modes (or codecs): 
+The system supports seven modes (or codecs). In the order they were implemented:
 1. **ETC1S**: A supercompressed subset of ETC1 designed for very fast transcoding to other LDR texture formats, low/medium quality but high compression
 2. **UASTC LDR 4x4 (with or without RDO)**: Custom ASTC 4x4-like format designed for very fast transcoding to other LDR texture formats, high quality
 3. **UASTC HDR 4x4**: Standard ASTC HDR 4x4 texture data, but constrained for very fast transcoding to BC6H
