@@ -118,7 +118,7 @@ The system now supports loading basic 2D .DDS files with optional mipmaps, but t
 Running the Precompiled WASM WASI Executables
 ---------------------------------------------
 
-There are precompiled, cross platform .WASM WASI executables checked into the `bin` directory: `basisu_mt.wasm` (multithreaded) and `basisu_st.wasm` (single threaded). See the `runwt.sh`, `runwt.bat`, `runw.sh`, or `runw.bat` scripts for examples on how to run the WASM executables using [wasmtime](https://wasmtime.dev/).
+There are precompiled, secure, cross platform .WASM WASI executables checked into the `bin` directory: `basisu_mt.wasm` (multithreaded) and `basisu_st.wasm` (single threaded). See the `runwt.sh`, `runwt.bat`, `runw.sh`, or `runw.bat` scripts for examples on how to run the WASM executables using [wasmtime](https://wasmtime.dev/).
 
 Here's `runwt.bat`:
 
