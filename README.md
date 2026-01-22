@@ -233,7 +233,7 @@ basisu -test -opencl
 Compressing and Unpacking .KTX2/.basis Files
 --------------------------------------------
 
-- To compress an LDR sRGB PNG/QOI/TGA/JPEG/DDS image to a supercompressed XUASTC LDR 6x6 .KTX2 file, at quality level 75 (valid quality levels 1-100, where higher values=higher quality), effort level 4 (valid effort levels 0-10, higher values=slower compression):
+- To compress an LDR sRGB PNG/QOI/TGA/JPEG/DDS image to a supercompressed XUASTC LDR 6x6 .KTX2 file, at quality level 75 (valid quality levels 1-100, where higher values=higher quality), effort level 4 (valid effort levels 0-10, higher values=slower compression, default effort is 3):
 
 `basisu -xuastc_ldr_6x6 -quality 75 -effort 4 x.png`
 
