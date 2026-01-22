@@ -130,8 +130,8 @@ Example for XUASTC LDR compression using the arithmetic profile, with Weight Gri
 
 ```
 cd bin
-runwt.bat test_images/xmen.png -xuastc_ldr_6x6 -quality 70 -xuastc_arith
-runwt.bat xmen.ktx2
+runwt.bat x.png -xuastc_ldr_6x6 -quality 70 -xuastc_arith
+runwt.bat x.ktx2
 ```
 
 The [wasmer](https://wasmer.io/) runtime should work too, but we haven't tested it yet.
