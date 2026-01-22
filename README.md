@@ -241,7 +241,7 @@ An alias for `-xuastc_ldr_6x6` is `-ldr_6x6i` (where 'i'="intermediate").
 
 The options `-xuastc_arith`, `-xuastc_zstd` (the default), and `-xuastc_hybrid` control the XUASTC LDR profile used. The arithmetic profile trades off transcoding throughput for 5-18% better compression vs. the Zstd profile, and the hybrid profile is a balance between the two. 
 
-All [14 standard ASTC block sizes](https://developer.nvidia.com/astc-texture-compression-for-game-assets) are supported, from 4x4-12x12: 4x4, 5x4, 5x5, 6x5, 6x6, 8x5, 8x6, 10x5, 10x6, 8x8, 10x8, 10x10, 12x10 and 12x12. The XUASTC LDR to BC7 transcoder has special optimizations for several common block sizes: 4x4, 6x6 and 8x6.
+All [14 standard ASTC block sizes](https://developer.nvidia.com/astc-texture-compression-for-game-assets) are supported, from 4x4-12x12: 4x4, 5x4, 5x5, 6x5, 6x6, 8x5, 8x6, 10x5, 10x6, 8x8, 10x8, 10x10, 12x10 and 12x12. The XUASTC LDR to BC7 transcoder has special optimizations for several common block sizes: 4x4, 6x6 and 8x6. When transcoding XUASTC LDR at these particular block sizes, most XUASTC blocks are *directly* transcoded to BC7, skipping the real-time analytical bc7f encoding step.
 
 - To compress an LDR sRGB image to a standard ASTC LDR 6x6 .KTX2 file, using effort level 4 (valid effort levels 0-10):
 
