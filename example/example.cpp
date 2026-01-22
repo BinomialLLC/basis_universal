@@ -7,8 +7,11 @@
 #include "../encoder/basisu_comp.h"
 #include "../transcoder/basisu_transcoder.h"
 #include "../encoder/basisu_gpu_texture.h"
+#include "../encoder/basisu_astc_ldr_encode.h"
 
 #define USE_ENCODER (1)
+
+//#define FORCE_SAN_FAILURE
 
 const bool USE_OPENCL = false;
 
@@ -148,7 +151,7 @@ static bool encode_uastc_ldr()
 
     // basis_compress() is a simple wrapper around the basis_compressor_params and basis_compressor classes.
     void* pKTX2_data = basis_compress(
-        basist::basis_tex_format::cUASTC4x4,
+        basist::basis_tex_format::cUASTC_LDR_4x4,
         source_images,
         cFlagThreaded | cFlagPrintStats | cFlagDebug | cFlagPrintStatus, 0.0f,
         &file_size,
@@ -268,7 +271,7 @@ static bool transcode_hdr()
 
         gpu_image_vec tex_vec;
         tex_vec.push_back(tex);
-        if (!write_compressed_texture_file("test_uastc_hdr_bc6h.dds", tex_vec, true))
+        if (!write_compressed_texture_file("test_uastc_hdr_bc6h.dds", tex_vec, false))
             return false;
     }
 
@@ -564,14 +567,642 @@ static void fuzz_uastc_hdr_transcoder_test()
     printf("OK\n");
 }
 
+void wrap_image(const image& src, image& dst, int gridX, int gridY, float maxOffset, bool randomize, basisu::rand &rnd)
+{
+    if (gridX < 1) gridX = 1;
+    if (gridY < 1) gridY = 1;
+
+    const int vxCountX = gridX + 1;
+    const int vxCountY = gridY + 1;
+    const int stride = vxCountX;
+
+    const int w = src.get_width();
+    const int h = src.get_height();
+        
+    dst.resize(w, h);
+
+    dst.set_all(g_black_color);
+
+    basisu::vector<vec2F> verts(vxCountX * vxCountY);
+    basisu::vector<vec2F> uvs(vxCountX * vxCountY);
+    basisu::vector<color_rgba> cols(vxCountX * vxCountY);
+
+    for (int gy = 0; gy <= gridY; ++gy)
+    {
+        for (int gx = 0; gx <= gridX; ++gx)
+        {
+            float x = (gx / float(gridX)) * (w - 1);
+            float y = (gy / float(gridY)) * (h - 1);
+
+            float rx = x;
+            float ry = y;
+
+            if (randomize)
+            {
+                rx += rnd.frand(-maxOffset, maxOffset);
+                ry += rnd.frand(-maxOffset, maxOffset);
+            }
+
+            verts[gy * stride + gx] = { rx, ry };
+
+            float u = gx / float(gridX);
+            float v = gy / float(gridY);
+
+            u = std::max(0.0f, std::min(1.0f, u));
+            v = std::max(0.0f, std::min(1.0f, v));
+
+            uvs[gy * stride + gx] = { u, v };
+
+            color_rgba c(g_white_color);
+
+            cols[gy * stride + gx] = c;
+        }
+    }
+
+    for (int gy = 0; gy < gridY; ++gy)
+    {
+        for (int gx = 0; gx < gridX; ++gx)
+        {
+            int i0 = gy * stride + gx;
+            int i1 = i0 + 1;
+            int i2 = i0 + stride;
+            int i3 = i2 + 1;
+
+            tri2 tA;
+            tA.p0 = verts[i0];  tA.p1 = verts[i1];  tA.p2 = verts[i3];
+            tA.t0 = uvs[i0];    tA.t1 = uvs[i1];    tA.t2 = uvs[i3];
+            tA.c0 = cols[i0];  tA.c1 = cols[i1];  tA.c2 = cols[i3];
+
+            draw_tri2(dst, &src, tA, randomize);
+
+            tri2 tB;
+            tB.p0 = verts[i0];  tB.p1 = verts[i3];  tB.p2 = verts[i2];
+            tB.t0 = uvs[i0];    tB.t1 = uvs[i3];    tB.t2 = uvs[i2];
+            tB.c0 = cols[i0];  tB.c1 = cols[i3];  tB.c2 = cols[i2];
+
+            draw_tri2(dst, &src, tB, randomize);
+        } // gx
+    } // by
+
+}
+
+enum class codec_class
+{
+    cETC1S = 0,
+    cUASTC_LDR_4x4 = 1,
+    cUASTC_HDR_4x4 = 2,
+    cASTC_HDR_6x6 = 3,
+    cUASTC_HDR_6x6 = 4,
+    cASTC_LDR = 5,
+    cXUASTC_LDR = 6,
+    cTOTAL
+};
+
+// The main point of this test is to exercise lots of internal code paths.
+bool random_compress_test()
+{
+    printf("Random XUASTC/ASTC LDR 4x4-12x12 compression test:\n");
+
+    const uint32_t num_images = 18;
+    image test_images[num_images + 1];
+
+    for (uint32_t i = 0; i < num_images; i++)
+        load_png(fmt_string("../test_files/kodim{02}.png", 1 + i).c_str(), test_images[i]);
+    
+    const uint32_t N = 16;
+    //const uint32_t N = 5000;
+    const uint32_t MAX_WIDTH = 1024, MAX_HEIGHT = 1024;
+        
+    basisu::rand rnd;
+    
+    float lowest_psnr1 = BIG_FLOAT_VAL, lowest_psnr2 = BIG_FLOAT_VAL;
+
+    struct result
+    {
+        uint32_t m_seed;
+        basist::basis_tex_format m_fmt;
+        float m_psnr1;
+        float m_psnr2;
+    };
+    basisu::vector<result> results;
+
+    for (uint32_t i = 0; i < N; i++)
+    {
+        uint32_t seed = 166136844 + i;
+
+        //seed = 23082246; // etc1s 1-bit SSE overflow
+        //seed = 56636601; // UASTC HDR 4x4 assert tol
+        //seed = 56636744; // HDR 6x6 float overflow
+
+        fmt_printf("------------------------------ Seed: {}\n", seed);
+        rnd.seed(seed);
+
+        const uint32_t w = rnd.irand(1, MAX_WIDTH);
+        const uint32_t h = rnd.irand(1, MAX_HEIGHT);
+        const bool mips = rnd.bit();
+        const bool use_a = rnd.bit();
+                
+        fmt_printf("Trying {}x{}, mips: {}, use_a: {}\n", w, h, mips, use_a);
+
+        // Chose a random codec/block size to test
+        basist::basis_tex_format tex_mode = basist::basis_tex_format::cETC1S;
+
+        bool is_hdr = false;
+
+        uint32_t rnd_codec_class = rnd.irand(0, (uint32_t)codec_class::cTOTAL - 1);
+        
+        // TODO - make this a command line
+        //rnd_codec_class = rnd.bit() ? (uint32_t)codec_class::cXUASTC_LDR : (uint32_t)codec_class::cASTC_LDR;
+        //rnd_codec_class = (uint32_t)codec_class::cXUASTC_LDR;
+        //rnd_codec_class = (uint32_t)codec_class::cETC1S;
+
+        switch (rnd_codec_class)
+        {
+        case (uint32_t)codec_class::cETC1S:
+        {
+            tex_mode = basist::basis_tex_format::cETC1S;
+            break;
+        }
+        case (uint32_t)codec_class::cUASTC_LDR_4x4:
+        {
+            tex_mode = basist::basis_tex_format::cUASTC_LDR_4x4;
+            break;
+        }
+        case (uint32_t)codec_class::cUASTC_HDR_4x4:
+        {
+            tex_mode = basist::basis_tex_format::cUASTC_HDR_4x4;
+            is_hdr = true;
+            break;
+        }
+        case (uint32_t)codec_class::cASTC_HDR_6x6:
+        {
+            tex_mode = basist::basis_tex_format::cASTC_HDR_6x6;
+            is_hdr = true;
+            break;
+        }
+        case (uint32_t)codec_class::cUASTC_HDR_6x6:
+        {
+            tex_mode = basist::basis_tex_format::cUASTC_HDR_6x6_INTERMEDIATE;
+            is_hdr = true;
+            break;
+        }
+        case (uint32_t)codec_class::cASTC_LDR:
+        {
+            // ASTC LDR 4x4-12x12
+            const uint32_t block_variant = rnd.irand(0, astc_helpers::NUM_ASTC_BLOCK_SIZES - 1);
+            tex_mode = (basist::basis_tex_format)((uint32_t)basist::basis_tex_format::cASTC_LDR_4x4 + block_variant);
+            break;
+        }
+        case (uint32_t)codec_class::cXUASTC_LDR:
+        {
+            // XUASTC LDR 4x4-12x12
+            const uint32_t block_variant = rnd.irand(0, astc_helpers::NUM_ASTC_BLOCK_SIZES - 1);
+            tex_mode = (basist::basis_tex_format)((uint32_t)basist::basis_tex_format::cXUASTC_LDR_4x4 + block_variant);
+            break;
+        }
+        default:
+            assert(0);
+            tex_mode = basist::basis_tex_format::cETC1S;
+            break;
+        }
+
+        fmt_printf("Testing basis_tex_format={}\n", (uint32_t)tex_mode);
+        
+        size_t comp_size = 0;
+                
+        // Create random LDR source image to compress
+        image src_img;
+        src_img.resize(w, h, w, color_rgba(rnd.byte(), rnd.byte(), rnd.byte(), use_a ? rnd.byte() : 255));
+
+        if (rnd.irand(0, 7) >= 1)
+        {
+            const uint32_t nt = rnd.irand(0, 1000);
+            
+            for (uint32_t k = 0; k < nt; k++)
+            {
+                color_rgba c(rnd.byte(), rnd.byte(), rnd.byte(), use_a ? rnd.byte() : 255);
+
+                uint32_t r = rnd.irand(0, 25);
+                if (r == 0)
+                {
+                    uint32_t xs = rnd.irand(0, w - 1);
+                    uint32_t xe = rnd.irand(0, w - 1);
+                    if (xs > xe)
+                        std::swap(xs, xe);
+                    
+                    uint32_t ys = rnd.irand(0, h - 1);
+                    uint32_t ye = rnd.irand(0, h - 1);
+                    if (ys > ye)
+                        std::swap(ys, ye);
+
+                    src_img.fill_box(xs, ys, xe - xs + 1, ye - ys + 1, c);
+                }
+                else if (r <= 5)
+                {
+                    uint32_t xs = rnd.irand(0, w - 1);
+                    uint32_t xe = rnd.irand(0, w - 1);
+
+                    uint32_t ys = rnd.irand(0, h - 1);
+                    uint32_t ye = rnd.irand(0, h - 1);
+                    
+                    basisu::draw_line(src_img, xs, ys, xe, ye, c);
+                }
+                else if (r == 6)
+                {
+                    uint32_t cx = rnd.irand(0, w - 1);
+                    uint32_t cy = rnd.irand(0, h - 1);
+                    uint32_t ra = rnd.irand(0, 100);
+
+                    basisu::draw_circle(src_img, cx, cy, ra, c);
+                }
+                else if (r < 10)
+                {
+                    uint32_t x = rnd.irand(0, w - 1);
+                    uint32_t y = rnd.irand(0, h - 1);
+                    uint32_t sx = rnd.irand(1, 3);
+                    uint32_t sy = rnd.irand(1, 3);
+                    
+                    uint32_t l = rnd.irand(1, 10);
+                    
+                    char buf[32] = {};
+                    for (uint32_t j = 0; j < l; j++)
+                        buf[j] = (char)rnd.irand(32, 127);
+
+                    src_img.debug_text(x, y, sx, sy, c, nullptr, rnd.bit(), "%s", buf);
+                }
+                else if (r < 12)
+                {
+                    uint32_t xs = rnd.irand(0, w - 1);
+                    uint32_t ys = rnd.irand(0, h - 1);
+                    
+                    uint32_t xl = rnd.irand(1, 100);
+                    uint32_t yl = rnd.irand(1, 100);
+
+                    uint32_t xe = minimum<int>(xs + xl - 1, w - 1);
+                    uint32_t ye = minimum<int>(ys + yl - 1, h - 1);
+                    
+                    color_rgba cols[4];
+                    cols[0] = c;
+                    for (uint32_t j = 1; j < 4; j++)
+                        cols[j] = color_rgba(rnd.byte(), rnd.byte(), rnd.byte(), use_a ? rnd.byte() : 255);
+
+                    const bool a_only = rnd.bit();
+                    const bool rgb_only = rnd.bit();
+                    const bool noise_flag = rnd.irand(0, 9) == 0;
+
+                    for (uint32_t y = ys; y <= ye; y++)
+                    {
+                        float fy = (ye != ys) ? (float(y - ys) / float(ye - ys)) : 0;
+
+                        for (uint32_t x = xs; x <= xe; x++)
+                        {
+                            float fx = (xe != xs) ? (float(x - xs) / float(xe - xs)) : 0;
+
+                            color_rgba q;
+                            if (noise_flag)
+                            {
+                                for (uint32_t j = 0; j < 4; j++)
+                                    q[j] = rnd.byte();
+                            }
+                            else
+                            {
+                                for (uint32_t j = 0; j < 4; j++)
+                                {
+                                    float lx0 = lerp((float)cols[0][j], (float)cols[1][j], fx);
+                                    float lx1 = lerp((float)cols[2][j], (float)cols[3][j], fx);
+
+                                    int ly = (int)std::round(lerp(lx0, lx1, fy));
+
+                                    q[j] = (uint8_t)clamp(ly, 0, 255);
+                                }
+                            }
+
+                            if (a_only)
+                                src_img(x, y).a = q.a;
+                            else if (rgb_only)
+                            {
+                                src_img(x, y).r = q.r;
+                                src_img(x, y).g = q.g;
+                                src_img(x, y).b = q.b;
+                            }
+                            else
+                                src_img(x, y) = q;
+                        } // x 
+                    } // y
+                }
+                else if ((r < 20) && (num_images))
+                {
+                    uint32_t image_index = rnd.irand(0, num_images - 1);
+
+                    const image& img = test_images[image_index];
+                    if (img.get_width())
+                    {
+                        float tw = (float)rnd.irand(1, minimum<int>(128, img.get_width()));
+                        float th = (float)rnd.irand(1, minimum<int>(128, img.get_height()));
+
+                        float u = (float)rnd.irand(0, img.get_width() - (int)tw);
+                        float v = (float)rnd.irand(0, img.get_height() - (int)th);
+
+                        u /= (float)img.get_width();
+                        v /= (float)img.get_height();
+
+                        tw /= (float)img.get_width();
+                        th /= (float)img.get_height();
+
+                        float dx = (float)rnd.irand(0, src_img.get_width() - 1);
+                        float dy = (float)rnd.irand(0, src_img.get_height() - 1);
+
+                        float dw = (float)rnd.irand(1, minimum<int>(256, img.get_width()));
+                        float dh = (float)rnd.irand(1, minimum<int>(256, img.get_height()));
+
+                        tri2 tri;
+                        tri.p0.set(dx, dy);
+                        tri.t0.set(u, v);
+
+                        tri.p1.set(dx + dw, dy);
+                        tri.t1.set(u + tw, v);
+
+                        tri.p2.set(dx + dw, dy + dh);
+                        tri.t2.set(u + tw, v + th);
+                        
+                        bool alpha_blend = rnd.bit();
+
+                        if (alpha_blend)
+                        {
+                            tri.c0.set(rnd.irand(100, 255), rnd.irand(100, 255), rnd.irand(100, 255), rnd.irand(1, 255));
+                            tri.c1.set(rnd.irand(100, 255), rnd.irand(100, 255), rnd.irand(100, 255), rnd.irand(1, 255));
+                            tri.c2.set(rnd.irand(100, 255), rnd.irand(100, 255), rnd.irand(100, 255), rnd.irand(1, 255));
+                        }
+                        else
+                        {
+                            tri.c0 = g_white_color;
+                            tri.c1 = g_white_color;
+                            tri.c2 = g_white_color;
+                        }
+
+                        draw_tri2(src_img, &img, tri, alpha_blend);
+
+                        tri.p0.set(dx, dy);
+                        tri.t0.set(u, v);
+
+                        tri.p1.set(dx + dw, dy + dh);
+                        tri.t1.set(u + tw, v + th);
+                        tri.c1 = tri.c2;
+
+                        tri.p2.set(dx, dy + dh);
+                        tri.t2.set(u, v + th);
+                        tri.c2.set(rnd.irand(100, 255), rnd.irand(100, 255), rnd.irand(100, 255), rnd.irand(1, 255));
+
+                        draw_tri2(src_img, &img, tri, alpha_blend);
+                    }
+                }
+                else
+                {
+                    src_img(rnd.irand(0, w - 1), rnd.irand(0, h - 1)) = c;
+                }
+            }
+        }
+        
+        if ((use_a) && (rnd.irand(0, 3) >= 2))
+        {
+            const uint32_t nt = rnd.irand(0, 1000);
+            
+            for (uint32_t k = 0; k < nt; k++)
+                src_img(rnd.irand(0, w - 1), rnd.irand(0, h - 1)).a = rnd.byte();
+        }
+
+        if (rnd.bit())
+        {
+            int gridX = rnd.irand(8, 24);
+            int gridY = rnd.irand(8, 24);
+            float maxOffset = rnd.frand(0.0f, (float)maximum(gridX, gridY));
+
+            image tmp_img;
+            wrap_image(src_img, tmp_img, gridX, gridY, maxOffset, true, rnd);
+            src_img.swap(tmp_img);
+        }
+
+        if (!use_a)
+        {
+            for (uint32_t y = 0; y < h; y++)
+                for (uint32_t x = 0; x < w; x++)
+                    src_img(x, y).a = 255;
+        }
+
+        //save_png("test.png", src_img);
+        //fmt_printf("Has alpha: {}\n", src_img.has_alpha());
+        
+        // Choose randomized codec parameters
+        uint32_t flags = cFlagPrintStats | cFlagValidateOutput | cFlagPrintStatus;
+        
+        flags |= cFlagDebug;
+                
+        flags |= cFlagThreaded;
+
+        if (rnd.bit())
+            flags |= cFlagSRGB;
+
+        if (rnd.bit())
+            flags |= cFlagKTX2;
+
+        if (mips)
+            flags |= (rnd.bit() ? cFlagGenMipsClamp : cFlagGenMipsWrap);
+
+        if (rnd.bit())
+            flags |= cFlagREC2020;
+
+        float quality = 0.0f;
+                
+        switch (rnd_codec_class)
+        {
+        case (uint32_t)codec_class::cETC1S:
+        {
+            // ETC1S
+            
+            // Choose random ETC1S quality level
+            flags |= rnd.irand(1, 255);
+        
+            break;
+        }
+        case (uint32_t)codec_class::cUASTC_LDR_4x4:
+        {
+            // UASTC LDR 4x4
+
+            if (rnd.bit())
+            {
+                // Choose random RDO lambda
+                quality = rnd.frand(0.0, 10.0f);
+            }
+
+            // Choose random effort level
+            flags |= rnd.irand(cPackUASTCLevelFastest, cPackUASTCLevelVerySlow);
+
+            break;
+        }
+        case (uint32_t)codec_class::cUASTC_HDR_4x4:
+        {
+            // UASTC HDR 4x4
+            
+            // Choose random effort level.
+            flags |= rnd.irand(uastc_hdr_4x4_codec_options::cMinLevel, uastc_hdr_4x4_codec_options::cMaxLevel);
+
+            break;
+        }
+        case (uint32_t)codec_class::cASTC_HDR_6x6:
+        case (uint32_t)codec_class::cUASTC_HDR_6x6:
+        {
+            // RDO ASTC HDR 6x6 or UASTC HDR 6x6
+            
+            // Chose random effort level
+            flags |= rnd.irand(0, astc_6x6_hdr::ASTC_HDR_6X6_MAX_USER_COMP_LEVEL);
+
+            if (rnd.bit())
+            {
+                // Random RDO lambda
+                quality = rnd.frand(0.0, 2000.0f);
+            }
+
+            break;
+        }
+        case (uint32_t)codec_class::cASTC_LDR:
+        case (uint32_t)codec_class::cXUASTC_LDR:
+        {
+            // ASTC/XUASTC LDR 4x4-12x12
+
+            // Choose random profile
+            uint32_t xuastc_ldr_syntax = rnd.irand(0, (uint32_t)basist::astc_ldr_t::xuastc_ldr_syntax::cTotal - 1);
+            flags |= (xuastc_ldr_syntax << cFlagXUASTCLDRSyntaxShift);
+
+            // Choose random effort
+            uint32_t effort = rnd.irand(basisu::astc_ldr::EFFORT_LEVEL_MIN, basisu::astc_ldr::EFFORT_LEVEL_MAX);
+            flags |= effort;
+
+            // Choose random weight grid DCT quality
+            quality = (float)rnd.frand(1.0f, 100.0f);
+
+            if (rnd.irand(0, 7) == 0)
+                quality = 0.0f; // sometimes disable DCT
+
+            break;
+        }
+        default:
+        {
+            assert(0);
+        }
+        }
+        
+        void* pComp_data = nullptr;
+        image_stats stats;
+
+        if (is_hdr)
+        {
+            basisu::vector<imagef> hdr_source_images;
+            imagef hdr_src_img(src_img.get_width(), src_img.get_height());
+            
+            const float max_y = rnd.frand(.000125f, 30000.0f) / 255.0f;
+
+            for (uint32_t y = 0; y < src_img.get_height(); y++)
+            {
+                for (uint32_t x = 0; x < src_img.get_width(); x++)
+                {
+                    hdr_src_img(x, y)[0] = (float)src_img(x, y).r * max_y;
+                    hdr_src_img(x, y)[1] = (float)src_img(x, y).g * max_y;
+                    hdr_src_img(x, y)[2] = (float)src_img(x, y).b * max_y;
+                    hdr_src_img(x, y)[3] = 1.0f;
+                }
+            }
+
+            //write_exr("test.exr", hdr_src_img, 3, 0);
+            
+            hdr_source_images.push_back(hdr_src_img);
+            pComp_data = basisu::basis_compress(tex_mode, hdr_source_images, flags, quality, &comp_size, &stats);
+        }
+        else
+        {
+            basisu::vector<basisu::image> ldr_source_images;
+            ldr_source_images.push_back(src_img);
+
+            //save_png("test.png", src_img);
+            //save_png(fmt_string("test_{}.png", seed), src_img);
+                                    
+            pComp_data = basisu::basis_compress(tex_mode, ldr_source_images, flags, quality, &comp_size, &stats);
+        }
+
+        if (!pComp_data)
+        {
+            fprintf(stderr, "basisu::basis_compress() failed\n");
+            return false;
+        }
+
+        basisu::basis_free_data(pComp_data);
+
+        const float psnr1 = stats.m_basis_rgba_avg_psnr ? stats.m_basis_rgba_avg_psnr : stats.m_basis_rgb_avg_psnr;
+        const float psnr2 = stats.m_bc7_rgba_avg_psnr ? stats.m_bc7_rgba_avg_psnr : stats.m_basis_rgb_avg_bc6h_psnr;
+
+        lowest_psnr1 = minimum(lowest_psnr1, psnr1);
+        lowest_psnr2 = minimum(lowest_psnr2, psnr2);
+
+        results.push_back(
+            result{ seed, tex_mode,
+            psnr1,
+            psnr2 });
+
+    } // i
+               
+    printf("PSNR Results:\n");
+    
+    for (uint32_t i = 0; i < results.size(); i++)
+        fmt_printf("{},{},{},{}\n", results[i].m_seed, (uint32_t)results[i].m_fmt, results[i].m_psnr1, results[i].m_psnr2);
+    
+    printf("\n");
+
+    for (uint32_t i = 0; i < results.size(); i++)
+        fmt_printf("seed={} tex_mode={}, psnr1={}, psnr2={}\n", results[i].m_seed, (uint32_t)results[i].m_fmt, results[i].m_psnr1, results[i].m_psnr2);
+        
+    // Success here is essentially not crashing or asserting or SAN'ing earlier
+    printf("Success\n");
+    
+    return true;
+}
+
+#ifdef FORCE_SAN_FAILURE
+static void force_san_failure()
+{
+    // Purposely do things that should trigger the address sanitizer
+    int arr[5] = { 0, 1, 2, 3, 4 };
+    printf("Out of bounds element: %d\n", arr[10]);
+
+    //uint8_t* p = (uint8_t *)malloc(10);
+    //p[10] = 99;
+
+    //uint8_t* p = (uint8_t *)malloc(10);
+    //free(p);
+    //p[0] = 99;
+}
+#endif // FORCE_SAN_FAILURE
+
 int main(int arg_c, char* arg_v[])
 {
     BASISU_NOTE_UNUSED(arg_c);
     BASISU_NOTE_UNUSED(arg_v);
+
+#if defined(DEBUG) | defined(_DEBUG)
+    printf("DEBUG\n");
+#endif
+#ifdef __SANITIZE_ADDRESS__
+    printf("__SANITIZE_ADDRESS__\n");
+#endif
+
+#ifdef FORCE_SAN_FAILURE
+    force_san_failure();
+#endif
         
 #if USE_ENCODER
 	basisu_encoder_init(USE_OPENCL, false);
 
+    if (!random_compress_test())
+        return EXIT_FAILURE;
+    
     if (!block_unpack_and_transcode_example())
         return EXIT_FAILURE;
 

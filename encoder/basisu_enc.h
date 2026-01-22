@@ -1,5 +1,5 @@
 // basisu_enc.h
-// Copyright (C) 2019-2024 Binomial LLC. All Rights Reserved.
+// Copyright (C) 2019-2026 Binomial LLC. All Rights Reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -31,9 +31,6 @@
 
 // This module is really just a huge grab bag of classes and helper functions needed by the encoder.
 
-// If BASISU_USE_HIGH_PRECISION_COLOR_DISTANCE is 1, quality in perceptual mode will be slightly greater, but at a large increase in encoding CPU time.
-#define BASISU_USE_HIGH_PRECISION_COLOR_DISTANCE (0)
-
 #if BASISU_SUPPORT_SSE
 // Declared in basisu_kernels_imp.h, but we can't include that here otherwise it would lead to circular type errors.
 extern void update_covar_matrix_16x16_sse41(uint32_t num_vecs, const void* pWeighted_vecs, const void* pOrigin, const uint32_t *pVec_indices, void* pMatrix16x16);
@@ -43,6 +40,7 @@ namespace basisu
 {
 	extern uint8_t g_hamming_dist[256];
 	extern const uint8_t g_debug_font8x8_basic[127 - 32 + 1][8];
+	extern float g_srgb_to_linear_table[256]; // sRGB EOTF->linear light [0,1], 1=~100 nits
 
 	// true if basisu_encoder_init() has been called and returned.
 	extern bool g_library_initialized;
@@ -77,7 +75,7 @@ namespace basisu
 	void platform_sleep(uint32_t ms);
 	
 	// Helpers
-		
+
 	inline uint8_t clamp255(int32_t i)
 	{
 		return (uint8_t)((i & 0xFFFFFF00U) ? (~(i >> 31)) : i);
@@ -108,6 +106,12 @@ namespace basisu
 	{
 		v = v * a + 128; 
 		return (uint8_t)((v + (v >> 8)) >> 8);
+	}
+
+	inline int fast_roundf_pos_int(float x)
+	{
+		assert(x >= 0.0f);
+		return (int)(x + 0.5f);
 	}
 
 	inline int fast_roundf_int(float x)
@@ -175,6 +179,20 @@ namespace basisu
 	inline int bounds_check_incl(int v, int l, int h) { (void)v; (void)l; (void)h; assert(v >= l && v <= h); return v; }
 	inline uint32_t bounds_check_incl(uint32_t v, uint32_t l, uint32_t h) { (void)v; (void)l; (void)h; assert(v >= l && v <= h); return v; }
 
+	inline bool equal_rel_tol(float a, float b, float rel_tol)
+	{
+		float diff = std::fabs(a - b);
+		float max_abs = std::max(std::fabs(a), std::fabs(b));
+		return diff <= (max_abs * rel_tol);
+	}
+
+	inline bool equal_rel_tol(double a, double b, double rel_tol)
+	{
+		double diff = std::fabs(a - b);
+		double max_abs = std::max(std::fabs(a), std::fabs(b));
+		return diff <= (max_abs * rel_tol);
+	}
+
 	inline uint32_t clz(uint32_t x)
 	{
 		if (!x)
@@ -235,29 +253,7 @@ namespace basisu
 		 seed = seed ^ (seed >> 15);
 		 return seed;
 	}
-
-	uint32_t hash_hsieh(const uint8_t* pBuf, size_t len);
-
-	template <typename Key>
-	struct bit_hasher
-	{
-		inline std::size_t operator()(const Key& k) const
-		{
-			return hash_hsieh(reinterpret_cast<const uint8_t *>(&k), sizeof(k));
-		}
-	};
-
-	struct string_hasher
-	{
-		inline std::size_t operator()(const std::string& k) const
-		{
-			size_t l = k.size();
-			if (!l)
-				return 0;
-			return hash_hsieh(reinterpret_cast<const uint8_t*>(k.c_str()), l);
-		}
-	};
-
+	
 	class running_stat
 	{
 	public:
@@ -463,8 +459,10 @@ namespace basisu
 		friend inline vec operator/(const vec &lhs, const vec &rhs) { vec res; for (uint32_t i = 0; i < N; i++) res.m_v[i] = lhs.m_v[i] / rhs.m_v[i]; return res; }
 		
 		static inline T dot_product(const vec &lhs, const vec &rhs) { T res = lhs.m_v[0] * rhs.m_v[0]; for (uint32_t i = 1; i < N; i++) res += lhs.m_v[i] * rhs.m_v[i]; return res; }
+		static inline T dot_product3(const vec& lhs, const vec& rhs) { T res = lhs.m_v[0] * rhs.m_v[0]; for (uint32_t i = 1; i < minimum<uint32_t>(3u, N); i++) res += lhs.m_v[i] * rhs.m_v[i]; return res; }
 
 		inline T dot(const vec &rhs) const { return dot_product(*this, rhs); }
+		inline T dot3(const vec& rhs) const { return dot_product3(*this, rhs); }
 
 		inline T norm() const { return dot_product(*this, *this); }
 		inline T length() const { return sqrt(norm()); }
@@ -832,7 +830,8 @@ namespace basisu
 		std::condition_variable m_job_done;
 
 		uint32_t m_num_pending_jobs;
-		bool m_kill_flag;
+
+		std::atomic<bool> m_kill_flag;
 		
 		std::atomic<int> m_num_active_workers;
 
@@ -1079,49 +1078,16 @@ namespace basisu
 		else
 			return color_distance(c0.r, c0.g, c0.b, c1.r, c1.g, c1.b);
 	}
-		
-	// TODO: Allow user to control channel weightings.
-	inline uint32_t color_distance(bool perceptual, const color_rgba &e1, const color_rgba &e2, bool alpha)
+
+	// Original library color_distance(), for testing
+	inline uint32_t color_distance_orig(bool perceptual, const color_rgba& e1, const color_rgba& e2, bool alpha)
 	{
 		if (perceptual)
 		{
-#if BASISU_USE_HIGH_PRECISION_COLOR_DISTANCE
-			const float l1 = e1.r * .2126f + e1.g * .715f + e1.b * .0722f;
-			const float l2 = e2.r * .2126f + e2.g * .715f + e2.b * .0722f;
-
-			const float cr1 = e1.r - l1;
-			const float cr2 = e2.r - l2;
-
-			const float cb1 = e1.b - l1;
-			const float cb2 = e2.b - l2;
-
-			const float dl = l1 - l2;
-			const float dcr = cr1 - cr2;
-			const float dcb = cb1 - cb2;
-
-			uint32_t d = static_cast<uint32_t>(32.0f*4.0f*dl*dl + 32.0f*2.0f*(.5f / (1.0f - .2126f))*(.5f / (1.0f - .2126f))*dcr*dcr + 32.0f*.25f*(.5f / (1.0f - .0722f))*(.5f / (1.0f - .0722f))*dcb*dcb);
-			
-			if (alpha)
-			{
-				int da = static_cast<int>(e1.a) - static_cast<int>(e2.a);
-				d += static_cast<uint32_t>(128.0f*da*da);
-			}
-
-			return d;
-#elif 1
 			int dr = e1.r - e2.r;
 			int dg = e1.g - e2.g;
 			int db = e1.b - e2.b;
 
-#if 0
-			int delta_l = dr * 27 + dg * 92 + db * 9;
-			int delta_cr = dr * 128 - delta_l;
-			int delta_cb = db * 128 - delta_l;
-															
-			uint32_t id = ((uint32_t)(delta_l * delta_l) >> 7U) +
-				((((uint32_t)(delta_cr * delta_cr) >> 7U) * 26U) >> 7U) +
-				((((uint32_t)(delta_cb * delta_cb) >> 7U) * 3U) >> 7U);
-#else
 			int64_t delta_l = dr * 27 + dg * 92 + db * 9;
 			int64_t delta_cr = dr * 128 - delta_l;
 			int64_t delta_cb = db * 128 - delta_l;
@@ -1129,7 +1095,6 @@ namespace basisu
 			uint32_t id = ((uint32_t)((delta_l * delta_l) >> 7U)) +
 				((((uint32_t)((delta_cr * delta_cr) >> 7U)) * 26U) >> 7U) +
 				((((uint32_t)((delta_cb * delta_cb) >> 7U)) * 3U) >> 7U);
-#endif
 
 			if (alpha)
 			{
@@ -1139,32 +1104,67 @@ namespace basisu
 			}
 
 			return id;
-#else
+		}
+		else
+		{
+			return color_distance(e1, e2, alpha);
+		}
+	}
+		
+	inline uint32_t color_distance(bool perceptual, const color_rgba &e1, const color_rgba &e2, bool alpha)
+	{
+		if (perceptual)
+		{
 			int dr = e1.r - e2.r;
 			int dg = e1.g - e2.g;
 			int db = e1.b - e2.b;
 
-			int64_t delta_l = dr * 27 + dg * 92 + db * 9;
-			int64_t delta_cr = dr * 128 - delta_l;
-			int64_t delta_cb = db * 128 - delta_l;
+			// This calc can't overflow or the SSE variants will overflow too.
+			int delta_l = dr * 14 + dg * 45 + db * 5;
+			int delta_cr = dr * 64 - delta_l;
+			int delta_cb = db * 64 - delta_l;
+													
+			// not >> 6, so the output is scaled by 7 bits, not 6 (to match the original function which scaled by 7, but had rare overflow issues)
+			uint32_t id = ((uint32_t)(delta_l * delta_l) >> 5U) +
+				((((uint32_t)(delta_cr * delta_cr) >> 5U) * 26U) >> 7U) +
+				((((uint32_t)(delta_cb * delta_cb) >> 5U) * 3U) >> 7U);
 
-			int64_t id = ((delta_l * delta_l) * 128) +
-				((delta_cr * delta_cr) * 26) +
-				((delta_cb * delta_cb) * 3);
+#if defined(DEBUG) || defined(_DEBUG)
+			// Shouldn't need 64-bit now, but make sure
+			{
+				int64_t alt_delta_l = dr * 14 + dg * 45 + db * 5;
+				int64_t alt_delta_cr = dr * 64 - alt_delta_l;
+				int64_t alt_delta_cb = db * 64 - alt_delta_l;
+
+				int64_t alt_id = ((alt_delta_l * alt_delta_l) >> 5) +
+					((((alt_delta_cr * alt_delta_cr) >> 5) * 26) >> 7) +
+					((((alt_delta_cb * alt_delta_cb) >> 5) * 3) >> 7);
+
+				assert(alt_id == id);
+			}
+#endif
 
 			if (alpha)
 			{
-				int64_t da = (e1.a - e2.a);
-				id += (da * da) * 128;
+				int da = (e1.a - e2.a) << 7;
+				
+				// This shouldn't overflow if da is 255 or -255: 29.99 bits after squaring.
+				uint32_t ea = ((uint32_t)(da * da) >> 7U);
+				id += ea;
+
+#if defined(DEBUG) || defined(_DEBUG)
+				// Make sure it can't overflow
+				assert((((int64_t)da * (int64_t)da) >> 7) == ea);
+#endif
+				
 			}
 
-			int d = (id + 8192) >> 14;
-
-			return d;
-#endif
+			return id;
 		}
 		else
+		{
 			return color_distance(e1, e2, alpha);
+		}
 	}
 
 	static inline uint32_t color_distance_la(const color_rgba& a, const color_rgba& b)
@@ -1971,6 +1971,7 @@ namespace basisu
 					r_weight = 0;
 
 					TrainingVectorType firstVec;
+					firstVec.clear();
 					for (uint32_t i = 0; i < node.m_training_vecs.size(); i++)
 					{
 						const TrainingVectorType& v = m_training_vecs[node.m_training_vecs[i]].first;
@@ -2174,7 +2175,7 @@ namespace basisu
 		uint32_t max_threads, job_pool *pJob_pool,
 		bool even_odd_input_pairs_equal)
 	{
-		typedef bit_hasher<typename Quantizer::training_vec_type> training_vec_bit_hasher;
+		//typedef bit_hasher<typename Quantizer::training_vec_type> training_vec_bit_hasher;
 
 		// rg 6/24/2025 - Cross platform determinism
 #if 0
@@ -2916,6 +2917,9 @@ namespace basisu
 
 		image &fill_box(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const color_rgba &c)
 		{
+			assert((int)w >= 0);
+			assert((int)h >= 0);
+
 			for (uint32_t iy = 0; iy < h; iy++)
 				for (uint32_t ix = 0; ix < w; ix++)
 					set_clipped(x + ix, y + iy, c);
@@ -2924,6 +2928,9 @@ namespace basisu
 
 		image& fill_box_alpha(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const color_rgba& c)
 		{
+			assert((int)w >= 0);
+			assert((int)h >= 0);
+
 			for (uint32_t iy = 0; iy < h; iy++)
 				for (uint32_t ix = 0; ix < w; ix++)
 					set_clipped_alpha(x + ix, y + iy, c);
@@ -3207,6 +3214,7 @@ namespace basisu
 
 		void debug_text(uint32_t x_ofs, uint32_t y_ofs, uint32_t x_scale, uint32_t y_scale, const color_rgba &fg, const color_rgba *pBG, bool alpha_only, const char* p, ...);
 				
+		// bilinear filtering
 		vec4F get_filtered_vec4F(float x, float y) const
 		{
 			x -= .5f;
@@ -3253,6 +3261,36 @@ namespace basisu
 		uint32_t m_width, m_height, m_pitch;  // all in pixels
 		color_rgba_vec m_pixels;
 	};
+
+	void draw_line(image& dst, int xs, int ys, int xe, int ye, const color_rgba& color);
+	void draw_circle(image& dst, int cx, int cy, int r, const color_rgba& color);
+
+	inline bool is_solid_block(uint32_t n, const color_rgba* pPixels)
+	{
+		assert(n);
+		
+		if (n <= 1)
+			return true;
+
+		const color_rgba c(pPixels[0]);
+
+		for (uint32_t i = 1; i < n; i++)
+			if (c != pPixels[i])
+				return false;
+
+		return true;
+	}
+
+	inline bool is_alpha_block(uint32_t n, const color_rgba* pPixels)
+	{
+		assert(n);
+
+		for (uint32_t i = 0; i < n; i++)
+			if (pPixels[i][3] != 255)
+				return true;
+
+		return false;
+	}
 
 	// Float images
 
@@ -3735,8 +3773,10 @@ namespace basisu
 	{
 	public:
 		// TODO: Add ssim
+		uint32_t m_width, m_height;
 		double m_max, m_mean, m_mean_squared, m_rms, m_psnr, m_ssim;
 		bool m_has_neg, m_hf_mag_overflow, m_any_abnormal;
+		uint64_t m_sum_a, m_sum_b;
 
 		image_metrics()
 		{
@@ -3745,6 +3785,8 @@ namespace basisu
 
 		void clear()
 		{
+			m_width = 0;
+			m_height = 0;
 			m_max = 0;
 			m_mean = 0;
 			m_mean_squared = 0;
@@ -3754,10 +3796,23 @@ namespace basisu
 			m_has_neg = false;
 			m_hf_mag_overflow = false;
 			m_any_abnormal = false;
+			m_sum_a = 0;
+			m_sum_b = 0;
 		}
 
-		void print(const char *pPrefix = nullptr)	{ printf("%sMax: %3.3f Mean: %3.3f RMS: %3.3f PSNR: %2.3f dB\n", pPrefix ? pPrefix : "", m_max, m_mean, m_rms, m_psnr);	}
-		void print_hp(const char* pPrefix = nullptr) { printf("%sMax: %3.6f Mean: %3.6f RMS: %3.6f PSNR: %2.6f dB, Any Neg: %u, Half float overflow: %u, Any NaN/Inf: %u\n", pPrefix ? pPrefix : "", m_max, m_mean, m_rms, m_psnr, m_has_neg, m_hf_mag_overflow, m_any_abnormal); }
+		void print(const char *pPrefix = nullptr)	
+		{ 
+			//fmt_printf("{}Max: {3.3} Mean: {3.3} RMS: {3.3} PSNR: {2.3} dB, Sums: {} {}, Dim: {}x{}\n", pPrefix ? pPrefix : "", m_max, m_mean, m_rms, m_psnr, m_sum_a, m_sum_b, m_width, m_height);
+			fmt_printf("{}Max: {3.3} Mean: {3.3} RMS: {3.3} PSNR: {2.3} dB\n", pPrefix ? pPrefix : "", m_max, m_mean, m_rms, m_psnr);
+		}
+
+		void print_hp(const char* pPrefix = nullptr) 
+		{ 
+			//fmt_printf("{}Max: {3.6} Mean: {3.6} RMS: {3.6} PSNR: {2.6} dB, Any Neg: {}, Half float overflow: {}, Any NaN/Inf: {}, Sums: {} {}, Dim: {}x{}\n", 
+			//	pPrefix ? pPrefix : "", m_max, m_mean, m_rms, m_psnr, m_has_neg, m_hf_mag_overflow, m_any_abnormal, m_sum_a, m_sum_b, m_width, m_height); 
+			fmt_printf("{}Max: {3.6} Mean: {3.6} RMS: {3.6} PSNR: {2.6} dB, Any Neg: {}, Half float overflow: {}, Any NaN/Inf: {}\n",
+				pPrefix ? pPrefix : "", m_max, m_mean, m_rms, m_psnr, m_has_neg, m_hf_mag_overflow, m_any_abnormal);
+		}
 
 		void calc(const imagef& a, const imagef& b, uint32_t first_chan = 0, uint32_t total_chans = 0, bool avg_comp_error = true, bool log = false);
 		void calc_half(const imagef& a, const imagef& b, uint32_t first_chan, uint32_t total_chans, bool avg_comp_error);
@@ -3859,6 +3914,9 @@ namespace basisu
 
 	bool save_png(const char* pFilename, const image& img, uint32_t image_save_flags = 0, uint32_t grayscale_comp = 0);
 	inline bool save_png(const std::string &filename, const image &img, uint32_t image_save_flags = 0, uint32_t grayscale_comp = 0) { return save_png(filename.c_str(), img, image_save_flags, grayscale_comp); }
+
+	bool save_qoi(const char* pFilename, const image& img, uint32_t qoi_colorspace = 0);
+	inline bool save_qoi(const std::string& filename, const image& img, uint32_t qoi_colorspace = 0) { return save_qoi(filename.c_str(), img, qoi_colorspace); }
 	
 	bool read_file_to_vec(const char* pFilename, uint8_vec& data);
 	bool read_file_to_data(const char* pFilename, void *pData, size_t len);	
@@ -3870,7 +3928,7 @@ namespace basisu
 	bool image_resample(const image &src, image &dst, bool srgb = false,
 		const char *pFilter = "lanczos4", float filter_scale = 1.0f, 
 		bool wrapping = false,
-		uint32_t first_comp = 0, uint32_t num_comps = 4);
+		uint32_t first_comp = 0, uint32_t num_comps = 4, float filter_scale_y = -1.0f);
 
 	bool image_resample(const imagef& src, imagef& dst, 
 		const char* pFilter = "lanczos4", float filter_scale = 1.0f,
@@ -4226,11 +4284,11 @@ namespace basisu
 			if (new_exp > 15)
 				e = 31;
 			else if (new_exp < -14)
-				m = lrintf((1 << 24) * fabsf(fi.f));
+				m = (int)lrintf((1 << 24) * fabsf(fi.f));
 			else
 			{
 				e = new_exp + 15;
-				m = lrintf(flt_m * (1.0f / ((float)(1 << 13))));
+				m = (int)lrintf(flt_m * (1.0f / ((float)(1 << 13))));
 			}
 		}
 
@@ -4323,6 +4381,28 @@ namespace basisu
 
 		return (basist::half_float)h;
 	}
+
+	bool arith_test();
+
+	void set_image_alpha(image& img, uint32_t a);
+
+	void create_bc7_debug_images(
+		uint32_t width, uint32_t height,
+		const void* pBlocks,
+		const char* pFilename_prefix);
+
+	struct tri2
+	{
+		vec2F p0, p1, p2;
+		vec2F t0, t1, t2;
+		color_rgba c0, c1, c2;
+	};
+
+	// simple non-perspective correct triangle rasterizer with texture mapping, useful for generating randomized test data
+	void draw_tri2(image& dst, const image* pTex, const tri2& tri, bool alpha_blend);
+
+	void set_num_wasi_threads(uint32_t num_threads);
+	int get_num_hardware_threads();
 								
 } // namespace basisu
 

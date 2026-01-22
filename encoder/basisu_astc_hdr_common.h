@@ -18,7 +18,7 @@ namespace basisu
 	// in ASTC order
 	// Supported ISE weight ranges: 0 to 11, 12 total
 	const uint32_t MIN_SUPPORTED_ISE_WEIGHT_INDEX = astc_helpers::BISE_2_LEVELS; // ISE 0=2 levels
-	const uint32_t MAX_SUPPORTED_ISE_WEIGHT_INDEX = astc_helpers::BISE_32_LEVELS; // ISE 11=16 levels
+	const uint32_t MAX_SUPPORTED_ISE_WEIGHT_INDEX = astc_helpers::BISE_32_LEVELS; // ISE 11=32 levels
 	const uint32_t MIN_SUPPORTED_WEIGHT_LEVELS = 2;
 	const uint32_t MAX_SUPPORTED_WEIGHT_LEVELS = 32;
 
@@ -28,6 +28,10 @@ namespace basisu
 	const float Q_LOG_BIAS_6x6 = 1.0f; // the log bias both encoders use now
 
 	const float LDR_TO_HDR_NITS = 100.0f;
+
+	extern vec4F g_astc_ls_weights_ise[MAX_SUPPORTED_ISE_WEIGHT_INDEX + 1][MAX_SUPPORTED_WEIGHT_LEVELS];
+	extern uint8_t g_map_astc_to_linear_order[MAX_SUPPORTED_ISE_WEIGHT_INDEX + 1][MAX_SUPPORTED_WEIGHT_LEVELS]; // [ise_range][astc_index] -> linear index
+	extern uint8_t g_map_linear_to_astc_order[MAX_SUPPORTED_ISE_WEIGHT_INDEX + 1][MAX_SUPPORTED_WEIGHT_LEVELS]; // [ise_range][linear_index] -> astc_index
 
 	struct astc_hdr_codec_base_options
 	{
@@ -383,7 +387,13 @@ namespace basisu
 	void dequantize_astc_weights(uint32_t n, const uint8_t* pSrc_ise_vals, uint32_t from_ise_range, uint8_t* pDst_raw_weights);
 
 	const float* get_6x6_downsample_matrix(uint32_t grid_width, uint32_t grid_height);
+	const float* get_8x6_downsample_matrix(uint32_t grid_width, uint32_t grid_height);
 	
+	void compute_upsample_matrix(basisu::vector2D<float>& upsample_matrix, uint32_t block_width, uint32_t block_height, uint32_t grid_width, uint32_t grid_height);
+	void compute_upsample_matrix_transposed(basisu::vector<float>& unweighted_downsample_matrix, uint32_t block_width, uint32_t block_height, uint32_t grid_width, uint32_t grid_height);
+	
+	void compute_diag_AtA_vector(uint32_t block_width, uint32_t block_height, uint32_t grid_width, uint32_t grid_height, const vector2D<float>& upsample_matrix, float* pDst_vec);
+		
 	void downsample_weight_grid(
 		const float* pMatrix_weights,
 		uint32_t bx, uint32_t by,		// source/from dimension (block size)

@@ -152,7 +152,7 @@ typedef cl_int (CL_API_CALL *clGetGLContextInfoKHR_fn)(
     void *                        param_value,
     size_t *                      param_value_size_ret);
 
-/* 
+/*
  *  cl_khr_gl_event extension
  */
 #define CL_COMMAND_GL_FENCE_SYNC_OBJECT_KHR     0x200D

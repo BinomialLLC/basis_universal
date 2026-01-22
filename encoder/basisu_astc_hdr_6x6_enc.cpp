@@ -1,4 +1,16 @@
 // File: basisu_astc_hdr_6x6_enc.cpp
+// Copyright (C) 2019-2026 Binomial LLC. All Rights Reserved.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//    http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 #include "basisu_astc_hdr_6x6_enc.h"
 #include "basisu_enc.h"
 #include "basisu_astc_hdr_common.h"
@@ -13,6 +25,7 @@
 #include "3rdparty/android_astc_decomp.h"
 
 #include <array>
+#include <cfloat>
 
 using namespace basisu;
 using namespace buminiz;
@@ -612,7 +625,7 @@ struct partition_pattern_vec
 
 	operator size_t() const
 	{
-		return basisu::hash_hsieh(m_parts, sizeof(m_parts));
+		return basist::hash_hsieh(m_parts, sizeof(m_parts));
 	}
 };
 
@@ -1144,7 +1157,7 @@ struct partition
 
 	inline operator size_t() const
 	{
-		return hash_hsieh((const uint8_t *)&m_p, sizeof(m_p));
+		return basist::hash_hsieh((const uint8_t *)&m_p, sizeof(m_p));
 	}
 };
 
@@ -1644,6 +1657,7 @@ static bool estimate_partition3_6x6(
 
 	float brightest_inten = 0.0f, darkest_inten = BIG_FLOAT_VAL;
 	vec3F cluster_centroids[NUM_SUBSETS];
+	clear_obj(cluster_centroids);
 
 	for (uint32_t i = 0; i < BLOCK_T; i++)
 	{
@@ -1701,7 +1715,7 @@ static bool estimate_partition3_6x6(
 	for (uint32_t s = 0; s < NUM_ITERS; s++)
 	{
 		memset(num_cluster_pixels, 0, sizeof(num_cluster_pixels));
-		memset(new_cluster_means, 0, sizeof(new_cluster_means));
+		memset((void *)new_cluster_means, 0, sizeof(new_cluster_means));
 
 		for (uint32_t i = 0; i < BLOCK_T; i++)
 		{
@@ -2445,13 +2459,14 @@ static void create_smooth_maps2(
 	const uint32_t height = orig_img.get_height();
 	//const uint32_t total_pixels = orig_img.get_total_pixels();
 	const uint32_t num_comps = 3;
-
+		
 	if (params.m_no_mse_scaling)
 	{
 		smooth_block_mse_scales.set_all(1.0f);
 		return;
 	}
-
+	
+	// TODO: - move up before the no mse scaling check (harmless as that is only a debug aid)
 	smooth_block_mse_scales.resize(width, height);
 
 	image smooth_vis, med_smooth_vis, ultra_smooth_vis;
@@ -2723,7 +2738,9 @@ struct candidate_encoding
 
 	int m_reuse_delta_index;
 
-	float m_t, m_d, m_bits;
+	// m_t can get VERY large
+	double m_t, m_d; 
+	float m_bits;
 					
 	candidate_encoding()
 	{
@@ -2854,7 +2871,7 @@ static bool decode_file(const uint8_vec& comp_data, vector2D<astc_helpers::astc_
 	if (!decoder.init(comp_data.data(), comp_data.size_u32()))
 		return false;
 
-	if (decoder.get_bits(16) != 0xABCD)
+	if (decoder.get_bits(16) != UASTC_6x6_HDR_SIG1)
 		return false;
 
 	width = decoder.get_bits(16);
@@ -3024,7 +3041,7 @@ static bool decode_file(const uint8_vec& comp_data, vector2D<astc_helpers::astc_
 			uint8_t transcode_weights[MAX_BLOCK_W * MAX_BLOCK_H * 2];
 			basist::astc_6x6_hdr::requantize_astc_weights(total_grid_weights, log_blk.m_weights, log_blk.m_weight_ise_range, transcode_weights, decomp_blk.m_weight_ise_range);
 
-			copy_weight_grid(log_blk.m_dual_plane, log_blk.m_grid_width, log_blk.m_grid_height, transcode_weights, decomp_blk);
+			copy_weight_grid(log_blk.m_dual_plane, log_blk.m_grid_width, log_blk.m_grid_height, transcode_weights, decomp_blk, false);
 
 			status = astc_helpers::pack_astc_block(phys_blk, decomp_blk);
 			if (!status)
@@ -3105,7 +3122,7 @@ static bool decode_file(const uint8_vec& comp_data, vector2D<astc_helpers::astc_
 				uint8_t transcode_weights[MAX_BLOCK_W * MAX_BLOCK_H * 2];
 				basist::astc_6x6_hdr::requantize_astc_weights(total_grid_weights, log_blk.m_weights, bmd.m_weight_ise_range, transcode_weights, bmd.m_transcode_weight_ise_range);
 
-				copy_weight_grid(bmd.m_dp, bmd.m_grid_x, bmd.m_grid_y, transcode_weights, decomp_blk);
+				copy_weight_grid(bmd.m_dp, bmd.m_grid_x, bmd.m_grid_y, transcode_weights, decomp_blk, false);
 
 				status = astc_helpers::pack_astc_block(phys_blk, decomp_blk);
 				if (!status)
@@ -3200,7 +3217,7 @@ static bool decode_file(const uint8_vec& comp_data, vector2D<astc_helpers::astc_
 				uint8_t transcode_weights[MAX_BLOCK_W * MAX_BLOCK_H * 2];
 				basist::astc_6x6_hdr::requantize_astc_weights(total_grid_weights, log_blk.m_weights, bmd.m_weight_ise_range, transcode_weights, bmd.m_transcode_weight_ise_range);
 
-				copy_weight_grid(bmd.m_dp, bmd.m_grid_x, bmd.m_grid_y, transcode_weights, decomp_blk);
+				copy_weight_grid(bmd.m_dp, bmd.m_grid_x, bmd.m_grid_y, transcode_weights, decomp_blk, false);
 
 				status = astc_helpers::pack_astc_block(phys_blk, decomp_blk);
 				if (!status)
@@ -3280,7 +3297,7 @@ static bool decode_file(const uint8_vec& comp_data, vector2D<astc_helpers::astc_
 				uint8_t transcode_weights[MAX_BLOCK_W * MAX_BLOCK_H * 2];
 				basist::astc_6x6_hdr::requantize_astc_weights(total_grid_weights, log_blk.m_weights, bmd.m_weight_ise_range, transcode_weights, bmd.m_transcode_weight_ise_range);
 
-				copy_weight_grid(bmd.m_dp, bmd.m_grid_x, bmd.m_grid_y, transcode_weights, decomp_blk);
+				copy_weight_grid(bmd.m_dp, bmd.m_grid_x, bmd.m_grid_y, transcode_weights, decomp_blk, false);
 
 				status = astc_helpers::pack_astc_block(phys_blk, decomp_blk);
 				if (!status)
@@ -3360,6 +3377,7 @@ static bool pack_bc6h_image(const imagef &src_img, vector2D<basist::bc6h_block> 
 
 	interval_timer tm;
 	double total_enc_time = 0.0f;
+	BASISU_NOTE_UNUSED(total_enc_time);
 
 	const uint32_t num_blocks_x = src_img.get_block_width(4);
 	const uint32_t num_blocks_y = src_img.get_block_height(4);
@@ -3538,7 +3556,7 @@ static void estimate_partitions_mode7_and_11(
 		for (uint32_t part_index = 0; part_index < num_parts; part_index++)
 			total_variance[part_index] = part_cov[part_index][0] + part_cov[part_index][3] + part_cov[part_index][5];
 
-		vec3F part_axis[MAX_PARTS];
+		//vec3F part_axis[MAX_PARTS];
 		float mode11_eigenvalue_est[MAX_PARTS]; // For each partition, compute the variance along the principle axis
 		float mode7_eigenvalue_est[MAX_PARTS]; // For each partition, compute the variance along the principle axis
 
@@ -4422,7 +4440,18 @@ static bool compress_strip_task(
 				float min_corr = BIG_FLOAT_VAL, max_corr = -BIG_FLOAT_VAL;
 				for (uint32_t i = 0; i < 3; i++)
 				{
-					if (half_comp_stats[i].m_range > 0.0f)
+#if 0
+					// 9/5/2025, wrong metric, we're iterating channels pairs here, not individual channels. 
+					// On 3 active channel blocks this causes no difference.
+					if (half_comp_stats[i].m_range > 0.0f) 
+#else
+					static const uint8_t s_chan_pairs[3][2] = { {0, 1}, {0, 2}, {1, 2} };
+					
+					const uint32_t chanA = s_chan_pairs[i][0];
+					const uint32_t chanB = s_chan_pairs[i][1];
+					
+					if ((half_comp_stats[chanA].m_range > 0.0f) && (half_comp_stats[chanB].m_range > 0.0f))
+#endif
 					{
 						const float c = fabsf((float)half_cross_chan_stats[i].m_pearson);
 						min_corr = minimum(min_corr, c);
@@ -4437,7 +4466,7 @@ static bool compress_strip_task(
 					// TODO: Transform grayscale axis by covar matrix, compute variance vs. total variance
 					const float MODE7_MIN_CHAN_CORR = .5f;
 					const float MODE7_PCA_ANGLE_THRESH = .9f;
-					use_single_subset_mode7 = is_grayscale || is_solid_block || (min_corr >= MODE7_MIN_CHAN_CORR);
+					use_single_subset_mode7 = is_grayscale || is_solid_block || ((total_used_block_chans == 1) || (min_corr >= MODE7_MIN_CHAN_CORR));
 
 					if (use_single_subset_mode7)
 					{
@@ -4655,7 +4684,7 @@ static bool compress_strip_task(
 							}
 
 							// Create the block the decoder would transcode into.
-							copy_weight_grid(dual_plane, grid_x, grid_y, transcode_weights, decomp_log_blk);
+							copy_weight_grid(dual_plane, grid_x, grid_y, transcode_weights, decomp_log_blk, false);
 						}
 						else if (prev_coded_log_blk.m_num_partitions == 2)
 						{
@@ -4733,7 +4762,7 @@ static bool compress_strip_task(
 							basist::astc_6x6_hdr::requantize_astc_weights(num_grid_samples, coded_log_blk.m_weights, coded_log_blk.m_weight_ise_range, transcode_weights, decomp_log_blk.m_weight_ise_range);
 
 							// Create the block the decoder would transcode into.
-							copy_weight_grid(dual_plane, grid_x, grid_y, transcode_weights, decomp_log_blk);
+							copy_weight_grid(dual_plane, grid_x, grid_y, transcode_weights, decomp_log_blk, false);
 						}
 						else if (prev_coded_log_blk.m_num_partitions == 3)
 						{
@@ -4803,7 +4832,7 @@ static bool compress_strip_task(
 							basist::astc_6x6_hdr::requantize_astc_weights(num_grid_samples, coded_log_blk.m_weights, coded_log_blk.m_weight_ise_range, transcode_weights, decomp_log_blk.m_weight_ise_range);
 
 							// Create the block the decoder would transcode into.
-							copy_weight_grid(dual_plane, grid_x, grid_y, transcode_weights, decomp_log_blk);
+							copy_weight_grid(dual_plane, grid_x, grid_y, transcode_weights, decomp_log_blk, false);
 						}
 
 						if (!validate_log_blk(decomp_log_blk))
@@ -5346,7 +5375,7 @@ static bool compress_strip_task(
 
 								memcpy(decomp_blk.m_endpoints, transcode_endpoints, num_endpoint_vals);
 
-								copy_weight_grid(dual_plane, grid_x, grid_y, transcode_weights, decomp_blk);
+								copy_weight_grid(dual_plane, grid_x, grid_y, transcode_weights, decomp_blk, false);
 
 								if (!validate_log_blk(decomp_blk))
 								{
@@ -5578,7 +5607,7 @@ static bool compress_strip_task(
 
 									memcpy(decomp_blk.m_endpoints, transcode_endpoints, num_endpoint_vals);
 
-									copy_weight_grid(dual_plane, grid_x, grid_y, transcode_weights, decomp_blk);
+									copy_weight_grid(dual_plane, grid_x, grid_y, transcode_weights, decomp_blk, false);
 
 									if (!validate_log_blk(decomp_blk))
 									{
@@ -5900,7 +5929,7 @@ static bool compress_strip_task(
 
 									basist::astc_6x6_hdr::requantize_ise_endpoints(mode_desc.m_cem, mode_desc.m_endpoint_ise_range, coded_log_blk.m_endpoints, mode_desc.m_transcode_endpoint_ise_range, decomp_blk.m_endpoints);
 
-									copy_weight_grid(dual_plane, grid_x, grid_y, transcode_weights, decomp_blk);
+									copy_weight_grid(dual_plane, grid_x, grid_y, transcode_weights, decomp_blk, false);
 
 									if (!validate_log_blk(decomp_blk))
 									{
@@ -5955,7 +5984,7 @@ static bool compress_strip_task(
 				}
 
 				// Find best overall candidate
-				double best_t = BIG_FLOAT_VAL;
+				double best_t = DBL_MAX;
 				int best_candidate_index = -1;
 
 				float best_d_ssim = BIG_FLOAT_VAL;
@@ -6102,10 +6131,13 @@ static bool compress_strip_task(
 							mode_penalty *= (complex_block ? RUN_PENALTY * 2.0f : RUN_PENALTY);
 
 						float candidate_bits = (float)candidate.m_coder.get_total_bits();
-						float candidate_d = candidate_mse * mode_penalty;
+						
+						double candidate_d = (double)candidate_mse * mode_penalty;
 
 						const float D_POWER = 2.0f;
-						float candidate_t = perceptual_scale * powf(candidate_d, D_POWER) + candidate_bits * (global_cfg.m_lambda * 1000.0f);
+						
+						// this value can get VERY large after squaring on random (fuzzed) HDR inputs
+						double candidate_t = perceptual_scale * pow(candidate_d, D_POWER) + candidate_bits * (global_cfg.m_lambda * 1000.0f); 
 
 						candidate.m_t = candidate_t;
 						candidate.m_d = candidate_d;
@@ -6118,6 +6150,14 @@ static bool compress_strip_task(
 						}
 
 					} // candidate_iter
+
+					if (best_candidate_index < 0)
+					{
+						assert(0);
+						
+						// Should never happen
+						best_candidate_index = 0;
+					}
 
 					if (global_cfg.m_gaussian1_fallback && (outer_pass == 0) && (very_complex_block) && (best_d_ssim > SWITCH_TO_GAUSSIAN_FILTERED_THRESH1_D_SSIM))
 					{
@@ -6134,13 +6174,13 @@ static bool compress_strip_task(
 						debug_state.m_total_gaussian2_blocks.fetch_add(1, std::memory_order_relaxed);
 						continue;
 					}
-
+										
 					if (global_cfg.m_rdo_candidate_diversity_boost)
 					{
 						// candidate diversity boosting - consider candidates along/near the Pareto front
 						const candidate_encoding& comp_candidate = candidates[best_candidate_index];
 
-						float best_d = BIG_FLOAT_VAL;
+						double best_d = DBL_MAX;
 
 						for (uint32_t candidate_iter = 0; candidate_iter < candidates.size_u32(); candidate_iter++)
 						{
@@ -6637,7 +6677,7 @@ bool compress_photo(const basisu::imagef &orig_src_img, const astc_hdr_6x6_globa
 						
 	bitwise_coder coded_bits;
 
-	coded_bits.put_bits(0xABCD, 16);
+	coded_bits.put_bits(UASTC_6x6_HDR_SIG1, 16);
 	coded_bits.put_bits(width, 16);
 	coded_bits.put_bits(height, 16);
 					

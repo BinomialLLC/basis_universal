@@ -6,4 +6,7 @@
   <ItemGroup>
     <Manifest Include="basisu.manifest" />
   </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="basisu_tool_help.h" />
+  </ItemGroup>
 </Project>

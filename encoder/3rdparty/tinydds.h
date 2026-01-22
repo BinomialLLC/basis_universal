@@ -828,7 +828,7 @@ typedef struct TinyDDS_Context {
 
 #define TINYDDS_MAKE_RIFFCODE(a, b, c, d) (a | (b << 8) | (c << 16) | (d << 24))
 
-static uint32_t TinyDDS_fileIdentifier = TINYDDS_MAKE_RIFFCODE('D', 'D', 'S', ' ');
+//static uint32_t TinyDDS_fileIdentifier = TINYDDS_MAKE_RIFFCODE('D', 'D', 'S', ' ');
 
 static void TinyDDS_NullErrorFunc(void *user, char const *msg) { BASISU_NOTE_UNUSED(user); BASISU_NOTE_UNUSED(msg); }
 
@@ -2040,7 +2040,7 @@ bool TinyDDS_WriteImage(TinyDDS_WriteCallbacks const *callbacks,
 	// rg 8/27/2024: The original tinydds.h code is wrong for mipmapped cubemaps.
 	// I'm going to work around this by having the caller compose the top mip data correctly.
 	// https://learn.microsoft.com/en-us/windows/win32/direct3ddds/dds-file-layout-for-cubic-environment-maps
-	for (uint32_t mipMapLevel = 0; mipMapLevel < header.mipMapCount; mipMapLevel++) 
+	for (uint32_t mipMapLevel = 0; mipMapLevel < header.mipMapCount; mipMapLevel++)
 	{
 		// rg: Adding this check, in case the caller wants to compose all the data themselves.
 		if (mipmapsizes[mipMapLevel])

@@ -5,8 +5,9 @@
 
 namespace astc_6x6_hdr
 {
+	const uint32_t ASTC_HDR_6X6_DEF_USER_COMP_LEVEL = 2;
 	const uint32_t ASTC_HDR_6X6_MAX_USER_COMP_LEVEL = 12;
-
+	
 	const uint32_t ASTC_HDR_6X6_MAX_COMP_LEVEL = 4;
 	
 	const float LDR_BLACK_BIAS = 0.0f;// .49f;
@@ -20,6 +21,8 @@ namespace astc_6x6_hdr
 		// If the m_rec2020_bt2100_color_gamut flag is true, the input colorspace is treated as REC 2020/BT.2100 (which is wider than 709).
 		// For SDR/LDR->HDR upconversion, the REC 709 sRGB input should be converted to linear light (sRGB->linear) and the resulting normalized linear RGB values scaled by either 80 or 100 nits (the luminance of a typical SDR monitor). 
 		// SDR upconversion to normalized [0,1] (i.e. non-absolute) luminances may work but is not supported because ITP errors will not be predicted correctly.
+		// 11/3/2025: This flag is always copied straight into the output KTX2 DFD colorspace, even for non-HDR formats.
+		// TODO: Move this parameter to reflect this.
 		bool m_rec2020_bt2100_color_gamut = false; 
 
 		// levels 0-3 normal levels, 4=exhaustive

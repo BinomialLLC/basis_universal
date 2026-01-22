@@ -109,6 +109,7 @@ namespace basisu
 			void* new_p = realloc(m_p, desired_size);
 			if (!new_p)
 			{
+				fprintf(stderr, "elemental_vector::increase_capacity: Allocation failed!\n");
 				assert(0);
 
 				if (nofail_flag)
@@ -133,7 +134,9 @@ namespace basisu
 			void* new_p = malloc(desired_size);
 			if (!new_p)
 			{
+				fprintf(stderr, "elemental_vector::increase_capacity: Allocation failed!\n");
 				assert(0);
+
 				if (nofail_flag)
 					return false;
 

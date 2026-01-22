@@ -345,7 +345,7 @@ static void qoi_write_32(unsigned char *bytes, int *p, unsigned int v) {
 	bytes[(*p)++] = (uint8_t)((0x000000ff & v));
 }
 
-static unsigned int qoi_read_32(const unsigned char *bytes, int *p) {
+static unsigned int qoi_read_32(const unsigned char *bytes, size_t *p) {
 	unsigned int a = bytes[(*p)++];
 	unsigned int b = bytes[(*p)++];
 	unsigned int c = bytes[(*p)++];
@@ -485,14 +485,15 @@ void *qoi_encode(const void *data, const qoi_desc *desc, int *out_len) {
 	return bytes;
 }
 
-void *qoi_decode(const void *data, int size, qoi_desc *desc, int channels) {
+void *qoi_decode(const void *data, size_t size, qoi_desc *desc, int channels) {
 	const unsigned char *bytes;
 	unsigned int header_magic;
 	unsigned char *pixels;
 	qoi_rgba_t index[64];
 	qoi_rgba_t px;
-	int px_len, chunks_len, px_pos;
-	int p = 0, run = 0;
+	int px_len, px_pos;
+	size_t chunks_len, p = 0;
+	int run = 0;
 
 	if (
 		data == NULL || desc == NULL ||
@@ -580,7 +581,7 @@ void *qoi_decode(const void *data, int size, qoi_desc *desc, int channels) {
 		pixels[px_pos + 0] = px.rgba.r;
 		pixels[px_pos + 1] = px.rgba.g;
 		pixels[px_pos + 2] = px.rgba.b;
-		
+
 		if (channels == 4) {
 			pixels[px_pos + 3] = px.rgba.a;
 		}
@@ -628,16 +629,32 @@ void *qoi_read(const char *filename, qoi_desc *desc, int channels) {
 #else
 	FILE *f = fopen(filename, "rb");
 #endif
-	int size, bytes_read;
+	size_t size, bytes_read;
 	void *pixels, *data;
+	long sz;
 
 	if (!f) {
 		return NULL;
 	}
 
 	fseek(f, 0, SEEK_END);
-	size = ftell(f);
-	if (size <= 0 || fseek(f, 0, SEEK_SET) != 0) {
+
+	sz = ftell(f);
+	if (sz <= 0)
+	{
+		fclose(f);
+		return NULL;
+	}
+
+	size = (size_t)sz;
+
+	if (size != (unsigned long)sz)
+	{
+		fclose(f);
+		return NULL;
+	}
+
+	if (fseek(f, 0, SEEK_SET) != 0) {
 		fclose(f);
 		return NULL;
 	}

@@ -1,5 +1,5 @@
 // basisu_frontend.cpp
-// Copyright (C) 2019-2024 Binomial LLC. All Rights Reserved.
+// Copyright (C) 2019-2026 Binomial LLC. All Rights Reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -502,6 +502,7 @@ namespace basisu
 						const uint32_t block_endpoint_index = m_block_endpoint_clusters_indices[block_index][0];
 
 						etc_block trial_blk;
+						clear_obj(trial_blk);
 						trial_blk.set_block_color5_etc1s(m_endpoint_cluster_etc_params[block_endpoint_index].m_color_unscaled[0]);
 						trial_blk.set_inten_tables_etc1s(m_endpoint_cluster_etc_params[block_endpoint_index].m_inten_table[0]);
 						trial_blk.set_flip_bit(true);
@@ -753,7 +754,7 @@ namespace basisu
 				total_perms = 4;
 			else if (m_params.m_compression_level == 1)
 				total_perms = 16;
-			else if (m_params.m_compression_level == BASISU_MAX_COMPRESSION_LEVEL)
+			else if (m_params.m_compression_level == BASISU_MAX_ETC1S_COMPRESSION_LEVEL)
 				total_perms = OPENCL_ENCODE_ETC1S_MAX_PERMS;
 						
 			bool status = opencl_encode_etc1s_blocks(m_params.m_pOpenCL_context, m_etc1_blocks_etc1s.data(), m_params.m_perceptual, total_perms);
@@ -791,7 +792,7 @@ namespace basisu
 							optimizer_params.m_quality = cETCQualityFast;
 						else if (m_params.m_compression_level == 1)
 							optimizer_params.m_quality = cETCQualityMedium;
-						else if (m_params.m_compression_level == BASISU_MAX_COMPRESSION_LEVEL)
+						else if (m_params.m_compression_level == BASISU_MAX_ETC1S_COMPRESSION_LEVEL)
 							optimizer_params.m_quality = cETCQualityUber;
 
 						optimizer_params.m_num_src_pixels = 16;
@@ -880,7 +881,7 @@ namespace basisu
 
 		const uint32_t parent_codebook_size = (m_params.m_max_endpoint_clusters >= 256) ? BASISU_ENDPOINT_PARENT_CODEBOOK_SIZE : 0;
 		uint32_t max_threads = 0;
-		max_threads = m_params.m_multithreaded ? minimum<int>(std::thread::hardware_concurrency(), cMaxCodebookCreationThreads) : 0;
+		max_threads = m_params.m_multithreaded ? minimum<int>(get_num_hardware_threads(), cMaxCodebookCreationThreads) : 0;
 		if (m_params.m_pJob_pool)
 			max_threads = minimum<int>((int)m_params.m_pJob_pool->get_total_threads(), max_threads);
 
@@ -1450,7 +1451,7 @@ namespace basisu
 			uint32_t total_perms = 64;
 			if (m_params.m_compression_level <= 1)
 				total_perms = 16;
-			else if (m_params.m_compression_level == BASISU_MAX_COMPRESSION_LEVEL)
+			else if (m_params.m_compression_level == BASISU_MAX_ETC1S_COMPRESSION_LEVEL)
 				total_perms = OPENCL_ENCODE_ETC1S_MAX_PERMS;
 
 			basisu::vector<etc_block> output_blocks(total_clusters);
@@ -1532,7 +1533,7 @@ namespace basisu
 
 						{
 							etc1_optimizer optimizer;
-							etc1_solution_coordinates solutions[2];
+							//etc1_solution_coordinates solutions[2];
 
 							etc1_optimizer::params cluster_optimizer_params;
 							cluster_optimizer_params.m_num_src_pixels = total_pixels;
@@ -1543,7 +1544,7 @@ namespace basisu
 
 							if (m_params.m_compression_level <= 1)
 								cluster_optimizer_params.m_quality = cETCQualityMedium;
-							else if (m_params.m_compression_level == BASISU_MAX_COMPRESSION_LEVEL)
+							else if (m_params.m_compression_level == BASISU_MAX_ETC1S_COMPRESSION_LEVEL)
 								cluster_optimizer_params.m_quality = cETCQualityUber;
 
 							etc1_optimizer::results cluster_optimizer_results;
@@ -2212,7 +2213,7 @@ namespace basisu
 		debug_printf("Using selector parent codebook size %u\n", parent_codebook_size);
 
 		uint32_t max_threads = 0;
-		max_threads = m_params.m_multithreaded ? minimum<int>(std::thread::hardware_concurrency(), cMaxCodebookCreationThreads) : 0;
+		max_threads = m_params.m_multithreaded ? minimum<int>(get_num_hardware_threads(), cMaxCodebookCreationThreads) : 0;
 		if (m_params.m_pJob_pool)
 			max_threads = minimum<int>((int)m_params.m_pJob_pool->get_total_threads(), max_threads);
 
@@ -2814,7 +2815,7 @@ namespace basisu
 				total_subblocks_examined += total_pixels / 8;
 
 				etc1_optimizer optimizer;
-				etc1_solution_coordinates solutions[2];
+				//etc1_solution_coordinates solutions[2];
 
 				etc1_optimizer::params cluster_optimizer_params;
 				cluster_optimizer_params.m_num_src_pixels = total_pixels;
@@ -3081,7 +3082,7 @@ namespace basisu
 						
 					{
 						etc1_optimizer optimizer;
-						etc1_solution_coordinates solutions[2];
+						//etc1_solution_coordinates solutions[2];
 
 						etc1_optimizer::params cluster_optimizer_params;
 						cluster_optimizer_params.m_num_src_pixels = total_pixels;
@@ -3091,7 +3092,7 @@ namespace basisu
 						cluster_optimizer_params.m_perceptual = m_params.m_perceptual;
 						cluster_optimizer_params.m_pForce_selectors = &force_selectors[0];
 
-						if (m_params.m_compression_level == BASISU_MAX_COMPRESSION_LEVEL)
+						if (m_params.m_compression_level == BASISU_MAX_ETC1S_COMPRESSION_LEVEL)
 							cluster_optimizer_params.m_quality = cETCQualityUber;
 						else
 							cluster_optimizer_params.m_quality = cETCQualitySlow;
@@ -3402,7 +3403,7 @@ namespace basisu
 		}
 
 		image img;
-		g.unpack(img);
+		g.unpack(img, false);
 
 		save_png(pFilename, img);
 	}

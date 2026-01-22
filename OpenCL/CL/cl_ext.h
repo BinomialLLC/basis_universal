@@ -524,7 +524,7 @@ clEnqueueGenerateMipmapIMG(cl_command_queue          command_queue,
                            cl_uint                   num_events_in_wait_list,
                            const cl_event            *event_wait_list,
                            cl_event *event) CL_API_SUFFIX__VERSION_1_2;
-  
+
 /******************************************
  * cl_img_mem_properties extension *
  ******************************************/

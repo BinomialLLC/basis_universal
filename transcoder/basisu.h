@@ -1,5 +1,5 @@
 // basisu.h
-// Copyright (C) 2019-2024 Binomial LLC. All Rights Reserved.
+// Copyright (C) 2019-2026 Binomial LLC. All Rights Reserved.
 // Important: If compiling with gcc, be sure strict aliasing is disabled: -fno-strict-aliasing
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,6 +14,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+
+#ifndef BASISD_SUPPORT_XUASTC
+#define BASISD_SUPPORT_XUASTC 1
+#endif
 
 #ifdef _MSC_VER
 
@@ -40,9 +44,11 @@
 #include <assert.h>
 #include <random>
 #include <inttypes.h>
+#include <cfloat>
 
 #include "basisu_containers.h"
 
+// We never use min/max macros, slam them to off.
 #ifdef max
 #undef max
 #endif
@@ -57,6 +63,7 @@
 
 // Set to one to enable debug printf()'s when any errors occur, for development/debugging. Especially useful for WebGL development.
 #ifndef BASISU_FORCE_DEVEL_MESSAGES
+// Do not check in as 1!
 #define BASISU_FORCE_DEVEL_MESSAGES 0
 #endif
 
@@ -93,6 +100,7 @@ namespace basisu
 	typedef basisu::vector<int> int_vec;
 	typedef basisu::vector<bool> bool_vec;
 	typedef basisu::vector<float> float_vec;
+	typedef basisu::vector<double> double_vec;
 
 	void enable_debug_printf(bool enabled);
 	void debug_printf(const char *pFmt, ...);
@@ -107,20 +115,16 @@ namespace basisu
 		debug_puts(res.c_str());
 	}
 
-#ifndef __EMSCRIPTEN__
-#ifdef __GNUC__
+#if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wclass-memaccess"            
-#endif                  
 #endif
 		
 	template <typename T> inline void clear_obj(T& obj) { memset((void *)&obj, 0, sizeof(obj)); }
 
-#ifndef __EMSCRIPTEN__
-#ifdef __GNUC__
+#if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic pop
 #endif                            
-#endif
 
 	constexpr double cPiD = 3.14159265358979323846264338327950288;
 	constexpr float REALLY_SMALL_FLOAT_VAL = .000000125f;
@@ -144,6 +148,41 @@ namespace basisu
 	inline double squared(double i) { return i * i; }
 	template<typename T> inline T square(T a) { return a * a; }
 	template<typename T> inline T sign(T a) { return (a < 0) ? (T)-1 : ((a == 0) ? (T)0 : (T)1); }
+
+	inline int imod(int i, int d)
+	{
+		assert(i != INT_MIN);
+
+		if (i >= 0)
+			return i % d;
+
+		int r = (-i) % d;
+		return (r == 0) ? 0 : d - r;
+	}
+
+	inline uint8_t safe_cast_uint8(uint32_t x)
+	{
+		assert(x <= UINT8_MAX);
+		return (uint8_t)x;
+	}
+
+	inline int8_t safe_cast_int8(int32_t x)
+	{
+		assert((x >= INT8_MIN) && (x <= INT8_MAX));
+		return (int8_t)x;
+	}
+
+	inline uint16_t safe_cast_uint16(uint32_t x)
+	{
+		assert(x <= UINT16_MAX);
+		return (uint16_t)x;
+	}
+
+	inline int16_t safe_cast_int16(int32_t x)
+	{
+		assert((x >= INT16_MIN) && (x <= INT16_MAX));
+		return (int16_t)x;
+	}
 		
 	inline bool equal_tol(float a, float b, float t) { return fabsf(a - b) <= ((maximum(fabsf(a), fabsf(b)) + 1.0f) * t); }
 	inline bool equal_tol(double a, double b, double t) { return fabs(a - b) <= ((maximum(fabs(a), fabs(b)) + 1.0f) * t); }
@@ -175,17 +214,25 @@ namespace basisu
 	inline bool is_pow2(uint32_t x) { return x && ((x & (x - 1U)) == 0U); }
 	inline bool is_pow2(uint64_t x) { return x && ((x & (x - 1U)) == 0U); }
 
+	template<typename T> inline T range_check(T v, T minv, T maxv) { assert(v >= minv && v <= maxv); BASISU_NOTE_UNUSED(minv); BASISU_NOTE_UNUSED(maxv); return v; }
+	template<typename T> inline T range_check(T v, T maxv) { assert(v <= maxv); BASISU_NOTE_UNUSED(maxv); return v; }
+
 	template<typename T> inline T open_range_check(T v, T minv, T maxv) { assert(v >= minv && v < maxv); BASISU_NOTE_UNUSED(minv); BASISU_NOTE_UNUSED(maxv); return v; }
 	template<typename T> inline T open_range_check(T v, T maxv) { assert(v < maxv); BASISU_NOTE_UNUSED(maxv); return v; }
 
 	// Open interval
-	inline bool in_bounds(int v, int l, int h)
+	inline bool is_in_bounds(int v, int l, int h)
 	{
 		return (v >= l) && (v < h);
 	}
 
 	// Closed interval
-	inline bool in_range(int v, int l, int h)
+	inline bool is_in_range(int v, int l, int h)
+	{
+		return (v >= l) && (v <= h);
+	}
+
+	inline bool is_in_range(float v, float l, float h)
 	{
 		return (v >= l) && (v <= h);
 	}
@@ -196,7 +243,7 @@ namespace basisu
 
 	inline uint32_t get_bit(uint32_t src, int ndx)
 	{
-		assert(in_bounds(ndx, 0, 32));
+		assert(is_in_bounds(ndx, 0, 32));
 		return (src >> ndx) & 1;
 	}
 
@@ -208,7 +255,7 @@ namespace basisu
 	inline uint32_t get_bits(uint32_t val, int low, int high)
 	{
 		const int num_bits = (high - low) + 1;
-		assert(in_range(num_bits, 1, 32));
+		assert(is_in_range(num_bits, 1, 32));
 
 		val >>= low;
 		if (num_bits != 32)
@@ -311,6 +358,14 @@ namespace basisu
 		return (m != 0) ? (y - m) : m;
 	}
 
+	inline float posmodf(float x, float y)
+	{
+		float m = fmodf(x, y);
+		if (m < 0.0f)
+			m += y;
+		return m;
+	}
+
 	inline bool do_excl_ranges_overlap(int la, int ha, int lb, int hb)
 	{
 		assert(la < ha && lb < hb);
@@ -348,6 +403,7 @@ namespace basisu
 						
 		inline packed_uint& operator= (uint64_t v) 
 		{ 
+			// TODO: Add assert on truncation?
 			for (uint32_t i = 0; i < NumBytes; i++) 
 				m_bytes[i] = static_cast<uint8_t>(v >> (i * 8)); 
 			return *this; 
@@ -358,69 +414,10 @@ namespace basisu
 			memcpy(m_bytes, rhs.m_bytes, sizeof(m_bytes)); 
 			return *this;
 		}
-
-#if 0
-#ifdef __GNUC__
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Warray-bounds"            
-#endif  
-		inline operator uint32_t() const
+				
+		inline uint64_t get_uint64() const
 		{
-			switch (NumBytes)
-			{
-				case 1:  
-				{
-					return  m_bytes[0];
-				}
-				case 2:  
-				{
-					return (m_bytes[1] << 8U) | m_bytes[0];
-				}
-				case 3:  
-				{
-					return (m_bytes[2] << 16U) | (m_bytes[1] << 8U) | m_bytes[0];
-				}
-				case 4:  
-				{
-					return read_le_dword(m_bytes);
-				}
-				case 5:
-				{
-					uint32_t l = read_le_dword(m_bytes);
-					uint32_t h = m_bytes[4];
-					return static_cast<uint64_t>(l) | (static_cast<uint64_t>(h) << 32U);
-				}
-				case 6:
-				{
-					uint32_t l = read_le_dword(m_bytes);
-					uint32_t h = (m_bytes[5] << 8U) | m_bytes[4];
-					return static_cast<uint64_t>(l) | (static_cast<uint64_t>(h) << 32U);
-				}
-				case 7:
-				{
-					uint32_t l = read_le_dword(m_bytes);
-					uint32_t h = (m_bytes[6] << 16U) | (m_bytes[5] << 8U) | m_bytes[4];
-					return static_cast<uint64_t>(l) | (static_cast<uint64_t>(h) << 32U);
-				}
-				case 8:  
-				{
-					uint32_t l = read_le_dword(m_bytes);
-					uint32_t h = read_le_dword(m_bytes + 4);
-					return static_cast<uint64_t>(l) | (static_cast<uint64_t>(h) << 32U);
-				}
-				default: 
-				{
-					assert(0);
-					return 0;
-				}
-			}
-		}
-#ifdef __GNUC__
-#pragma GCC diagnostic pop
-#endif
-#else
-		inline operator uint32_t() const
-		{
+			// Some compilers may warn about this code. It clearly cannot access beyond the end of the m_bytes struct here.
 			if constexpr (NumBytes == 1)
 			{
 				return m_bytes[0];
@@ -467,8 +464,18 @@ namespace basisu
 				return 0;
 			}
 		}
-		#endif
 
+		inline uint32_t get_uint32() const
+		{
+			static_assert(NumBytes <= sizeof(uint32_t), "packed_uint too large to use get_uint32");
+			return static_cast<uint32_t>(get_uint64());
+		}
+		
+		inline operator uint32_t() const
+		{
+			static_assert(NumBytes <= sizeof(uint32_t), "packed_uint too large to use operator uint32_t");
+			return static_cast<uint32_t>(get_uint64());
+		}
 	};
 
 	enum eZero { cZero };
@@ -544,8 +551,88 @@ namespace basisu
 		cABGR4444,
 		cRGBA_HALF,
 		cRGB_HALF,
-		cRGB_9E5
+		cRGB_9E5,
+
+		// All remaining ASTC LDR block size variants (other than 4x4 which is above). There are 14 total ASTC block sizes, including 4x4.
+		cASTC_LDR_5x4,
+		cASTC_LDR_5x5,
+		cASTC_LDR_6x5,
+		cASTC_LDR_6x6,
+		cASTC_LDR_8x5,
+		cASTC_LDR_8x6,
+		cASTC_LDR_10x5,
+		cASTC_LDR_10x6,
+		cASTC_LDR_8x8,
+		cASTC_LDR_10x8,
+		cASTC_LDR_10x10,
+		cASTC_LDR_12x10,
+		cASTC_LDR_12x12
 	};
+
+	inline bool is_astc(texture_format fmt)
+	{
+		switch (fmt)
+		{
+			case texture_format::cASTC_HDR_4x4:
+			case texture_format::cASTC_HDR_6x6:
+			case texture_format::cASTC_LDR_4x4:
+			case texture_format::cASTC_LDR_5x4:
+			case texture_format::cASTC_LDR_5x5:
+			case texture_format::cASTC_LDR_6x5:
+			case texture_format::cASTC_LDR_6x6:
+			case texture_format::cASTC_LDR_8x5:
+			case texture_format::cASTC_LDR_8x6:
+			case texture_format::cASTC_LDR_10x5:
+			case texture_format::cASTC_LDR_10x6:
+			case texture_format::cASTC_LDR_8x8:
+			case texture_format::cASTC_LDR_10x8:
+			case texture_format::cASTC_LDR_10x10:
+			case texture_format::cASTC_LDR_12x10:
+			case texture_format::cASTC_LDR_12x12:
+				return true;
+			default:
+				break;
+		}
+		return false;
+	}
+
+	inline bool is_hdr_astc(texture_format fmt)
+	{
+		switch (fmt)
+		{
+			case texture_format::cASTC_HDR_4x4:
+			case texture_format::cASTC_HDR_6x6:
+				return true;
+			default:
+				break;
+		}
+		return false;
+	}
+
+	inline bool is_ldr_astc(texture_format fmt)
+	{
+		switch (fmt)
+		{
+		case texture_format::cASTC_LDR_4x4:
+		case texture_format::cASTC_LDR_5x4:
+		case texture_format::cASTC_LDR_5x5:
+		case texture_format::cASTC_LDR_6x5:
+		case texture_format::cASTC_LDR_6x6:
+		case texture_format::cASTC_LDR_8x5:
+		case texture_format::cASTC_LDR_8x6:
+		case texture_format::cASTC_LDR_10x5:
+		case texture_format::cASTC_LDR_10x6:
+		case texture_format::cASTC_LDR_8x8:
+		case texture_format::cASTC_LDR_10x8:
+		case texture_format::cASTC_LDR_10x10:
+		case texture_format::cASTC_LDR_12x10:
+		case texture_format::cASTC_LDR_12x12:
+			return true;
+		default:
+			break;
+		}
+		return false;
+	}
 
 	inline bool is_uncompressed_texture_format(texture_format fmt)
 	{
@@ -627,10 +714,21 @@ namespace basisu
 
 		switch (fmt)
 		{
-		case texture_format::cFXT1_RGB:
-			return 8;
-		case texture_format::cASTC_HDR_6x6:
-			return 6;
+		case texture_format::cFXT1_RGB:	return 8;
+		case texture_format::cASTC_HDR_6x6:	return 6;
+		case texture_format::cASTC_LDR_5x4: return 5;
+		case texture_format::cASTC_LDR_5x5: return 5;
+		case texture_format::cASTC_LDR_6x5: return 6;
+		case texture_format::cASTC_LDR_6x6: return 6;
+		case texture_format::cASTC_LDR_8x5: return 8;
+		case texture_format::cASTC_LDR_8x6: return 8;
+		case texture_format::cASTC_LDR_10x5: return 10;
+		case texture_format::cASTC_LDR_10x6: return 10;
+		case texture_format::cASTC_LDR_8x8: return 8;
+		case texture_format::cASTC_LDR_10x8: return 10;
+		case texture_format::cASTC_LDR_10x10: return 10;
+		case texture_format::cASTC_LDR_12x10: return 12;
+		case texture_format::cASTC_LDR_12x12: return 12;
 		default:
 			break;
 		}
@@ -643,8 +741,19 @@ namespace basisu
 
 		switch (fmt)
 		{
-		case texture_format::cASTC_HDR_6x6:
-			return 6;
+		case texture_format::cASTC_HDR_6x6:	return 6;
+		case texture_format::cASTC_LDR_5x5: return 5;
+		case texture_format::cASTC_LDR_6x5: return 5;
+		case texture_format::cASTC_LDR_6x6: return 6;
+		case texture_format::cASTC_LDR_8x5: return 5;
+		case texture_format::cASTC_LDR_8x6: return 6;
+		case texture_format::cASTC_LDR_10x5: return 5;
+		case texture_format::cASTC_LDR_10x6: return 6;
+		case texture_format::cASTC_LDR_8x8: return 8;
+		case texture_format::cASTC_LDR_10x8: return 8;
+		case texture_format::cASTC_LDR_10x10: return 10;
+		case texture_format::cASTC_LDR_12x10: return 10;
+		case texture_format::cASTC_LDR_12x12: return 12;
 		default:
 			break;
 		}
@@ -674,6 +783,38 @@ namespace basisu
 	inline bool is_ldr_texture_format(texture_format fmt)
 	{
 		return !is_hdr_texture_format(fmt);
+	}
+		
+	inline texture_format get_astc_ldr_texture_format(uint32_t width, uint32_t height)
+	{
+#define BU_ASTC_LDR_MATCH_BLOCK_DIM(x, y, f) if ((width == (x)) && (height == (y))) return (f);
+		BU_ASTC_LDR_MATCH_BLOCK_DIM(4, 4, texture_format::cASTC_LDR_4x4);
+		BU_ASTC_LDR_MATCH_BLOCK_DIM(5, 4, texture_format::cASTC_LDR_5x4);
+
+		BU_ASTC_LDR_MATCH_BLOCK_DIM(5, 5, texture_format::cASTC_LDR_5x5);
+
+		BU_ASTC_LDR_MATCH_BLOCK_DIM(6, 5, texture_format::cASTC_LDR_6x5);
+		BU_ASTC_LDR_MATCH_BLOCK_DIM(6, 6, texture_format::cASTC_LDR_6x6);
+
+		BU_ASTC_LDR_MATCH_BLOCK_DIM(8, 5, texture_format::cASTC_LDR_8x5);
+		BU_ASTC_LDR_MATCH_BLOCK_DIM(8, 6, texture_format::cASTC_LDR_8x6);
+		BU_ASTC_LDR_MATCH_BLOCK_DIM(10, 5, texture_format::cASTC_LDR_10x5);
+		BU_ASTC_LDR_MATCH_BLOCK_DIM(10, 6, texture_format::cASTC_LDR_10x6);
+
+		BU_ASTC_LDR_MATCH_BLOCK_DIM(8, 8, texture_format::cASTC_LDR_8x8);
+		BU_ASTC_LDR_MATCH_BLOCK_DIM(10, 8, texture_format::cASTC_LDR_10x8);
+		BU_ASTC_LDR_MATCH_BLOCK_DIM(10, 10, texture_format::cASTC_LDR_10x10);
+
+		BU_ASTC_LDR_MATCH_BLOCK_DIM(12, 10, texture_format::cASTC_LDR_12x10);
+		BU_ASTC_LDR_MATCH_BLOCK_DIM(12, 12, texture_format::cASTC_LDR_12x12);
+#undef BU_ASTC_LDR_MATCH_BLOCK_DIM
+
+		return texture_format::cInvalidTextureFormat;
+	}
+
+	inline bool is_valid_astc_block_size(uint32_t width, uint32_t height)
+	{
+		return get_astc_ldr_texture_format(width, height) != texture_format::cInvalidTextureFormat;
 	}
 							
 } // namespace basisu

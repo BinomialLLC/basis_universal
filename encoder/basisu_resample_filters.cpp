@@ -28,7 +28,7 @@ namespace basisu
 		else
 			return 0.0f;
 	}
-		
+
 	float tent_filter(float t) /* box (*) box, bilinear/triangle */
 	{
 		if (t < 0.0f)
@@ -307,20 +307,20 @@ namespace basisu
 	const resample_filter g_resample_filters[] =
 	{
 		{ "box", box_filter, BASISU_BOX_FILTER_SUPPORT },
-		{ "tent", tent_filter, BASISU_TENT_FILTER_SUPPORT }, 
-		{ "bell", bell_filter, BASISU_BELL_FILTER_SUPPORT }, 
+		{ "tent", tent_filter, BASISU_TENT_FILTER_SUPPORT },
+		{ "bell", bell_filter, BASISU_BELL_FILTER_SUPPORT },
 		{ "b-spline", B_spline_filter, B_SPLINE_SUPPORT },
-		{ "mitchell", mitchell_filter, MITCHELL_SUPPORT }, 
-		{ "blackman", blackman_filter, BLACKMAN_SUPPORT }, 
+		{ "mitchell", mitchell_filter, MITCHELL_SUPPORT },
+		{ "blackman", blackman_filter, BLACKMAN_SUPPORT },
 		{ "lanczos3", lanczos3_filter, LANCZOS3_SUPPORT },
 		{ "lanczos4", lanczos4_filter, LANCZOS4_SUPPORT },
-		{ "lanczos6", lanczos6_filter, LANCZOS6_SUPPORT }, 
-		{ "lanczos12", lanczos12_filter, LANCZOS12_SUPPORT }, 
-		{ "kaiser", kaiser_filter, KAISER_SUPPORT }, 
+		{ "lanczos6", lanczos6_filter, LANCZOS6_SUPPORT },
+		{ "lanczos12", lanczos12_filter, LANCZOS12_SUPPORT },
+		{ "kaiser", kaiser_filter, KAISER_SUPPORT },
 		{ "gaussian", gaussian_filter, BASISU_GAUSSIAN_FILTER_SUPPORT },
-		{ "catmullrom", catmull_rom_filter, CATMULL_ROM_SUPPORT }, 
-		{ "quadratic_interp", quadratic_interp_filter, QUADRATIC_SUPPORT }, 
-		{ "quadratic_approx", quadratic_approx_filter, QUADRATIC_SUPPORT }, 
+		{ "catmullrom", catmull_rom_filter, CATMULL_ROM_SUPPORT },
+		{ "quadratic_interp", quadratic_interp_filter, QUADRATIC_SUPPORT },
+		{ "quadratic_approx", quadratic_approx_filter, QUADRATIC_SUPPORT },
 		{ "quadratic_mix", quadratic_mix_filter, QUADRATIC_SUPPORT },
 	};
 

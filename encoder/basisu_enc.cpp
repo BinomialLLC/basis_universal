@@ -1,5 +1,5 @@
 // basisu_enc.cpp
-// Copyright (C) 2019-2024 Binomial LLC. All Rights Reserved.
+// Copyright (C) 2019-2026 Binomial LLC. All Rights Reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -23,6 +23,8 @@
 #include "basisu_opencl.h"
 #include "basisu_uastc_hdr_4x4_enc.h"
 #include "basisu_astc_hdr_6x6_enc.h"
+#include "basisu_astc_ldr_common.h"
+#include "basisu_astc_ldr_encode.h"
 
 #include <vector>
 
@@ -58,7 +60,7 @@ namespace basisu
 #endif
 
 	fast_linear_to_srgb g_fast_linear_to_srgb;
-
+		
 	uint8_t g_hamming_dist[256] =
 	{
 		0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4,
@@ -181,9 +183,17 @@ namespace basisu
 	 { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}    // U+007F
 	};
 
+	float g_srgb_to_linear_table[256];
+
+	void init_srgb_to_linear_table()
+	{
+		for (int i = 0; i < 256; ++i)
+			g_srgb_to_linear_table[i] = srgb_to_linear((float)i * (1.0f / 255.0f));
+	}
+
 	bool g_library_initialized;
 	std::mutex g_encoder_init_mutex;
-				
+					
 	// Encoder library initialization (just call once at startup)
 	bool basisu_encoder_init(bool use_opencl, bool opencl_force_serialization)
 	{
@@ -210,7 +220,11 @@ namespace basisu
 		astc_hdr_enc_init();
 		basist::bc6h_enc_init();
 		astc_6x6_hdr::global_init();
+		astc_ldr::global_init();
+		astc_ldr::encoder_init();
 
+		init_srgb_to_linear_table();
+				
 		g_library_initialized = true;
 		return true;
 	}
@@ -221,7 +235,7 @@ namespace basisu
 
 		g_library_initialized = false;
 	}
-
+		
 	void error_vprintf(const char* pFmt, va_list args)
 	{
 		const uint32_t BUF_SIZE = 256;
@@ -237,6 +251,8 @@ namespace basisu
 			assert(0);
 			return;
 		}
+
+		fflush(stdout);
 
 		if (total_chars >= (int)BUF_SIZE)
 		{
@@ -277,6 +293,7 @@ namespace basisu
 	void platform_sleep(uint32_t ms)
 	{
 		// TODO
+		BASISU_NOTE_UNUSED(ms);
 	}
 #endif
 
@@ -760,7 +777,7 @@ namespace basisu
 
 		return true;
 	}
-	
+			
 	bool save_png(const char* pFilename, const image &img, uint32_t image_save_flags, uint32_t grayscale_comp)
 	{
 		if (!img.get_total_pixels())
@@ -825,6 +842,31 @@ namespace basisu
 
 		free(pPNG_data);
 						
+		return status;
+	}
+
+	bool save_qoi(const char* pFilename, const image& img, uint32_t qoi_colorspace)
+	{
+		assert(img.get_width() && img.get_height());
+
+		qoi_desc desc;
+		clear_obj(desc);
+
+		desc.width = img.get_width();
+		desc.height = img.get_height();
+		desc.channels = 4;
+		desc.colorspace = (uint8_t)qoi_colorspace;
+		
+		int out_len = 0;
+		void* pData = qoi_encode(img.get_ptr(), &desc, &out_len);
+		if ((!pData) || (!out_len))
+			return false;
+
+		const bool status = write_data_to_file(pFilename, pData, out_len);
+
+		QOI_FREE(pData);
+		pData = nullptr;
+
 		return status;
 	}
 		
@@ -946,7 +988,8 @@ namespace basisu
 	bool image_resample(const image &src, image &dst, bool srgb,
 		const char *pFilter, float filter_scale, 
 		bool wrapping,
-		uint32_t first_comp, uint32_t num_comps)
+		uint32_t first_comp, uint32_t num_comps, 
+		float filter_scale_y)
 	{
 		assert((first_comp + num_comps) <= 4);
 
@@ -973,7 +1016,9 @@ namespace basisu
 			return false;
 		}
 
-		if ((src_w == dst_w) && (src_h == dst_h))
+		if ( (src_w == dst_w) && (src_h == dst_h) && 
+			(filter_scale == 1.0f) &&
+			((filter_scale_y < 0.0f) || (filter_scale_y == 1.0f)) )
 		{
 			dst = src;
 			return true;
@@ -1000,14 +1045,16 @@ namespace basisu
 		
 		resamplers[0] = new Resampler(src_w, src_h, dst_w, dst_h,
 			wrapping ? Resampler::BOUNDARY_WRAP : Resampler::BOUNDARY_CLAMP, 0.0f, 1.0f,
-			pFilter, nullptr, nullptr, filter_scale, filter_scale, 0, 0);
+			pFilter, nullptr, nullptr, 
+			filter_scale, (filter_scale_y >= 0.0f) ? filter_scale_y : filter_scale, 0, 0);
 		samples[0].resize(src_w);
 
 		for (uint32_t i = 1; i < num_comps; ++i)
 		{
 			resamplers[i] = new Resampler(src_w, src_h, dst_w, dst_h,
 				wrapping ? Resampler::BOUNDARY_WRAP : Resampler::BOUNDARY_CLAMP, 0.0f, 1.0f,
-				pFilter, resamplers[0]->get_clist_x(), resamplers[0]->get_clist_y(), filter_scale, filter_scale, 0, 0);
+				pFilter, resamplers[0]->get_clist_x(), resamplers[0]->get_clist_y(), 
+				filter_scale, (filter_scale_y >= 0.0f) ? filter_scale_y : filter_scale, 0, 0);
 			samples[i].resize(src_w);
 		}
 
@@ -1843,6 +1890,9 @@ namespace basisu
 		double max_e = -1e+30f;
 		double sum = 0.0f, sum_sqr = 0.0f;
 
+		m_width = width;
+		m_height = height;
+		
 		m_has_neg = false;
 		m_any_abnormal = false;
 		m_hf_mag_overflow = false;
@@ -1944,6 +1994,9 @@ namespace basisu
 		const uint32_t width = basisu::minimum(a.get_width(), b.get_width());
 		const uint32_t height = basisu::minimum(a.get_height(), b.get_height());
 
+		m_width = width;
+		m_height = height;
+
 		m_has_neg = false;
 		m_hf_mag_overflow = false;
 		m_any_abnormal = false;
@@ -2010,6 +2063,9 @@ namespace basisu
 		const uint32_t width = basisu::minimum(a.get_width(), b.get_width());
 		const uint32_t height = basisu::minimum(a.get_height(), b.get_height());
 
+		m_width = width;
+		m_height = height;
+
 		m_has_neg = false;
 		m_hf_mag_overflow = false;
 		m_any_abnormal = false;
@@ -2069,12 +2125,17 @@ namespace basisu
 		const uint32_t width = basisu::minimum(a.get_width(), b.get_width());
 		const uint32_t height = basisu::minimum(a.get_height(), b.get_height());
 
+		m_width = width;
+		m_height = height;
+
 		double hist[256];
 		clear_obj(hist);
 
 		m_has_neg = false;
 		m_any_abnormal = false;
 		m_hf_mag_overflow = false;
+		m_sum_a = 0;
+		m_sum_b = 0;
 
 		for (uint32_t y = 0; y < height; y++)
 		{
@@ -2085,7 +2146,11 @@ namespace basisu
 				if (total_chans)
 				{
 					for (uint32_t c = 0; c < total_chans; c++)
+					{
 						hist[iabs(ca[first_chan + c] - cb[first_chan + c])]++;
+						m_sum_a += ca[first_chan + c];
+						m_sum_b += cb[first_chan + c];
+					}
 				}
 				else
 				{
@@ -2093,6 +2158,12 @@ namespace basisu
 						hist[iabs(ca.get_601_luma() - cb.get_601_luma())]++;
 					else
 						hist[iabs(ca.get_709_luma() - cb.get_709_luma())]++;
+
+					for (uint32_t c = 0; c < 3; c++)
+					{
+						m_sum_a += ca[c];
+						m_sum_b += cb[c];
+					}
 				}
 			}
 		}
@@ -2168,62 +2239,6 @@ namespace basisu
 		}
 	}
 
-	uint32_t hash_hsieh(const uint8_t *pBuf, size_t len)
-	{
-		if (!pBuf || !len) 
-			return 0;
-
-		uint32_t h = static_cast<uint32_t>(len);
-
-		const uint32_t bytes_left = len & 3;
-		len >>= 2;
-
-		while (len--)
-		{
-			const uint16_t *pWords = reinterpret_cast<const uint16_t *>(pBuf);
-
-			h += pWords[0];
-			
-			const uint32_t t = (pWords[1] << 11) ^ h;
-			h = (h << 16) ^ t;
-			
-			pBuf += sizeof(uint32_t);
-			
-			h += h >> 11;
-		}
-
-		switch (bytes_left)
-		{
-		case 1: 
-			h += *reinterpret_cast<const signed char*>(pBuf);
-			h ^= h << 10;
-			h += h >> 1;
-			break;
-		case 2: 
-			h += *reinterpret_cast<const uint16_t *>(pBuf);
-			h ^= h << 11;
-			h += h >> 17;
-			break;
-		case 3:
-			h += *reinterpret_cast<const uint16_t *>(pBuf);
-			h ^= h << 16;
-			h ^= (static_cast<signed char>(pBuf[sizeof(uint16_t)])) << 18;
-			h += h >> 11;
-			break;
-		default:
-			break;
-		}
-		
-		h ^= h << 3;
-		h += h >> 5;
-		h ^= h << 4;
-		h += h >> 17;
-		h ^= h << 25;
-		h += h >> 6;
-
-		return h;
-	}
-
 	job_pool::job_pool(uint32_t num_threads) : 
 		m_num_pending_jobs(0),
 		m_kill_flag(false)
@@ -2249,10 +2264,11 @@ namespace basisu
 		
 		// Notify all workers that they need to die right now.
 		{
-			std::unique_lock<std::mutex> lock(m_mutex);
-			m_kill_flag = true;
-			m_has_work.notify_all();
+			std::lock_guard<std::mutex> lk(m_mutex);
+			m_kill_flag.store(true);
 		}
+		
+		m_has_work.notify_all();
 
 #ifdef __EMSCRIPTEN__
 		for ( ; ; )
@@ -2361,16 +2377,26 @@ namespace basisu
 
 		m_num_active_workers.fetch_add(1);
 		
-		std::unique_lock<std::mutex> lock(m_mutex);
-
-		while (true)
+		while (!m_kill_flag)
 		{
+			std::unique_lock<std::mutex> lock(m_mutex);
+
 			// Wait for any jobs to be issued.
+#if 0
 			m_has_work.wait(lock, [this] { return m_kill_flag || m_queue.size(); } );
+#else
+			// For more safety vs. buggy RTL's. Worse case we stall for a second vs. locking up forever if something goes wrong.
+			m_has_work.wait_for(lock, std::chrono::milliseconds(1000), [this] {
+				return m_kill_flag || !m_queue.empty();
+				});
+#endif
 
 			// Check to see if we're supposed to exit.
 			if (m_kill_flag)
 				break;
+
+			if (m_queue.empty())
+				continue;
 
 			// Get the job and execute it.
 			item job = std::move(m_queue.back());
@@ -3980,6 +4006,723 @@ namespace basisu
 		} // y
 
 		return true;
+	}
+
+	bool arith_test()
+	{
+		basist::arith_fastbits_f32::init();
+
+		fmt_printf("random bit test\n");
+
+		const uint32_t N = 1000;
+
+		// random bit test
+		for (uint32_t i = 0; i < N; i++)
+		{
+			basist::arith::arith_enc enc;
+			enc.init(4096);
+
+			{
+				basisu::rand r;
+				r.seed(i + 1);
+				uint32_t num_vals = r.irand(1, 20000);
+
+				for (uint32_t j = 0; j < num_vals; j++)
+					enc.put_bit(r.bit());
+
+				enc.flush();
+			}
+
+			{
+				basisu::rand r;
+				r.seed(i + 1);
+				uint32_t num_vals = r.irand(1, 20000);
+
+				basist::arith::arith_dec dec;
+				dec.init(enc.get_data_buf().get_ptr(), enc.get_data_buf().size());
+
+				for (uint32_t j = 0; j < num_vals; j++)
+				{
+					uint32_t t = r.bit();
+
+					uint32_t a = dec.get_bit();
+					if (t != a)
+					{
+						fmt_printf("error!");
+						return false;
+					}
+				}
+			}
+		}
+
+		fmt_printf("Random bit test OK\n");
+
+		fmt_printf("random bits test\n");
+
+		// random bits test
+		for (uint32_t i = 0; i < N; i++)
+		{
+			basist::arith::arith_enc enc;
+			enc.init(4096);
+
+			{
+				basisu::rand r;
+				r.seed(i + 1);
+				uint32_t num_vals = r.irand(1, 20000);
+				uint32_t num_bits = r.irand(1, 20);
+
+				for (uint32_t j = 0; j < num_vals; j++)
+					enc.put_bits(r.urand32() & ((1 << num_bits) - 1), num_bits);
+
+				enc.flush();
+			}
+
+			{
+				basisu::rand r;
+				r.seed(i + 1);
+				uint32_t num_vals = r.irand(1, 20000);
+				uint32_t num_bits = r.irand(1, 20);
+
+				basist::arith::arith_dec dec;
+				dec.init(enc.get_data_buf().get_ptr(), enc.get_data_buf().size());
+
+				for (uint32_t j = 0; j < num_vals; j++)
+				{
+					uint32_t t = r.urand32() & ((1 << num_bits) - 1);
+
+					uint32_t a = dec.get_bits(num_bits);
+					if (t != a)
+					{
+						fmt_printf("error!");
+						return false;
+					}
+				}
+			}
+		}
+
+		fmt_printf("Random bits test OK\n");
+
+		fmt_printf("random adaptive bit model test\n");
+
+		// adaptive bit model random test
+		for (uint32_t i = 0; i < N; i++)
+		{
+			basist::arith::arith_enc enc;
+			enc.init(4096);
+
+			{
+				basisu::rand r;
+				r.seed(i + 1);
+				uint32_t num_vals = r.irand(1, 20000);
+
+				basist::arith::arith_bit_model bm;
+				bm.init();
+
+				for (uint32_t j = 0; j < num_vals; j++)
+					enc.encode(r.bit(), bm);
+
+				enc.flush();
+			}
+
+			{
+				basisu::rand r;
+				r.seed(i + 1);
+				uint32_t num_vals = r.irand(1, 20000);
+
+				basist::arith::arith_dec dec;
+				dec.init(enc.get_data_buf().get_ptr(), enc.get_data_buf().size());
+
+				basist::arith::arith_bit_model bm;
+				bm.init();
+
+				for (uint32_t j = 0; j < num_vals; j++)
+				{
+					uint32_t t = r.bit();
+
+					uint32_t a = dec.decode_bit(bm);
+					if (t != a)
+					{
+						fmt_printf("error!");
+						return false;
+					}
+				}
+			}
+		}
+		fmt_printf("Random adaptive bits test OK\n");
+
+		fmt_printf("random adaptive bit model 0 or 1 run test\n");
+
+		// adaptive bit model 0 or 1 test
+		for (uint32_t i = 0; i < N; i++)
+		{
+			basist::arith::arith_enc enc;
+			enc.init(4096);
+
+			{
+				basisu::rand r;
+				r.seed(i + 1);
+				uint32_t num_vals = r.irand(1, 20000);
+
+				basist::arith::arith_bit_model bm;
+				bm.init();
+
+				for (uint32_t j = 0; j < num_vals; j++)
+					enc.encode(i & 1, bm);
+
+				enc.flush();
+			}
+
+			{
+				basisu::rand r;
+				r.seed(i + 1);
+				uint32_t num_vals = r.irand(1, 20000);
+
+				basist::arith::arith_dec dec;
+				dec.init(enc.get_data_buf().get_ptr(), enc.get_data_buf().size());
+
+				basist::arith::arith_bit_model bm;
+				bm.init();
+
+				for (uint32_t j = 0; j < num_vals; j++)
+				{
+					uint32_t t = i & 1;
+
+					uint32_t a = dec.decode_bit(bm);
+					if (t != a)
+					{
+						fmt_printf("error!");
+						return false;
+					}
+				}
+			}
+		}
+
+		fmt_printf("Adaptive bit model 0 or 1 run test OK\n");
+
+		fmt_printf("random adaptive bit model 0 or 1 run 2 test\n");
+
+		// adaptive bit model 0 or 1 run test
+		for (uint32_t i = 0; i < N; i++)
+		{
+			basist::arith::arith_enc enc;
+			enc.init(4096);
+
+			{
+				basisu::rand r;
+				r.seed(i + 1);
+				uint32_t num_vals = r.irand(1, 2000);
+
+				basist::arith::arith_bit_model bm;
+				bm.init();
+
+				for (uint32_t j = 0; j < num_vals; j++)
+				{
+					const uint32_t run_len = r.irand(1, 128);
+					const uint32_t t = r.bit();
+					for (uint32_t k = 0; k < run_len; k++)
+						enc.encode(t, bm);
+				}
+
+				if (r.frand(0.0f, 1.0f) < .1f)
+				{
+					for (uint32_t q = 0; q < 1000; q++)
+						enc.encode(0, bm);
+				}
+
+				enc.flush();
+			}
+
+			{
+				basisu::rand r;
+				r.seed(i + 1);
+				uint32_t num_vals = r.irand(1, 2000);
+
+				basist::arith::arith_dec dec;
+				dec.init(enc.get_data_buf().get_ptr(), enc.get_data_buf().size());
+
+				basist::arith::arith_bit_model bm;
+				bm.init();
+
+				for (uint32_t j = 0; j < num_vals; j++)
+				{
+					const uint32_t run_len = r.irand(1, 128);
+					const uint32_t t = r.bit();
+
+					for (uint32_t k = 0; k < run_len; k++)
+					{
+						uint32_t a = dec.decode_bit(bm);
+						if (a != t)
+						{
+							fmt_printf("adaptive bit model random run test failed!\n");
+							return false;
+						}
+					}
+				}
+
+				if (r.frand(0.0f, 1.0f) < .1f)
+				{
+					for (uint32_t q = 0; q < 1000; q++)
+					{
+						uint32_t d = dec.decode_bit(bm);
+						if (d != 0)
+						{
+							fmt_printf("adaptive bit model random run test failed!\n");
+							return false;
+						}
+					}
+				}
+			}
+		}
+
+		fmt_printf("Random data model test\n");
+
+		// random data model test
+		for (uint32_t i = 0; i < N; i++)
+		{
+			basist::arith::arith_enc enc;
+			enc.init(4096);
+
+			{
+				basisu::rand r;
+				r.seed(i + 1);
+				const uint32_t num_vals = r.irand(1, 60000);
+
+				uint32_t num_syms = r.irand(2, basist::arith::ArithMaxSyms);
+
+				basist::arith::arith_data_model dm;
+				dm.init(num_syms);
+
+				for (uint32_t j = 0; j < num_vals; j++)
+					enc.encode(r.irand(0, num_syms - 1), dm);
+
+				enc.flush();
+			}
+
+			{
+				basisu::rand r;
+				r.seed(i + 1);
+				uint32_t num_vals = r.irand(1, 60000);
+
+				const uint32_t num_syms = r.irand(2, basist::arith::ArithMaxSyms);
+
+				basist::arith::arith_dec dec;
+				dec.init(enc.get_data_buf().get_ptr(), enc.get_data_buf().size());
+
+				basist::arith::arith_data_model dm;
+				dm.init(num_syms);
+
+				for (uint32_t j = 0; j < num_vals; j++)
+				{
+					uint32_t expected = r.irand(0, num_syms - 1);
+					uint32_t actual = dec.decode_sym(dm);
+					if (actual != expected)
+					{
+						fmt_printf("adaptive data model random test failed!\n");
+						return false;
+					}
+				}
+			}
+		}
+
+		fmt_printf("Adaptive data model random test OK\n");
+
+		fmt_printf("Overall OK\n");
+		return true;
+	}
+
+	static void rasterize_line(image& dst, int xs, int ys, int xe, int ye, int pred, int inc_dec, int e, int e_inc, int e_no_inc, const color_rgba& color)
+	{
+		int start, end, var;
+
+		if (pred)
+		{
+			start = ys; end = ye; var = xs;
+			for (int i = start; i <= end; i++)
+			{
+				dst.set_clipped(var, i, color);
+				if (e < 0)
+					e += e_no_inc;
+				else
+				{
+					var += inc_dec;
+					e += e_inc;
+				}
+			}
+		}
+		else
+		{
+			start = xs; end = xe; var = ys;
+			for (int i = start; i <= end; i++)
+			{
+				dst.set_clipped(i, var, color);
+				if (e < 0)
+					e += e_no_inc;
+				else
+				{
+					var += inc_dec;
+					e += e_inc;
+				}
+			}
+		}
+	}
+
+	void draw_line(image& dst, int xs, int ys, int xe, int ye, const color_rgba& color)
+	{
+		if (xs > xe)
+		{
+			std::swap(xs, xe);
+			std::swap(ys, ye);
+		}
+
+		int dx = xe - xs, dy = ye - ys;
+		if (!dx)
+		{
+			if (ys > ye)
+				std::swap(ys, ye);
+			for (int i = ys; i <= ye; i++)
+				dst.set_clipped(xs, i, color);
+		}
+		else if (!dy)
+		{
+			for (int i = xs; i < xe; i++)
+				dst.set_clipped(i, ys, color);
+		}
+		else if (dy > 0)
+		{
+			if (dy <= dx)
+			{
+				int e = 2 * dy - dx, e_no_inc = 2 * dy, e_inc = 2 * (dy - dx);
+				rasterize_line(dst, xs, ys, xe, ye, 0, 1, e, e_inc, e_no_inc, color);
+			}
+			else
+			{
+				int e = 2 * dx - dy, e_no_inc = 2 * dx, e_inc = 2 * (dx - dy);
+				rasterize_line(dst, xs, ys, xe, ye, 1, 1, e, e_inc, e_no_inc, color);
+			}
+		}
+		else
+		{
+			dy = -dy;
+			if (dy <= dx)
+			{
+				int e = 2 * dy - dx, e_no_inc = 2 * dy, e_inc = 2 * (dy - dx);
+				rasterize_line(dst, xs, ys, xe, ye, 0, -1, e, e_inc, e_no_inc, color);
+			}
+			else
+			{
+				int e = 2 * dx - dy, e_no_inc = (2 * dx), e_inc = 2 * (dx - dy);
+				rasterize_line(dst, xe, ye, xs, ys, 1, -1, e, e_inc, e_no_inc, color);
+			}
+		}
+	}
+
+	// Used for generating random test data
+	void draw_circle(image& dst, int cx, int cy, int r, const color_rgba& color)
+	{
+		assert(r >= 0);
+		if (r < 0)
+			return;
+
+		int x = r;
+		int y = 0;
+		int err = 1 - x;
+
+		while (x >= y) 
+		{
+			dst.set_clipped(cx + x, cy + y, color);
+			dst.set_clipped(cx + y, cy + x, color);
+			dst.set_clipped(cx - y, cy + x, color);
+			dst.set_clipped(cx - x, cy + y, color);
+			dst.set_clipped(cx - x, cy - y, color);
+			dst.set_clipped(cx - y, cy - x, color);
+			dst.set_clipped(cx + y, cy - x, color);
+			dst.set_clipped(cx + x, cy - y, color);
+
+			++y;
+
+			if (err < 0) 
+			{
+				err += 2 * y + 1;
+			}
+			else 
+			{
+				--x;
+				err += 2 * (y - x) + 1;
+			}
+		}
+	}
+
+	void set_image_alpha(image& img, uint32_t a)
+	{
+		for (uint32_t y = 0; y < img.get_height(); y++)
+			for (uint32_t x = 0; x < img.get_width(); x++)
+				img(x, y).a = (uint8_t)a;
+	}
+
+	// red=3 subsets, blue=2 subsets, green=mode 6, white=mode 7, purple = 2 plane
+	const color_rgba g_bc7_mode_vis_colors[8] =
+	{
+		color_rgba(190, 0,   0, 255), // 0
+		color_rgba(0, 0, 255, 255), // 1
+		color_rgba(255, 0, 0, 255), // 2
+		color_rgba(0, 0,  130, 255), // 3
+		color_rgba(255, 0, 255, 255), // 4 
+		color_rgba(190,  0,  190, 255), // 5
+		color_rgba(50, 167, 30, 255), // 6
+		color_rgba(255,   255,   255, 255)  // 7
+	};
+
+	void create_bc7_debug_images(
+		uint32_t width, uint32_t height, 
+		const void *pBlocks, 
+		const char *pFilename_prefix)
+	{
+		assert(width && height && pBlocks );
+
+		const uint32_t num_bc7_blocks_x = (width + 3) >> 2;
+		const uint32_t num_bc7_blocks_y = (height + 3) >> 2;
+		const uint32_t total_bc7_blocks = num_bc7_blocks_x * num_bc7_blocks_y;
+
+		image bc7_mode_vis(width, height);
+
+		uint32_t bc7_mode_hist[9] = {};
+
+		uint32_t mode4_index_hist[2] = {};
+		uint32_t mode4_rot_hist[4] = {};
+		uint32_t mode5_rot_hist[4] = {};
+
+		uint32_t num_2subsets = 0, num_3subsets = 0, num_dp = 0;
+
+		uint32_t total_solid_bc7_blocks = 0;
+		uint32_t num_unpack_failures = 0;
+
+		for (uint32_t by = 0; by < num_bc7_blocks_y; by++)
+		{
+			const uint32_t base_y = by * 4;
+
+			for (uint32_t bx = 0; bx < num_bc7_blocks_x; bx++)
+			{
+				const uint32_t base_x = bx * 4;
+								
+				const basist::bc7_block& blk = ((const basist::bc7_block *)pBlocks)[bx + by * num_bc7_blocks_x];
+
+				color_rgba unpacked_pixels[16];
+				bool status = basist::bc7u::unpack_bc7(&blk, (basist::color_rgba*)unpacked_pixels);
+				if (!status)
+					num_unpack_failures++;
+
+				int mode_index = basist::bc7u::determine_bc7_mode(&blk);
+
+				bool is_solid = false;
+				
+				// assumes our transcoder's analytical BC7 encoder wrote the solid block
+				if (mode_index == 5)
+				{
+					const uint8_t* pBlock_bytes = (const uint8_t *)&blk;
+										
+					if (pBlock_bytes[0] == 0b00100000)
+					{
+						static const uint8_t s_tail_bytes[8] = { 0xac, 0xaa, 0xaa, 0xaa, 0, 0, 0, 0 };
+						if ((pBlock_bytes[8] & ~3) == (s_tail_bytes[0] & ~3))
+						{
+							if (memcmp(pBlock_bytes + 9, s_tail_bytes + 1, 7) == 0)
+							{
+								is_solid = true;
+							}
+						}
+					}
+				}
+
+				total_solid_bc7_blocks += is_solid;
+
+				if ((mode_index == 0) || (mode_index == 2))
+					num_3subsets++;
+				else if ((mode_index == 1) || (mode_index == 3))
+					num_2subsets++;
+
+				bc7_mode_hist[mode_index + 1]++;
+
+				if (mode_index == 4)
+				{
+					num_dp++;
+					mode4_index_hist[range_check(basist::bc7u::determine_bc7_mode_4_index_mode(&blk), 0, 1)]++;
+					mode4_rot_hist[range_check(basist::bc7u::determine_bc7_mode_4_or_5_rotation(&blk), 0, 3)]++;
+				}
+				else if (mode_index == 5)
+				{
+					num_dp++;
+					mode5_rot_hist[range_check(basist::bc7u::determine_bc7_mode_4_or_5_rotation(&blk), 0, 3)]++;
+				}
+
+				color_rgba c((mode_index < 0) ? g_black_color : g_bc7_mode_vis_colors[mode_index]);
+
+				if (is_solid)
+					c.set(64, 0, 64, 255);
+
+				bc7_mode_vis.fill_box(base_x, base_y, 4, 4, c);
+
+			} // bx
+
+		} // by
+
+		fmt_debug_printf("--------- BC7 statistics:\n");
+		fmt_debug_printf("\nTotal BC7 unpack failures: {}\n", num_unpack_failures);
+		fmt_debug_printf("Total solid blocks: {} {3.2}%\n", total_solid_bc7_blocks, (float)total_solid_bc7_blocks * (float)100.0f / (float)total_bc7_blocks);
+
+		fmt_debug_printf("\nTotal 2-subsets: {} {3.2}%\n", num_2subsets, (float)num_2subsets * 100.0f / (float)total_bc7_blocks);
+		fmt_debug_printf("Total 3-subsets: {} {3.2}%\n", num_3subsets, (float)num_3subsets * 100.0f / (float)total_bc7_blocks);
+		fmt_debug_printf("Total Dual Plane: {} {3.2}%\n", num_dp, (float)num_dp * 100.0f / (float)total_bc7_blocks);
+
+		fmt_debug_printf("\nBC7 mode histogram:\n");
+		for (int i = -1; i <= 7; i++)
+		{
+			fmt_debug_printf(" {}: {} {3.3}%\n", i, bc7_mode_hist[1 + i], (float)bc7_mode_hist[1 + i] * 100.0f / (float)total_bc7_blocks);
+		}
+
+		fmt_debug_printf("\nMode 4 index bit histogram: {} {3.2}%, {} {3.2}%\n",
+			mode4_index_hist[0], (float)mode4_index_hist[0] * 100.0f / (float)total_bc7_blocks,
+			mode4_index_hist[1], (float)mode4_index_hist[1] * 100.0f / (float)total_bc7_blocks);
+
+		fmt_debug_printf("\nMode 4 rotation histogram:\n");
+		for (uint32_t i = 0; i < 4; i++)
+		{
+			fmt_debug_printf(" {}: {} {3.2}%\n", i, mode4_rot_hist[i], (float)mode4_rot_hist[i] * 100.0f / (float)total_bc7_blocks);
+		}
+
+		fmt_debug_printf("\nMode 5 rotation histogram:\n");
+		for (uint32_t i = 0; i < 4; i++)
+		{
+			fmt_debug_printf(" {}: {} {3.2}%\n", i, mode5_rot_hist[i], (float)mode5_rot_hist[i] * 100.0f / (float)total_bc7_blocks);
+		}
+				
+		if (pFilename_prefix)
+		{
+			std::string mode_vis_filename(std::string(pFilename_prefix) + "bc7_mode_vis.png");
+			save_png(mode_vis_filename, bc7_mode_vis);
+
+			fmt_debug_printf("Wrote BC7 mode visualization to PNG file {}\n", mode_vis_filename);
+		}
+		
+		fmt_debug_printf("--------- End BC7 statistics\n");
+		fmt_debug_printf("\n");
+	}
+
+	static inline float edge(const vec2F& a, const vec2F& b, const vec2F& pos)
+	{
+		return (pos[0] - a[0]) * (b[1] - a[1]) - (pos[1] - a[1]) * (b[0] - a[0]);
+	}
+
+	void draw_tri2(image& dst, const image* pTex, const tri2& tri, bool alpha_blend)
+	{
+		assert(dst.get_total_pixels());
+
+		float area = edge(tri.p0, tri.p1, tri.p2);
+		if (std::fabs(area) < 1e-6f)
+			return;
+
+		const float oo_area = 1.0f / area;
+
+		int minx = (int)std::floor(basisu::minimum(tri.p0[0], tri.p1[0], tri.p2[0] ));
+		int miny = (int)std::floor(basisu::minimum(tri.p0[1], tri.p1[1], tri.p2[1] ));
+
+		int maxx = (int)std::ceil(basisu::maximum(tri.p0[0], tri.p1[0], tri.p2[0]));
+		int maxy = (int)std::ceil(basisu::maximum(tri.p0[1], tri.p1[1], tri.p2[1]));
+
+		auto clamp8 = [&](float fv) { int v = (int)(fv + .5f); if (v < 0) v = 0; else if (v > 255) v = 255;  return (uint8_t)v; };
+
+		if ((maxx < 0) || (maxy < 0))
+			return;
+		if ((minx >= (int)dst.get_width()) || (miny >= (int)dst.get_height()))
+			return;
+
+		if (minx < 0)
+			minx = 0;
+		if (maxx >= (int)dst.get_width())
+			maxx = dst.get_width() - 1;
+		if (miny < 0)
+			miny = 0;
+		if (maxy >= (int)dst.get_height())
+			maxy = dst.get_height() - 1;
+
+		vec4F tex(1.0f);
+
+		for (int y = miny; y <= maxy; ++y)
+		{
+			assert((y >= 0) && (y < (int)dst.get_height()));
+
+			for (int x = minx; x <= maxx; ++x)
+			{
+				assert((x >= 0) && (x < (int)dst.get_width()));
+
+				vec2F p{ (float)x + 0.5f, (float)y + 0.5f };
+
+				float w0 = edge(tri.p1, tri.p2, p) * oo_area;
+				float w1 = edge(tri.p2, tri.p0, p) * oo_area;
+				float w2 = edge(tri.p0, tri.p1, p) * oo_area;
+
+				if ((w0 < 0) || (w1 < 0) || (w2 < 0))
+					continue;
+
+				float u = tri.t0[0] * w0 + tri.t1[0] * w1 + tri.t2[0] * w2;
+				float v = tri.t0[1] * w0 + tri.t1[1] * w1 + tri.t2[1] * w2;
+
+				if (pTex)
+					tex = pTex->get_filtered_vec4F(u * float(pTex->get_width()), v * float(pTex->get_height())) * (1.0f / 255.0f);
+
+				float r = (float)tri.c0.r * w0 + (float)tri.c1.r * w1 + (float)tri.c2.r * w2;
+				float g = (float)tri.c0.g * w0 + (float)tri.c1.g * w1 + (float)tri.c2.g * w2;
+				float b = (float)tri.c0.b * w0 + (float)tri.c1.b * w1 + (float)tri.c2.b * w2;
+				float a = (float)tri.c0.a * w0 + (float)tri.c1.a * w1 + (float)tri.c2.a * w2;
+
+				r *= tex[0];
+				g *= tex[1];
+				b *= tex[2];
+				a *= tex[3];
+
+				if (alpha_blend)
+				{
+					color_rgba dst_color(dst(x, y));
+
+					const float fa = (float)a * (1.0f / 255.0f);
+
+					r = lerp((float)dst_color[0], r, fa);
+					g = lerp((float)dst_color[1], g, fa);
+					b = lerp((float)dst_color[2], b, fa);
+					a = lerp((float)dst_color[3], a, fa);
+
+					dst(x, y) = color_rgba(clamp8(r), clamp8(g), clamp8(b), clamp8(a));
+				}
+				else
+				{
+					dst(x, y) = color_rgba(clamp8(r), clamp8(g), clamp8(b), clamp8(a));
+				}
+
+			} // x
+		} // y
+	}
+
+	// macro sent by CMakeLists.txt file when (TARGET_WASM AND WASM_THREADING)
+#if BASISU_WASI_THREADS
+	// Default to 8 - seems reasonable.
+	static int g_num_wasi_threads = 8;
+#else
+	static int g_num_wasi_threads = 0;
+#endif
+
+	void set_num_wasi_threads(uint32_t num_threads)
+	{
+		g_num_wasi_threads = num_threads;
+	}
+
+	int get_num_hardware_threads()
+	{
+#ifdef __wasi__
+		int num_threads = g_num_wasi_threads;
+#else
+		int num_threads = std::thread::hardware_concurrency();
+#endif
+				
+		return num_threads;
 	}
 							
 } // namespace basisu

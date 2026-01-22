@@ -1,5 +1,5 @@
 // basisu_uastc_enc.cpp
-// Copyright (C) 2019-2024 Binomial LLC. All Rights Reserved.
+// Copyright (C) 2019-2026 Binomial LLC. All Rights Reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -319,7 +319,15 @@ namespace basisu
 							const uint32_t comp_plane = (total_comps == 2) ? c : ((c == result.m_astc.m_ccs) ? 1 : 0);
 
 							if (comp_plane == plane_index)
-								std::swap(endpoints[c * 2 + 0], endpoints[c * 2 + 1]);
+							{
+								// shut up a useless gcc warning
+								assert((c * 2 + 1) < (int)sizeof(endpoints));
+
+								if ((c * 2 + 1) < (int)sizeof(endpoints))
+								{
+									std::swap(endpoints[c * 2 + 0], endpoints[c * 2 + 1]);
+								}
+							}
 						}
 					}
 					else
@@ -2542,7 +2550,7 @@ namespace basisu
 		color_rgba tblock_bc1[4][4];
 		dxt1_block tbc1_block[8];
 		basist::encode_bc1(tbc1_block, (const uint8_t*)&decoded_uastc_block[0][0], 0);
-		unpack_block(texture_format::cBC1, tbc1_block, &tblock_bc1[0][0]);
+		unpack_block(texture_format::cBC1, tbc1_block, &tblock_bc1[0][0], false);
 
 		color_rgba tblock_hint0_bc1[4][4];
 		color_rgba tblock_hint1_bc1[4][4];
@@ -2579,7 +2587,7 @@ namespace basisu
 		{
 			transcode_uastc_to_bc1_hint1(ublock, (color32 (*)[4]) decoded_uastc_block, &b, false);
 
-			unpack_block(texture_format::cBC1, &b, &tblock_hint1_bc1[0][0]);
+			unpack_block(texture_format::cBC1, &b, &tblock_hint1_bc1[0][0], false);
 		}
 
 		// HINT0
@@ -2591,7 +2599,7 @@ namespace basisu
 		{
 			transcode_uastc_to_bc1_hint0(ublock, &b);
 			
-			unpack_block(texture_format::cBC1, &b, &tblock_hint0_bc1[0][0]);
+			unpack_block(texture_format::cBC1, &b, &tblock_hint0_bc1[0][0], false);
 		}
 
 		// Compute block errors
@@ -3447,7 +3455,7 @@ namespace basisu
 				encode_bc7_block(&bc7_data, &bc7_results);
 
 				color_rgba decoded_bc7_block[4][4];
-				unpack_block(texture_format::cBC7, &bc7_data, &decoded_bc7_block[0][0]);
+				unpack_block(texture_format::cBC7, &bc7_data, &decoded_bc7_block[0][0], false);
 
 				// Compute BC7 error
 				uint64_t total_bc7_la_err, total_bc7_rgb_err, total_bc7_rgba_err;
@@ -3810,7 +3818,7 @@ namespace basisu
 	{
 		std::size_t operator()(selector_bitsequence const& s) const noexcept
 		{
-			return hash_hsieh((const uint8_t*)&s, sizeof(s));
+			return basist::hash_hsieh((const uint8_t*)&s, sizeof(s));
 		}
 	};
 				
@@ -3872,7 +3880,7 @@ namespace basisu
 			basist::encode_bc7_block(&b7_block, &b7_results);
 
 			color_rgba decoded_b7_blk[4][4];
-			unpack_block(texture_format::cBC7, &b7_block, &decoded_b7_blk[0][0]);
+			unpack_block(texture_format::cBC7, &b7_block, &decoded_b7_blk[0][0], false);
 						
 			uint64_t bc7_err = 0;
 			for (uint32_t i = 0; i < 16; i++)
@@ -3981,7 +3989,7 @@ namespace basisu
 				basist::encode_bc7_block(&trial_b7_block, &trial_b7_results);
 
 				color_rgba decoded_trial_b7_blk[4][4];
-				unpack_block(texture_format::cBC7, &trial_b7_block, &decoded_trial_b7_blk[0][0]);
+				unpack_block(texture_format::cBC7, &trial_b7_block, &decoded_trial_b7_blk[0][0], false);
 
 				uint64_t trial_bc7_err = 0;
 				for (uint32_t i = 0; i < 16; i++)

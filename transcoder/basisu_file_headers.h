@@ -1,5 +1,5 @@
 // basis_file_headers.h
-// Copyright (C) 2019-2024 Binomial LLC. All Rights Reserved.
+// Copyright (C) 2019-2026 Binomial LLC. All Rights Reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -21,10 +21,10 @@ namespace basist
 	enum basis_slice_desc_flags
 	{
 		cSliceDescFlagsHasAlpha = 1,
-		
+
 		// Video only: Frame doesn't refer to previous frame (no usage of conditional replenishment pred symbols)
 		// Currently the first frame is always an I-Frame, all subsequent frames are P-Frames. This will eventually be changed to periodic I-Frames.
-		cSliceDescFlagsFrameIsIFrame = 2			
+		cSliceDescFlagsFrameIsIFrame = 2
 	};
 
 #pragma pack(push)
@@ -51,20 +51,20 @@ namespace basist
 	enum basis_header_flags
 	{
 		// Always set for ETC1S files. Not set for UASTC files.
-		cBASISHeaderFlagETC1S = 1,					 
-		
+		cBASISHeaderFlagETC1S = 1,
+
 		// Set if the texture had to be Y flipped before encoding. The actual interpretation of this (is Y up or down?) is up to the user.
-		cBASISHeaderFlagYFlipped = 2,				 
-		
+		cBASISHeaderFlagYFlipped = 2,
+
 		// Set if any slices contain alpha (for ETC1S, if the odd slices contain alpha data)
-		cBASISHeaderFlagHasAlphaSlices = 4,		 
-		
+		cBASISHeaderFlagHasAlphaSlices = 4,
+
 		// For ETC1S files, this will be true if the file utilizes a codebook from another .basis file. 
-		cBASISHeaderFlagUsesGlobalCodebook = 8, 
-		
+		cBASISHeaderFlagUsesGlobalCodebook = 8,
+
 		// Set if the texture data is sRGB, otherwise it's linear. 
 		// In reality, we have no idea if the texture data is actually linear or sRGB. This is the m_perceptual parameter passed to the compressor.
-		cBASISHeaderFlagSRGB = 16,					 
+		cBASISHeaderFlagSRGB = 16,
 	};
 
 	// The image type field attempts to describe how to interpret the image data in a Basis file.
@@ -88,13 +88,112 @@ namespace basist
 
 	enum class basis_tex_format
 	{
+		// Original LDR formats
 		cETC1S = 0,
-		cUASTC4x4 = 1,
+		cUASTC_LDR_4x4 = 1,
+
+		// HDR formats
 		cUASTC_HDR_4x4 = 2,
 		cASTC_HDR_6x6 = 3,
-		cASTC_HDR_6x6_INTERMEDIATE = 4,
+		cUASTC_HDR_6x6_INTERMEDIATE = 4, // TODO: rename to UASTC_HDR_6x6
+
+		// XUASTC (supercompressed) LDR variants (the standard ASTC block sizes)
+		cXUASTC_LDR_4x4 = 5,
+		cXUASTC_LDR_5x4 = 6,
+		cXUASTC_LDR_5x5 = 7,
+		cXUASTC_LDR_6x5 = 8,
+
+		cXUASTC_LDR_6x6 = 9,
+		cXUASTC_LDR_8x5 = 10,
+		cXUASTC_LDR_8x6 = 11,
+		cXUASTC_LDR_10x5 = 12,
+
+		cXUASTC_LDR_10x6 = 13,
+		cXUASTC_LDR_8x8 = 14,
+		cXUASTC_LDR_10x8 = 15,
+		cXUASTC_LDR_10x10 = 16,
+
+		cXUASTC_LDR_12x10 = 17,
+		cXUASTC_LDR_12x12 = 18,
+		
+		// Standard (non-supercompressed) ASTC LDR variants (the standard ASTC block sizes)
+		cASTC_LDR_4x4 = 19,
+		cASTC_LDR_5x4 = 20,
+		cASTC_LDR_5x5 = 21,
+		cASTC_LDR_6x5 = 22,
+
+		cASTC_LDR_6x6 = 23,
+		cASTC_LDR_8x5 = 24,
+		cASTC_LDR_8x6 = 25,
+		cASTC_LDR_10x5 = 26,
+
+		cASTC_LDR_10x6 = 27,
+		cASTC_LDR_8x8 = 28,
+		cASTC_LDR_10x8 = 29,
+		cASTC_LDR_10x10 = 30,
+
+		cASTC_LDR_12x10 = 31,
+		cASTC_LDR_12x12 = 32,
+
 		cTotalFormats
 	};
+
+	// True if the basis_tex_format is XUASTC LDR 4x4-12x12.
+	inline bool basis_tex_format_is_xuastc_ldr(basis_tex_format tex_fmt)
+	{
+		return ((uint32_t)tex_fmt >= (uint32_t)basis_tex_format::cXUASTC_LDR_4x4) && ((uint32_t)tex_fmt <= (uint32_t)basis_tex_format::cXUASTC_LDR_12x12);
+	}
+
+	// True if the basis_tex_format is ASTC LDR 4x4-12x12.
+	inline bool basis_tex_format_is_astc_ldr(basis_tex_format tex_fmt)
+	{
+		return ((uint32_t)tex_fmt >= (uint32_t)basis_tex_format::cASTC_LDR_4x4) && ((uint32_t)tex_fmt <= (uint32_t)basis_tex_format::cASTC_LDR_12x12);
+	}
+		
+	inline void get_basis_tex_format_block_size(basis_tex_format tex_fmt, uint32_t &width, uint32_t &height)
+	{
+		switch (tex_fmt)
+		{
+		case basis_tex_format::cETC1S: width = 4; height = 4; break;
+		case basis_tex_format::cUASTC_LDR_4x4: width = 4; height = 4; break;
+		case basis_tex_format::cUASTC_HDR_4x4: width = 4; height = 4; break;
+		case basis_tex_format::cASTC_HDR_6x6: width = 6; height = 6; break;
+		case basis_tex_format::cUASTC_HDR_6x6_INTERMEDIATE: width = 6; height = 6; break;
+		case basis_tex_format::cXUASTC_LDR_4x4: width = 4; height = 4; break; 
+		case basis_tex_format::cXUASTC_LDR_5x4: width = 5; height = 4; break; 
+		case basis_tex_format::cXUASTC_LDR_5x5: width = 5; height = 5; break;
+		case basis_tex_format::cXUASTC_LDR_6x5: width = 6; height = 5; break;
+		case basis_tex_format::cXUASTC_LDR_6x6: width = 6; height = 6; break;
+		case basis_tex_format::cXUASTC_LDR_8x5: width = 8; height = 5; break;
+		case basis_tex_format::cXUASTC_LDR_8x6: width = 8; height = 6; break;
+		case basis_tex_format::cXUASTC_LDR_10x5: width = 10; height = 5; break;
+		case basis_tex_format::cXUASTC_LDR_10x6: width = 10; height = 6; break;
+		case basis_tex_format::cXUASTC_LDR_8x8: width = 8; height = 8; break;
+		case basis_tex_format::cXUASTC_LDR_10x8: width = 10; height = 8; break;
+		case basis_tex_format::cXUASTC_LDR_10x10: width = 10; height = 10; break;
+		case basis_tex_format::cXUASTC_LDR_12x10: width = 12; height = 10; break;
+		case basis_tex_format::cXUASTC_LDR_12x12: width = 12; height = 12; break;
+		case basis_tex_format::cASTC_LDR_4x4: width = 4; height = 4; break;
+		case basis_tex_format::cASTC_LDR_5x4: width = 5; height = 4; break;
+		case basis_tex_format::cASTC_LDR_5x5: width = 5; height = 5; break;
+		case basis_tex_format::cASTC_LDR_6x5: width = 6; height = 5; break;
+		case basis_tex_format::cASTC_LDR_6x6: width = 6; height = 6; break;
+		case basis_tex_format::cASTC_LDR_8x5: width = 8; height = 5; break;
+		case basis_tex_format::cASTC_LDR_8x6: width = 8; height = 6; break;
+		case basis_tex_format::cASTC_LDR_10x5: width = 10; height = 5; break;
+		case basis_tex_format::cASTC_LDR_10x6: width = 10; height = 6; break;
+		case basis_tex_format::cASTC_LDR_8x8: width = 8; height = 8; break;
+		case basis_tex_format::cASTC_LDR_10x8: width = 10; height = 8; break;
+		case basis_tex_format::cASTC_LDR_10x10: width = 10; height = 10; break;
+		case basis_tex_format::cASTC_LDR_12x10: width = 12; height = 10; break;
+		case basis_tex_format::cASTC_LDR_12x12: width = 12; height = 12; break;
+		default:
+			assert(0);
+			width = 0;
+			height = 0;
+			break;
+		}
+	}
 
 	struct basis_file_header
 	{

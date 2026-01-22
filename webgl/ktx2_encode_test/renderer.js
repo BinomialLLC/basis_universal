@@ -53,11 +53,19 @@ var Renderer = function (gl) {
     */
    this.quadVertexBuffer_ = gl.createBuffer();
    gl.bindBuffer(gl.ARRAY_BUFFER, this.quadVertexBuffer_);
+
    var vertices = new Float32Array(
       [-1.0, -1.0, 0.0, 1.0,
       +1.0, -1.0, 1.0, 1.0,
       -1.0, +1.0, 0.0, 0.0,
          1.0, +1.0, 1.0, 0.0]);
+		 
+//   var vertices = new Float32Array(
+//      [-1.0, -1.0, 0.0, .5,
+//      +1.0, -1.0, .5, .5,
+//      -1.0, +1.0, 0.0, 0.0,
+//         1.0, +1.0, .5, 0.0]);
+		 
    gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
 
 
@@ -90,7 +98,7 @@ var Renderer = function (gl) {
 
 
 Renderer.prototype.finishInit = function () {
-   this.draw();
+   //this.draw();
 };
 
 
@@ -203,7 +211,7 @@ Renderer.prototype.createRgbaTexture = function (rgbaData, width, height) {
 };
 
 
-Renderer.prototype.drawTexture = function (texture, width, height, mode, scale, linearToSRGBFlag) {
+Renderer.prototype.drawTexture = function (texture, width, height, mode, scale, linearToSRGBFlag, useLinearFiltering) {
    var gl = this.gl_;
    // draw scene
    gl.clearColor(0, 0, 0, 1);
@@ -213,6 +221,11 @@ Renderer.prototype.drawTexture = function (texture, width, height, mode, scale, 
 
    gl.activeTexture(gl.TEXTURE0);
    gl.bindTexture(gl.TEXTURE_2D, texture);
+   
+   // Point vs. bilinear sampling (no mipmaps involved here)
+   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, useLinearFiltering ? gl.LINEAR : gl.NEAREST);
+   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, useLinearFiltering ? gl.LINEAR : gl.NEAREST);
+      
    gl.uniform1i(this.uniformLocations_.texSampler, 0);
 
    var x = 0.0;
