@@ -259,7 +259,7 @@ All 14 standard ASTC block sizes are supported, from 4x4-12x12. Internally the X
 
 `basisu -linear x.png`
 
-- To compress to UASTC LDR 4x4, which is much higher quality than ETC1S:
+- To compress to UASTC LDR 4x4, which is much higher quality than ETC1S, but lower maximum quality vs. ASTC/XUASTC LDR 4x4:
 
 `basisu -uastc x.png`
 
