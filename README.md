@@ -126,12 +126,21 @@ Here's `runwt.bat`:
 wasmtime --wasm threads=yes --wasi threads=yes --dir=. --dir=.. --dir=..\test_files basisu_mt.wasm %*
 ```
 
-Example for XUASTC LDR compression using the arithmetic profile, with Weight Grid DCT level 70:
+Windows example for XUASTC LDR compression using the arithmetic profile, with Weight Grid DCT level 70:
 
 ```
 cd bin
-runwt.bat x.png -xuastc_ldr_6x6 -quality 70 -xuastc_arith
-runwt.bat x.ktx2
+runwt.bat ../test_files/tough.png -xuastc_ldr_6x6 -quality 70 -xuastc_arith
+runwt.bat tough.ktx2
+```
+
+Linux:
+
+```
+cd bin
+chmod +x runwt.sh
+./runwt.sh ../test_files/tough.png -xuastc_ldr_6x6 -quality 70 -xuastc_arith
+./runwt.sh tough.ktx2
 ```
 
 The [wasmer](https://wasmer.io/) runtime should work too, but we haven't tested it yet.
