@@ -145,6 +145,14 @@ chmod +x runwt.sh
 
 The [wasmer](https://wasmer.io/) runtime should work too, but we haven't tested it yet.
 
+Quick testing - ETC1S/UASTC LDR 4x4 (all platforms):
+
+```
+cd bin
+wasmtime run --dir=. --dir=../test_files --wasm threads=yes --wasi threads=yes ./basisu_mt.wasm -test
+wasmtime run --dir=. --dir=../test_files ./basisu_st.wasm -test
+```
+
 ----
 
 Building (Native)
@@ -197,26 +205,6 @@ make
 ```
 
 The WASM WASI executables will be placed in the `bin/basisu` directory. These platform-independent executables are fully functional, and can be executed using a WASM WASI runtime such as [wasmtime](https://github.com/bytecodealliance/wasmtime).
-
-----
-
-### Running the WASM WASI Builds
-
-Precompiled single and multithreaded WASM WASI executables have been checked into the `bin` directory. A WASM WASI runtime, like [wasmtime](https://github.com/bytecodealliance/wasmtime), is required to run them. The WASM executables have been so far tested under Windows, Ubuntu Linux, and macOS. Examples:
-
-Multithreaded (greatly recommended):
-```
-cd bin
-wasmtime run --dir=. --dir=../test_files --wasm threads=yes --wasi threads=yes ./basisu_mt.wasm -test
-```
-
-Single threaded example:
-```
-cd bin
-wasmtime run --dir=. --dir=../test_files ./basisu_st.wasm -test
-```
-
-Also see the `runw.sh` and `runwt.sh` helper scripts.
 
 ----
 
