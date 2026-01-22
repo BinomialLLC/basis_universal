@@ -12,14 +12,14 @@ Basis Universal v2.0 is an open source [supercompressed](http://gamma.cs.unc.edu
 
 Our overall goal is to simplify the encoding and efficient distribution of *portable* LDR and HDR GPU texture, image, and short texture video content in a way that is compatible with any GPU or rendering/graphics API.
 
-The system supports seven modes (or codecs): 
+The system supports seven modes (or codecs). In the order they were implemented:
 1. **ETC1S**: A supercompressed subset of ETC1 designed for very fast transcoding to other LDR texture formats, low/medium quality but high compression
 2. **UASTC LDR 4x4 (with or without RDO)**: Custom ASTC 4x4-like format designed for very fast transcoding to other LDR texture formats, high quality
 3. **UASTC HDR 4x4**: Standard ASTC HDR 4x4 texture data, but constrained for very fast transcoding to BC6H
 4. **ASTC HDR 6x6 (with or without RDO)**: Standard ASTC HDR 6x6
-5. **UASTC HDR 6x6 Intermediate ("GPU Photo")**: Supercompressed ASTC HDR 6x6
+5. **UASTC HDR 6x6 Intermediate ("GPU Photo HDR")**: Supercompressed ASTC HDR 6x6
 6. **ASTC LDR 4x4-12x12 (all 14 standard ASTC block sizes)**: Standard ASTC LDR 4x4-12x12
-7. **XUASTC LDR 4x4-12x12 (all 14 standard ASTC block sizes)**: Supercompressed ASTC LDR 4x4-12x12, very high quality, utilizes weight grid ([DCT - Discrete Cosine Transform](https://grokipedia.com/page/Discrete_cosine_transform)) for very high compression ratios
+7. **XUASTC LDR 4x4-12x12 (all 14 standard ASTC block sizes, "GPU Photo LDR/SDR")**: Supercompressed ASTC LDR 4x4-12x12, very high quality, utilizes Weight Grid DCT ([Discrete Cosine Transform](https://grokipedia.com/page/Discrete_cosine_transform)) for very high compression ratios. See [JPEG for ASTC](https://github.com/BinomialLLC/basis_universal/wiki/JPEG-for-ASTC).
 
 The C/C++ encoder and transcoder libraries can be compiled to native code or WebAssembly (web or WASI), and all encoder/transcoder features can be accessed from JavaScript via a C++ wrapper library which optionally supports [WASM multithreading](https://web.dev/articles/webassembly-threads) for fast encoding in the browser. [WASM WASI](https://wasi.dev/) builds, for the command line tool and the encoder/transcoder as a WASI module using a pure C API, are also supported. 
 
@@ -87,17 +87,15 @@ Here is the [UASTC HDR 4x4 specification document](https://github.com/BinomialLL
 
 The ASTC HDR decoder, used in the transcoder module, supports the entire ASTC HDR format.
 
-5. **UASTC HDR 6x6 Intermediate ("GPU Photo")**: A custom compressed intermediate format that can be rapidly transcoded to ASTC HDR 6x6, BC6H, and various uncompressed HDR formats. The custom compressed file format is [described here](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-HDR-6x6-Intermediate-File-Format-(Basis-GPU-Photo-6x6)). The format supports 75 unique ASTC configurations, weight grid upsampling, 1-3 subsets, single or dual planes, CEM's 7 and 11, and all unique ASTC partition patterns.
+5. **UASTC HDR 6x6 Intermediate ("GPU Photo HDR")**: A custom compressed intermediate format that can be rapidly transcoded to ASTC HDR 6x6, BC6H, and various uncompressed HDR formats. The custom compressed file format is [described here](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-HDR-6x6-Intermediate-File-Format-(Basis-GPU-Photo-6x6)). The format supports 75 unique ASTC configurations, weight grid upsampling, 1-3 subsets, single or dual planes, CEM's 7 and 11, and all unique ASTC partition patterns.
 
 6. **Standard ASTC LDR-4x4-12x12**. Supports all 14 ASTC block sizes. Transcodable to any other supported LDR texture format.
 
 The ASTC LDR decoder, used in the transcoder module, supports the entire standard ASTC LDR format.
  
-7. **XUASTC LDR 4x4-12x12**: Supercompressed ASTC with weight grid DCT. Bitrate ranges between approximately .3-5.7bpp, depending on profile, block size, and weight grid DCT quality settings. Supports context-based range/arithmetic coding (for higher ratios), Zstd (for faster transcoding), or a hybrid profile using both. Supports all 14 ASTC block sizes. Transcodable to all other supported LDR texture formats. Certain common block sizes (4x4, 6x6, and 8x6) have specializations for particularly fast transcoding directly to BC7.
+7. **XUASTC LDR 4x4-12x12 ("GPU Photo LDR/SDR")**: Supercompressed ASTC with Weight Grid DCT. Bitrate ranges between approximately .3-5.7bpp, depending on profile, block size, and Weight Grid DCT quality settings. Supports context-based range/arithmetic coding (for higher ratios), Zstd (for faster transcoding), or a hybrid profile using both. Supports all 14 ASTC block sizes. Transcodable to all other supported LDR texture formats. Certain common block sizes (4x4, 6x6, and 8x6) have specializations for particularly fast transcoding directly to BC7.
 
-Supported ASTC configurations: L/LA/RGB/RGBA CEM's, base+scale or RGB/RGBA direct, base+ofs CEM's, Blue Contraction encoding, 1-3 subsets, all partition patterns, single or dual plane.
-
-Here is the [XUASTC LDR specification](https://github.com/BinomialLLC/basis_universal/wiki/XUASTC-LDR-Specification-v1.0).
+Supported ASTC configurations: L/LA/RGB/RGBA CEM's, base+scale or RGB/RGBA direct, base+ofs CEM's, Blue Contraction encoding, 1-3 subsets, all partition patterns, single or dual plane. Here is the [XUASTC LDR specification](https://github.com/BinomialLLC/basis_universal/wiki/XUASTC-LDR-Specification-v1.0).
 
 Notes:  
 - Modes #3 (UASTC HDR 4x4) and #4 (RDO ASTC HDR 6x6), and #6 (ASTC LDR 4x4-12x12) output 100% standard or plain ASTC texture data (with or without RDO), like any other ASTC encoder. The .KTX2 files are just plain textures.
@@ -114,6 +112,38 @@ In ETC1S mode, the compressor is able to exploit color and pattern correlations 
 The LDR image formats supported for reading are .PNG, [.DDS with mipmaps](https://learn.microsoft.com/en-us/windows/win32/direct3ddds/dx-graphics-dds-pguide), .TGA, .QOI, and .JPG. The HDR image formats supported for reading are .EXR, .HDR, and .DDS with mipmaps. The library can write .basis, .KTX2, .DDS, .KTX (v1), .ASTC, .OUT, .EXR, and .PNG files.
 
 The system now supports loading basic 2D .DDS files with optional mipmaps, but the .DDS file must be in one of the supported uncompressed formats: 24bpp RGB, 32bpp RGBA/BGRA, half-float RGBA, or float RGBA. Using .DDS files allows the user to control exactly how the mipmaps are generated before compression.
+
+----
+
+Running the Precompiled WASM WASI Executables
+---------------------------------------------
+
+There are precompiled, cross platform .WASM WASI executables checked into the `bin` directory: `basisu_mt.wasm` (multithreaded) and `basisu_st.wasm` (single threaded). See the `runwt.sh`, `runwt.bat`, `runw.sh`, or `runw.bat` scripts for examples on how to run the WASM executables using [wasmtime](https://wasmtime.dev/).
+
+Here's `runwt.bat`:
+
+```
+wasmtime --wasm threads=yes --wasi threads=yes --dir=. --dir=.. --dir=..\test_files basisu_mt.wasm %*
+```
+
+Windows example for XUASTC LDR compression using the arithmetic profile, with Weight Grid DCT level 70:
+
+```
+cd bin
+runwt.bat ../test_files/tough.png -xuastc_ldr_6x6 -quality 70 -xuastc_arith
+runwt.bat tough.ktx2
+```
+
+Linux:
+
+```
+cd bin
+chmod +x runwt.sh
+./runwt.sh ../test_files/tough.png -xuastc_ldr_6x6 -quality 70 -xuastc_arith
+./runwt.sh tough.ktx2
+```
+
+The [wasmer](https://wasmer.io/) runtime should work too, but we haven't tested it yet.
 
 ----
 
@@ -222,7 +252,7 @@ An alias for `-xuastc_ldr_6x6` is `-ldr_6x6i` (where 'i'="intermediate").
 
 The options `-xuastc_arith`, `-xuastc_zstd` (the default), and `-xuastc_hybrid` control the XUASTC LDR profile used. The arithmetic profile trades off transcoding throughput for 5-18% better compression vs. the Zstd profile, and the hybrid profile is a balance between the two. 
 
-All [14 standard ASTC block sizes](https://developer.nvidia.com/astc-texture-compression-for-game-assets) are supported, from 4x4-12x12.
+All [14 standard ASTC block sizes](https://developer.nvidia.com/astc-texture-compression-for-game-assets) are supported, from 4x4-12x12: 4x4, 5x4, 5x5, 6x5, 6x6, 8x5, 8x6, 10x5, 10x6, 8x8, 10x8, 10x10, 12x10 and 12x12. The XUASTC LDR to BC7 transcoder has special optimizations for several common block sizes: 4x4, 6x6 and 8x6.
 
 - To compress an LDR sRGB image to a standard ASTC LDR 6x6 .KTX2 file, using effort level 4 (valid effort levels 0-10):
 
