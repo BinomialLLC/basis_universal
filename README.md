@@ -115,6 +115,29 @@ The system now supports loading basic 2D .DDS files with optional mipmaps, but t
 
 ----
 
+Running the Precompiled WASM WASI Executables
+---------------------------------------------
+
+There are precompiled, cross platform .WASM WASI executables checked into the `bin` directory: `basisu_mt.wasm` (multithreaded) and `basisu_st.wasm` (single threaded). See the `runwt.sh`, `runwt.bat`, `runw.sh`, or `runw.bat` scripts for examples on how to run the WASM executables using [wasmtime](https://wasmtime.dev/).
+
+Here's `runwt.bat`:
+
+```
+wasmtime --wasm threads=yes --wasi threads=yes --dir=. --dir=.. --dir=..\test_files basisu_mt.wasm %*
+```
+
+Example for XUASTC LDR compression using the arithmetic profile, with Weight Grid DCT level 70:
+
+```
+cd bin
+runwt.bat test_images/xmen.png -xuastc_ldr_6x6 -quality 70 -xuastc_arith
+runwt.bat xmen.ktx2
+```
+
+The [wasmer](https://wasmer.io/) runtime should work too, but we haven't tested it yet.
+
+----
+
 Building (Native)
 -----------------
 
