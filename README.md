@@ -242,11 +242,19 @@ Compressing and Unpacking .KTX2/.basis Files
 
 `basisu -xuastc_ldr_6x6 -quality 75 -effort 4 x.png`
 
-An alias for `-xuastc_ldr_6x6` is `-ldr_6x6i` (where 'i'="intermediate"). 
+An alias for `-xuastc_ldr_6x6` is `-ldr_6x6i` (where 'i'="intermediate"). All [14 standard ASTC block sizes](https://developer.nvidia.com/astc-texture-compression-for-game-assets) are supported, from 4x4-12x12: 4x4, 5x4, 5x5, 6x5, 6x6, 8x5, 8x6, 10x5, 10x6, 8x8, 10x8, 10x10, 12x10 and 12x12. The XUASTC LDR to BC7 transcoder has special optimizations for several common block sizes: 4x4, 6x6 and 8x6. When transcoding XUASTC LDR at these particular block sizes, most XUASTC blocks are *directly* transcoded to BC7, skipping the real-time analytical bc7f encoding step.
 
-The options `-xuastc_arith`, `-xuastc_zstd` (the default), and `-xuastc_hybrid` control the XUASTC LDR profile used. The arithmetic profile trades off transcoding throughput for 5-18% better compression vs. the Zstd profile, and the hybrid profile is a balance between the two. 
+More ASTC and XUASTC LDR specific options:
 
-All [14 standard ASTC block sizes](https://developer.nvidia.com/astc-texture-compression-for-game-assets) are supported, from 4x4-12x12: 4x4, 5x4, 5x5, 6x5, 6x6, 8x5, 8x6, 10x5, 10x6, 8x8, 10x8, 10x10, 12x10 and 12x12. The XUASTC LDR to BC7 transcoder has special optimizations for several common block sizes: 4x4, 6x6 and 8x6. When transcoding XUASTC LDR at these particular block sizes, most XUASTC blocks are *directly* transcoded to BC7, skipping the real-time analytical bc7f encoding step.
+  - The options `-xuastc_arith`, `-xuastc_zstd` (the default), and `-xuastc_hybrid` control the XUASTC LDR profile used. The arithmetic profile trades off transcoding throughput for 5-18% better compression vs. the Zstd profile, and the hybrid profile is a balance between the two. 
+
+  - `-ts` or `-srgb` enables the sRGB profile (the default), and `-tl` or `-linear` enables the linear profile. 
+
+  - `-weights X Y Z W` sets the unsigned channel error weights, used to favor certain channels during compression.
+
+  - Another set of XUASTC specific options overrides the windowed RDO behavior (windowed RDO is a separate and optional perceptual optimization vs. Weight Grid DCT): `-xy` enables and `-xyd` disables windowed RDO. By default, if Weight Grid DCT is not enabled (i.e. `-quality` isn't specified, or its set to 100), windowed RDO is disabled. Windowed RDO is automatically enabled if the quality level is less than 100, unless `-xyd` is specified. Also see the tool's help text for additional windowed RDO options: `-ls_min_psnr`, `-ls_min_alpha_psnr`, '-ls_thresh_psnr`, '-ls_thresh_alpha_psnr`, etc.
+
+  - `-xs` disables 2-3 subset usage and `-xp` disables dual plane usage (slightly higher compression and faster transcoding to BC7).
 
 - To compress an LDR sRGB image to a standard ASTC LDR 6x6 .KTX2 file, using effort level 4 (valid effort levels 0-10):
 
@@ -254,7 +262,7 @@ All [14 standard ASTC block sizes](https://developer.nvidia.com/astc-texture-com
 
 An alias for `-astc_ldr_6x6` is `-ldr_6x6`. 
 
-All 14 standard ASTC block sizes are supported, from 4x4-12x12. Internally the XUASTC LDR encoder is used, but standard ASTC block data is output, instead of supercompressed XUASTC LDR.
+Just like XUASTC LDR, all 14 standard ASTC block sizes are supported, from 4x4-12x12. Internally the XUASTC LDR encoder is used, but standard ASTC block data is output, instead of supercompressed XUASTC LDR. Most XUASTC LDR options also work in ASTC LDR mode.
 
 - To compress an LDR sRGB image to an ETC1S .KTX2 file, at quality level 100 (the highest):
 
