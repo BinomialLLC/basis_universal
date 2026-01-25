@@ -59,3 +59,32 @@ Low-level tests (used while bringing up the codec):
 - python3 -m lowlevel_test_wasm.compress_test  
 - python3 -m lowlevel_test_wasm.compress_test_float  
 
+Example output:
+
+```
+richg@ryzen9:/mnt/c/dev/bu_1_22_snapshot2/basis_universal-master/python$ python3 -m tests.test_backend_loading
+========== BACKEND LOADING TEST ==========
+
+Testing native backend...
+[Encoder] Using native backend
+  [OK] Native backend loaded
+Hello from basisu_wasm_api.cpp version 200
+  Native get_version() ? 200
+  Native alloc() returned ptr = 685784256
+  Native free() OK
+  [OK] Native basic operations working.
+
+
+Testing WASM backend...
+[WASM Encoder] Loaded: /mnt/c/dev/bu_1_22_snapshot2/basis_universal-master/python/basisu_py/wasm/basisu_module_st.wasm
+[Encoder] Using WASM backend
+  [OK] WASM backend loaded
+Hello from basisu_wasm_api.cpp version 200
+  WASM get_version() ? 200
+  WASM alloc() returned ptr = 26920160
+  WASM free() OK
+  [OK] WASM basic operations working.
+
+
+========== DONE ==========
+```
