@@ -125,7 +125,7 @@ The system now supports loading basic 2D .DDS files with optional mipmaps, but t
 Running the Precompiled WASM WASI Executables
 ---------------------------------------------
 
-There are precompiled, secure, cross platform .WASM WASI executables checked into the `bin` directory: `basisu_mt.wasm` (multithreaded) and `basisu_st.wasm` (single threaded). Quick testing - ETC1S/UASTC LDR 4x4 (all platforms) - multithreaded and single threaded, using wasmtime:
+There are precompiled, secure, cross-platform .WASM WASI executables checked into the `bin` directory: `basisu_mt.wasm` (multithreaded) and `basisu_st.wasm` (single threaded). Quick testing - ETC1S/UASTC LDR 4x4 (all platforms) - multithreaded and single threaded, using wasmtime:
 
 ```
 cd bin
