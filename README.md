@@ -252,7 +252,7 @@ More XUASTC LDR specific options (most of these also apply to standard ASTC):
 
   - `-weights X Y Z W` sets the unsigned integer **channel error weights**, used to favor certain channels during compression.
 
-  - Another set of XUASTC specific options overrides the **windowed RDO behavior** (windowed or bounded RDO is a separate and optional perceptual optimization vs. Weight Grid DCT): `-xy` enables and `-xyd` disables windowed RDO. By default, if Weight Grid DCT is not enabled (i.e. `-quality` isn't specified, or is set to 100), windowed RDO is disabled. Windowed RDO is automatically enabled if the quality level is less than 100, unless `-xyd` is specified. Also see the tool's help text for additional windowed RDO options: `-ls_min_psnr`, `-ls_min_alpha_psnr`, '-ls_thresh_psnr`, '-ls_thresh_alpha_psnr`, etc.
+  - Another set of XUASTC specific options overrides the **windowed RDO behavior** (windowed or bounded RDO is a separate and optional perceptual optimization vs. Weight Grid DCT): `-xy` enables and `-xyd` disables windowed RDO. By default, if Weight Grid DCT is not enabled (i.e. `-quality` isn't specified, or is set to 100), windowed RDO is disabled. Windowed RDO is automatically enabled if the quality level is less than 100, unless `-xyd` is specified. Also see the tool's help text for additional windowed RDO options: `-ls_min_psnr`, `-ls_min_alpha_psnr`, `-ls_thresh_psnr`, `-ls_thresh_alpha_psnr`, etc.
 
   - `-xs` disables 2-3 subset usage, and `-xp` disables dual plane usage (slightly higher compression, faster direct transcoding to BC7 will occur more often)
   - `-higher_quality_transcoding`: Permits slower but higher quality transcoding
