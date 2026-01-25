@@ -30,30 +30,29 @@ make
 
 Running tests:
 
-The tests assume the current directory is "python". Run them like this:
+The tests assume the current directory is "python". Under Windows we've tested with Python v3.12.10, and under Linux v3.12.13. Run them like this:
 
 Higher-level tests:
 
-python3 -m tests.test_backend_loading  
-python3 -m tests.test_basic_wasm_selection  
-python3 -m tests.test_basic_backend_selection  
-python3 -m tests.test_basic_decode  
-python3 -m tests.test_basic_transcode  
-python3 -m tests.test_compress_swirl  
-python3 -m tests.test_compress_swirl_hdr  
-python3 -m tests.test_transcoder_astc  
-python3 -m tests.test_transcoder_backend_loading  
-python3 -m tests.test_transcoder_end_to_end  
-python3 -m tests.test_transcoder_end_to_end_hdr  
-python3 -m tests.test_transcoder_helpers  
+- python3 -m tests.test_backend_loading  
+- python3 -m tests.test_basic_wasm_selection  
+- python3 -m tests.test_basic_backend_selection  
+- python3 -m tests.test_basic_decode  
+- python3 -m tests.test_basic_transcode  
+- python3 -m tests.test_compress_swirl  
+- python3 -m tests.test_compress_swirl_hdr  
+- python3 -m tests.test_transcoder_astc  
+- python3 -m tests.test_transcoder_backend_loading  
+- python3 -m tests.test_transcoder_end_to_end  
+- python3 -m tests.test_transcoder_end_to_end_hdr  
+- python3 -m tests.test_transcoder_helpers  
 
 Low-level tests (used while bringing up the codec):
 
-python3 -m lowlevel_test_native.basic_test  
-python3 -m lowlevel_test_native.test_transcoder_basic  
-python3 -m lowlevel_test_native.example_capi_python  
-
-python3 -m lowlevel_test_wasm.basic_test  
-python3 -m lowlevel_test_wasm.compress_test  
-python3 -m lowlevel_test_wasm.compress_test_float  
+- python3 -m lowlevel_test_native.basic_test  
+- python3 -m lowlevel_test_native.test_transcoder_basic  
+- python3 -m lowlevel_test_native.example_capi_python  
+- python3 -m lowlevel_test_wasm.basic_test  
+- python3 -m lowlevel_test_wasm.compress_test  
+- python3 -m lowlevel_test_wasm.compress_test_float  
 
