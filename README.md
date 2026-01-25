@@ -238,17 +238,17 @@ basisu -test -opencl
 Compressing and Unpacking .KTX2/.basis Files
 --------------------------------------------
 
-- To compress an LDR sRGB PNG/QOI/TGA/JPEG/DDS image to a supercompressed XUASTC LDR 6x6 .KTX2 file, at quality level 75 (valid quality levels 1-100, where higher values=higher quality), effort level 4 (valid effort levels 0-10, higher values=slower compression, default effort is 3):
+- To compress an LDR sRGB PNG/QOI/TGA/JPEG/DDS image to a supercompressed XUASTC LDR 6x6 .KTX2 file, at quality level 75 (**valid quality levels 1-100, where higher values=higher quality**), effort level 4 (**valid effort levels 0-10, higher values=slower compression, default effort is 3**):
 
 `basisu -xuastc_ldr_6x6 -quality 75 -effort 4 x.png`
 
-An alias for `-xuastc_ldr_6x6` is `-ldr_6x6i` (where 'i'="intermediate"). All [14 standard ASTC block sizes](https://developer.nvidia.com/astc-texture-compression-for-game-assets) are supported, from 4x4-12x12: 4x4, 5x4, 5x5, 6x5, 6x6, 8x5, 8x6, 10x5, 10x6, 8x8, 10x8, 10x10, 12x10 and 12x12. The **XUASTC LDR to BC7 transcoder has special optimizations for several common block sizes: 4x4, 6x6 and 8x6**. When transcoding XUASTC LDR at these particular block sizes, most XUASTC blocks are *directly* transcoded to BC7, skipping the real-time analytical bc7f encoding step.
+An alias for `-xuastc_ldr_6x6` is `-ldr_6x6i` (where 'i'="intermediate"). All **[14 standard ASTC block sizes](https://developer.nvidia.com/astc-texture-compression-for-game-assets) are supported, from 4x4-12x12**: 4x4, 5x4, 5x5, 6x5, 6x6, 8x5, 8x6, 10x5, 10x6, 8x8, 10x8, 10x10, 12x10 and 12x12. The **XUASTC LDR to BC7 transcoder has special optimizations for several common block sizes: 4x4, 6x6 and 8x6**. When transcoding XUASTC LDR at these particular block sizes, most XUASTC blocks are *directly* transcoded to BC7, skipping the real-time analytical bc7f encoding step.
 
 More XUASTC LDR specific options (most of these also apply to standard ASTC):
 
-  - The options `-xuastc_arith`, `-xuastc_zstd` (the default), and `-xuastc_hybrid` control the **XUASTC LDR profile used**. The arithmetic profile trades off transcoding throughput for 5-18% better compression vs. the Zstd profile, and the hybrid profile is a balance between the two. 
+  - The options `-xuastc_arith`, `-xuastc_zstd` (the default), and `-xuastc_hybrid` control the **XUASTC LDR profile used**. The arithmetic profile trades off transcoding throughput for roughly 5-18% better compression vs. the Zstd profile, and the hybrid profile is a balance between the two. 
 
-  - `-ts` or `-srgb` enables the **sRGB profile (the default)**, and `-tl` or `-linear` **enables the linear profile**. 
+  - `-ts` or `-srgb` enables the **sRGB profile (the default)**, and `-tl` or `-linear` **enables the linear profile**. Ideally this setting will match how the ASTC texture is sampled by the GPU.
 
   - `-weights X Y Z W` sets the unsigned integer **channel error weights**, used to favor certain channels during compression.
 
