@@ -28,9 +28,12 @@ cmake .. -DCMAKE_TOOLCHAIN_FILE=$WASI_SDK_PATH/share/cmake/wasi-sdk.cmake -DCMAK
 make
 ```
 
-Running tests:
+---
 
-The tests assume the current directory is "python". Under Windows we've tested with Python v3.12.10, and under Linux v3.12.13. Run them like this:
+Running Tests
+-------------
+
+The tests assume the current directory is "python". Under Windows we've tested with Python v3.12.10, and under Linux v3.12.13. 
 
 Higher-level tests:
 
