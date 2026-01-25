@@ -42,7 +42,7 @@ else()
     option(BASISU_BUILD_X64 "build 64-bit" TRUE)
 endif()
 
-option(BASISU_ZSTD "ZSTD support for KTX2 transcoding/encoding" TRUE)
+option(BASISU_ZSTD "ZSTD support for KTX2 transcoding/encoding and ASTC LDR encoding" TRUE)
 option(BASISU_OPENCL "OpenCL support in encoder" FALSE)
 
 # Old option to new (BASISU_ prefixed) automatic remapping
@@ -343,7 +343,7 @@ if (BASISU_BUILD_WASM)
         
     endif()
 
-    # 256 MB initial, 3.5 GB max — safe defaults for BasisU
+    # 256 MB initial, 3.5 GB max Â— safe defaults for BasisU
     target_link_options(basisu PRIVATE
         -Wl,--initial-memory=268435456
         -Wl,--max-memory=3758096384
@@ -375,14 +375,16 @@ endif()
 #endif()
 
 if (BASISU_ZSTD)
-    target_compile_definitions(basisu PRIVATE BASISD_SUPPORT_KTX2_ZSTD=1)
+    target_compile_definitions(basisu_encoder PRIVATE BASISD_SUPPORT_KTX2_ZSTD=1 BASISU_ASTC_LDR_SUPPORT_ZSTD=1)
+    target_compile_definitions(basisu PRIVATE BASISD_SUPPORT_KTX2_ZSTD=1 BASISU_ASTC_LDR_SUPPORT_ZSTD=1)
     if(BASISU_EXAMPLES)
         target_compile_definitions(example PRIVATE BASISD_SUPPORT_KTX2_ZSTD=1)
         target_compile_definitions(example_capi PRIVATE BASISD_SUPPORT_KTX2_ZSTD=1)
         target_compile_definitions(example_transcoding PRIVATE BASISD_SUPPORT_KTX2_ZSTD=1)
     endif()         
 else()
-    target_compile_definitions(basisu PRIVATE BASISD_SUPPORT_KTX2_ZSTD=0)
+    target_compile_definitions(basisu_encoder PRIVATE BASISD_SUPPORT_KTX2_ZSTD=0 BASISU_ASTC_LDR_SUPPORT_ZSTD=0)
+    target_compile_definitions(basisu PRIVATE BASISD_SUPPORT_KTX2_ZSTD=0 BASISU_ASTC_LDR_SUPPORT_ZSTD=0)
     if(BASISU_EXAMPLES)
         target_compile_definitions(example PRIVATE BASISD_SUPPORT_KTX2_ZSTD=0)
         target_compile_definitions(example_capi PRIVATE BASISD_SUPPORT_KTX2_ZSTD=0)

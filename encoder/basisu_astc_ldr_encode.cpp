@@ -1,4 +1,4 @@
-﻿// File: basisu_astc_ldr_encode.cpp
+// File: basisu_astc_ldr_encode.cpp
 // Copyright (C) 2019-2026 Binomial LLC. All Rights Reserved.
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,7 +18,14 @@
 #include "3rdparty/android_astc_decomp.h"
 #include <queue>
 
+// Set BASISU_ASTC_LDR_SUPPORT_ZSTD to 0 to disable Zstd support for ASTC LDR encoding (cFullZStd and cHybridArithZStd syntaxes)
+#ifndef BASISU_ASTC_LDR_SUPPORT_ZSTD
+	#define BASISU_ASTC_LDR_SUPPORT_ZSTD 1
+#endif
+
+#if BASISU_ASTC_LDR_SUPPORT_ZSTD
 #include "../zstd/zstd.h"
+#endif
 
 namespace basisu {
 namespace astc_ldr {
@@ -8061,6 +8068,7 @@ void configure_encoder_effort_level(int level, ldr_astc_block_encode_image_high_
 	}
 }
 
+#if BASISU_ASTC_LDR_SUPPORT_ZSTD
 static bool zstd_compress(const uint8_t* pData, size_t data_len, uint8_vec& comp_data, int zstd_level)
 {
 	if (!data_len)
@@ -8100,6 +8108,7 @@ static bool zstd_compress(const uint8_vec& vec, uint8_vec& comp_data, int zstd_l
 {
 	return zstd_compress(vec.data(), vec.size(), comp_data, zstd_level);
 }
+#endif // BASISU_ASTC_LDR_SUPPORT_ZSTD
 
 static uint32_t encode_values(bitwise_coder& coder, uint32_t total_values, const uint8_t* pVals, uint32_t endpoint_range)
 {
@@ -8193,6 +8202,7 @@ static uint32_t encode_values(bitwise_coder& coder, uint32_t total_values, const
 	return total_bits_output;
 }
 
+#if BASISU_ASTC_LDR_SUPPORT_ZSTD
 static bool compress_image_full_zstd(
 	const image& orig_img, uint8_vec& comp_data, vector2D<astc_helpers::log_astc_block>& coded_blocks,
 	const astc_ldr_encode_config& global_cfg,
@@ -9323,6 +9333,7 @@ static bool compress_image_full_zstd(
 
 	return true;
 }
+#endif // BASISU_ASTC_LDR_SUPPORT_ZSTD
 
 bool compress_image(
 	const image& orig_img, uint8_vec& comp_data, vector2D<astc_helpers::log_astc_block>& coded_blocks,
@@ -9445,6 +9456,7 @@ bool compress_image(
 	if (total_blocks <= DISABLE_FASTER_FORMAT_TOTAL_BLOCKS_THRESH)
 		syntax = basist::astc_ldr_t::xuastc_ldr_syntax::cFullArith;
 
+#if BASISU_ASTC_LDR_SUPPORT_ZSTD
 	if (syntax == basist::astc_ldr_t::xuastc_ldr_syntax::cFullZStd)
 	{
 		// Full ZStd syntax is so different we'll move that to another function.
@@ -9454,6 +9466,14 @@ bool compress_image(
 			job_pool,
 			enc_cfg, enc_out);
 	}
+#else
+	if ((syntax == basist::astc_ldr_t::xuastc_ldr_syntax::cFullZStd) ||
+		(syntax == basist::astc_ldr_t::xuastc_ldr_syntax::cHybridArithZStd))
+	{
+		fmt_error_printf("ASTC LDR encoder: Zstd syntax requested but BASISU_ASTC_LDR_SUPPORT_ZSTD is disabled\n");
+		return false;
+	}
+#endif
 
 	const bool use_faster_format = (syntax == basist::astc_ldr_t::xuastc_ldr_syntax::cHybridArithZStd);
 			
@@ -10803,9 +10823,12 @@ bool compress_image(
 		return false;
 	
 	uint8_vec suffix_bytes;
+
+	assert(comp_data.size() == 0);
 		
 	if (use_faster_format)
 	{
+#if BASISU_ASTC_LDR_SUPPORT_ZSTD
 		suffix_bytes.reserve(8192);
 
 		mean0_bits.flush();
@@ -10871,13 +10894,13 @@ bool compress_image(
 			fmt_debug_printf(" Weight4 bytes: {} comp size: {}\n", (uint64_t)weight4_bits.get_bytes().size(), (uint64_t)comp_weight4.size());
 			fmt_debug_printf(" Weight8 bytes: {} comp size: {}\n", (uint64_t)weight8_bits.size(), (uint64_t)comp_weight8.size());
 		}
-	}
-		
-	assert(comp_data.size() == 0);
-	if (use_faster_format)
-	{
+
 		comp_data.resize(sizeof(hdr));
 		memcpy(comp_data.data(), &hdr, sizeof(hdr));
+#else
+		fmt_error_printf("ASTC LDR encoder: HybridArithZStd format requires BASISU_ASTC_LDR_SUPPORT_ZSTD to be enabled\n");
+		return false;
+#endif // BASISU_ASTC_LDR_SUPPORT_ZSTD
 	}
 	else
 	{
