@@ -8110,6 +8110,7 @@ static bool zstd_compress(const uint8_vec& vec, uint8_vec& comp_data, int zstd_l
 }
 #endif // BASISU_ASTC_LDR_SUPPORT_ZSTD
 
+#if BASISU_ASTC_LDR_SUPPORT_ZSTD
 static uint32_t encode_values(bitwise_coder& coder, uint32_t total_values, const uint8_t* pVals, uint32_t endpoint_range)
 {
 	const uint32_t MAX_VALS = 64;
@@ -8202,7 +8203,6 @@ static uint32_t encode_values(bitwise_coder& coder, uint32_t total_values, const
 	return total_bits_output;
 }
 
-#if BASISU_ASTC_LDR_SUPPORT_ZSTD
 static bool compress_image_full_zstd(
 	const image& orig_img, uint8_vec& comp_data, vector2D<astc_helpers::log_astc_block>& coded_blocks,
 	const astc_ldr_encode_config& global_cfg,
