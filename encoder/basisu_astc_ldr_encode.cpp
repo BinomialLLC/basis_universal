@@ -24,7 +24,7 @@
 #endif
 
 #if BASISU_ASTC_LDR_SUPPORT_ZSTD
-#include "../zstd/zstd.h"
+#include "zstd.h"
 #endif
 
 namespace basisu {
