@@ -4,7 +4,7 @@ Source: https://github.com/BinomialLLC/basis_universal
 
 # We have asked Binomial about REUSE compliance for their repo, see https://github.com/BinomialLLC/basis_universal/issues/165
 Files: *
-Copyright: 2019-2024 Binomial LLC
+Copyright: 2019-2026 Binomial LLC
            2016 The Android Open Source Project
 License: Apache-2.0
 
