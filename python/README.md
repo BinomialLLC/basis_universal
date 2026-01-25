@@ -1,5 +1,5 @@
 Python support is still new and coming online, but is entirely functional.
-The library's pure C (WASM friendly) API's are completely exposed to Python.
+The library's pure C (WASM friendly) API's are completely exposed to Python. Our next goal is to work on official [Wheels](https://pythonwheels.com/), once the API is settled and more examples are written.
 
 The Python integration first tries to use native .so's in the basisu_py
 directory. If they don't exist, it tries the slower and single threaded WASM
