@@ -125,9 +125,15 @@ The system now supports loading basic 2D .DDS files with optional mipmaps, but t
 Running the Precompiled WASM WASI Executables
 ---------------------------------------------
 
-There are precompiled, secure, cross platform .WASM WASI executables checked into the `bin` directory: `basisu_mt.wasm` (multithreaded) and `basisu_st.wasm` (single threaded). See the `runwt.sh`, `runwt.bat`, `runw.sh`, or `runw.bat` scripts for examples on how to run the WASM executables using [wasmtime](https://wasmtime.dev/).
+There are precompiled, secure, cross platform .WASM WASI executables checked into the `bin` directory: `basisu_mt.wasm` (multithreaded) and `basisu_st.wasm` (single threaded). Quick testing - ETC1S/UASTC LDR 4x4 (all platforms) - multithreaded and single threaded, using wasmtime:
 
-Here's `runwt.bat`:
+```
+cd bin
+wasmtime run --dir=. --dir=../test_files --wasm threads=yes --wasi threads=yes ./basisu_mt.wasm -test
+wasmtime run --dir=. --dir=../test_files ./basisu_st.wasm -test
+```
+
+See the `runwt.sh`, `runwt.bat`, `runw.sh`, or `runw.bat` scripts for examples on how to run the WASM executables using [wasmtime](https://wasmtime.dev/). Here's `runwt.bat`:
 
 ```
 wasmtime --wasm threads=yes --wasi threads=yes --dir=. --dir=.. --dir=..\test_files basisu_mt.wasm %*
@@ -151,14 +157,6 @@ chmod +x runwt.sh
 ```
 
 The [wasmer](https://wasmer.io/) runtime should work too, but we haven't tested it yet.
-
-Quick testing - ETC1S/UASTC LDR 4x4 (all platforms):
-
-```
-cd bin
-wasmtime run --dir=. --dir=../test_files --wasm threads=yes --wasi threads=yes ./basisu_mt.wasm -test
-wasmtime run --dir=. --dir=../test_files ./basisu_st.wasm -test
-```
 
 ----
 
