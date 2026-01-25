@@ -254,9 +254,9 @@ More XUASTC LDR specific options (most of these also apply to standard ASTC):
 
   - Another set of XUASTC specific options overrides the **windowed RDO behavior** (windowed or bounded RDO is a separate and optional perceptual optimization vs. Weight Grid DCT): `-xy` enables and `-xyd` disables windowed RDO. By default, if Weight Grid DCT is not enabled (i.e. `-quality` isn't specified, or is set to 100), windowed RDO is disabled. Windowed RDO is automatically enabled if the quality level is less than 100, unless `-xyd` is specified. Also see the tool's help text for additional windowed RDO options: `-ls_min_psnr`, `-ls_min_alpha_psnr`, '-ls_thresh_psnr`, '-ls_thresh_alpha_psnr`, etc.
 
-  - `-xs` disables 2-3 subset usage and `-xp` disables dual plane usage (slightly higher compression and faster transcoding to BC7).
+  - `-xs` disables 2-3 subset usage, and `-xp` disables dual plane usage (slightly higher compression, faster direct transcoding to BC7 will occur more often)
   - `-higher_quality_transcoding`: Permits slower but higher quality transcoding
-  - `-no_deblocking`: Disables all adaptive deblocking on larger ASTC block sizes (faster)
+  - `-no_deblocking`: Disables adaptive deblocking on ASTC block sizes > 8x6 (faster)
   - `-force_deblocking`: Always use adaptive deblocking filter, even for block sizes <= 8x6 (slower)
   - `-stronger_deblocking`: Use stronger deblocking when it's enabled (same performance)
   - `-fast_xuastc_ldr_bc7_transcoding` and `-no_fast_xuastc_ldr_bc7_transcoding`: Controls faster direct XUASTC->BC7 transcoding (defaults to enabled, which is slightly lower quality)
