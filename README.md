@@ -491,6 +491,8 @@ checking tool (https://reuse.software/). See the `.reuse` subdirectory.
 External Tool Links
 -------------------
 
+[TexturePacker](https://www.codeandweb.com/texturepacker) - Packs sprite sheets for games, supports Basis Universal output format.
+
 [Online .EXR HDR Image File Viewer](https://viewer.openhdr.org/)
 
 [Windows HDR + WCG Image Viewer](https://13thsymphony.github.io/hdrimageviewer/) - A true HDR image viewer for Windows. Also see [the github repo](https://github.com/13thsymphony/HDRImageViewer).
