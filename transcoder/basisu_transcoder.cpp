@@ -1,4 +1,4 @@
-﻿// basisu_transcoder.cpp
+// basisu_transcoder.cpp
 // Copyright (C) 2019-2026 Binomial LLC. All Rights Reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -174,7 +174,7 @@
    // If BASISD_SUPPORT_KTX2_ZSTD is 0, UASTC files compressed with Zstd cannot be loaded.
 	#if BASISD_SUPPORT_KTX2_ZSTD
 		// We only use two Zstd API's: ZSTD_decompress() and ZSTD_isError()
-		#include "../zstd/zstd.h"
+		#include "zstd.h"
 	#endif
 #endif
 
@@ -20426,6 +20426,7 @@ namespace basist
 				return false;
 			}
 #else
+			BASISU_NOTE_UNUSED(pComp_data);
 			BASISU_DEVEL_ERROR("ktx2_transcoder::decompress_level_data: File uses Zstd supercompression, but Zstd support was not enabled at compile time (BASISD_SUPPORT_KTX2_ZSTD is 0)\n");
 			return false;
 #endif
@@ -27014,6 +27015,7 @@ namespace astc_ldr_t
 
 		return true;
 #else
+		BASISU_NOTE_UNUSED(pComp_data);
 		BASISU_DEVEL_ERROR("zstd_decompress: file uses ZStd compression, but ZStd support disabled (see BASISD_SUPPORT_KTX2_ZSTD) \n");
 		return false;
 #endif

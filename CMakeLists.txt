@@ -42,7 +42,7 @@ else()
     option(BASISU_BUILD_X64 "build 64-bit" TRUE)
 endif()
 
-option(BASISU_ZSTD "ZSTD support for KTX2 transcoding/encoding" TRUE)
+option(BASISU_ZSTD "ZSTD support for KTX2 transcoding/encoding and ASTC LDR encoding" TRUE)
 option(BASISU_OPENCL "OpenCL support in encoder" FALSE)
 
 # Old option to new (BASISU_ prefixed) automatic remapping
@@ -290,11 +290,23 @@ set(ENCODER_LIB_SRC_LIST
 )
 
 if (BASISU_ZSTD)
-    set(ENCODER_LIB_SRC_LIST ${ENCODER_LIB_SRC_LIST} zstd/zstd.c)
+    # Full zstd library (encoder + decoder) for the encoder
+    add_library(basisu_zstd_encoder STATIC zstd/zstd.c)
+    target_include_directories(basisu_zstd_encoder PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/zstd)
+    set_property(TARGET basisu_zstd_encoder PROPERTY POSITION_INDEPENDENT_CODE ON)
+
+    # Decoder-only zstd library for transcoder-only targets (smaller footprint)
+    add_library(basisu_zstd_decoder STATIC zstd/zstddeclib.c)
+    target_include_directories(basisu_zstd_decoder PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/zstd)
+    set_property(TARGET basisu_zstd_decoder PROPERTY POSITION_INDEPENDENT_CODE ON)
 endif()
 
 # Create the static library
 add_library(basisu_encoder STATIC ${ENCODER_LIB_SRC_LIST})
+
+if (BASISU_ZSTD)
+    target_link_libraries(basisu_encoder PUBLIC basisu_zstd_encoder)
+endif()
 
 # Create the basisu executable and link against the static library
 add_executable(basisu basisu_tool.cpp)
@@ -308,7 +320,10 @@ if(BASISU_EXAMPLES)
     add_executable(example_capi example_capi/example_capi.c encoder/basisu_wasm_api.cpp encoder/basisu_wasm_transcoder_api.cpp)
     target_link_libraries(example_capi PRIVATE basisu_encoder)
     
-    add_executable(example_transcoding example_transcoding/example_transcoding.cpp example_transcoding/utils.cpp zstd/zstddeclib.c transcoder/basisu_transcoder.cpp)
+    add_executable(example_transcoding example_transcoding/example_transcoding.cpp example_transcoding/utils.cpp transcoder/basisu_transcoder.cpp)
+    if (BASISU_ZSTD)
+        target_link_libraries(example_transcoding PRIVATE basisu_zstd_decoder)
+    endif()
 endif() 
 
 if (BASISU_BUILD_WASM)
@@ -343,7 +358,7 @@ if (BASISU_BUILD_WASM)
         
     endif()
 
-    # 256 MB initial, 3.5 GB max — safe defaults for BasisU
+    # 256 MB initial, 3.5 GB max safe defaults for BasisU
     target_link_options(basisu PRIVATE
         -Wl,--initial-memory=268435456
         -Wl,--max-memory=3758096384
@@ -375,14 +390,16 @@ endif()
 #endif()
 
 if (BASISU_ZSTD)
-    target_compile_definitions(basisu PRIVATE BASISD_SUPPORT_KTX2_ZSTD=1)
+    target_compile_definitions(basisu_encoder PRIVATE BASISD_SUPPORT_KTX2_ZSTD=1 BASISU_ASTC_LDR_SUPPORT_ZSTD=1)
+    target_compile_definitions(basisu PRIVATE BASISD_SUPPORT_KTX2_ZSTD=1 BASISU_ASTC_LDR_SUPPORT_ZSTD=1)
     if(BASISU_EXAMPLES)
         target_compile_definitions(example PRIVATE BASISD_SUPPORT_KTX2_ZSTD=1)
         target_compile_definitions(example_capi PRIVATE BASISD_SUPPORT_KTX2_ZSTD=1)
         target_compile_definitions(example_transcoding PRIVATE BASISD_SUPPORT_KTX2_ZSTD=1)
     endif()         
 else()
-    target_compile_definitions(basisu PRIVATE BASISD_SUPPORT_KTX2_ZSTD=0)
+    target_compile_definitions(basisu_encoder PRIVATE BASISD_SUPPORT_KTX2_ZSTD=0 BASISU_ASTC_LDR_SUPPORT_ZSTD=0)
+    target_compile_definitions(basisu PRIVATE BASISD_SUPPORT_KTX2_ZSTD=0 BASISU_ASTC_LDR_SUPPORT_ZSTD=0)
     if(BASISU_EXAMPLES)
         target_compile_definitions(example PRIVATE BASISD_SUPPORT_KTX2_ZSTD=0)
         target_compile_definitions(example_capi PRIVATE BASISD_SUPPORT_KTX2_ZSTD=0)
@@ -581,8 +598,11 @@ if (BASISU_BUILD_WASM)
 
     add_executable(${BASISU_TRANSCODER_WASM_OUTPUT_NAME} 
         ${CMAKE_CURRENT_SOURCE_DIR}/encoder/basisu_wasm_transcoder_api.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/transcoder/basisu_transcoder.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/zstd/zstddeclib.c)
+        ${CMAKE_CURRENT_SOURCE_DIR}/transcoder/basisu_transcoder.cpp)
+
+    if (BASISU_ZSTD)
+        target_link_libraries(${BASISU_TRANSCODER_WASM_OUTPUT_NAME} PRIVATE basisu_zstd_decoder)
+    endif()
             
     set_target_properties(${BASISU_TRANSCODER_WASM_OUTPUT_NAME} PROPERTIES SUFFIX ".wasm")
 
@@ -645,8 +665,11 @@ if (BASISU_BUILD_PYTHON AND NOT BASISU_BUILD_WASM)
         python/basisu_transcoder_pybind11.cpp
         encoder/basisu_wasm_transcoder_api.cpp  
         transcoder/basisu_transcoder.cpp
-        zstd/zstddeclib.c
     )
+    
+    if (BASISU_ZSTD)
+        target_link_libraries(basisu_transcoder_python PRIVATE basisu_zstd_decoder)
+    endif()
     
     # Ensure PIC ONLY for this target
     set_property(TARGET basisu_transcoder_python PROPERTY POSITION_INDEPENDENT_CODE ON)
