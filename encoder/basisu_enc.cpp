@@ -2240,11 +2240,11 @@ namespace basisu
 	}
 
 	job_pool::job_pool(uint32_t num_threads) : 
-		m_num_pending_jobs(0),
-		m_kill_flag(false)
+		m_num_pending_jobs(0)
 	{
+		m_kill_flag.store(false);
 		m_num_active_workers.store(0);
-		
+
 		assert(num_threads >= 1U);
 
 		debug_printf("job_pool::job_pool: %u total threads\n", num_threads);

@@ -832,7 +832,6 @@ namespace basisu
 		uint32_t m_num_pending_jobs;
 
 		std::atomic<bool> m_kill_flag;
-		
 		std::atomic<int> m_num_active_workers;
 
 		bool job_steal(item& job, token* tok, std::unique_lock<std::mutex>& lock);
