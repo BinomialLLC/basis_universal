@@ -16,9 +16,19 @@
 #include "basisu_astc_hdr_common.h"
 #include "basisu_astc_ldr_common.h"
 #include "3rdparty/android_astc_decomp.h"
+
+// pick up BASISD_SUPPORT_KTX2_ZSTD macro (this defines it automatically and sets to 1 if not defined)
+#include "../transcoder/basisu_transcoder.h" 
+
 #include <queue>
 
+#ifndef BASISD_SUPPORT_KTX2_ZSTD
+#error BASISD_SUPPORT_KTX2_ZSTD must be defined here
+#endif
+
+#if BASISD_SUPPORT_KTX2_ZSTD
 #include "../zstd/zstd.h"
+#endif
 
 namespace basisu {
 namespace astc_ldr {
@@ -8061,6 +8071,7 @@ void configure_encoder_effort_level(int level, ldr_astc_block_encode_image_high_
 	}
 }
 
+#if BASISD_SUPPORT_KTX2_ZSTD
 static bool zstd_compress(const uint8_t* pData, size_t data_len, uint8_vec& comp_data, int zstd_level)
 {
 	if (!data_len)
@@ -9323,6 +9334,7 @@ static bool compress_image_full_zstd(
 
 	return true;
 }
+#endif
 
 bool compress_image(
 	const image& orig_img, uint8_vec& comp_data, vector2D<astc_helpers::log_astc_block>& coded_blocks,
@@ -9447,15 +9459,28 @@ bool compress_image(
 
 	if (syntax == basist::astc_ldr_t::xuastc_ldr_syntax::cFullZStd)
 	{
+#if BASISD_SUPPORT_KTX2_ZSTD
 		// Full ZStd syntax is so different we'll move that to another function.
 		return compress_image_full_zstd(
 			orig_img, comp_data, coded_blocks,
 			global_cfg,
 			job_pool,
 			enc_cfg, enc_out);
+#else
+		fmt_error_printf("Full ZStd syntax not supported in this build (set BASISD_SUPPORT_KTX2_ZSTD to 1)\n");
+		return false;
+#endif
 	}
 
 	const bool use_faster_format = (syntax == basist::astc_ldr_t::xuastc_ldr_syntax::cHybridArithZStd);
+
+#if !BASISD_SUPPORT_KTX2_ZSTD
+	if (use_faster_format)
+	{
+		fmt_error_printf("Full ZStd syntax not supported in this build (set BASISD_SUPPORT_KTX2_ZSTD to 1)\n");
+		return false;
+	}
+#endif
 			
 	// Either full arithmetic, or hybrid arithmetic+ZStd for weight symbols.
 	basist::astc_ldr_t::xuastc_ldr_arith_header hdr;
@@ -10806,6 +10831,10 @@ bool compress_image(
 		
 	if (use_faster_format)
 	{
+#if !BASISD_SUPPORT_KTX2_ZSTD
+		fmt_error_printf("Full ZStd syntax not supported in this build (set BASISD_SUPPORT_KTX2_ZSTD to 1)\n");
+		return false;
+#else
 		suffix_bytes.reserve(8192);
 
 		mean0_bits.flush();
@@ -10871,6 +10900,7 @@ bool compress_image(
 			fmt_debug_printf(" Weight4 bytes: {} comp size: {}\n", (uint64_t)weight4_bits.get_bytes().size(), (uint64_t)comp_weight4.size());
 			fmt_debug_printf(" Weight8 bytes: {} comp size: {}\n", (uint64_t)weight8_bits.size(), (uint64_t)comp_weight8.size());
 		}
+#endif
 	}
 		
 	assert(comp_data.size() == 0);

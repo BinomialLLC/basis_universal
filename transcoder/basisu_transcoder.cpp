@@ -20391,7 +20391,7 @@ namespace basist
 	{
 		const uint8_t* pComp_data = m_levels[level_index].m_byte_offset.get_uint64() + m_pData;
 		const uint64_t comp_size = m_levels[level_index].m_byte_length.get_uint64();
-		
+						
 		const uint64_t uncomp_size = m_levels[level_index].m_uncompressed_byte_length.get_uint64();
 
 		if (((size_t)comp_size) != comp_size)
@@ -20426,6 +20426,8 @@ namespace basist
 				return false;
 			}
 #else
+			BASISU_NOTE_UNUSED(pComp_data);
+
 			BASISU_DEVEL_ERROR("ktx2_transcoder::decompress_level_data: File uses Zstd supercompression, but Zstd support was not enabled at compile time (BASISD_SUPPORT_KTX2_ZSTD is 0)\n");
 			return false;
 #endif
@@ -27014,6 +27016,7 @@ namespace astc_ldr_t
 
 		return true;
 #else
+		BASISU_NOTE_UNUSED(pComp_data);
 		BASISU_DEVEL_ERROR("zstd_decompress: file uses ZStd compression, but ZStd support disabled (see BASISD_SUPPORT_KTX2_ZSTD) \n");
 		return false;
 #endif
