@@ -348,7 +348,7 @@
 "  (defaults to no DCT). Higher=better quality, but higher bitrate. Good values\n"
 "  to try are 30-90. Default is no weight grid DCT.\n"
 "\n"
-" -effort X: Set encoder effort level [1,10]: Encoding speed tradeoff,        \n"
+" -effort X: Set encoder effort level [0,10]: Encoding speed tradeoff,        \n"
 "  higher=slower but potentially higher overall quality. Default=3, 10=Insane.\n"
 "  \n"
 " -xuastc_arith, -xuastc_hybrid, -xuastc_zstd: Set transcoding speed vs.\n"
