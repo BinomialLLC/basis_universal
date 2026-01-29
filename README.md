@@ -473,6 +473,13 @@ You can download and install Basis Universal using the [vcpkg](https://github.co
 
 The Basis Universal port in vcpkg is kept up to date by Microsoft team members and community contributors. If the version is out of date, please [create an issue or pull request](https://github.com/Microsoft/vcpkg) on the vcpkg repository. (9/10/2024: UASTC HDR support is not available here yet.)
 
+---
+
+Project Policies
+----------------
+
+See our wiki page: [Project Policities: PR's, compiler warnings, release cadence etc.](https://github.com/BinomialLLC/basis_universal/wiki/Project-Policies:-PR's,-compiler-warnings,-release-cadence,-etc.).
+
 ----
 
 KTX2 Support Status
