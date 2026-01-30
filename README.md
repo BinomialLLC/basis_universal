@@ -89,7 +89,7 @@ The ASTC HDR decoder, used in the transcoder module, supports the entire ASTC HD
 
 5. **UASTC HDR 6x6 Intermediate ("GPU Photo HDR")**: A custom compressed intermediate format that can be rapidly transcoded to ASTC HDR 6x6, BC6H, and various uncompressed HDR formats. The custom compressed file format is [described here](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-HDR-6x6-Intermediate-File-Format-(Basis-GPU-Photo-6x6)). The format supports 75 unique ASTC configurations, weight grid upsampling, 1-3 subsets, single or dual planes, CEM's 7 and 11, and all unique ASTC partition patterns.
 
-6. **Standard ASTC LDR-4x4-12x12**. Supports all standard 14 ASTC block sizes. Transcodable to any other supported LDR texture format, including BC7 (using [bc7f](https://github.com/BinomialLLC/basis_universal/wiki/Transcoder-Internals-%E2%80%90-Analytical-Real%E2%80%90Time-Encoders)) and ETC1 (using etc1f).
+6. **Standard ASTC LDR-4x4-12x12**. Supports all standard 14 ASTC block sizes. Transcodable to any other supported LDR texture format, including BC7 (using the [bc7f](https://github.com/BinomialLLC/basis_universal/wiki/Transcoder-Internals-%E2%80%90-Analytical-Real%E2%80%90Time-Encoders)) "one-shot" analytical BC7 encoder (supporting all BC7 modes/features) and ETC1 (using etc1f).
 
 The ASTC LDR decoder, used in the transcoder module, supports the entire standard ASTC LDR format.
  
