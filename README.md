@@ -240,11 +240,11 @@ Compressing and Unpacking .KTX2/.basis Files
 
 An alias for `-xuastc_ldr_6x6` is `-ldr_6x6i` (where 'i'="intermediate"). All **[14 standard ASTC block sizes](https://developer.nvidia.com/astc-texture-compression-for-game-assets) are supported, from 4x4-12x12**: 4x4, 5x4, 5x5, 6x5, 6x6, 8x5, 8x6, 10x5, 10x6, 8x8, 10x8, 10x10, 12x10 and 12x12. The **XUASTC LDR to BC7 transcoder has special optimizations for several common block sizes: 4x4, 6x6 and 8x6**. When transcoding XUASTC LDR at these particular block sizes, most XUASTC blocks are *directly* transcoded to BC7, skipping the real-time analytical bc7f encoding step.
 
-More XUASTC LDR specific options (most of these also apply to standard ASTC):
+More XUASTC LDR specific options (many of these also apply to standard ASTC - see our [ASTC/XUASTC Usage Guide](https://github.com/BinomialLLC/basis_universal/wiki/ASTC-and-XUASTC-LDR-Usage-Guide)):
 
   - The options `-xuastc_arith`, `-xuastc_zstd` (the default), and `-xuastc_hybrid` control the **XUASTC LDR profile used**. The arithmetic profile trades off transcoding throughput for roughly 5-18% better compression vs. the Zstd profile, and the hybrid profile is a balance between the two. 
 
-  - `-ts` or `-srgb` enables the **sRGB profile (the default)**, and `-tl` or `-linear` **enables the linear profile**. Ideally this setting will match how the ASTC texture is sampled by the GPU.
+  - `-ts` or `-srgb` enables the **sRGB profile (the default)**, and `-tl` or `-linear` **enables the linear profile**. Ideally this setting will match how the ASTC texture is sampled by the GPU. Use linear on normal maps.
 
   - `-weights X Y Z W` sets the unsigned integer **channel error weights**, used to favor certain channels during compression.
 
@@ -422,7 +422,7 @@ The 'WebGL' directory contains several simple WebGL demos that use the transcode
 Building the WASM Modules with [Emscripten](https://emscripten.org/) 
 --------------------------------------------------------------------
 
-Both the transcoder and encoder may be compiled using emscripten to WebAssembly and used on the web. A set of JavaScript wrappers to the codec, written in C++ with emscripten extensions, is located in `webgl/transcoding/basis_wrappers.cpp`. The JavaScript wrapper supports nearly all features and modes, including texture video. See the README.md and CMakeLists.txt files in `webgl/transcoder` and `webgl/encoder`. 
+Both the transcoder and encoder may be compiled using emscripten to WebAssembly and used on the web. A set of JavaScript wrappers to the codec, written in C++ with emscripten extensions, is located in [`webgl/transcoding/basis_wrappers.cpp`](https://github.com/BinomialLLC/basis_universal/blob/master/webgl/transcoder/basis_wrappers.cpp). The JavaScript wrapper supports nearly all features and modes, including texture video. See the [README.md](https://github.com/BinomialLLC/basis_universal/tree/master/webgl) and CMakeLists.txt files in `webgl/transcoder` and `webgl/encoder`. 
 
 To build the WASM transcoder, after installing emscripten:
 
@@ -440,7 +440,7 @@ emcmake cmake ..
 make
 ```
 
-There are two simple encoding/transcoding web demos, located in `webgl/ktx2_encode_test` and `webgl/texture_test`, that show how to use the encoder's and transcoder's JavaScript wrapper APIs.
+There are several simple encoding/transcoding web demos, located in `webgl/ktx2_encode_test` and `webgl/texture_test`, that show how to use the encoder's and transcoder's JavaScript wrapper APIs. They are [live on the web here](https://subquantumtech.com/xu/).
 
 ----
 
