@@ -95,13 +95,13 @@ The ASTC LDR decoder, used in the transcoder module, supports the entire standar
  
 7. **XUASTC LDR 4x4-12x12 ("GPU Photo LDR/SDR")**: Supercompressed ASTC with **Weight Grid DCT**, supporting all 14 standard ASTC block sizes. Bitrates range from approximately 0.3–5.7 bpp, depending on content, profile, block size, windowed RDO, and Weight Grid DCT quality settings. Typical XUASTC LDR 4×4 (**8 bpp in memory**) transmission/on-disk bitrate with Weight Grid DCT (where it is least effective) is **1.15–3.5 bpp (typical ≈2.25 bpp)**, with larger block sizes achieving even lower usable bitrates, down to approximately 0.3 bpp. 
 
-XUASTC LDR (any block size) can be used to distribute adaptively deblocked BC7 texture content. Using the larger XUASTC block sizes, such as 6x6 or 8x6, you can distribute content destined for BC7 at .35-1.5 bpp, and cache the transcoded BC7 results on a modern Gen 4 or 5 (10+ GB/sec.) SSD.
-
 Supports three profiles: context-based range/arithmetic coding (for higher compression ratios), Zstd (for faster and simpler transcoding), or a hybrid profile using both approaches. Transcodable to all other supported LDR texture formats, including fully featured (all 8 modes, all dual-plane channel configurations, all mode settings) BC7. Certain common block sizes (4×4, 6×6, and 8×6) have specializations for particularly fast transcoding directly to BC7, bypassing analytical BC7 encoding (using [bc7f](https://github.com/BinomialLLC/basis_universal/wiki/Transcoder-Internals-%E2%80%90-Analytical-Real%E2%80%90Time-Encoders)) entirely for the most common ASTC configurations (solid color and single-subset CEMs).
 
 Weight Grid DCT can be disabled; however, supercompression remains available with optional, configurable windowed RDO. Compatible with all major image and texture content types, including photographic images, lightmaps, albedo/specular textures, various types of normal maps, luminance-only maps, and geospatial mapping signals.
 
 Supports adaptive deblocking when transcoding from larger block sizes; this can be disabled using a transcoder flag.
+
+One interesting use of XUASTC LDR which works with any of the 14 block sizes: the efficient distribution of texture content compressed to very low bitrates vs. older systems, resulting in game changing download time reductions. Using the larger XUASTC block sizes with adaptive deblocking, such as 6x6, 8x6 or 10x6, a developer can distribute texture and image content destined for BC7 at .35-1.5 bpp, and cache the transcoded BC7 data on a modern Gen 4 or 5 (10+ GB/sec.) SSD.
 
 XUASTC LDR supports the following ASTC configurations: L/LA/RGB/RGBA CEMs; base+scale or RGB/RGBA direct; base+offset CEMs; Blue Contraction encoding; 1–3 subsets; all partition patterns; and single- or dual-plane modes. Here is the [XUASTC LDR specification](https://github.com/BinomialLLC/basis_universal/wiki/XUASTC-LDR-Specification-v1.0). Also see the [ASTC and XUASTC LDR Usage Guide](https://github.com/BinomialLLC/basis_universal/wiki/ASTC-and-XUASTC-LDR-Usage-Guide).
 
