@@ -143,7 +143,7 @@ runwt.bat ../test_files/tough.png -xuastc_ldr_6x6 -quality 70 -xuastc_arith
 runwt.bat tough.ktx2
 ```
 
-Linux/OSX:
+Linux/macOS:
 
 ```
 cd bin
@@ -307,7 +307,7 @@ Note: If you're compressing LDR/SDR image files to an HDR format, the codec's de
 
 ### Some Useful Command Line Options
 
-- All codecs now support simple unified "quality" and "effort" settings. `-effort X` [0,10] controls how much of the search space (and how slowly) compression proceeds, and `quality X` [1,100] controls the quality vs. bitrate tradeoff. Internally these settings will be mapped to each codec's specific configuration settings. Almost all the older settings still work, however. Previously, `-q X`, where X ranged from [1,255], controlled the ETC1S quality setting. This option is still available, but `-quality` is preferred now.
+- All codecs now support simple unified "quality" and "effort" settings. `-effort X` [0,10] controls how much of the search space (and how slowly) compression proceeds, and `-quality X` [1,100] controls the quality vs. bitrate tradeoff. Internally these settings will be mapped to each codec's specific configuration settings. Almost all the older settings still work, however. Previously, `-q X`, where X ranged from [1,255], controlled the ETC1S quality setting. This option is still available, but `-quality` is preferred now.
 
 - `-debug` causes the encoder to print internal and developer-oriented verbose debug information.
 
@@ -469,7 +469,7 @@ The Basis Universal port in vcpkg is kept up to date by Microsoft team members a
 Project Policies
 ----------------
 
-See our wiki page: [Project Policies: PR's, compiler warnings, release cadence etc.](https://github.com/BinomialLLC/basis_universal/wiki/Project-Policies:-PR's,-compiler-warnings,-release-cadence,-etc.).
+See our wiki page: [Project Policies: PRs, compiler warnings, release cadence etc.](https://github.com/BinomialLLC/basis_universal/wiki/Project-Policies:-PR's,-compiler-warnings,-release-cadence,-etc.).
 
 ----
 
