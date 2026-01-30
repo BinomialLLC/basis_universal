@@ -411,7 +411,7 @@ Hello from basisu_wasm_api.cpp version 200
 WebGL Examples
 --------------
 
-The 'WebGL' directory contains several simple WebGL demos that use the transcoder and compressor compiled to [WASM](https://webassembly.org/) with [emscripten](https://emscripten.org/). These demos are online [here](https://subquantumtech.com/xu/). See more details in the readme file [here](webgl/README.md).
+The 'WebGL' directory contains several simple WebGL demos that use the transcoder and compressor compiled to [WASM](https://webassembly.org/) with [Emscripten](https://emscripten.org/). These demos are online [here](https://subquantumtech.com/xu/). See more details in the readme file [here](webgl/README.md).
 
 ![Screenshot of 'texture' example running in a browser.](webgl/texture_test/preview.png)
 ![Screenshot of 'gltf' example running in a browser.](webgl/gltf/preview.png)
@@ -422,9 +422,9 @@ The 'WebGL' directory contains several simple WebGL demos that use the transcode
 Building the WASM Modules with [Emscripten](https://emscripten.org/) 
 --------------------------------------------------------------------
 
-Both the transcoder and encoder may be compiled using emscripten to WebAssembly and used on the web. A set of JavaScript wrappers to the codec, written in C++ with emscripten extensions, is located in [`webgl/transcoding/basis_wrappers.cpp`](https://github.com/BinomialLLC/basis_universal/blob/master/webgl/transcoder/basis_wrappers.cpp). The JavaScript wrapper supports nearly all features and modes, including texture video. See the [README.md](https://github.com/BinomialLLC/basis_universal/tree/master/webgl) and CMakeLists.txt files in `webgl/transcoder` and `webgl/encoder`. 
+Both the transcoder and encoder may be compiled using Emscripten to WebAssembly and used on the web. A set of JavaScript wrappers to the codec, written in C++ with Emscripten extensions, is located in [`webgl/transcoding/basis_wrappers.cpp`](https://github.com/BinomialLLC/basis_universal/blob/master/webgl/transcoder/basis_wrappers.cpp). The JavaScript wrapper supports nearly all features and modes, including texture video. See the [README.md](https://github.com/BinomialLLC/basis_universal/tree/master/webgl) and CMakeLists.txt files in `webgl/transcoder` and `webgl/encoder`. 
 
-To build the WASM transcoder, after installing emscripten:
+To build the WASM transcoder, after installing Emscripten:
 
 ```
 cd webgl/transcoder/build
