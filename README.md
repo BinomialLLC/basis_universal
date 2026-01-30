@@ -101,7 +101,7 @@ Weight Grid DCT can be disabled; however, supercompression remains available wit
 
 Supports adaptive deblocking when transcoding from larger block sizes; this can be disabled using a transcoder flag.
 
-One interesting use of XUASTC LDR which works with any of the 14 block sizes: the efficient distribution of texture content compressed to very low bitrates vs. older systems, resulting in game changing download time reductions. Using the larger XUASTC block sizes with adaptive deblocking, such as 6x6, 8x6 or 10x6, a developer can distribute texture and image content destined for BC7 at .35-1.5 bpp, and cache the transcoded BC7 data on a modern Gen 4 or 5 (10+ GB/sec.) SSD.
+One interesting use of XUASTC LDR which works with any of the 14 block sizes: the efficient distribution of texture content compressed to very low bitrates vs. older systems, resulting in game changing download time reductions. Using the larger XUASTC block sizes (beyond 6x6) with Weight Grid DCT and adaptive deblocking, **any developer can now distribute texture and image content destined for BC7 at .35-1.5 bpp**, and **cache the transcoded BC7 data on a modern Gen 4 or 5 (10+ GB/sec.) SSD**.
 
 XUASTC LDR supports the following ASTC configurations: L/LA/RGB/RGBA CEMs; base+scale or RGB/RGBA direct; base+offset CEMs; Blue Contraction encoding; 1–3 subsets; all partition patterns; and single- or dual-plane modes. Here is the [XUASTC LDR specification](https://github.com/BinomialLLC/basis_universal/wiki/XUASTC-LDR-Specification-v1.0). Also see the [ASTC and XUASTC LDR Usage Guide](https://github.com/BinomialLLC/basis_universal/wiki/ASTC-and-XUASTC-LDR-Usage-Guide).
 
