@@ -10,7 +10,7 @@ Intro
 
 Basis Universal v2.0 is an open source [supercompressed](http://gamma.cs.unc.edu/GST/gst.pdf) LDR/HDR GPU compressed texture interchange system from Binomial LLC that supports two intermediate file formats: the [.KTX2 open standard from the Khronos Group](https://registry.khronos.org/KTX/specs/2.0/ktxspec.v2.html), and our own ".basis" file format. These file formats support rapid transcoding to virtually any compressed [GPU texture format](https://en.wikipedia.org/wiki/Texture_compression) released over the past ~25 years. 
 
-Our overall goal is to simplify the encoding and efficient distribution of *portable* LDR and HDR GPU texture, image, and short texture video content in a way that is compatible with any GPU or rendering/graphics API.
+Our overall goal is to simplify the encoding and efficient distribution of *portable* LDR and HDR GPU texture, image, and short [texture video](https://github.com/BinomialLLC/basis_universal/wiki/Encoding-ETC1S-Texture-Video-Tips) content in a way that is compatible with any GPU or rendering/graphics API.
 
 The system supports seven modes (or codecs). In the order they were implemented:
 1. **ETC1S**: A supercompressed subset of ETC1 designed for very fast transcoding to other LDR texture formats, low/medium quality but high compression, slightly faster transcoding to other LDR texture formats vs. libjpeg.
@@ -106,7 +106,7 @@ One interesting use of XUASTC LDR which works with any of the 14 block sizes: th
 XUASTC LDR supports the following ASTC configurations: L/LA/RGB/RGBA CEMs; base+scale or RGB/RGBA direct; base+offset CEMs; Blue Contraction encoding; 1–3 subsets; all partition patterns; and single- or dual-plane modes. Here is the [XUASTC LDR specification](https://github.com/BinomialLLC/basis_universal/wiki/XUASTC-LDR-Specification-v1.0). Also see the [ASTC and XUASTC LDR Usage Guide](https://github.com/BinomialLLC/basis_universal/wiki/ASTC-and-XUASTC-LDR-Usage-Guide).
 
 Notes:  
-- Mode #1 (ETC1S) has special support and optimizations for basic temporal supercompression (texture video).
+- Mode #1 (ETC1S) has special support and optimizations for basic temporal supercompression ([texture video](https://github.com/BinomialLLC/basis_universal/wiki/Encoding-ETC1S-Texture-Video-Tips)).
 - Modes #3 (UASTC HDR 4x4) and #4 (RDO ASTC HDR 6x6), and #6 (ASTC LDR 4x4-12x12) output 100% standard or plain ASTC texture data (with or without RDO), like any other ASTC encoder. The .KTX2 files are just plain textures.
 - The other modes (#1, #2, #5, #7) output compressed data in various custom supercompressed formats, which our transcoder library can convert in real-time to various GPU texture or pixel formats.
 - Modes #4 (ASTC HDR 6x6) and #5 (UASTC HDR 6x6) internally use the same unified ASTC HDR 6x6 encoder.
@@ -448,11 +448,6 @@ Low-level C++ Encoder/Transcoder API Examples
 ---------------------------------------------
 
 Some simple examples showing how to directly call the C++ encoder and transcoder library APIs are in [`example/example.cpp`](https://github.com/BinomialLLC/basis_universal/blob/master/example/example.cpp).
-
-ETC1S Texture Video Tips
-------------------------
-
-See the wiki [here](https://github.com/BinomialLLC/basis_universal/wiki/Encoding-ETC1S-Texture-Video-Tips).
 
 ----
 
