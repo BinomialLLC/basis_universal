@@ -168,7 +168,7 @@ We build and test under:
 - macOS (M1) with clang 16.0.0
 - Arch Linux ARM, on a [Pinebook Pro](https://pine64.org/devices/pinebook_pro/), with gcc 12.1.
 - Ubuntu Linux 24.04 on RISC-V (Orange PI RV2)
-- cmake: 3.28.3, emcc: v4.0.19
+- cmake: 3.28.3, emcc: 4.0.19
 
 Under Windows with Visual Studio you can use the included `basisu.sln` file. Alternatively, you can use cmake to create new VS solution/project files.
 
