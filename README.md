@@ -469,7 +469,7 @@ The Basis Universal port in vcpkg is kept up to date by Microsoft team members a
 Project Policies
 ----------------
 
-See our wiki page: [Project Policities: PR's, compiler warnings, release cadence etc.](https://github.com/BinomialLLC/basis_universal/wiki/Project-Policies:-PR's,-compiler-warnings,-release-cadence,-etc.).
+See our wiki page: [Project Policies: PR's, compiler warnings, release cadence etc.](https://github.com/BinomialLLC/basis_universal/wiki/Project-Policies:-PR's,-compiler-warnings,-release-cadence,-etc.).
 
 ----
 
