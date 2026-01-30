@@ -19,7 +19,7 @@ The system supports seven modes (or codecs). In the order they were implemented:
 4. **ASTC HDR 6x6 (with or without RDO)**: Standard ASTC HDR 6x6
 5. **UASTC HDR 6x6 Intermediate ("GPU Photo HDR")**: Supercompressed ASTC HDR 6x6
 6. **ASTC LDR 4x4-12x12 (all 14 standard ASTC block sizes)**: Standard ASTC LDR 4x4-12x12
-7. **XUASTC LDR 4x4-12x12 (all 14 standard ASTC block sizes, "GPU Photo LDR/SDR")**: Supercompressed ASTC LDR 4x4-12x12, very high quality, utilizes Weight Grid DCT ([Discrete Cosine Transform](https://grokipedia.com/page/Discrete_cosine_transform)) for very high compression ratios. See [JPEG for ASTC](https://github.com/BinomialLLC/basis_universal/wiki/JPEG-for-ASTC).
+7. **XUASTC LDR 4x4-12x12 (all 14 standard ASTC block sizes, "GPU Photo LDR/SDR")**: Supercompressed ASTC LDR 4x4-12x12, very high quality, utilizes Weight Grid DCT ([Discrete Cosine Transform](https://grokipedia.com/page/Discrete_cosine_transform)) for very high compression ratios. See [JPEG for ASTC](https://github.com/BinomialLLC/basis_universal/wiki/JPEG-for-ASTC), and the [ASTC and XUASTC LDR Usage Guide](https://github.com/BinomialLLC/basis_universal/wiki/ASTC-and-XUASTC-LDR-Usage-Guide).
 
 The C/C++ encoder and transcoder libraries can be compiled to native code or WebAssembly (web or WASI), and all encoder/transcoder features can be accessed from JavaScript via a C++ wrapper library which optionally supports [WASM multithreading](https://web.dev/articles/webassembly-threads) for fast encoding in the browser. [WASM WASI](https://wasi.dev/) builds, for the command line tool and the encoder/transcoder as a WASI module using a pure C API, are also supported. 
 
@@ -101,7 +101,7 @@ Weight Grid DCT can be disabled; however, supercompression remains available wit
 
 Supports adaptive deblocking when transcoding from larger block sizes; this can be disabled using a transcoder flag.
 
-XUASTC LDR supports the following ASTC configurations: L/LA/RGB/RGBA CEMs; base+scale or RGB/RGBA direct; base+offset CEMs; Blue Contraction encoding; 1–3 subsets; all partition patterns; and single- or dual-plane modes. Here is the [XUASTC LDR specification](https://github.com/BinomialLLC/basis_universal/wiki/XUASTC-LDR-Specification-v1.0).
+XUASTC LDR supports the following ASTC configurations: L/LA/RGB/RGBA CEMs; base+scale or RGB/RGBA direct; base+offset CEMs; Blue Contraction encoding; 1–3 subsets; all partition patterns; and single- or dual-plane modes. Here is the [XUASTC LDR specification](https://github.com/BinomialLLC/basis_universal/wiki/XUASTC-LDR-Specification-v1.0). Also see the [ASTC and XUASTC LDR Usage Guide](https://github.com/BinomialLLC/basis_universal/wiki/ASTC-and-XUASTC-LDR-Usage-Guide).
 
 Notes:  
 - Mode #1 (ETC1S) has special support and optimizations for basic temporal supercompression (texture video).
