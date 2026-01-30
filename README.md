@@ -91,7 +91,7 @@ The ASTC HDR decoder, used in the transcoder module, supports the entire ASTC HD
 
 6. **Standard ASTC LDR-4x4-12x12**. Supports all standard 14 ASTC block sizes. Transcodable from any ASTC block size to any other supported LDR texture format with adaptive deblocking, including BC7 using the [bc7f "one-shot" analytical BC7 encoder](https://github.com/BinomialLLC/basis_universal/wiki/Transcoder-Internals-%E2%80%90-Analytical-Real%E2%80%90Time-Encoders) (supporting all BC7 modes/features) and ETC1 (using etc1f, which also supports the entire ETC1 format).
 
-The ASTC LDR decoder, used in the transcoder module, supports the entire standard ASTC LDR format (i.e not just ASTC texture blocks generated using our encoder).
+The ASTC LDR decoder, used in the transcoder module, supports the entire standard ASTC LDR format (i.e. not just ASTC texture blocks generated using our encoder).
  
 7. **XUASTC LDR 4x4-12x12 ("GPU Photo LDR/SDR")**: Supercompressed ASTC with **Weight Grid DCT**, supporting all 14 standard ASTC block sizes, with adaptive deblocking when transcoding to other texture/pixel formats. Bitrates range from approximately 0.3–5.7 bpp, depending on content, profile, block size, windowed RDO, and Weight Grid DCT quality settings. Typical XUASTC LDR 4×4 (**8 bpp in memory**) transmission/on-disk bitrate with Weight Grid DCT (where it is least effective) is **1.15–3.5 bpp (typical ≈2.25 bpp)**, with larger block sizes achieving even lower usable bitrates, down to approximately 0.3 bpp.
 
@@ -101,13 +101,13 @@ Weight Grid DCT can be disabled; however, supercompression remains available wit
 
 Supports adaptive deblocking when transcoding from larger block sizes; this can be disabled using a transcoder flag.
 
-One interesting use of XUASTC LDR which works with any of the 14 block sizes: the efficient distribution of texture content compressed to very low bitrates vs. older systems, resulting in game changing download time reductions. Using the larger XUASTC block sizes (beyond 6x6) with Weight Grid DCT and adaptive deblocking, **any developer can now distribute texture and image content destined for BC7 at .35-1.5 bpp**, and **cache the transcoded BC7 data on a modern Gen 4 or 5 (10+ GB/sec.) SSD**.
+One interesting use of XUASTC LDR which works with any of the 14 block sizes: the efficient distribution of texture content compressed to very low bitrates vs. older systems, resulting in game-changing download time reductions. Using the larger XUASTC block sizes (beyond 6x6) with Weight Grid DCT and adaptive deblocking, **any developer can now distribute texture and image content destined for BC7 at .35-1.5 bpp**, and **cache the transcoded BC7 data on a modern Gen 4 or 5 (10+ GB/sec.) SSD**.
 
 XUASTC LDR supports the following ASTC configurations: L/LA/RGB/RGBA CEMs; base+scale or RGB/RGBA direct; base+offset CEMs; Blue Contraction encoding; 1–3 subsets; all partition patterns; and single- or dual-plane modes. Here is the [XUASTC LDR specification](https://github.com/BinomialLLC/basis_universal/wiki/XUASTC-LDR-Specification-v1.0). Also see the [ASTC and XUASTC LDR Usage Guide](https://github.com/BinomialLLC/basis_universal/wiki/ASTC-and-XUASTC-LDR-Usage-Guide).
 
 Notes:  
 - Mode #1 (ETC1S) has special support and optimizations for basic temporal supercompression ([texture video](https://github.com/BinomialLLC/basis_universal/wiki/Encoding-ETC1S-Texture-Video-Tips)).
-- Modes #3 (UASTC HDR 4x4) and #4 (RDO ASTC HDR 6x6), and #6 (ASTC LDR 4x4-12x12) output 100% standard or plain ASTC texture data (with or without RDO), like any other ASTC encoder. The .KTX2 files are just plain textures.
+- Modes #3 (UASTC HDR 4x4) and #4 (RDO ASTC HDR 6x6), and #6 (ASTC LDR 4x4-12x12) output 100% standard ASTC texture data (with or without RDO), like any other ASTC encoder. The .KTX2 files are just plain textures.
 - The other modes (#1, #2, #5, #7) output compressed data in various custom supercompressed formats, which our transcoder library can convert in real-time to various GPU texture or pixel formats.
 - Modes #4 (ASTC HDR 6x6) and #5 (UASTC HDR 6x6) internally use the same unified ASTC HDR 6x6 encoder.
 - Modes #6 (ASTC LDR 4x4-12x12) and #7 (XUASTC LDR 4x4-12x12) internally use the same unified ASTC LDR ASTC encoder.
@@ -206,7 +206,7 @@ cmake -DCMAKE_TOOLCHAIN_FILE=$WASI_SDK_PATH/share/cmake/wasi-sdk.cmake -DCMAKE_B
 make
 ```
 
-The WASM WASI executables will be placed in the `bin/basisu` directory. These platform-independent executables are fully functional, and can be executed using a WASM WASI runtime such as [wasmtime](https://github.com/bytecodealliance/wasmtime).
+The WASM WASI executables will be placed in the `bin` directory. These platform-independent executables are fully functional, and can be executed using a WASM WASI runtime such as [wasmtime](https://github.com/bytecodealliance/wasmtime).
 
 ----
 
