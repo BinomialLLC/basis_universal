@@ -135,7 +135,7 @@ wasmtime run --dir=. --dir=../test_files --wasm threads=yes --wasi threads=yes .
 wasmtime run --dir=. --dir=../test_files ./basisu_st.wasm -test
 ```
 
-See the `runwt.sh`, `runwt.bat`, `runw.sh`, or `runw.bat` scripts for examples on how to run the WASM executables using [wasmtime](https://wasmtime.dev/). Here's `runwt.bat`:
+See the `runwt.sh`, `runwt.bat`, `runw.sh`, or `runw.bat` scripts for examples on how to run the WASM executables using wasmtime. Here's `runwt.bat`:
 
 ```
 wasmtime --wasm threads=yes --wasi threads=yes --dir=. --dir=.. --dir=..\test_files basisu_mt.wasm %*
