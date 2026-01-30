@@ -135,13 +135,7 @@ wasmtime run --dir=. --dir=../test_files --wasm threads=yes --wasi threads=yes .
 wasmtime run --dir=. --dir=../test_files ./basisu_st.wasm -test
 ```
 
-See the `runwt.sh`, `runwt.bat`, `runw.sh`, or `runw.bat` scripts for examples on how to run the WASM executables using wasmtime. Here's `runwt.bat`:
-
-```
-wasmtime --wasm threads=yes --wasi threads=yes --dir=. --dir=.. --dir=..\test_files basisu_mt.wasm %*
-```
-
-Windows example for XUASTC LDR compression using the arithmetic profile, with Weight Grid DCT level 70:
+See the `runwt.sh`, `runwt.bat`, `runw.sh`, or `runw.bat` scripts for examples on how to run the WASM executables using wasmtime. Windows example for XUASTC LDR 6x6 compression using the arithmetic profile, with Weight Grid DCT level 70:
 
 ```
 cd bin
@@ -149,7 +143,7 @@ runwt.bat ../test_files/tough.png -xuastc_ldr_6x6 -quality 70 -xuastc_arith
 runwt.bat tough.ktx2
 ```
 
-Linux:
+Linux/OSX:
 
 ```
 cd bin
