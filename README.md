@@ -507,19 +507,13 @@ checking tool (https://reuse.software/). See the `.reuse` subdirectory.
 External Tool Links
 -------------------
 
-[Online .EXR HDR Image File Viewer](https://viewer.openhdr.org/)
-
-[Windows HDR + WCG Image Viewer](https://13thsymphony.github.io/hdrimageviewer/) - A true HDR image viewer for Windows. Also see [the github repo](https://github.com/13thsymphony/HDRImageViewer).
-
-[RenderDoc](https://renderdoc.org/)
-
-[AMD Compressonator](https://gpuopen.com/gaming-product/compressonator/)
-
-[Microsoft's DirectXTex](https://github.com/microsoft/DirectXTex)
-
-[PVRTexTool](https://www.imgtec.com/developers/powervr-sdk-tools/pvrtextool/)
-
-[Mali Texture Compression Tool](https://community.arm.com/support-forums/f/graphics-gaming-and-vr-forum/52390/announcement-mali-texture-compression-tool-end-of-life) - Now deprecated
+- [Online .EXR HDR Image File Viewer](https://viewer.openhdr.org/)
+- [Windows HDR + WCG Image Viewer](https://13thsymphony.github.io/hdrimageviewer/) - A true HDR image viewer for Windows. Also see [the github repo](https://github.com/13thsymphony/HDRImageViewer).
+- [RenderDoc](https://renderdoc.org/)
+- [AMD Compressonator](https://gpuopen.com/gaming-product/compressonator/)
+- [Microsoft's DirectXTex](https://github.com/microsoft/DirectXTex)
+- [PVRTexTool](https://www.imgtec.com/developers/powervr-sdk-tools/pvrtextool/)
+- [Mali Texture Compression Tool](https://community.arm.com/support-forums/f/graphics-gaming-and-vr-forum/52390/announcement-mali-texture-compression-tool-end-of-life) - Now deprecated
 
 For more useful links, papers, and tools/libraries, see the end of the [UASTC HDR texture specification](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-HDR-Texture-Specification-v1.0).
 
