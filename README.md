@@ -238,7 +238,7 @@ Compressing and Unpacking .KTX2/.basis Files
 
 `basisu -xuastc_ldr_6x6 -quality 75 -effort 4 x.png`
 
-An alias for `-xuastc_ldr_6x6` is `-ldr_6x6i` (where 'i'="intermediate"). All **[14 standard ASTC block sizes](https://developer.nvidia.com/astc-texture-compression-for-game-assets) are supported, from 4x4-12x12**: 4x4, 5x4, 5x5, 6x5, 6x6, 8x5, 8x6, 10x5, 10x6, 8x8, 10x8, 10x10, 12x10 and 12x12. The **XUASTC LDR to BC7 transcoder has special optimizations for several common block sizes: 4x4, 6x6 and 8x6**. When transcoding XUASTC LDR at these particular block sizes, most XUASTC blocks are *directly* transcoded to BC7, skipping the real-time analytical bc7f encoding step.
+An alias for `-xuastc_ldr_6x6` is `-ldr_6x6i` (where 'i'="intermediate"). All **[14 standard ASTC block sizes](https://developer.nvidia.com/astc-texture-compression-for-game-assets) are supported, from 4x4-12x12**: 4x4, 5x4, 5x5, 6x5, 6x6, 8x5, 8x6, 10x5, 10x6, 8x8, 10x8, 10x10, 12x10 and 12x12. The **XUASTC LDR to BC7 transcoder has special optimizations for several common block sizes: 4x4, 6x6 and 8x6**. When transcoding XUASTC LDR at these particular block sizes, most XUASTC blocks are *directly* transcoded to BC7 (i.e. directly from the XUASTC latent to the BC7 latent), skipping the real-time analytical bc7f encoding step.
 
 More XUASTC LDR specific options (many of these also apply to standard ASTC - see our [ASTC/XUASTC Usage Guide](https://github.com/BinomialLLC/basis_universal/wiki/ASTC-and-XUASTC-LDR-Usage-Guide)):
 
