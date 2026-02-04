@@ -185,20 +185,14 @@ if (NOT MSVC AND NOT BASISU_BUILD_WASM)
 elseif (BASISU_BUILD_WASM)
     # _WASI_EMULATED_PROCESS_CLOCKS/-lwasi-emulated-process-clocks is only for ZStd
     add_compile_definitions(_WASI_EMULATED_PROCESS_CLOCKS)
-#    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -lwasi-emulated-process-clocks")
-#
-#    set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} -fno-strict-aliasing -fvisibility=hidden -Wall -Wextra -Wno-unknown-warning-option")
-#    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-strict-aliasing -fvisibility=hidden -Wall -Wextra -Wno-unknown-warning-option")
-#
-#    set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -g")
-#    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -g")
-#
-#    set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -O2")
-#    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O2")
-#
-#    # We need a few MB of stack - don't skip this or WASMTime will silently allow the stack to grow into the heap or static memory, causing corruption.
-#    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--stack-first -Wl,-z,stack-size=8388608")
+    add_link_options(-lwasi-emulated-process-clocks)
 
+    add_compile_options(-fno-strict-aliasing -fvisibility=hidden -Wall -Wextra -Wno-unknown-warning-option)
+
+    add_compile_options($<IF:$<CONFIG:Debug>,-g,-O2>)
+
+    # We need a few MB of stack - don't skip this or WASMTime will silently allow the stack to grow into the heap or static memory, causing corruption.
+    add_link_options(-Wl,--stack-first -Wl,-z,stack-size=8388608)
 else()
     add_compile_options("$<$<CXX_COMPILER_ID:Clang>:-Wno-unused-variable;-Wno-unused-function>")
 endif()
