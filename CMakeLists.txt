@@ -370,20 +370,22 @@ macro(set_common_executable_properties target add_lib)
 endmacro()
 
 if (BASISU_TOOL)
-    # Create the basisu executable and link against the static library
+    # Create the basisu executable
     add_executable(basisu basisu_tool.cpp)
     set_common_executable_properties(basisu TRUE)
 endif()
 
 if (BASISU_EXAMPLES)
-    # Create the new example executable and link against the static library
+    # Create the example executables
     add_executable(examples example/example.cpp)
     set_common_executable_properties(examples TRUE)
+
     add_executable(example_capi example_capi/example_capi.c encoder/basisu_wasm_api.cpp encoder/basisu_wasm_transcoder_api.cpp)
     set_common_executable_properties(example_capi TRUE)
+
     add_executable(example_transcoding example_transcoding/example_transcoding.cpp example_transcoding/utils.cpp zstd/zstddeclib.c transcoder/basisu_transcoder.cpp)
     set_common_executable_properties(example_transcoding FALSE)
-    # This is used by basisu_transcoder.cpp.
+    # Need to set these because target is not linked to basisu_encoder.
     target_compile_definitions(example_transcoding PRIVATE "BASISD_SUPPORT_KTX2_ZSTD=$<IF:$<BOOL:${BASISU_ZSTD}>,1,0>")
     target_compile_options(example_transcoding PUBLIC
         "$<$<BOOL:${BASISU_BUILD_WASM}>:-fno-exceptions -fno-rtti>"
