@@ -10,7 +10,7 @@ var Renderer = function (gl) {
     * @private
     */
    this.gl_ = gl;
-
+         
    /**
     * The WebGLProgram.
     * @type {WebGLProgram}
@@ -53,11 +53,19 @@ var Renderer = function (gl) {
     */
    this.quadVertexBuffer_ = gl.createBuffer();
    gl.bindBuffer(gl.ARRAY_BUFFER, this.quadVertexBuffer_);
+
    var vertices = new Float32Array(
       [-1.0, -1.0, 0.0, 1.0,
       +1.0, -1.0, 1.0, 1.0,
       -1.0, +1.0, 0.0, 0.0,
          1.0, +1.0, 1.0, 0.0]);
+		 
+//   var vertices = new Float32Array(
+//      [-1.0, -1.0, 0.0, .5,
+//      +1.0, -1.0, .5, .5,
+//      -1.0, +1.0, 0.0, 0.0,
+//         1.0, +1.0, .5, 0.0]);
+		 
    gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
 
 
@@ -90,7 +98,7 @@ var Renderer = function (gl) {
 
 
 Renderer.prototype.finishInit = function () {
-   this.draw();
+   //this.draw();
 };
 
 
@@ -156,12 +164,12 @@ Renderer.prototype.createHalfRGBATexture = function (data, width, height, format
    return tex;
 };
 
-// WebGL requires each row of rgb565Data to be aligned on a 4-byte boundary.
+// WebGL requires each row of rgb565Data to be aligned on a 4-byte boundary.            
 Renderer.prototype.createRgb565Texture = function (rgb565Data, width, height) {
    var gl = this.gl_;
    var tex = gl.createTexture();
    gl.bindTexture(gl.TEXTURE_2D, tex);
-
+   
    gl.texImage2D(
       gl.TEXTURE_2D,
       0,
@@ -203,7 +211,7 @@ Renderer.prototype.createRgbaTexture = function (rgbaData, width, height) {
 };
 
 
-Renderer.prototype.drawTexture = function (texture, width, height, mode, scale, linearToSRGBFlag) {
+Renderer.prototype.drawTexture = function (texture, width, height, mode, scale, linearToSRGBFlag, useLinearFiltering) {
    var gl = this.gl_;
    // draw scene
    gl.clearColor(0, 0, 0, 1);
@@ -213,6 +221,11 @@ Renderer.prototype.drawTexture = function (texture, width, height, mode, scale, 
 
    gl.activeTexture(gl.TEXTURE0);
    gl.bindTexture(gl.TEXTURE_2D, texture);
+   
+   // Point vs. bilinear sampling (no mipmaps involved here)
+   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, useLinearFiltering ? gl.LINEAR : gl.NEAREST);
+   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, useLinearFiltering ? gl.LINEAR : gl.NEAREST);
+      
    gl.uniform1i(this.uniformLocations_.texSampler, 0);
 
    var x = 0.0;
@@ -250,7 +263,7 @@ Renderer.prototype.compileShader_ = function (shaderSource, type) {
    var shader = gl.createShader(type);
    gl.shaderSource(shader, shaderSource);
    gl.compileShader(shader);
-
+   
      // Check for errors
    const compiled = gl.getShaderParameter(shader, gl.COMPILE_STATUS);
    if (!compiled) {
@@ -259,7 +272,7 @@ Renderer.prototype.compileShader_ = function (shaderSource, type) {
         gl.deleteShader(shader); // Cleanup shader object
         throw new Error('Shader compilation failed');
    }
-
+    
    return shader;
 };
 
@@ -310,3 +323,4 @@ Renderer.fragmentShaderSource_ = [
    '  gl_FragColor = c;',
    '}'
 ].join('\n');
+

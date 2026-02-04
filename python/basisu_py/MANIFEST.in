@@ -1,0 +1,2 @@
+recursive-include basisu_py *.py *.so *.wasm
+include README.md

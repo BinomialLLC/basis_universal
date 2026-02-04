@@ -828,7 +828,7 @@ typedef struct TinyDDS_Context {
 
 #define TINYDDS_MAKE_RIFFCODE(a, b, c, d) (a | (b << 8) | (c << 16) | (d << 24))
 
-static uint32_t TinyDDS_fileIdentifier = TINYDDS_MAKE_RIFFCODE('D', 'D', 'S', ' ');
+//static uint32_t TinyDDS_fileIdentifier = TINYDDS_MAKE_RIFFCODE('D', 'D', 'S', ' ');
 
 static void TinyDDS_NullErrorFunc(void *user, char const *msg) { BASISU_NOTE_UNUSED(user); BASISU_NOTE_UNUSED(msg); }
 

@@ -1,5 +1,5 @@
 // basisu.h
-// Copyright (C) 2019-2024 Binomial LLC. All Rights Reserved.
+// Copyright (C) 2019-2026 Binomial LLC. All Rights Reserved.
 // Important: If compiling with gcc, be sure strict aliasing is disabled: -fno-strict-aliasing
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -15,12 +15,16 @@
 // limitations under the License.
 #pragma once
 
+#ifndef BASISD_SUPPORT_XUASTC
+#define BASISD_SUPPORT_XUASTC 1
+#endif
+
 #ifdef _MSC_VER
 
 	#pragma warning (disable : 4201)
 	#pragma warning (disable : 4127) // warning C4127: conditional expression is constant
 	#pragma warning (disable : 4530) // C++ exception handler used, but unwind semantics are not enabled.
-
+	
 #endif // _MSC_VER
 
 #include <stdlib.h>
@@ -40,9 +44,11 @@
 #include <assert.h>
 #include <random>
 #include <inttypes.h>
+#include <cfloat>
 
 #include "basisu_containers.h"
 
+// We never use min/max macros, slam them to off.
 #ifdef max
 #undef max
 #endif
@@ -57,6 +63,7 @@
 
 // Set to one to enable debug printf()'s when any errors occur, for development/debugging. Especially useful for WebGL development.
 #ifndef BASISU_FORCE_DEVEL_MESSAGES
+// Do not check in as 1!
 #define BASISU_FORCE_DEVEL_MESSAGES 0
 #endif
 
@@ -93,6 +100,7 @@ namespace basisu
 	typedef basisu::vector<int> int_vec;
 	typedef basisu::vector<bool> bool_vec;
 	typedef basisu::vector<float> float_vec;
+	typedef basisu::vector<double> double_vec;
 
 	void enable_debug_printf(bool enabled);
 	void debug_printf(const char *pFmt, ...);
@@ -109,14 +117,14 @@ namespace basisu
 
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wclass-memaccess"
+#pragma GCC diagnostic ignored "-Wclass-memaccess"            
 #endif
-
+		
 	template <typename T> inline void clear_obj(T& obj) { memset((void *)&obj, 0, sizeof(obj)); }
 
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic pop
-#endif
+#endif                            
 
 	constexpr double cPiD = 3.14159265358979323846264338327950288;
 	constexpr float REALLY_SMALL_FLOAT_VAL = .000000125f;
@@ -124,7 +132,7 @@ namespace basisu
 	constexpr float BIG_FLOAT_VAL = 1e+30f;
 
 	template <typename T0, typename T1> inline T0 lerp(T0 a, T0 b, T1 c) { return a + (b - a) * c; }
-
+		
 	inline float clampf(float value, float low, float high) { if (value < low) value = low; else if (value > high) value = high;	return value; }
 	inline float saturate(float value) { return clampf(value, 0, 1.0f); }
 	inline uint8_t minimumub(uint8_t a, uint8_t b) { return (a < b) ? a : b; }
@@ -141,6 +149,41 @@ namespace basisu
 	template<typename T> inline T square(T a) { return a * a; }
 	template<typename T> inline T sign(T a) { return (a < 0) ? (T)-1 : ((a == 0) ? (T)0 : (T)1); }
 
+	inline int imod(int i, int d)
+	{
+		assert(i != INT_MIN);
+
+		if (i >= 0)
+			return i % d;
+
+		int r = (-i) % d;
+		return (r == 0) ? 0 : d - r;
+	}
+
+	inline uint8_t safe_cast_uint8(uint32_t x)
+	{
+		assert(x <= UINT8_MAX);
+		return (uint8_t)x;
+	}
+
+	inline int8_t safe_cast_int8(int32_t x)
+	{
+		assert((x >= INT8_MIN) && (x <= INT8_MAX));
+		return (int8_t)x;
+	}
+
+	inline uint16_t safe_cast_uint16(uint32_t x)
+	{
+		assert(x <= UINT16_MAX);
+		return (uint16_t)x;
+	}
+
+	inline int16_t safe_cast_int16(int32_t x)
+	{
+		assert((x >= INT16_MIN) && (x <= INT16_MAX));
+		return (int16_t)x;
+	}
+		
 	inline bool equal_tol(float a, float b, float t) { return fabsf(a - b) <= ((maximum(fabsf(a), fabsf(b)) + 1.0f) * t); }
 	inline bool equal_tol(double a, double b, double t) { return fabs(a - b) <= ((maximum(fabs(a), fabs(b)) + 1.0f) * t); }
 
@@ -161,27 +204,35 @@ namespace basisu
 			temp = 0;
 		return temp;
 	}
-
+		
 	inline uint32_t iabs(int32_t i) { return (i < 0) ? static_cast<uint32_t>(-i) : static_cast<uint32_t>(i);	}
 	inline uint64_t iabs64(int64_t i) {	return (i < 0) ? static_cast<uint64_t>(-i) : static_cast<uint64_t>(i); }
 
-	template<typename T> inline void clear_vector(T &vec) { vec.erase(vec.begin(), vec.end()); }
+	template<typename T> inline void clear_vector(T &vec) { vec.erase(vec.begin(), vec.end()); }		
 	template<typename T> inline typename T::value_type *enlarge_vector(T &vec, size_t n) { size_t cs = vec.size(); vec.resize(cs + n); return &vec[cs]; }
 
 	inline bool is_pow2(uint32_t x) { return x && ((x & (x - 1U)) == 0U); }
 	inline bool is_pow2(uint64_t x) { return x && ((x & (x - 1U)) == 0U); }
 
+	template<typename T> inline T range_check(T v, T minv, T maxv) { assert(v >= minv && v <= maxv); BASISU_NOTE_UNUSED(minv); BASISU_NOTE_UNUSED(maxv); return v; }
+	template<typename T> inline T range_check(T v, T maxv) { assert(v <= maxv); BASISU_NOTE_UNUSED(maxv); return v; }
+
 	template<typename T> inline T open_range_check(T v, T minv, T maxv) { assert(v >= minv && v < maxv); BASISU_NOTE_UNUSED(minv); BASISU_NOTE_UNUSED(maxv); return v; }
 	template<typename T> inline T open_range_check(T v, T maxv) { assert(v < maxv); BASISU_NOTE_UNUSED(maxv); return v; }
 
 	// Open interval
-	inline bool in_bounds(int v, int l, int h)
+	inline bool is_in_bounds(int v, int l, int h)
 	{
 		return (v >= l) && (v < h);
 	}
 
 	// Closed interval
-	inline bool in_range(int v, int l, int h)
+	inline bool is_in_range(int v, int l, int h)
+	{
+		return (v >= l) && (v <= h);
+	}
+
+	inline bool is_in_range(float v, float l, float h)
 	{
 		return (v >= l) && (v <= h);
 	}
@@ -192,7 +243,7 @@ namespace basisu
 
 	inline uint32_t get_bit(uint32_t src, int ndx)
 	{
-		assert(in_bounds(ndx, 0, 32));
+		assert(is_in_bounds(ndx, 0, 32));
 		return (src >> ndx) & 1;
 	}
 
@@ -204,7 +255,7 @@ namespace basisu
 	inline uint32_t get_bits(uint32_t val, int low, int high)
 	{
 		const int num_bits = (high - low) + 1;
-		assert(in_range(num_bits, 1, 32));
+		assert(is_in_range(num_bits, 1, 32));
 
 		val >>= low;
 		if (num_bits != 32)
@@ -213,8 +264,8 @@ namespace basisu
 		return val;
 	}
 
-	template<typename T, typename R> inline void append_vector(T &vec, const R *pObjs, size_t n)
-	{
+	template<typename T, typename R> inline void append_vector(T &vec, const R *pObjs, size_t n) 
+	{ 
 		if (n)
 		{
 			if (vec.size())
@@ -265,7 +316,7 @@ namespace basisu
 		for (size_t i = 0; i < vec.size(); i++)
 			vec[i] = obj;
 	}
-
+		
 	inline uint64_t read_be64(const void *p)
 	{
 		uint64_t val = 0;
@@ -307,6 +358,14 @@ namespace basisu
 		return (m != 0) ? (y - m) : m;
 	}
 
+	inline float posmodf(float x, float y)
+	{
+		float m = fmodf(x, y);
+		if (m < 0.0f)
+			m += y;
+		return m;
+	}
+
 	inline bool do_excl_ranges_overlap(int la, int ha, int lb, int hb)
 	{
 		assert(la < ha && lb < hb);
@@ -331,7 +390,7 @@ namespace basisu
 		pBytes[2] = (uint8_t)(val >> 16U);
 		pBytes[3] = (uint8_t)(val >> 24U);
 	}
-
+		
 	// Always little endian 1-8 byte unsigned int
 	template<uint32_t NumBytes>
 	struct packed_uint
@@ -341,21 +400,21 @@ namespace basisu
 		inline packed_uint() { static_assert(NumBytes <= sizeof(uint64_t), "Invalid NumBytes"); }
 		inline packed_uint(uint64_t v) { *this = v; }
 		inline packed_uint(const packed_uint& other) { *this = other; }
-
-		inline packed_uint& operator= (uint64_t v)
-		{
+						
+		inline packed_uint& operator= (uint64_t v) 
+		{ 
 			// TODO: Add assert on truncation?
-			for (uint32_t i = 0; i < NumBytes; i++)
-				m_bytes[i] = static_cast<uint8_t>(v >> (i * 8));
-			return *this;
+			for (uint32_t i = 0; i < NumBytes; i++) 
+				m_bytes[i] = static_cast<uint8_t>(v >> (i * 8)); 
+			return *this; 
 		}
 
-		inline packed_uint& operator= (const packed_uint& rhs)
-		{
-			memcpy(m_bytes, rhs.m_bytes, sizeof(m_bytes));
+		inline packed_uint& operator= (const packed_uint& rhs) 
+		{ 
+			memcpy(m_bytes, rhs.m_bytes, sizeof(m_bytes)); 
 			return *this;
 		}
-
+				
 		inline uint64_t get_uint64() const
 		{
 			// Some compilers may warn about this code. It clearly cannot access beyond the end of the m_bytes struct here.
@@ -411,7 +470,7 @@ namespace basisu
 			static_assert(NumBytes <= sizeof(uint32_t), "packed_uint too large to use get_uint32");
 			return static_cast<uint32_t>(get_uint64());
 		}
-
+		
 		inline operator uint32_t() const
 		{
 			static_assert(NumBytes <= sizeof(uint32_t), "packed_uint too large to use operator uint32_t");
@@ -421,14 +480,14 @@ namespace basisu
 
 	enum eZero { cZero };
 	enum eNoClamp { cNoClamp };
-
+	
 	// Rice/Huffman entropy coding
-
+		
 	// This is basically Deflate-style canonical Huffman, except we allow for a lot more symbols.
 	enum
 	{
-		cHuffmanMaxSupportedCodeSize = 16, cHuffmanMaxSupportedInternalCodeSize = 31,
-		cHuffmanFastLookupBits = 10,
+		cHuffmanMaxSupportedCodeSize = 16, cHuffmanMaxSupportedInternalCodeSize = 31, 
+		cHuffmanFastLookupBits = 10, 
 		cHuffmanMaxSymsLog2 = 14, cHuffmanMaxSyms = 1 << cHuffmanMaxSymsLog2,
 
 		// Small zero runs
@@ -454,13 +513,13 @@ namespace basisu
 	enum class texture_format
 	{
 		cInvalidTextureFormat = -1,
-
+		
 		// Block-based formats
 		cETC1,				// ETC1
 		cETC1S,				// ETC1 (subset: diff colors only, no subblocks)
 		cETC2_RGB,			// ETC2 color block (basisu doesn't support ETC2 planar/T/H modes - just basic ETC1)
 		cETC2_RGBA,			// ETC2 EAC alpha block followed by ETC2 color block
-		cETC2_ALPHA,		// ETC2 EAC alpha block
+		cETC2_ALPHA,		// ETC2 EAC alpha block 
 		cBC1,				// DXT1
 		cBC3,				// DXT5 (BC4/DXT5A block followed by a BC1/DXT1 block)
 		cBC4,				// DXT5A
@@ -479,11 +538,11 @@ namespace basisu
 		cPVRTC2_4_RGBA,
 		cETC2_R11_EAC,
 		cETC2_RG11_EAC,
-		cUASTC4x4,
+		cUASTC4x4,		
 		cUASTC_HDR_4x4,
 		cBC1_NV,
 		cBC1_AMD,
-
+				
 		// Uncompressed/raw pixels
 		cRGBA32,
 		cRGB565,
@@ -492,8 +551,88 @@ namespace basisu
 		cABGR4444,
 		cRGBA_HALF,
 		cRGB_HALF,
-		cRGB_9E5
+		cRGB_9E5,
+
+		// All remaining ASTC LDR block size variants (other than 4x4 which is above). There are 14 total ASTC block sizes, including 4x4.
+		cASTC_LDR_5x4,
+		cASTC_LDR_5x5,
+		cASTC_LDR_6x5,
+		cASTC_LDR_6x6,
+		cASTC_LDR_8x5,
+		cASTC_LDR_8x6,
+		cASTC_LDR_10x5,
+		cASTC_LDR_10x6,
+		cASTC_LDR_8x8,
+		cASTC_LDR_10x8,
+		cASTC_LDR_10x10,
+		cASTC_LDR_12x10,
+		cASTC_LDR_12x12
 	};
+
+	inline bool is_astc(texture_format fmt)
+	{
+		switch (fmt)
+		{
+			case texture_format::cASTC_HDR_4x4:
+			case texture_format::cASTC_HDR_6x6:
+			case texture_format::cASTC_LDR_4x4:
+			case texture_format::cASTC_LDR_5x4:
+			case texture_format::cASTC_LDR_5x5:
+			case texture_format::cASTC_LDR_6x5:
+			case texture_format::cASTC_LDR_6x6:
+			case texture_format::cASTC_LDR_8x5:
+			case texture_format::cASTC_LDR_8x6:
+			case texture_format::cASTC_LDR_10x5:
+			case texture_format::cASTC_LDR_10x6:
+			case texture_format::cASTC_LDR_8x8:
+			case texture_format::cASTC_LDR_10x8:
+			case texture_format::cASTC_LDR_10x10:
+			case texture_format::cASTC_LDR_12x10:
+			case texture_format::cASTC_LDR_12x12:
+				return true;
+			default:
+				break;
+		}
+		return false;
+	}
+
+	inline bool is_hdr_astc(texture_format fmt)
+	{
+		switch (fmt)
+		{
+			case texture_format::cASTC_HDR_4x4:
+			case texture_format::cASTC_HDR_6x6:
+				return true;
+			default:
+				break;
+		}
+		return false;
+	}
+
+	inline bool is_ldr_astc(texture_format fmt)
+	{
+		switch (fmt)
+		{
+		case texture_format::cASTC_LDR_4x4:
+		case texture_format::cASTC_LDR_5x4:
+		case texture_format::cASTC_LDR_5x5:
+		case texture_format::cASTC_LDR_6x5:
+		case texture_format::cASTC_LDR_6x6:
+		case texture_format::cASTC_LDR_8x5:
+		case texture_format::cASTC_LDR_8x6:
+		case texture_format::cASTC_LDR_10x5:
+		case texture_format::cASTC_LDR_10x6:
+		case texture_format::cASTC_LDR_8x8:
+		case texture_format::cASTC_LDR_10x8:
+		case texture_format::cASTC_LDR_10x10:
+		case texture_format::cASTC_LDR_12x10:
+		case texture_format::cASTC_LDR_12x12:
+			return true;
+		default:
+			break;
+		}
+		return false;
+	}
 
 	inline bool is_uncompressed_texture_format(texture_format fmt)
 	{
@@ -555,7 +694,7 @@ namespace basisu
 		default:
 			break;
 		}
-
+		
 		// Everything else is 16 bytes/block.
 		return 16;
 	}
@@ -575,10 +714,21 @@ namespace basisu
 
 		switch (fmt)
 		{
-		case texture_format::cFXT1_RGB:
-			return 8;
-		case texture_format::cASTC_HDR_6x6:
-			return 6;
+		case texture_format::cFXT1_RGB:	return 8;
+		case texture_format::cASTC_HDR_6x6:	return 6;
+		case texture_format::cASTC_LDR_5x4: return 5;
+		case texture_format::cASTC_LDR_5x5: return 5;
+		case texture_format::cASTC_LDR_6x5: return 6;
+		case texture_format::cASTC_LDR_6x6: return 6;
+		case texture_format::cASTC_LDR_8x5: return 8;
+		case texture_format::cASTC_LDR_8x6: return 8;
+		case texture_format::cASTC_LDR_10x5: return 10;
+		case texture_format::cASTC_LDR_10x6: return 10;
+		case texture_format::cASTC_LDR_8x8: return 8;
+		case texture_format::cASTC_LDR_10x8: return 10;
+		case texture_format::cASTC_LDR_10x10: return 10;
+		case texture_format::cASTC_LDR_12x10: return 12;
+		case texture_format::cASTC_LDR_12x12: return 12;
 		default:
 			break;
 		}
@@ -591,8 +741,19 @@ namespace basisu
 
 		switch (fmt)
 		{
-		case texture_format::cASTC_HDR_6x6:
-			return 6;
+		case texture_format::cASTC_HDR_6x6:	return 6;
+		case texture_format::cASTC_LDR_5x5: return 5;
+		case texture_format::cASTC_LDR_6x5: return 5;
+		case texture_format::cASTC_LDR_6x6: return 6;
+		case texture_format::cASTC_LDR_8x5: return 5;
+		case texture_format::cASTC_LDR_8x6: return 6;
+		case texture_format::cASTC_LDR_10x5: return 5;
+		case texture_format::cASTC_LDR_10x6: return 6;
+		case texture_format::cASTC_LDR_8x8: return 8;
+		case texture_format::cASTC_LDR_10x8: return 8;
+		case texture_format::cASTC_LDR_10x10: return 10;
+		case texture_format::cASTC_LDR_12x10: return 10;
+		case texture_format::cASTC_LDR_12x12: return 12;
 		default:
 			break;
 		}
@@ -623,5 +784,38 @@ namespace basisu
 	{
 		return !is_hdr_texture_format(fmt);
 	}
+		
+	inline texture_format get_astc_ldr_texture_format(uint32_t width, uint32_t height)
+	{
+#define BU_ASTC_LDR_MATCH_BLOCK_DIM(x, y, f) if ((width == (x)) && (height == (y))) return (f);
+		BU_ASTC_LDR_MATCH_BLOCK_DIM(4, 4, texture_format::cASTC_LDR_4x4);
+		BU_ASTC_LDR_MATCH_BLOCK_DIM(5, 4, texture_format::cASTC_LDR_5x4);
 
+		BU_ASTC_LDR_MATCH_BLOCK_DIM(5, 5, texture_format::cASTC_LDR_5x5);
+
+		BU_ASTC_LDR_MATCH_BLOCK_DIM(6, 5, texture_format::cASTC_LDR_6x5);
+		BU_ASTC_LDR_MATCH_BLOCK_DIM(6, 6, texture_format::cASTC_LDR_6x6);
+
+		BU_ASTC_LDR_MATCH_BLOCK_DIM(8, 5, texture_format::cASTC_LDR_8x5);
+		BU_ASTC_LDR_MATCH_BLOCK_DIM(8, 6, texture_format::cASTC_LDR_8x6);
+		BU_ASTC_LDR_MATCH_BLOCK_DIM(10, 5, texture_format::cASTC_LDR_10x5);
+		BU_ASTC_LDR_MATCH_BLOCK_DIM(10, 6, texture_format::cASTC_LDR_10x6);
+
+		BU_ASTC_LDR_MATCH_BLOCK_DIM(8, 8, texture_format::cASTC_LDR_8x8);
+		BU_ASTC_LDR_MATCH_BLOCK_DIM(10, 8, texture_format::cASTC_LDR_10x8);
+		BU_ASTC_LDR_MATCH_BLOCK_DIM(10, 10, texture_format::cASTC_LDR_10x10);
+
+		BU_ASTC_LDR_MATCH_BLOCK_DIM(12, 10, texture_format::cASTC_LDR_12x10);
+		BU_ASTC_LDR_MATCH_BLOCK_DIM(12, 12, texture_format::cASTC_LDR_12x12);
+#undef BU_ASTC_LDR_MATCH_BLOCK_DIM
+
+		return texture_format::cInvalidTextureFormat;
+	}
+
+	inline bool is_valid_astc_block_size(uint32_t width, uint32_t height)
+	{
+		return get_astc_ldr_texture_format(width, height) != texture_format::cInvalidTextureFormat;
+	}
+							
 } // namespace basisu
+

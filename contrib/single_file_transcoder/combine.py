@@ -160,7 +160,7 @@ def add_file(file: Path, file_name: str = None) -> None:
         if (not file_name):
             file_name = file.name
         error_line(f'Processing: {file_name}')
-        with file.open('r', errors='replace') as opened:
+        with file.open('r', encoding='utf-8-sig', errors='replace') as opened:
             for line in opened:
                 line = line.rstrip('\n')
                 match_include = include_regex.match(line);
