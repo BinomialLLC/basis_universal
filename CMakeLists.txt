@@ -344,7 +344,6 @@ if (NOT MSVC AND NOT BASISU_BUILD_WASM)
 endif()
 
 macro(set_common_executable_properties target add_lib)
-    message("target = ${target}, add_lib = ${add_lib}")
     #if (MSVC)
         target_sources(${target} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/basisu.manifest")
     #endif()
