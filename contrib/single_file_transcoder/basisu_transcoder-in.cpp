@@ -29,9 +29,11 @@
 #define BASISD_SUPPORT_FXT1 0
 
 /*
- * KTX2 support disabled.
+ * KTX2 support enabled.
  */
-#define BASISD_SUPPORT_KTX2 0
+#define BASISD_SUPPORT_KTX2 1
+
+#define BASISU_ASTC_HELPERS_IMPLEMENTATION
 
 #include "basisu_transcoder.cpp"
 

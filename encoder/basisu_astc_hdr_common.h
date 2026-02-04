@@ -12,13 +12,13 @@ namespace basisu
 
 	const uint32_t MODE11_TOTAL_SUBMODES = 8; // plus an extra hidden submode, directly encoded, for direct, so really 9 (see tables 99/100 of the ASTC spec)
 	const uint32_t MODE7_TOTAL_SUBMODES = 6;
-
+		
 	// [ise_range][0] = # levels
 	// [ise_range][1...] = lerp value [0,64]
 	// in ASTC order
 	// Supported ISE weight ranges: 0 to 11, 12 total
 	const uint32_t MIN_SUPPORTED_ISE_WEIGHT_INDEX = astc_helpers::BISE_2_LEVELS; // ISE 0=2 levels
-	const uint32_t MAX_SUPPORTED_ISE_WEIGHT_INDEX = astc_helpers::BISE_32_LEVELS; // ISE 11=16 levels
+	const uint32_t MAX_SUPPORTED_ISE_WEIGHT_INDEX = astc_helpers::BISE_32_LEVELS; // ISE 11=32 levels
 	const uint32_t MIN_SUPPORTED_WEIGHT_LEVELS = 2;
 	const uint32_t MAX_SUPPORTED_WEIGHT_LEVELS = 32;
 
@@ -29,13 +29,17 @@ namespace basisu
 
 	const float LDR_TO_HDR_NITS = 100.0f;
 
+	extern vec4F g_astc_ls_weights_ise[MAX_SUPPORTED_ISE_WEIGHT_INDEX + 1][MAX_SUPPORTED_WEIGHT_LEVELS];
+	extern uint8_t g_map_astc_to_linear_order[MAX_SUPPORTED_ISE_WEIGHT_INDEX + 1][MAX_SUPPORTED_WEIGHT_LEVELS]; // [ise_range][astc_index] -> linear index
+	extern uint8_t g_map_linear_to_astc_order[MAX_SUPPORTED_ISE_WEIGHT_INDEX + 1][MAX_SUPPORTED_WEIGHT_LEVELS]; // [ise_range][linear_index] -> astc_index
+
 	struct astc_hdr_codec_base_options
 	{
 		float m_r_err_scale, m_g_err_scale;
 		float m_q_log_bias;
-
+		
 		bool m_ultra_quant;
-
+		
 		// If true, the ASTC HDR compressor is allowed to more aggressively vary weight indices for slightly higher compression in non-fastest mode. This will hurt BC6H quality, however.
 		bool m_allow_uber_mode;
 
@@ -45,7 +49,7 @@ namespace basisu
 		bool m_take_first_non_clamping_mode7_submode;
 
 		bool m_disable_weight_plane_optimization;
-
+		
 		astc_hdr_codec_base_options() { init(); }
 
 		void init();
@@ -173,7 +177,7 @@ namespace basisu
 		basist::half_float* pDecoded_half,
 		vec3F* pDecoded_float,
 		uint32_t n, uint32_t ise_weight_range, uint32_t ise_endpoint_range);
-
+			
 	// Fast high precision piecewise linear approximation of log2(bias+x).
 	// Half may be zero, positive or denormal. No NaN/Inf/negative.
 	BASISU_FORCE_INLINE double q(basist::half_float x, float log_bias)
@@ -183,7 +187,7 @@ namespace basisu
 		fi.f = fast_half_to_float_pos_not_inf_or_nan(x);
 
 		assert(fi.f >= 0.0f);
-
+						
 		fi.f += log_bias;
 
 		return (double)fi.u; // approx log2f(fi.f), need to return double for the precision
@@ -196,7 +200,7 @@ namespace basisu
 		fi.f = fast_half_to_float_pos_not_inf_or_nan(x);
 
 		assert(fi.f >= 0.0f);
-
+		
 		fi.f += log_bias;
 
 		return fi.u;
@@ -298,8 +302,8 @@ namespace basisu
 		uint32_t ise_endpoint_range,
 		bool uber_mode,
 		bool constrain_ise_weight_selectors,
-		int32_t first_submode, int32_t last_submode, bool ignore_clamping,
-		opt_mode_t opt_mode,
+		int32_t first_submode, int32_t last_submode, bool ignore_clamping, 
+		opt_mode_t opt_mode, 
 		const encode_astc_block_stats *pBlock_stats = nullptr);
 
 	double encode_astc_hdr_block_downsampled_mode_11(
@@ -325,7 +329,7 @@ namespace basisu
 		uint32_t ise_endpoint_range,
 		bool uber_mode,
 		bool constrain_ise_weight_selectors,
-		int32_t first_submode, int32_t last_submode,
+		int32_t first_submode, int32_t last_submode, 
 		bool ignore_clamping);
 
 	double encode_astc_hdr_block_mode_7(
@@ -337,8 +341,8 @@ namespace basisu
 		uint8_t* blk_endpoints,  //[4]
 		uint8_t* blk_weights, // [num_pixels]
 		const astc_hdr_codec_base_options& coptions,
-		uint32_t ise_endpoint_range,
-		int first_submode = 0, int last_submode = MAX_MODE7_SUBMODE_INDEX,
+		uint32_t ise_endpoint_range, 
+		int first_submode = 0, int last_submode = MAX_MODE7_SUBMODE_INDEX, 
 		const encode_astc_block_stats *pBlock_stats = nullptr);
 
 	//--------------------------------------------------------------------------------------------------------------------------
@@ -373,17 +377,23 @@ namespace basisu
 	bool pack_astc_mode11_submode(uint32_t submode, uint8_t* pEndpoints, int val_q[2][3], int& max_clamp_mag, bool early_out_if_clamped = false, int max_clamp_mag_accept_thresh = 0);
 	bool pack_astc_mode11_submode(uint32_t submode, uint8_t* pEndpoints, const vec3F& low_q16, const vec3F& high_q16, int& max_clamp_mag, bool early_out_if_clamped = false, int max_clamp_mag_accept_thresh = 0);
 	void pack_astc_mode11_direct(uint8_t* pEndpoints, vec3F l_q16, vec3F h_q16);
-
+	
 	bool pack_mode11(mode11_log_desc& desc, uint8_t* pEndpoints);
 	void unpack_mode11(const uint8_t* pEndpoints, mode11_log_desc& desc);
 
 	void decode_cem_11_config(const uint8_t* pEndpoints, int& submode_index, int& maj_index);
 	void decode_cem_7_config(const uint8_t* pEndpoints, int& submode_index, int& maj_index);
-
+		
 	void dequantize_astc_weights(uint32_t n, const uint8_t* pSrc_ise_vals, uint32_t from_ise_range, uint8_t* pDst_raw_weights);
 
 	const float* get_6x6_downsample_matrix(uint32_t grid_width, uint32_t grid_height);
-
+	const float* get_8x6_downsample_matrix(uint32_t grid_width, uint32_t grid_height);
+	
+	void compute_upsample_matrix(basisu::vector2D<float>& upsample_matrix, uint32_t block_width, uint32_t block_height, uint32_t grid_width, uint32_t grid_height);
+	void compute_upsample_matrix_transposed(basisu::vector<float>& unweighted_downsample_matrix, uint32_t block_width, uint32_t block_height, uint32_t grid_width, uint32_t grid_height);
+	
+	void compute_diag_AtA_vector(uint32_t block_width, uint32_t block_height, uint32_t grid_width, uint32_t grid_height, const vector2D<float>& upsample_matrix, float* pDst_vec);
+		
 	void downsample_weight_grid(
 		const float* pMatrix_weights,
 		uint32_t bx, uint32_t by,		// source/from dimension (block size)
@@ -413,10 +423,11 @@ namespace basisu
 		uint32_t num_pixels, const basist::half_float pBlock_pixels_half[][3], const vec4F pBlock_pixels_q16[],
 		const uint8_t* pPixel_block_ofs, // maps this subset's pixels to block offsets
 		astc_hdr_codec_base_options& coptions, opt_mode_t opt_mode);
-
+	
 	extern bool g_astc_hdr_enc_initialized;
 
 	// This MUST be called before encoding any blocks.
 	void astc_hdr_enc_init();
 
 } // namespace basisu
+

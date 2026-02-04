@@ -3,10 +3,11 @@
 // Supports box and linear chroma upsampling.
 //
 // Released under two licenses. You are free to choose which license you want:
-// License 1:
+// License 1: 
 // Public Domain
 //
 // License 2:
+// Copyright (C) 2019-2026 Binomial LLC. All Rights Reserved.
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -23,6 +24,10 @@
 // v1.04, May. 19, 2012: Code tweaks to fix VS2008 static code analysis warnings
 // v2.00, March 20, 2020: Fuzzed with zzuf and afl. Fixed several issues, converted most assert()'s to run-time checks. Added chroma upsampling. Removed freq. domain upsampling. gcc/clang warnings.
 //
+
+#if defined(__wasi__)
+#pragma message("__wasi__ defined in jpgd.cpp: note if a decode error occurs, the app will exit because wasi doesn't support longjmp yet.")
+#endif
 
 #include "jpgd.h"
 #include <string.h>
@@ -138,7 +143,7 @@ namespace jpgd {
 	{
 		static void idct(int* pTemp, const jpgd_block_t* pSrc)
 		{
-			(void)pTemp;
+			(void)pTemp; 
 			(void)pSrc;
 		}
 	};
@@ -253,10 +258,10 @@ namespace jpgd {
 	  8,8,8,8,8,7,6,4, 8,8,8,8,8,7,6,5, 8,8,8,8,8,7,6,6, 8,8,8,8,8,7,7,6, 8,8,8,8,8,8,7,6, 8,8,8,8,8,8,8,6, 8,8,8,8,8,8,8,7, 8,8,8,8,8,8,8,8,
 	};
 
-	static const uint8 s_idct_col_table[] =
-	{
-		1, 1, 2, 3, 3, 3, 3, 3, 3, 4, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 6, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
-		7, 7, 7, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8
+	static const uint8 s_idct_col_table[] = 
+	{ 
+		1, 1, 2, 3, 3, 3, 3, 3, 3, 4, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 6, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 
+		7, 7, 7, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8 
 	};
 
 	// Scalar "fast pathing" IDCT.
@@ -608,7 +613,14 @@ namespace jpgd {
 	{
 		m_error_code = status;
 		free_all_blocks();
+
+#ifdef __wasi__
+		// HACK HACK for wasi's lack of longjmp support
+		fprintf(stderr, "jpeg_decoder::stop_decoding: JPEG decode failed with status: %i\n", (int)status);
+		exit(EXIT_FAILURE);
+#else
 		longjmp(m_jmp_state, status);
+#endif
 	}
 
 	void* jpeg_decoder::alloc(size_t nSize, bool zero)
@@ -2071,8 +2083,10 @@ namespace jpgd {
 
 	int jpeg_decoder::decode_next_mcu_row()
 	{
+#ifndef __wasi__
 		if (setjmp(m_jmp_state))
 			return JPGD_FAILED;
+#endif
 
 		const bool chroma_y_filtering = (m_flags & cFlagLinearChromaFiltering) && ((m_scan_type == JPGD_YH2V2) || (m_scan_type == JPGD_YH1V2)) && (m_image_x_size >= 2) && (m_image_y_size >= 2);
 		if (chroma_y_filtering)
@@ -2987,8 +3001,10 @@ namespace jpgd {
 
 	jpeg_decoder::jpeg_decoder(jpeg_decoder_stream* pStream, uint32_t flags)
 	{
+#ifndef __wasi__
 		if (setjmp(m_jmp_state))
 			return;
+#endif
 		decode_init(pStream, flags);
 	}
 
@@ -3000,8 +3016,10 @@ namespace jpgd {
 		if (m_error_code)
 			return JPGD_FAILED;
 
+#ifndef __wasi__
 		if (setjmp(m_jmp_state))
 			return JPGD_FAILED;
+#endif
 
 		decode_start();
 

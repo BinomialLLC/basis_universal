@@ -1,5 +1,5 @@
 // basisu_uastc_enc.cpp
-// Copyright (C) 2019-2024 Binomial LLC. All Rights Reserved.
+// Copyright (C) 2019-2026 Binomial LLC. All Rights Reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -223,7 +223,7 @@ namespace basisu
 		default:
 			break;
 		}
-#endif
+#endif		
 
 		uint32_t total_planes = 1;
 		switch (result.m_uastc_mode)
@@ -319,7 +319,15 @@ namespace basisu
 							const uint32_t comp_plane = (total_comps == 2) ? c : ((c == result.m_astc.m_ccs) ? 1 : 0);
 
 							if (comp_plane == plane_index)
-								std::swap(endpoints[c * 2 + 0], endpoints[c * 2 + 1]);
+							{
+								// shut up a useless gcc warning
+								assert((c * 2 + 1) < (int)sizeof(endpoints));
+
+								if ((c * 2 + 1) < (int)sizeof(endpoints))
+								{
+									std::swap(endpoints[c * 2 + 0], endpoints[c * 2 + 1]);
+								}
+							}
 						}
 					}
 					else
@@ -456,7 +464,7 @@ namespace basisu
 		printf("Total bits: %u, endpoint bits: %u, weight bits: %u\n", block_bit_offset, total_endpoint_bits, total_weight_bits);
 #endif
 	}
-
+	
 	// MODE 0
 	// 0. DualPlane: 0, WeightRange: 8 (16), Subsets: 1, CEM: 8 (RGB Direct       ), EndpointRange: 19 (192)       MODE6 RGB
 	// 18. DualPlane: 0, WeightRange: 11 (32), Subsets: 1, CEM: 8 (RGB Direct       ), EndpointRange: 11 (32)       MODE6 RGB
@@ -507,7 +515,7 @@ namespace basisu
 		astc_results.m_endpoints[3] = ccell_results.m_astc_high_endpoint.m_c[1];
 		astc_results.m_endpoints[4] = ccell_results.m_astc_low_endpoint.m_c[2];
 		astc_results.m_endpoints[5] = ccell_results.m_astc_high_endpoint.m_c[2];
-
+				
 		bool invert = false;
 
 		if (pForce_selectors == nullptr)
@@ -1128,7 +1136,7 @@ namespace basisu
 		} // common_pattern
 	}
 
-	// MODE 5
+	// MODE 5 
 	// DualPlane: 0, WeightRange: 5 (8), Subsets: 1, CEM: 8 (RGB Direct       ), EndpointRange: 20 (256) 		BC7 MODE 6 (or MODE 1 1-subset)
 	static void astc_mode5(const color_rgba block[4][4], uastc_encode_results* pResults, uint32_t& total_results, bc7enc_compress_block_params& comp_params)
 	{
@@ -1259,7 +1267,7 @@ namespace basisu
 			ccell_results_rgb.m_pSelectors_temp = &ccell_result_selectors_temp[0];
 
 			uint64_t part_err_rgb = color_cell_compression(255, &ccell_params_rgb, &ccell_results_rgb, &comp_params);
-
+			
 			color_cell_compressor_params ccell_params_a;
 			memset(&ccell_params_a, 0, sizeof(ccell_params_a));
 
@@ -1416,9 +1424,9 @@ namespace basisu
 				for (uint32_t x = 0; x < 4; x++)
 				{
 					const uint32_t astc_part = bc7_convert_partition_index_3_to_2(g_bc7_partition3[16 * bc7_pattern + x + y * 4], common_pattern_k);
-#ifdef _DEBUG
+#ifdef _DEBUG					
 					assert((int)astc_part == astc_compute_texel_partition(astc_pattern, x, y, 0, 2, true));
-#endif
+#endif					
 
 					part_pixel_index[y][x] = num_part_pixels[astc_part];
 					part_pixels[astc_part][num_part_pixels[astc_part]++] = block[y][x];
@@ -1583,7 +1591,7 @@ namespace basisu
 		}
 #endif
 	}
-
+		
 	// 9. DualPlane: 0, WeightRange: 2 (4), Subsets: 2, CEM: 12 (RGBA Direct), EndpointRange: 8 (16) - BC7 MODE 7
 	// 16. DualPlane: 0, WeightRange : 2 (4), Subsets : 2, CEM: 4 (LA Direct), EndpointRange : 20 (256) - BC7 MODE 7
 	static void astc_mode9_or_16(uint32_t mode, const color_rgba source_block[4][4], uastc_encode_results* pResults, uint32_t& total_results, bc7enc_compress_block_params& comp_params, uint32_t estimate_partition_list_size)
@@ -2499,7 +2507,7 @@ namespace basisu
 			total_results++;
 		}
 	}
-
+		
 	static void compute_block_error(const color_rgba block[4][4], const color_rgba decoded_block[4][4], uint64_t &total_rgb_err, uint64_t &total_rgba_err, uint64_t &total_la_err)
 	{
 		uint64_t total_err_r = 0, total_err_g = 0, total_err_b = 0, total_err_a = 0;
@@ -2542,18 +2550,18 @@ namespace basisu
 		color_rgba tblock_bc1[4][4];
 		dxt1_block tbc1_block[8];
 		basist::encode_bc1(tbc1_block, (const uint8_t*)&decoded_uastc_block[0][0], 0);
-		unpack_block(texture_format::cBC1, tbc1_block, &tblock_bc1[0][0]);
+		unpack_block(texture_format::cBC1, tbc1_block, &tblock_bc1[0][0], false);
 
 		color_rgba tblock_hint0_bc1[4][4];
 		color_rgba tblock_hint1_bc1[4][4];
-
+		
 		etc_block etc1_blk;
 		memset(&etc1_blk, 0, sizeof(etc1_blk));
 
 		eac_a8_block etc2_blk;
 		memset(&etc2_blk, 0, sizeof(etc2_blk));
 		etc2_blk.m_multiplier = 1;
-
+		
 		// Pack to UASTC, then unpack, because the endpoints may be swapped.
 
 		uastc_block temp_ublock;
@@ -2561,7 +2569,7 @@ namespace basisu
 
 		unpacked_uastc_block temp_ublock_unpacked;
 		unpack_uastc(temp_ublock, temp_ublock_unpacked, false);
-
+										
 		unpacked_uastc_block ublock;
 		memset(&ublock, 0, sizeof(ublock));
 		ublock.m_mode = best_results.m_uastc_mode;
@@ -2579,7 +2587,7 @@ namespace basisu
 		{
 			transcode_uastc_to_bc1_hint1(ublock, (color32 (*)[4]) decoded_uastc_block, &b, false);
 
-			unpack_block(texture_format::cBC1, &b, &tblock_hint1_bc1[0][0]);
+			unpack_block(texture_format::cBC1, &b, &tblock_hint1_bc1[0][0], false);
 		}
 
 		// HINT0
@@ -2590,8 +2598,8 @@ namespace basisu
 		else
 		{
 			transcode_uastc_to_bc1_hint0(ublock, &b);
-
-			unpack_block(texture_format::cBC1, &b, &tblock_hint0_bc1[0][0]);
+			
+			unpack_block(texture_format::cBC1, &b, &tblock_hint0_bc1[0][0], false);
 		}
 
 		// Compute block errors
@@ -2612,7 +2620,7 @@ namespace basisu
 
 		const float err_thresh0 = 1.075f;
 		const float err_thresh1 = 1.075f;
-
+		
 		if ((g_uastc_mode_has_bc1_hint0[best_mode]) && (t_err_hint0 <= t_err * err_thresh0))
 			bc1_hint0 = true;
 
@@ -2779,7 +2787,7 @@ namespace basisu
 
 		uint32_t first_flip = 0, last_flip = 2;
 		uint32_t first_individ = 0, last_individ = 2;
-
+		
 		if (flags & cPackUASTCETC1DisableFlipAndIndividual)
 		{
 			last_flip = 1;
@@ -2791,7 +2799,7 @@ namespace basisu
 				first_flip = 1;
 			last_flip = first_flip + 1;
 		}
-
+										
 		for (uint32_t flip = first_flip; flip < last_flip; flip++)
 		{
 			trial_block.set_flip_bit(flip != 0);
@@ -2799,7 +2807,7 @@ namespace basisu
 			for (uint32_t individ = first_individ; individ < last_individ; individ++)
 			{
 				const uint32_t mul = individ ? 15 : 31;
-
+				
 				trial_block.set_diff_bit(individ == 0);
 
 				color_rgba unbiased_block_colors[2];
@@ -2815,7 +2823,7 @@ namespace basisu
 					{
 						const etc_coord2 &c = g_etc1_pixel_coords[flip][subset][j];
 						const color_rgba& p = decoded_uastc_block[c.m_y][c.m_x];
-
+												
 						avg_color[0] += p.r;
 						avg_color[1] += p.g;
 						avg_color[2] += p.b;
@@ -2833,13 +2841,13 @@ namespace basisu
 					unbiased_block_colors[subset][1] = (uint8_t)((avg_color[1] * mul + 1020) / (8 * 255));
 					unbiased_block_colors[subset][2] = (uint8_t)((avg_color[2] * mul + 1020) / (8 * 255));
 					unbiased_block_colors[subset][3] = 0;
-
+										
 				} // subset
-
+												
 				for (uint32_t bias_iter = 0; bias_iter < last_bias; bias_iter++)
 				{
 					const uint32_t bias = use_faster_bias_mode_table ? s_sorted_bias_modes[bias_iter] : bias_iter;
-
+										
 					color_rgba block_colors[2];
 					for (uint32_t subset = 0; subset < 2; subset++)
 						block_colors[subset] = has_bias ? apply_etc1_bias((color32&)unbiased_block_colors[subset], bias, mul, subset) : unbiased_block_colors[subset];
@@ -2873,7 +2881,7 @@ namespace basisu
 						uint64_t best_subset_err = UINT64_MAX;
 
 						const uint32_t inten_table_limit = (level == cPackUASTCLevelVerySlow) ? 8 : ((range[subset] > 51) ? 8 : (range[subset] >= 7 ? 4 : 2));
-
+						
 						for (uint32_t inten_table = 0; inten_table < inten_table_limit; inten_table++)
 						{
 							trial_block.set_inten_table(subset, inten_table);
@@ -3008,7 +3016,7 @@ namespace basisu
 		uint32_t m_table;
 		uint32_t m_multiplier;
 	};
-
+	
 	static uint64_t uastc_pack_eac_a8(uastc_pack_eac_a8_results& results, const uint8_t* pPixels, uint32_t num_pixels, uint32_t base_search_rad, uint32_t mul_search_rad, uint32_t table_mask)
 	{
 		assert(num_pixels <= 16);
@@ -3152,7 +3160,7 @@ namespace basisu
 			solid_results.m_common_pattern = 0;
 			solid_results.m_solid_color = first_color;
 			memset(&solid_results.m_astc, 0, sizeof(solid_results.m_astc));
-
+						
 			etc_block etc1_blk;
 			uint32_t etc1_bias = 0;
 
@@ -3168,17 +3176,17 @@ namespace basisu
 
 			return;
 		}
-
+		
 		int level = flags & 7;
 		const bool favor_uastc_error = (flags & cPackUASTCFavorUASTCError) != 0;
 		const bool favor_bc7_error = !favor_uastc_error && ((flags & cPackUASTCFavorBC7Error) != 0);
 		//const bool etc1_perceptual = true;
-
+		
 		// TODO: This uses 64KB of stack space!
 		uastc_encode_results results[MAX_ENCODE_RESULTS];
-
+						
 		level = clampi(level, cPackUASTCLevelFastest, cPackUASTCLevelVerySlow);
-
+		
 		// Set all options to slowest, then configure from there depending on the selected level.
 		uint32_t mode_mask = UINT32_MAX;
 		uint32_t uber_level = 6;
@@ -3189,12 +3197,12 @@ namespace basisu
 		uint32_t least_squares_passes = 2;
 		bool bc1_hints = true;
 		bool only_use_la_on_transparent_blocks = false;
-
+		
 		switch (level)
 		{
 		case cPackUASTCLevelFastest:
 		{
-			mode_mask = (1 << 0) | (1 << 8) |
+			mode_mask = (1 << 0) | (1 << 8) | 
 				(1 << 11) | (1 << 12) |
 				(1 << 15);
 			always_try_alpha_modes = false;
@@ -3220,7 +3228,7 @@ namespace basisu
 			estimate_partition = true;
 			break;
 		}
-		case cPackUASTCLevelDefault:
+		case cPackUASTCLevelDefault: 
 		{
 			mode_mask = (1 << 0) | (1 << 1) | (1 << 4) | (1 << 5) | (1 << 6) | (1 << 8) |
 				(1 << 9) | (1 << 10) | (1 << 11) | (1 << 12) | (1 << 13) |
@@ -3258,9 +3266,9 @@ namespace basisu
 		// HACK HACK
 		//mode_mask &= ~(1 << 18);
 		//mode_mask = (1 << 18)| (1 << 10);
-
+																				
 		uint32_t total_results = 0;
-
+				
 		if (only_use_la_on_transparent_blocks)
 		{
 			if ((is_la) && (!has_alpha))
@@ -3268,7 +3276,7 @@ namespace basisu
 		}
 
 		const bool try_alpha_modes = has_alpha || always_try_alpha_modes;
-
+		
 		bc7enc_compress_block_params comp_params;
 		memset(&comp_params, 0, sizeof(comp_params));
 		comp_params.m_max_partitions_mode1 = 64;
@@ -3343,7 +3351,7 @@ namespace basisu
 		}
 
 		assert(total_results);
-
+		
 		// Fix up the errors so we consistently have LA, RGB, or RGBA error.
 		for (uint32_t i = 0; i < total_results; i++)
 		{
@@ -3377,7 +3385,7 @@ namespace basisu
 				}
 			}
 		}
-
+				
 		unpacked_uastc_block unpacked_ublock;
 		memset(&unpacked_ublock, 0, sizeof(unpacked_ublock));
 
@@ -3447,7 +3455,7 @@ namespace basisu
 				encode_bc7_block(&bc7_data, &bc7_results);
 
 				color_rgba decoded_bc7_block[4][4];
-				unpack_block(texture_format::cBC7, &bc7_data, &decoded_bc7_block[0][0]);
+				unpack_block(texture_format::cBC7, &bc7_data, &decoded_bc7_block[0][0], false);
 
 				// Compute BC7 error
 				uint64_t total_bc7_la_err, total_bc7_rgb_err, total_bc7_rgba_err;
@@ -3544,7 +3552,7 @@ namespace basisu
 		const uastc_encode_results& best_results = results[best_index];
 		const uint32_t best_mode = best_results.m_uastc_mode;
 		const astc_block_desc& best_astc_results = best_results.m_astc;
-
+				
 		color_rgba decoded_uastc_block[4][4];
 		bool success = unpack_uastc(best_mode, best_results.m_common_pattern, best_results.m_solid_color.get_color32(), best_astc_results, (basist::color32 *)&decoded_uastc_block[0][0], false);
 		(void)success;
@@ -3562,14 +3570,14 @@ namespace basisu
 
 			basist::uastc_block temp_block;
 			pack_uastc(temp_block, best_results, etc1_blk, 0, etc_eac_a8_blk, false, false);
-
+			
 			basist::color32 temp_block_unpacked[4][4];
 			success = basist::unpack_uastc(temp_block, (basist::color32 *)temp_block_unpacked, false);
 			VALIDATE(success);
 
 			// Now round trip to packed ASTC and back, then decode to pixels.
 			uint32_t astc_data[4];
-
+			
 			if (best_results.m_uastc_mode == UASTC_MODE_INDEX_SOLID_COLOR)
 				pack_astc_solid_block(astc_data, (color32 &)best_results.m_solid_color);
 			else
@@ -3587,7 +3595,7 @@ namespace basisu
 				for (uint32_t x = 0; x < 4; x++)
 				{
 					VALIDATE(decoded_astc_block[y][x] == decoded_uastc_block[y][x]);
-
+					
 					VALIDATE(temp_block_unpacked[y][x].c[0] == decoded_uastc_block[y][x].r);
 					VALIDATE(temp_block_unpacked[y][x].c[1] == decoded_uastc_block[y][x].g);
 					VALIDATE(temp_block_unpacked[y][x].c[2] == decoded_uastc_block[y][x].b);
@@ -3601,7 +3609,7 @@ namespace basisu
 		bool bc1_hint0 = false, bc1_hint1 = false;
 		if (bc1_hints)
 			compute_bc1_hints(bc1_hint0, bc1_hint1, best_results, block, decoded_uastc_block);
-
+		
 		eac_a8_block eac_a8_blk;
 		if ((g_uastc_mode_has_alpha[best_mode]) && (best_mode != UASTC_MODE_INDEX_SOLID_COLOR))
 		{
@@ -3613,7 +3621,7 @@ namespace basisu
 			uastc_pack_eac_a8_results eac8_a8_results;
 			memset(&eac8_a8_results, 0, sizeof(eac8_a8_results));
 			uastc_pack_eac_a8(eac8_a8_results, decoded_uastc_block_alpha, 16, 0, eac_a8_mul_search_rad, eac_a8_table_mask);
-
+						
 			// All we care about for hinting is the table and multiplier.
 			eac_a8_blk.m_table = eac8_a8_results.m_table;
 			eac_a8_blk.m_multiplier = eac8_a8_results.m_multiplier;
@@ -3810,11 +3818,11 @@ namespace basisu
 	{
 		std::size_t operator()(selector_bitsequence const& s) const noexcept
 		{
-			return hash_hsieh((const uint8_t*)&s, sizeof(s));
+			return basist::hash_hsieh((const uint8_t*)&s, sizeof(s));
 		}
 	};
-
-	static bool uastc_rdo_blocks(uint32_t first_index, uint32_t last_index, basist::uastc_block* pBlocks, const color_rgba* pBlock_pixels, const uastc_rdo_params& params, uint32_t flags,
+				
+	static bool uastc_rdo_blocks(uint32_t first_index, uint32_t last_index, basist::uastc_block* pBlocks, const color_rgba* pBlock_pixels, const uastc_rdo_params& params, uint32_t flags, 
 		uint32_t &total_skipped, uint32_t &total_refined, uint32_t &total_modified, uint32_t &total_smooth)
 	{
 		debug_printf("uastc_rdo_blocks: Processing blocks %u to %u\n", first_index, last_index);
@@ -3823,7 +3831,7 @@ namespace basisu
 		const bool perceptual = false;
 
 		std::unordered_map<selector_bitsequence, uint32_t, selector_bitsequence_hash> selector_history;
-
+						
 		for (uint32_t block_index = first_index; block_index < last_index; block_index++)
 		{
 			const basist::uastc_block& blk = pBlocks[block_index];
@@ -3872,8 +3880,8 @@ namespace basisu
 			basist::encode_bc7_block(&b7_block, &b7_results);
 
 			color_rgba decoded_b7_blk[4][4];
-			unpack_block(texture_format::cBC7, &b7_block, &decoded_b7_blk[0][0]);
-
+			unpack_block(texture_format::cBC7, &b7_block, &decoded_b7_blk[0][0], false);
+						
 			uint64_t bc7_err = 0;
 			for (uint32_t i = 0; i < 16; i++)
 				bc7_err += color_distance(perceptual, pPixels[i], ((color_rgba*)decoded_b7_blk)[i], true);
@@ -3928,7 +3936,7 @@ namespace basisu
 
 			float best_t = cur_ms_err * smooth_block_error_scale + cur_bits * params.m_lambda;
 
-			// Now scan through previous blocks, insert their selector bit patterns into the current block, and find
+			// Now scan through previous blocks, insert their selector bit patterns into the current block, and find 
 			// selector bit patterns which don't increase the overall block error too much.
 			for (int prev_block_index = last_block_to_check; prev_block_index >= first_block_to_check; --prev_block_index)
 			{
@@ -3981,7 +3989,7 @@ namespace basisu
 				basist::encode_bc7_block(&trial_b7_block, &trial_b7_results);
 
 				color_rgba decoded_trial_b7_blk[4][4];
-				unpack_block(texture_format::cBC7, &trial_b7_block, &decoded_trial_b7_blk[0][0]);
+				unpack_block(texture_format::cBC7, &trial_b7_block, &decoded_trial_b7_blk[0][0], false);
 
 				uint64_t trial_bc7_err = 0;
 				for (uint32_t i = 0; i < 16; i++)
@@ -4050,7 +4058,7 @@ namespace basisu
 					color_rgba decoded_trial_uastc_block[4][4];
 					bool success = unpack_uastc(results.m_uastc_mode, results.m_common_pattern, results.m_solid_color.get_color32(), results.m_astc, (basist::color32*) & decoded_trial_uastc_block[0][0], false);
 					assert(success);
-
+					
 					BASISU_NOTE_UNUSED(success);
 
 					uint64_t trial_uastc_err = 0;
@@ -4077,7 +4085,7 @@ namespace basisu
 
 				// Write the modified block
 				pBlocks[block_index] = best_block;
-
+			
 			} // if (best_block_index != block_index)
 
 			{
@@ -4093,8 +4101,8 @@ namespace basisu
 
 		return true;
 	}
-
-	// This function implements a basic form of rate distortion optimization (RDO) for UASTC.
+				
+	// This function implements a basic form of rate distortion optimization (RDO) for UASTC. 
 	// It only changes selectors and then updates the hints. It uses very approximate LZ bitprice estimation.
 	// There's A LOT that can be done better in here, but it's a start.
 	// One nice advantage of the method used here is that it works for any input, no matter which or how many modes it uses.
@@ -4133,7 +4141,7 @@ namespace basisu
 
 					{
 						std::lock_guard<std::mutex> lck(stat_mutex);
-
+						
 						all_succeeded = all_succeeded && status;
 						total_skipped += job_skipped;
 						total_modified += job_modified;
@@ -4152,7 +4160,12 @@ namespace basisu
 		}
 
 		debug_printf("uastc_rdo: Total modified: %3.2f%%, total skipped: %3.2f%%, total refined: %3.2f%%, total smooth: %3.2f%%\n", total_modified * 100.0f / num_blocks, total_skipped * 100.0f / num_blocks, total_refined * 100.0f / num_blocks, total_smooth * 100.0f / num_blocks);
-
+				
 		return status;
 	}
 } // namespace basisu
+
+
+
+
+

@@ -48,7 +48,7 @@ CPPSPMD_FORCE_INLINE void spmd_kernel::spmd_return()
 	m_kernel_exec = andnot(m_exec, m_kernel_exec);
 	m_exec = exec_mask::all_off();
 }
-
+			
 template<typename UnmaskedBody>
 CPPSPMD_FORCE_INLINE void spmd_kernel::spmd_unmasked(const UnmaskedBody& unmaskedBody)
 {
@@ -61,7 +61,7 @@ CPPSPMD_FORCE_INLINE void spmd_kernel::spmd_unmasked(const UnmaskedBody& unmaske
 
 	m_kernel_exec = m_kernel_exec & orig_kernel_exec;
 	m_exec = m_exec & orig_exec;
-
+	
 	check_masks();
 }
 
@@ -69,9 +69,9 @@ struct scoped_unmasked_restorer
 {
 	spmd_kernel *m_pKernel;
 	exec_mask m_orig_exec, m_orig_kernel_exec;
-
-	CPPSPMD_FORCE_INLINE scoped_unmasked_restorer(spmd_kernel *pKernel) :
-		m_pKernel(pKernel),
+				
+	CPPSPMD_FORCE_INLINE scoped_unmasked_restorer(spmd_kernel *pKernel) : 
+		m_pKernel(pKernel), 
 		m_orig_exec(pKernel->m_exec),
 		m_orig_kernel_exec(pKernel->m_kernel_exec)
 	{
@@ -79,15 +79,15 @@ struct scoped_unmasked_restorer
 		pKernel->m_exec = exec_mask::all_on();
 	}
 
-	CPPSPMD_FORCE_INLINE ~scoped_unmasked_restorer()
-	{
+	CPPSPMD_FORCE_INLINE ~scoped_unmasked_restorer() 
+	{ 
 		m_pKernel->m_kernel_exec = m_pKernel->m_kernel_exec & m_orig_kernel_exec;
 		m_pKernel->m_exec = m_pKernel->m_exec & m_orig_exec;
 		m_pKernel->check_masks();
 	}
 };
 
-#define SPMD_UNMASKED_BEGIN { scoped_unmasked_restorer _unmasked_restorer(this);
+#define SPMD_UNMASKED_BEGIN { scoped_unmasked_restorer _unmasked_restorer(this); 
 #define SPMD_UNMASKED_END }
 
 #if 0
@@ -113,9 +113,9 @@ CPPSPMD_FORCE_INLINE void spmd_kernel::spmd_if_break(const vbool& cond)
 #ifdef _DEBUG
 	assert(m_in_loop);
 #endif
-
+	
 	exec_mask cond_exec(cond);
-
+					
 	m_exec = andnot(m_exec & cond_exec, m_exec);
 
 	check_masks();
@@ -157,7 +157,7 @@ CPPSPMD_FORCE_INLINE void spmd_kernel::spmd_sifelse(const vbool& cond, const IfB
 		m_exec = em;
 		elseBody();
 	}
-
+		
 	m_exec = orig_exec;
 }
 
@@ -165,7 +165,7 @@ template<typename IfBody>
 CPPSPMD_FORCE_INLINE void spmd_kernel::spmd_if(const vbool& cond, const IfBody& ifBody)
 {
 	exec_mask cond_exec(cond);
-
+		
 	exec_mask pre_if_exec = cond_exec & m_exec;
 
 	if (any(pre_if_exec))
@@ -188,7 +188,7 @@ CPPSPMD_FORCE_INLINE void spmd_kernel::spmd_ifelse(const vbool& cond, const IfBo
 	bool all_flag = false;
 
 	exec_mask cond_exec(cond);
-
+		
 	{
 		exec_mask pre_if_exec = cond_exec & m_exec;
 
@@ -218,9 +218,10 @@ CPPSPMD_FORCE_INLINE void spmd_kernel::spmd_ifelse(const vbool& cond, const IfBo
 			exec_mask unexecuted_lanes = cond_exec & m_exec;
 			m_exec = pre_if_exec;
 
-			ifBody();
+			// 11/22/2025: changed to elseBody() here, simple bug, we use the macro variants of ifelse anyway
+			elseBody();
 
-			// Propagate any lanes that got disabled inside the if body into the exec mask outside the if body, but turn on any lanes that didn't execute inside the if body.
+			// Propagate any lanes that got disabled inside the else body into the exec mask outside the else body, but turn on any lanes that didn't execute inside the else body.
 			m_exec = m_exec | unexecuted_lanes;
 
 			check_masks();
@@ -290,17 +291,17 @@ struct scoped_exec_restorer2
 {
 	spmd_kernel *m_pKernel;
 	exec_mask m_unexecuted_lanes;
-
-	CPPSPMD_FORCE_INLINE scoped_exec_restorer2(spmd_kernel *pKernel, const vbool &cond) :
+		
+	CPPSPMD_FORCE_INLINE scoped_exec_restorer2(spmd_kernel *pKernel, const vbool &cond) : 
 		m_pKernel(pKernel)
-	{
+	{ 
 		exec_mask cond_exec(cond);
 		m_unexecuted_lanes = andnot(cond_exec, pKernel->m_exec);
 		pKernel->m_exec = cond_exec & pKernel->m_exec;
 	}
 
-	CPPSPMD_FORCE_INLINE ~scoped_exec_restorer2()
-	{
+	CPPSPMD_FORCE_INLINE ~scoped_exec_restorer2() 
+	{ 
 		m_pKernel->m_exec = m_pKernel->m_exec | m_unexecuted_lanes;
 		m_pKernel->check_masks();
 	}
@@ -327,17 +328,17 @@ public:
 	inline scoped_exec_saver(spmd_kernel *pKernel) :
 		m_exec(pKernel->m_exec), m_kernel_exec(pKernel->m_kernel_exec), m_continue_mask(pKernel->m_continue_mask),
 		m_pKernel(pKernel)
-	{
+	{ 
 #ifdef _DEBUG
 		m_in_loop = pKernel->m_in_loop;
 #endif
 	}
-
+		
 	inline ~scoped_exec_saver()
-	{
-		m_pKernel->m_exec = m_exec;
-		m_pKernel->m_continue_mask = m_continue_mask;
-		m_pKernel->m_kernel_exec = m_kernel_exec;
+	{ 
+		m_pKernel->m_exec = m_exec; 
+		m_pKernel->m_continue_mask = m_continue_mask; 
+		m_pKernel->m_kernel_exec = m_kernel_exec; 
 #ifdef _DEBUG
 		m_pKernel->m_in_loop = m_in_loop;
 		m_pKernel->check_masks();
@@ -353,7 +354,7 @@ CPPSPMD_FORCE_INLINE void spmd_kernel::spmd_foreach(int begin, int end, const Fo
 {
 	if (begin == end)
 		return;
-
+	
 	if (!any(m_exec))
 		return;
 
@@ -362,12 +363,12 @@ CPPSPMD_FORCE_INLINE void spmd_kernel::spmd_foreach(int begin, int end, const Fo
 		std::swap(begin, end);
 
 	exec_mask prev_continue_mask = m_continue_mask, prev_exec = m_exec;
-
+	
 	int total_full = (end - begin) / PROGRAM_COUNT;
 	int total_partial = (end - begin) % PROGRAM_COUNT;
 
 	lint_t loop_index = begin + program_index;
-
+	
 	const int total_loops = total_full + (total_partial ? 1 : 0);
 
 	m_continue_mask = exec_mask::all_off();
@@ -390,7 +391,7 @@ CPPSPMD_FORCE_INLINE void spmd_kernel::spmd_foreach(int begin, int end, const Fo
 
 		m_continue_mask = exec_mask::all_off();
 		check_masks();
-
+				
 		store_all(loop_index, loop_index + PROGRAM_COUNT);
 	}
 
@@ -443,9 +444,9 @@ struct scoped_while_restorer
 #ifdef _DEBUG
 	bool m_prev_in_loop;
 #endif
-
-	CPPSPMD_FORCE_INLINE scoped_while_restorer(spmd_kernel *pKernel) :
-		m_pKernel(pKernel),
+				
+	CPPSPMD_FORCE_INLINE scoped_while_restorer(spmd_kernel *pKernel) : 
+		m_pKernel(pKernel), 
 		m_orig_exec(pKernel->m_exec),
 		m_orig_continue_mask(pKernel->m_continue_mask)
 	{
@@ -457,8 +458,8 @@ struct scoped_while_restorer
 #endif
 	}
 
-	CPPSPMD_FORCE_INLINE ~scoped_while_restorer()
-	{
+	CPPSPMD_FORCE_INLINE ~scoped_while_restorer() 
+	{ 
 		m_pKernel->m_exec = m_orig_exec & m_pKernel->m_kernel_exec;
 		m_pKernel->m_continue_mask = m_orig_continue_mask;
 #ifdef _DEBUG
@@ -514,7 +515,7 @@ struct scoped_simple_while_restorer
 		m_pKernel(pKernel),
 		m_orig_exec(pKernel->m_exec)
 	{
-
+			
 #ifdef _DEBUG
 		m_prev_in_loop = pKernel->m_in_loop;
 		pKernel->m_in_loop = true;
@@ -536,18 +537,18 @@ struct scoped_simple_while_restorer
 #define SPMD_SWHILE(cond) { scoped_simple_while_restorer CPPSPMD_GLUER2(_while_restore_, __LINE__)(this); \
 	while(true) { \
 		exec_mask CPPSPMD_GLUER2(cond_exec, __LINE__) = exec_mask(vbool(cond)); m_exec = m_exec & CPPSPMD_GLUER2(cond_exec, __LINE__); if (!any(m_exec)) break;
-#define SPMD_SWEND } }
+#define SPMD_SWEND } }	
 
 // Cannot use SPMD break, continue, or return inside simple do
 #define SPMD_SDO { scoped_simple_while_restorer CPPSPMD_GLUER2(_while_restore_, __LINE__)(this); while(true) {
-#define SPMD_SEND_DO(cond) exec_mask CPPSPMD_GLUER2(cond_exec, __LINE__) = exec_mask(vbool(cond)); m_exec = m_exec & CPPSPMD_GLUER2(cond_exec, __LINE__); if (!any(m_exec)) break; } }
+#define SPMD_SEND_DO(cond) exec_mask CPPSPMD_GLUER2(cond_exec, __LINE__) = exec_mask(vbool(cond)); m_exec = m_exec & CPPSPMD_GLUER2(cond_exec, __LINE__); if (!any(m_exec)) break; } }	
 
 #undef SPMD_FOR
 #undef SPMD_END_FOR
 #define SPMD_FOR(for_init, for_cond) { for_init; scoped_while_restorer CPPSPMD_GLUER2(_while_restore_, __LINE__)(this); while(true) { exec_mask CPPSPMD_GLUER2(cond_exec, __LINE__) = exec_mask(vbool(for_cond)); \
 	m_exec = m_exec & CPPSPMD_GLUER2(cond_exec, __LINE__); if (!any(m_exec)) break;
 #define SPMD_END_FOR(for_inc) m_exec = m_exec | m_continue_mask; m_continue_mask = exec_mask::all_off(); check_masks(); for_inc; } }
-
+		
 template<typename ForInitBody, typename ForCondBody, typename ForIncrBody, typename ForBody>
 CPPSPMD_FORCE_INLINE void spmd_kernel::spmd_for(const ForInitBody& forInitBody, const ForCondBody& forCondBody, const ForIncrBody& forIncrBody, const ForBody& forBody)
 {
@@ -576,7 +577,7 @@ CPPSPMD_FORCE_INLINE void spmd_kernel::spmd_for(const ForInitBody& forInitBody, 
 		m_exec = m_exec | m_continue_mask;
 		m_continue_mask = exec_mask::all_off();
 		check_masks();
-
+			
 		forIncrBody();
 	}
 

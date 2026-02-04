@@ -1,16 +1,18 @@
 // jpgd.h - C++ class for JPEG decompression.
-// Public domain, Rich Geldreich <richgel99@gmail.com>
+// Dual licensed: Public domain, Rich Geldreich <richgel99@gmail.com>, or Apache 2.0 (see jpgd.cpp)
 #ifndef JPEG_DECODER_H
 #define JPEG_DECODER_H
 
 #include <stdlib.h>
 #include <stdio.h>
+#ifndef __wasi__
 #include <setjmp.h>
+#endif
 #include <assert.h>
 #include <stdint.h>
 
 #ifdef _MSC_VER
-#define JPGD_NORETURN __declspec(noreturn)
+#define JPGD_NORETURN __declspec(noreturn) 
 #elif defined(__GNUC__)
 #define JPGD_NORETURN __attribute__ ((noreturn))
 #else
@@ -140,7 +142,7 @@ namespace jpgd
 		int begin_decoding();
 
 		// Returns the next scan line.
-		// For grayscale images, pScan_line will point to a buffer containing 8-bit pixels (get_bytes_per_pixel() will return 1).
+		// For grayscale images, pScan_line will point to a buffer containing 8-bit pixels (get_bytes_per_pixel() will return 1). 
 		// Otherwise, it will always point to a buffer containing 32-bit RGBA pixels (A will always be 255, and get_bytes_per_pixel() will return 4).
 		// Returns JPGD_SUCCESS if a scan line has been returned.
 		// Returns JPGD_DONE if all scan lines have been returned.
@@ -191,7 +193,10 @@ namespace jpgd
 			char m_data[1];
 		};
 
+		// TODO: we can get rid of longjmp entirely
+#ifndef __wasi__
 		jmp_buf m_jmp_state;
+#endif
 		uint32_t m_flags;
 		mem_block* m_pMem_blocks;
 		int m_image_x_size;

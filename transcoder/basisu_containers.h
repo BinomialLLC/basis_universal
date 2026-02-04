@@ -159,8 +159,8 @@ namespace basisu
 		static inline void construct(T** p) { memset(p, 0, sizeof(T*)); }
 		static inline void construct(T** p, T* init) { *p = init; }
 		static inline void construct_array(T** p, size_t n) { memset(p, 0, sizeof(T*) * n); }
-		static inline void destruct(T** p) { p; }
-		static inline void destruct_array(T** p, size_t n) { p, n; }
+		static inline void destruct(T** p) { (void)p; }
+		static inline void destruct_array(T** p, size_t n) { (void)p, (void)n; }
 	};
 
 #define BASISU_DEFINE_BUILT_IN_TYPE(X) \
@@ -169,8 +169,8 @@ namespace basisu
 	static inline void construct(X* p) { memset(p, 0, sizeof(X)); } \
 	static inline void construct(X* p, const X& init) { memcpy(p, &init, sizeof(X)); } \
 	static inline void construct_array(X* p, size_t n) { memset(p, 0, sizeof(X) * n); } \
-	static inline void destruct(X* p) { p; } \
-	static inline void destruct_array(X* p, size_t n) { p, n; } };
+	static inline void destruct(X* p) { (void)p; } \
+	static inline void destruct_array(X* p, size_t n) { (void)p, (void)n; } };
 
 	BASISU_DEFINE_BUILT_IN_TYPE(bool)
 	BASISU_DEFINE_BUILT_IN_TYPE(char)
@@ -272,7 +272,7 @@ namespace basisu
 		size_t c = a + b;
 		return c < a;
 	}
-
+		
 	// Returns false on overflow, true if OK.
 	template<typename T>
 	inline bool can_fit_into_size_t(T val)
@@ -294,7 +294,7 @@ namespace basisu
 
 	template<typename T>
 	class writable_span;
-
+		
 	template<typename T>
 	class readable_span
 	{
@@ -304,7 +304,7 @@ namespace basisu
 		using const_pointer = const T*;
 		using const_reference = const T&;
 		using const_iterator = const T*;
-
+		
 		inline readable_span() :
 			m_p(nullptr),
 			m_size(0)
@@ -941,7 +941,7 @@ namespace basisu
 
 		inline iterator begin() const { return m_p; }
 		inline iterator end() const { assert(m_p || !m_size); return m_p + m_size; }
-
+		
 		inline const_iterator cbegin() const { return m_p; }
 		inline const_iterator cend() const { assert(m_p || !m_size); return m_p + m_size; }
 
@@ -1506,7 +1506,7 @@ namespace basisu
 
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wclass-memaccess"
+#pragma GCC diagnostic ignored "-Wclass-memaccess"            
 #endif
 				if ((m_p) && (other.m_p))
 				{
@@ -1561,6 +1561,52 @@ namespace basisu
 			m_capacity(0)
 		{
 			set(ws);
+		}
+
+		// mostly to ease porting from std::vector, not particularly optimized
+		inline void assign(size_t new_size, const T& init)
+		{
+			assert(!m_p || (&init < m_p) || (&init >= (m_p + m_size)));
+
+			// Blow away existing contents
+			resize(0);
+
+			if (new_size)
+			{
+				resize(new_size);
+
+				for (size_t i = 0; i < new_size; ++i)
+					m_p[i] = init;
+			}
+		}
+
+		// mostly to ease porting from std::vector, not particularly optimized
+		template<typename R>
+		inline void assign(const R* pBegin, const R* pEnd)
+		{
+			assert(!m_p || 
+				(reinterpret_cast<const uint8_t *>(pEnd) <= reinterpret_cast<const uint8_t*>(m_p)) || 
+				(reinterpret_cast<const uint8_t *>(pBegin) >= reinterpret_cast<const uint8_t*>(m_p + m_size)) 
+			);
+
+			// Blow away existing contents
+			resize(0);
+
+			if ((!pBegin) || (!pEnd) || (pEnd <= pBegin)) 
+			{
+				assert(0);
+				return;
+			}
+
+			const size_t new_size = static_cast<size_t>(static_cast<ptrdiff_t>(pEnd - pBegin));
+
+			if (new_size)
+			{
+				resize(new_size);
+
+				for (size_t i = 0; i < new_size; ++i)
+					m_p[i] = static_cast<T>(*pBegin++);
+			}
 		}
 
 		// Set contents of vector to contents of the readable span
@@ -1647,7 +1693,7 @@ namespace basisu
 			{
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wclass-memaccess"
+#pragma GCC diagnostic ignored "-Wclass-memaccess"            
 #endif
 				if ((m_p) && (other.m_p))
 					memcpy((void *)m_p, other.m_p, other.m_size * sizeof(T));
@@ -2147,7 +2193,7 @@ namespace basisu
 			if (!try_insert(p, obj))
 				container_abort("vector::insert() failed!\n");
 		}
-
+				
 		// push_front() isn't going to be very fast - it's only here for usability.
 		inline void push_front(const T& obj)
 		{
@@ -2228,7 +2274,7 @@ namespace basisu
 
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wclass-memaccess"
+#pragma GCC diagnostic ignored "-Wclass-memaccess"            
 #endif
 
 				memmove((void *)pDst, pSrc, num_to_move * sizeof(T));
@@ -2239,7 +2285,7 @@ namespace basisu
 			}
 			else
 			{
-				// Type is not bitwise copyable or movable.
+				// Type is not bitwise copyable or movable. 
 				// Move them down one at a time by using the equals operator, and destroying anything that's left over at the end.
 				T* pDst_end = pDst + num_to_move;
 
@@ -2482,7 +2528,7 @@ namespace basisu
 			{
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wclass-memaccess"
+#pragma GCC diagnostic ignored "-Wclass-memaccess"            
 #endif
 				memset(m_p, *reinterpret_cast<const uint8_t*>(&o), m_size);
 
@@ -2770,6 +2816,7 @@ namespace basisu
 			m_grow_threshold = 0;
 		}
 
+		// Destroys elements/empties container but doesn't free memory.
 		inline void reset()
 		{
 			if (!m_num_valid)
@@ -2798,7 +2845,7 @@ namespace basisu
 			}
 			else if (sizeof(node) <= 16)
 			{
-				memset(&m_values[0], 0, m_values.size_in_bytes());
+				memset((void *)&m_values[0], 0, m_values.size_in_bytes());
 			}
 			else
 			{
@@ -2827,6 +2874,11 @@ namespace basisu
 		inline size_t size()
 		{
 			return m_num_valid;
+		}
+
+		inline uint32_t size_u32()
+		{
+			return static_cast<uint32_t>(m_num_valid);
 		}
 
 		inline size_t get_table_size()
@@ -3102,7 +3154,7 @@ namespace basisu
 		{
 			return try_insert(result, std::move(v.first), std::move(v.second));
 		}
-
+				
 		inline const_iterator find(const Key& k) const
 		{
 			return const_iterator(*this, find_index(k));
@@ -3183,12 +3235,12 @@ namespace basisu
 		static inline void construct_value_type(value_type* pDst, const Key& k, const Value& v)
 		{
 			if (BASISU_IS_BITWISE_COPYABLE(Key))
-				memcpy(&pDst->first, &k, sizeof(Key));
+				memcpy((void *)&pDst->first, &k, sizeof(Key));
 			else
 				scalar_type<Key>::construct(&pDst->first, k);
 
 			if (BASISU_IS_BITWISE_COPYABLE(Value))
-				memcpy(&pDst->second, &v, sizeof(Value));
+				memcpy((void *)&pDst->second, &v, sizeof(Value));
 			else
 				scalar_type<Value>::construct(&pDst->second, v);
 		}
@@ -3197,17 +3249,17 @@ namespace basisu
 		{
 			if ((BASISU_IS_BITWISE_COPYABLE(Key)) && (BASISU_IS_BITWISE_COPYABLE(Value)))
 			{
-				memcpy(pDst, pSrc, sizeof(value_type));
+				memcpy((void *)pDst, pSrc, sizeof(value_type));
 			}
 			else
 			{
 				if (BASISU_IS_BITWISE_COPYABLE(Key))
-					memcpy(&pDst->first, &pSrc->first, sizeof(Key));
+					memcpy((void *)&pDst->first, &pSrc->first, sizeof(Key));
 				else
 					scalar_type<Key>::construct(&pDst->first, pSrc->first);
 
 				if (BASISU_IS_BITWISE_COPYABLE(Value))
-					memcpy(&pDst->second, &pSrc->second, sizeof(Value));
+					memcpy((void *)&pDst->second, &pSrc->second, sizeof(Value));
 				else
 					scalar_type<Value>::construct(&pDst->second, pSrc->second);
 			}
@@ -3227,14 +3279,14 @@ namespace basisu
 
 			if (BASISU_IS_BITWISE_COPYABLE_OR_MOVABLE(Key) && BASISU_IS_BITWISE_COPYABLE_OR_MOVABLE(Value))
 			{
-				memcpy(pDst, pSrc, sizeof(node));
+				memcpy((void *)pDst, pSrc, sizeof(node));
 
 				assert(pDst->state == cStateValid);
 			}
 			else
 			{
 				if (BASISU_IS_BITWISE_COPYABLE_OR_MOVABLE(Key))
-					memcpy(&pDst->first, &pSrc->first, sizeof(Key));
+					memcpy((void*)&pDst->first, &pSrc->first, sizeof(Key));
 				else
 				{
 					new ((void*)&pDst->first) Key(std::move(pSrc->first));
@@ -3242,7 +3294,7 @@ namespace basisu
 				}
 
 				if (BASISU_IS_BITWISE_COPYABLE_OR_MOVABLE(Value))
-					memcpy(&pDst->second, &pSrc->second, sizeof(Value));
+					memcpy((void*)&pDst->second, &pSrc->second, sizeof(Value));
 				else
 				{
 					new ((void*)&pDst->second) Value(std::move(pSrc->second));
@@ -3583,7 +3635,7 @@ namespace basisu
 			// Not checking for is MOVABLE because the caller could later destruct k and/or v (what state do we set them to?)
 			if (BASISU_IS_BITWISE_COPYABLE(Key))
 			{
-				memcpy(&pDst->first, &k, sizeof(Key));
+				memcpy((void *)&pDst->first, (const void *)&k, sizeof(Key));
 			}
 			else
 			{
@@ -3593,7 +3645,7 @@ namespace basisu
 
 			if (BASISU_IS_BITWISE_COPYABLE(Value))
 			{
-				memcpy(&pDst->second, &v, sizeof(Value));
+				memcpy((void *)&pDst->second, (const void*)&v, sizeof(Value));
 			}
 			else
 			{
@@ -3721,11 +3773,11 @@ namespace basisu
 
 		va_list args;
 		va_start(args, pFmt);
-#ifdef _WIN32
+#ifdef _WIN32		
 		vsprintf_s(buf, sizeof(buf), pFmt, args);
 #else
 		vsnprintf(buf, sizeof(buf), pFmt, args);
-#endif
+#endif		
 		va_end(args);
 
 		return std::string(buf);
@@ -3893,7 +3945,7 @@ namespace basisu
             std::size_t copy_size = std::min(list.size(), N);
             std::copy_n(list.begin(), copy_size, m_data);  // Copy up to min(list.size(), N)
 
-            if (list.size() < N)
+            if (list.size() < N) 
 			{
                 // Initialize the rest of the array
                 std::fill(m_data + copy_size, m_data + N, T{});
@@ -3907,7 +3959,7 @@ namespace basisu
 			return m_data[index];
         }
 
-        BASISU_FORCE_INLINE const T& operator[](std::size_t index) const
+        BASISU_FORCE_INLINE const T& operator[](std::size_t index) const 
 		{
 			if (index >= N)
 				container_abort("fixed_array: Index out of bounds.");
@@ -3950,26 +4002,26 @@ namespace basisu
 		{
 			return writable_span<T>(m_data, N);
 		}
-
+				
     private:
 		BASISU_FORCE_INLINE void initialize_array()
 		{
-            if constexpr (std::is_integral<T>::value || std::is_floating_point<T>::value)
+            if constexpr (std::is_integral<T>::value || std::is_floating_point<T>::value) 
                 memset(m_data, 0, sizeof(m_data));
-            else
+            else 
                 std::fill(m_data, m_data + N, T{});
         }
 
 		BASISU_FORCE_INLINE T& access_element(std::size_t index)
 		{
-            if (index >= N)
+            if (index >= N) 
 				container_abort("fixed_array: Index out of bounds.");
             return m_data[index];
         }
 
 		BASISU_FORCE_INLINE const T& access_element(std::size_t index) const
 		{
-            if (index >= N)
+            if (index >= N) 
 				container_abort("fixed_array: Index out of bounds.");
             return m_data[index];
         }
@@ -4046,6 +4098,9 @@ namespace basisu
 		inline uint32_t get_width() const { return m_width; }
 		inline uint32_t get_height() const { return m_height; }
 
+		inline uint32_t get_cols() const { return m_width; }
+		inline uint32_t get_rows() const { return m_height; }
+
 		inline const T& operator() (uint32_t x, uint32_t y) const { assert(x < m_width && y < m_height); return m_values[x + y * m_width]; }
 		inline T& operator() (uint32_t x, uint32_t y) { assert(x < m_width && y < m_height); return m_values[x + y * m_width]; }
 
@@ -4054,9 +4109,23 @@ namespace basisu
 		inline const T& operator[] (uint32_t i) const { return m_values[i]; }
 		inline T& operator[] (uint32_t i) { return m_values[i]; }
 
+		inline const T& at(int x, int y) const { return (*this)((uint32_t)x, (uint32_t)y); }
+		inline T& at(int x, int y) { return (*this)((uint32_t)x, (uint32_t)y); }
+
 		inline const T& at_clamped(int x, int y) const { return (*this)(clamp<int>(x, 0, m_width - 1), clamp<int>(y, 0, m_height - 1)); }
 		inline T& at_clamped(int x, int y) { return (*this)(clamp<int>(x, 0, m_width - 1), clamp<int>(y, 0, m_height - 1)); }
 
+		inline const T& at_row_col(int y, int x) const { return (*this)(clamp<int>(x, 0, m_width - 1), clamp<int>(y, 0, m_height - 1)); }
+		inline T& at_row_col(int y, int x) { return (*this)(clamp<int>(x, 0, m_width - 1), clamp<int>(y, 0, m_height - 1)); }
+
+		inline void set_clipped(int x, int y, const T& val)
+		{ 
+			if ( ((uint32_t)x >= m_width) || ((uint32_t)y >= m_height) )
+				return;
+
+			m_values[x + y * m_width] = val;
+		}
+				
 		void clear()
 		{
 			m_width = 0;
@@ -4141,9 +4210,18 @@ namespace basisu
 			return true;
 		}
 
+		vector2D& resize_rows_cols(uint32_t rows, uint32_t cols)
+		{
+			return resize(cols, rows);
+		}
+
+		bool try_resize_rows_cols(uint32_t rows, uint32_t cols)
+		{
+			return try_resize(cols, rows);
+		}
+
 		const vector2D& extract_block_clamped(T* pDst, uint32_t src_x, uint32_t src_y, uint32_t w, uint32_t h) const
 		{
-			// HACK HACK
 			if (((src_x + w) > m_width) || ((src_y + h) > m_height))
 			{
 				// Slower clamping case
@@ -4165,8 +4243,87 @@ namespace basisu
 
 			return *this;
 		}
+
+		const vector2D& extract_block_clamped(T* pDst, uint32_t src_x, uint32_t src_y, uint32_t w, uint32_t h, uint32_t override_height) const
+		{
+			assert(override_height && (override_height <= m_height));
+
+			if (((src_x + w) > m_width) || ((src_y + h) > minimum(m_height, override_height)))
+			{
+				// Slower clamping case
+				for (uint32_t y = 0; y < h; y++)
+					for (uint32_t x = 0; x < w; x++)
+						*pDst++ = at_clamped(src_x + x, minimum(src_y + y, override_height - 1));
+			}
+			else
+			{
+				const T* pSrc = &m_values[src_x + src_y * m_width];
+
+				for (uint32_t y = 0; y < h; y++)
+				{
+					memcpy(pDst, pSrc, w * sizeof(T));
+					pSrc += m_width;
+					pDst += w;
+				}
+			}
+
+			return *this;
+		}
 	};
 
+	// Explictly primitive container intended for POD's, simple usage.
+	// push_back() and resize() will refuse to push anymore and just return when full.
+	template<typename T, uint32_t N>
+	class static_vector
+	{
+		T m_data[N];
+		uint32_t m_size;
+
+	public:
+		static_vector() : m_size(0) { }
+
+		inline void reserve(size_t reserve_size)
+		{
+			(void)(reserve_size);
+
+			assert(reserve_size <= N);
+		}
+
+		inline void push_back(const T& value)
+		{
+			// Should never happen.
+			if (m_size >= N)
+			{
+				assert(0);
+				fprintf(stderr, "basisu::static_vector overflow!\n");
+				return;
+			}
+
+			m_data[m_size++] = value;
+		}
+
+		inline std::size_t size() const { return m_size; }
+		inline uint32_t size_u32() const { return m_size; }
+		inline constexpr std::size_t capacity() const { return N; }
+
+		inline bool empty() const { return !m_size; }
+
+		inline T& operator[](std::size_t i) { return m_data[i]; }
+		inline const T& operator[](std::size_t i) const { return m_data[i]; }
+
+		inline void resize(size_t new_size)
+		{
+			if (new_size > N)
+			{
+				assert(0);
+				fprintf(stderr, "basisu::static_vector overflow!\n");
+				return;
+			}
+
+			m_size = (uint32_t)new_size;
+		}
+	};
+		
 } // namespace basisu
 
 namespace std

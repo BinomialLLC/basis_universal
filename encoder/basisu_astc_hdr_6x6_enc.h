@@ -5,12 +5,13 @@
 
 namespace astc_6x6_hdr
 {
+	const uint32_t ASTC_HDR_6X6_DEF_USER_COMP_LEVEL = 2;
 	const uint32_t ASTC_HDR_6X6_MAX_USER_COMP_LEVEL = 12;
-
+	
 	const uint32_t ASTC_HDR_6X6_MAX_COMP_LEVEL = 4;
-
+	
 	const float LDR_BLACK_BIAS = 0.0f;// .49f;
-
+		
 	// Note: This struct is copied several times, so do not place any heavyweight objects in here.
 	struct astc_hdr_6x6_global_config
 	{
@@ -18,9 +19,11 @@ namespace astc_6x6_hdr
 		// This encoder computes colorspace error in the ICtCp (or more accurately the delta ITP, where CT is scaled by .5 vs. ICtCp to become T) colorspace, so getting this correct is important.
 		// By default the encoder assumes the input is in absolute luminance (in nits or candela per square meter, cd/m^2), specified as positive-only linear light RGB, using the REC 709 colorspace gamut (but NOT the sRGB transfer function, i.e. linear light).
 		// If the m_rec2020_bt2100_color_gamut flag is true, the input colorspace is treated as REC 2020/BT.2100 (which is wider than 709).
-		// For SDR/LDR->HDR upconversion, the REC 709 sRGB input should be converted to linear light (sRGB->linear) and the resulting normalized linear RGB values scaled by either 80 or 100 nits (the luminance of a typical SDR monitor).
+		// For SDR/LDR->HDR upconversion, the REC 709 sRGB input should be converted to linear light (sRGB->linear) and the resulting normalized linear RGB values scaled by either 80 or 100 nits (the luminance of a typical SDR monitor). 
 		// SDR upconversion to normalized [0,1] (i.e. non-absolute) luminances may work but is not supported because ITP errors will not be predicted correctly.
-		bool m_rec2020_bt2100_color_gamut = false;
+		// 11/3/2025: This flag is always copied straight into the output KTX2 DFD colorspace, even for non-HDR formats.
+		// TODO: Move this parameter to reflect this.
+		bool m_rec2020_bt2100_color_gamut = false; 
 
 		// levels 0-3 normal levels, 4=exhaustive
 		uint32_t m_master_comp_level = 0;
@@ -35,13 +38,13 @@ namespace astc_6x6_hdr
 		float m_jnd_delta_itp_thresh = .75f;
 
 		bool m_force_one_strip = false;
-
+				
 		bool m_gaussian1_fallback = true; // def to true, if this is disabled m_gaussian2_fallback should be disabled too
 		float m_gaussian1_strength = 1.45f;
 
 		bool m_gaussian2_fallback = true; // def to true, hopefully rarely kicks in
 		float m_gaussian2_strength = 1.83f;
-
+				
 		// m_disable_delta_endpoint_usage may give a slight increase in RDO ASTC encoding efficiency. It's also faster.
 		bool m_disable_delta_endpoint_usage = false;
 
@@ -67,7 +70,7 @@ namespace astc_6x6_hdr
 		bool m_disable_twothree_subsets = false; // def to false
 		bool m_use_solid_blocks = true; // def to true
 		bool m_use_runs = true; // def to true
-		bool m_block_stat_optimizations_flag = true; // def to true
+		bool m_block_stat_optimizations_flag = true; // def to true	
 
 		bool m_rdo_candidate_diversity_boost = true; // def to true
 		float m_rdo_candidate_diversity_boost_bit_window_weight = 1.2f;
@@ -96,7 +99,7 @@ namespace astc_6x6_hdr
 			basisu::fmt_debug_printf("m_rdo_candidate_diversity_boost: {}, m_rdo_candidate_diversity_boost_bit_window_weight: {}\n", m_rdo_candidate_diversity_boost, m_rdo_candidate_diversity_boost_bit_window_weight);
 			basisu::fmt_debug_printf("m_favor_higher_compression: {}, m_num_reuse_xy_deltas: {}\n", m_favor_higher_compression, m_num_reuse_xy_deltas);
 		}
-
+				
 		astc_hdr_6x6_global_config()
 		{
 		}
@@ -121,7 +124,7 @@ namespace astc_6x6_hdr
 		basisu::image_metrics m_im_bc6h_log2;
 		basisu::image_metrics m_im_bc6h_half;
 	};
-
+	
 	// The input image should be unpadded to 6x6 boundaries, i.e. the original unexpanded image.
 	bool compress_photo(const basisu::imagef& orig_src_img, const astc_hdr_6x6_global_config& global_cfg, basisu::job_pool* pJob_pool,
 		basisu::uint8_vec& intermediate_tex_data, basisu::uint8_vec& astc_tex_data, result_metrics& metrics);

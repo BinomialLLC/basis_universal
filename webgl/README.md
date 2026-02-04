@@ -6,7 +6,7 @@ To build the encoder and transcoder WASM libraries using Emscripten, see the var
 
 ## Transcoder (texture_test)
 
-Live demo: [webgl/texture_test/index.html](https://subquantumtech.com/uastchdr2/texture_test/)
+Live demo: [webgl/texture_test/index.html](https://subquantumtech.com/xu/texture_test/)
 
 Renders a single texture, using the transcoder (compiled to WASM with emscripten) to generate one of the following compressed texture formats:
 
@@ -23,7 +23,7 @@ On browsers that don't support any compressed texture format, there's a low-qual
 
 ## glTF 3D Model
 
-Live demo: [`gltf/index.html`](https://subquantumtech.com/uastchdr2/gltf/)
+Live demo: [`gltf/index.html`](https://subquantumtech.com/xu/gltf/)
 
 Renders a glTF 3D model with `.basis` texture files, transcoded into one of the following compressed texture formats:
 
@@ -43,7 +43,7 @@ extension that is [currently in development](https://github.com/KhronosGroup/glT
 
 ## Compressor (ktx2_encode_test)
 
-Live demo: [`ktx2_encode_test/index.html'](https://subquantumtech.com/uastchdr2/ktx2_encode_test/)
+Live demo: [`ktx2_encode_test/index.html'](https://subquantumtech.com/xu/ktx2_encode_test/)
 
 This demo shows how to use the compressor from JavaScript. To use it, select a .PNG file then hit the "Encode!" button. The compressor will dynamically generate a .ktx2 file in memory which will then be immediately transcoded and displayed. Hit the "Download!" button to locally download the generated .ktx2 file.
 
@@ -59,4 +59,5 @@ You can locally host the files under the "webgl" folder. One way is to use [Pyth
 cd webgl
 python3 -m http.server 8000
 ```
-Note: For WASM multithreading to be available and enabled, the server must be properly configured.
+
+Note: For WASM multithreading to be available and enabled, the server [must be properly configured](https://unlimited3d.wordpress.com/2021/12/21/webassembly-and-multi-threading/). See the `webgl/start_webserver.sh` and `webgl/webserver_cross_origin.py` example scripts.

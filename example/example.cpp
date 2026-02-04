@@ -1,14 +1,17 @@
 // File: example.cpp
 // This minimal LDR/HDR encoding/transcoder example relies on encoder_lib. It shows how to use the encoder in a few different ways, and the transcoder.
-//
-// It should be compiled with the preprocessor macros BASISU_SUPPORT_SSE (typically 1) and BASISU_SUPPORT_OPENCL (typically 1).
+// 
+// It should be compiled with the preprocessor macros BASISU_SUPPORT_SSE (typically 1) and BASISU_SUPPORT_OPENCL (typically 1). 
 // They should be set to the same preprocesor options as the encoder.
 // If OpenCL is enabled, the "..\OpenCL" directory should be in your compiler's include path. Additionally, link against "..\OpenCL\lib\opencl64.lib".
 #include "../encoder/basisu_comp.h"
 #include "../transcoder/basisu_transcoder.h"
 #include "../encoder/basisu_gpu_texture.h"
+#include "../encoder/basisu_astc_ldr_encode.h"
 
 #define USE_ENCODER (1)
+
+//#define FORCE_SAN_FAILURE
 
 const bool USE_OPENCL = false;
 
@@ -17,7 +20,7 @@ const bool USE_OPENCL = false;
 using namespace basisu;
 
 // Quick function to create a visualization of the Mandelbrot set as an float HDR image.
-static void create_mandelbrot(imagef& img)
+static void create_mandelbrot(imagef& img) 
 {
     const int width = 256;
     const int height = 256;
@@ -25,30 +28,30 @@ static void create_mandelbrot(imagef& img)
 
     // Create a more interesting color palette
     uint8_t palette[256][3];
-    for (int i = 0; i < 256; i++)
+    for (int i = 0; i < 256; i++) 
     {
-        if (i < 64)
+        if (i < 64) 
         {
             // Blue to cyan transition
             palette[i][0] = static_cast<uint8_t>(0);                   // Red component
             palette[i][1] = static_cast<uint8_t>(i * 4);               // Green component
             palette[i][2] = static_cast<uint8_t>(255);                 // Blue component
         }
-        else if (i < 128)
+        else if (i < 128) 
         {
             // Cyan to green transition
             palette[i][0] = static_cast<uint8_t>(0);                   // Red component
             palette[i][1] = static_cast<uint8_t>(255);                 // Green component
             palette[i][2] = static_cast<uint8_t>(255 - (i - 64) * 4);  // Blue component
         }
-        else if (i < 192)
+        else if (i < 192) 
         {
             // Green to yellow transition
             palette[i][0] = static_cast<uint8_t>((i - 128) * 4);       // Red component
             palette[i][1] = static_cast<uint8_t>(255);                 // Green component
             palette[i][2] = static_cast<uint8_t>(0);                   // Blue component
         }
-        else
+        else 
         {
             // Yellow to red transition
             palette[i][0] = static_cast<uint8_t>(255);                 // Red component
@@ -58,9 +61,9 @@ static void create_mandelbrot(imagef& img)
     }
 
     // Iterate over each pixel in the image
-    for (int px = 0; px < width; px++)
+    for (int px = 0; px < width; px++) 
     {
-        for (int py = 0; py < height; py++)
+        for (int py = 0; py < height; py++) 
         {
             double x0 = (px - width / 2.0) * 4.0 / width;
             double y0 = (py - height / 2.0) * 4.0 / height;
@@ -71,7 +74,7 @@ static void create_mandelbrot(imagef& img)
             double x_temp;
 
             int iter;
-            for (iter = 0; iter < max_iter; iter++)
+            for (iter = 0; iter < max_iter; iter++) 
             {
                 zx_squared = zx * zx;
                 zy_squared = zy * zy;
@@ -148,7 +151,7 @@ static bool encode_uastc_ldr()
 
     // basis_compress() is a simple wrapper around the basis_compressor_params and basis_compressor classes.
     void* pKTX2_data = basis_compress(
-        basist::basis_tex_format::cUASTC4x4,
+        basist::basis_tex_format::cUASTC_LDR_4x4,
         source_images,
         cFlagThreaded | cFlagPrintStats | cFlagDebug | cFlagPrintStatus, 0.0f,
         &file_size,
@@ -173,7 +176,7 @@ static bool encode_uastc_ldr()
 static bool encode_uastc_hdr()
 {
 	const uint32_t W = 256, H = 256;
-
+	
     imagef img(W, H);
 
 #if 1
@@ -196,7 +199,7 @@ static bool encode_uastc_hdr()
 	params.m_write_output_basis_or_ktx2_files = true;
 	params.m_out_filename = "test_uastc_hdr.ktx2";
 	params.m_perceptual = true;
-
+    
 #if 1
     // Create a job pool containing 7 total threads (the calling thread plus 6 additional threads).
     // A job pool must be created, even if threading is disabled. It's fine to pass in 0 for NUM_THREADS.
@@ -219,13 +222,13 @@ static bool encode_uastc_hdr()
 	basisu::basis_compressor::error_code ec = comp.process();
 	if (ec != basisu::basis_compressor::cECSuccess)
 		return false;
-
+	
 	return true;
 }
 
 // This example function loads a .KTX2 file and then transcodes it to various compressed/uncompressed texture formats.
-// It writes .DDS and .ASTC files.
-// ARM's astcenc tool can be used to unpack the .ASTC file:
+// It writes .DDS and .ASTC files. 
+// ARM's astcenc tool can be used to unpack the .ASTC file: 
 // astcenc-avx2.exe -dh test_uastc_hdr_astc.astc out.exr
 static bool transcode_hdr()
 {
@@ -252,10 +255,10 @@ static bool transcode_hdr()
     // This example only transcodes UASTC HDR textures.
     if (!transcoder.is_hdr())
         return false;
-
+        
     // Begin transcoding (this will be a no-op with UASTC HDR textures, but you still need to do it. For ETC1S it'll unpack the global codebooks.)
     transcoder.start_transcoding();
-
+            
     // Transcode to BC6H and write a BC6H .DDS file.
     {
         gpu_image tex(texture_format::cBC6HUnsigned, width, height);
@@ -268,7 +271,7 @@ static bool transcode_hdr()
 
         gpu_image_vec tex_vec;
         tex_vec.push_back(tex);
-        if (!write_compressed_texture_file("test_uastc_hdr_bc6h.dds", tex_vec, true))
+        if (!write_compressed_texture_file("test_uastc_hdr_bc6h.dds", tex_vec, false))
             return false;
     }
 
@@ -423,7 +426,7 @@ const uint32_t NUM_TEST_BLOCKS = (sizeof(g_test_blocks) / sizeof(g_test_blocks[0
 static bool block_unpack_and_transcode_example(void)
 {
     printf("block_unpack_and_transcode_example:\n");
-
+    
     for (uint32_t test_block_iter = 0; test_block_iter < NUM_TEST_BLOCKS; test_block_iter++)
     {
         printf("-- Test block %u:\n", test_block_iter);
@@ -431,7 +434,7 @@ static bool block_unpack_and_transcode_example(void)
         const uint8_t* pASTC_blk = &g_test_blocks[test_block_iter * 2 + 0][0];
         const uint8_t* pBC6H_blk = &g_test_blocks[test_block_iter * 2 + 1][0];
 
-        // Unpack the physical ASTC block to logical.
+        // Unpack the physical ASTC block to logical. 
         // Note this is a full ASTC block unpack, and is not specific to UASTC. It does not verify that the block follows the UASTC HDR spec, only ASTC.
         astc_helpers::log_astc_block log_blk;
         bool status = astc_helpers::unpack_block(pASTC_blk, log_blk, 4, 4);
@@ -470,7 +473,7 @@ static bool block_unpack_and_transcode_example(void)
             return false;
         }
     } // test_block_iter
-
+        
     printf("Transcode test OK\n");
 
     return true;
@@ -492,7 +495,7 @@ static void fuzz_uastc_hdr_transcoder_test()
     for (uint32_t t = 0; t < NUM_TRIES; t++)
     {
         basist::astc_blk astc_blk;
-
+                
         if (rg.frand(0.0f, 1.0f) < .3f)
         {
             // Fully random block
@@ -564,6 +567,85 @@ static void fuzz_uastc_hdr_transcoder_test()
     printf("OK\n");
 }
 
+void wrap_image(const image& src, image& dst, int gridX, int gridY, float maxOffset, bool randomize, basisu::rand &rnd)
+{
+    if (gridX < 1) gridX = 1;
+    if (gridY < 1) gridY = 1;
+
+    const int vxCountX = gridX + 1;
+    const int vxCountY = gridY + 1;
+    const int stride = vxCountX;
+
+    const int w = src.get_width();
+    const int h = src.get_height();
+        
+    dst.resize(w, h);
+
+    dst.set_all(g_black_color);
+
+    basisu::vector<vec2F> verts(vxCountX * vxCountY);
+    basisu::vector<vec2F> uvs(vxCountX * vxCountY);
+    basisu::vector<color_rgba> cols(vxCountX * vxCountY);
+
+    for (int gy = 0; gy <= gridY; ++gy)
+    {
+        for (int gx = 0; gx <= gridX; ++gx)
+        {
+            float x = (gx / float(gridX)) * (w - 1);
+            float y = (gy / float(gridY)) * (h - 1);
+
+            float rx = x;
+            float ry = y;
+
+            if (randomize)
+            {
+                rx += rnd.frand(-maxOffset, maxOffset);
+                ry += rnd.frand(-maxOffset, maxOffset);
+            }
+
+            verts[gy * stride + gx] = { rx, ry };
+
+            float u = gx / float(gridX);
+            float v = gy / float(gridY);
+
+            u = std::max(0.0f, std::min(1.0f, u));
+            v = std::max(0.0f, std::min(1.0f, v));
+
+            uvs[gy * stride + gx] = { u, v };
+
+            color_rgba c(g_white_color);
+
+            cols[gy * stride + gx] = c;
+        }
+    }
+
+    for (int gy = 0; gy < gridY; ++gy)
+    {
+        for (int gx = 0; gx < gridX; ++gx)
+        {
+            int i0 = gy * stride + gx;
+            int i1 = i0 + 1;
+            int i2 = i0 + stride;
+            int i3 = i2 + 1;
+
+            tri2 tA;
+            tA.p0 = verts[i0];  tA.p1 = verts[i1];  tA.p2 = verts[i3];
+            tA.t0 = uvs[i0];    tA.t1 = uvs[i1];    tA.t2 = uvs[i3];
+            tA.c0 = cols[i0];  tA.c1 = cols[i1];  tA.c2 = cols[i3];
+
+            draw_tri2(dst, &src, tA, randomize);
+
+            tri2 tB;
+            tB.p0 = verts[i0];  tB.p1 = verts[i3];  tB.p2 = verts[i2];
+            tB.t0 = uvs[i0];    tB.t1 = uvs[i3];    tB.t2 = uvs[i2];
+            tB.c0 = cols[i0];  tB.c1 = cols[i3];  tB.c2 = cols[i2];
+
+            draw_tri2(dst, &src, tB, randomize);
+        } // gx
+    } // by
+
+}
+
 enum class codec_class
 {
     cETC1S = 0,
@@ -571,20 +653,28 @@ enum class codec_class
     cUASTC_HDR_4x4 = 2,
     cASTC_HDR_6x6 = 3,
     cUASTC_HDR_6x6 = 4,
+    cASTC_LDR = 5,
+    cXUASTC_LDR = 6,
     cTOTAL
 };
 
-// The main point of this test is to exercise lots of internal compressor code paths, and transcoder code paths.
-bool random_compression_fuzz_test()
+// The main point of this test is to exercise lots of internal code paths.
+bool random_compress_test()
 {
     printf("Random XUASTC/ASTC LDR 4x4-12x12 compression test:\n");
 
-    //const uint32_t N = 256;
-    const uint32_t N = 64;
+    const uint32_t num_images = 18;
+    image test_images[num_images + 1];
+
+    for (uint32_t i = 0; i < num_images; i++)
+        load_png(fmt_string("../test_files/kodim{02}.png", 1 + i).c_str(), test_images[i]);
+    
+    const uint32_t N = 16;
+    //const uint32_t N = 5000;
     const uint32_t MAX_WIDTH = 1024, MAX_HEIGHT = 1024;
-
+        
     basisu::rand rnd;
-
+    
     float lowest_psnr1 = BIG_FLOAT_VAL, lowest_psnr2 = BIG_FLOAT_VAL;
 
     struct result
@@ -598,9 +688,11 @@ bool random_compression_fuzz_test()
 
     for (uint32_t i = 0; i < N; i++)
     {
-        uint32_t seed = 0x2603455 + i;
+        uint32_t seed = 166136844 + i;
 
-        //seed = 23082246; // ETC1S perceptual colorspace error overflow test
+        //seed = 23082246; // etc1s 1-bit SSE overflow
+        //seed = 56636601; // UASTC HDR 4x4 assert tol
+        //seed = 56636744; // HDR 6x6 float overflow
 
         fmt_printf("------------------------------ Seed: {}\n", seed);
         rnd.seed(seed);
@@ -609,7 +701,7 @@ bool random_compression_fuzz_test()
         const uint32_t h = rnd.irand(1, MAX_HEIGHT);
         const bool mips = rnd.bit();
         const bool use_a = rnd.bit();
-
+                
         fmt_printf("Trying {}x{}, mips: {}, use_a: {}\n", w, h, mips, use_a);
 
         // Chose a random codec/block size to test
@@ -618,7 +710,10 @@ bool random_compression_fuzz_test()
         bool is_hdr = false;
 
         uint32_t rnd_codec_class = rnd.irand(0, (uint32_t)codec_class::cTOTAL - 1);
-
+        
+        // TODO - make this a command line
+        //rnd_codec_class = rnd.bit() ? (uint32_t)codec_class::cXUASTC_LDR : (uint32_t)codec_class::cASTC_LDR;
+        //rnd_codec_class = (uint32_t)codec_class::cXUASTC_LDR;
         //rnd_codec_class = (uint32_t)codec_class::cETC1S;
 
         switch (rnd_codec_class)
@@ -630,7 +725,7 @@ bool random_compression_fuzz_test()
         }
         case (uint32_t)codec_class::cUASTC_LDR_4x4:
         {
-            tex_mode = basist::basis_tex_format::cUASTC4x4;
+            tex_mode = basist::basis_tex_format::cUASTC_LDR_4x4;
             break;
         }
         case (uint32_t)codec_class::cUASTC_HDR_4x4:
@@ -647,8 +742,22 @@ bool random_compression_fuzz_test()
         }
         case (uint32_t)codec_class::cUASTC_HDR_6x6:
         {
-            tex_mode = basist::basis_tex_format::cASTC_HDR_6x6_INTERMEDIATE;
+            tex_mode = basist::basis_tex_format::cUASTC_HDR_6x6_INTERMEDIATE;
             is_hdr = true;
+            break;
+        }
+        case (uint32_t)codec_class::cASTC_LDR:
+        {
+            // ASTC LDR 4x4-12x12
+            const uint32_t block_variant = rnd.irand(0, astc_helpers::NUM_ASTC_BLOCK_SIZES - 1);
+            tex_mode = (basist::basis_tex_format)((uint32_t)basist::basis_tex_format::cASTC_LDR_4x4 + block_variant);
+            break;
+        }
+        case (uint32_t)codec_class::cXUASTC_LDR:
+        {
+            // XUASTC LDR 4x4-12x12
+            const uint32_t block_variant = rnd.irand(0, astc_helpers::NUM_ASTC_BLOCK_SIZES - 1);
+            tex_mode = (basist::basis_tex_format)((uint32_t)basist::basis_tex_format::cXUASTC_LDR_4x4 + block_variant);
             break;
         }
         default:
@@ -658,9 +767,9 @@ bool random_compression_fuzz_test()
         }
 
         fmt_printf("Testing basis_tex_format={}\n", (uint32_t)tex_mode);
-
+        
         size_t comp_size = 0;
-
+                
         // Create random LDR source image to compress
         image src_img;
         src_img.resize(w, h, w, color_rgba(rnd.byte(), rnd.byte(), rnd.byte(), use_a ? rnd.byte() : 255));
@@ -668,7 +777,7 @@ bool random_compression_fuzz_test()
         if (rnd.irand(0, 7) >= 1)
         {
             const uint32_t nt = rnd.irand(0, 1000);
-
+            
             for (uint32_t k = 0; k < nt; k++)
             {
                 color_rgba c(rnd.byte(), rnd.byte(), rnd.byte(), use_a ? rnd.byte() : 255);
@@ -680,7 +789,7 @@ bool random_compression_fuzz_test()
                     uint32_t xe = rnd.irand(0, w - 1);
                     if (xs > xe)
                         std::swap(xs, xe);
-
+                    
                     uint32_t ys = rnd.irand(0, h - 1);
                     uint32_t ye = rnd.irand(0, h - 1);
                     if (ys > ye)
@@ -695,7 +804,7 @@ bool random_compression_fuzz_test()
 
                     uint32_t ys = rnd.irand(0, h - 1);
                     uint32_t ye = rnd.irand(0, h - 1);
-
+                    
                     basisu::draw_line(src_img, xs, ys, xe, ye, c);
                 }
                 else if (r == 6)
@@ -712,9 +821,9 @@ bool random_compression_fuzz_test()
                     uint32_t y = rnd.irand(0, h - 1);
                     uint32_t sx = rnd.irand(1, 3);
                     uint32_t sy = rnd.irand(1, 3);
-
+                    
                     uint32_t l = rnd.irand(1, 10);
-
+                    
                     char buf[32] = {};
                     for (uint32_t j = 0; j < l; j++)
                         buf[j] = (char)rnd.irand(32, 127);
@@ -725,13 +834,13 @@ bool random_compression_fuzz_test()
                 {
                     uint32_t xs = rnd.irand(0, w - 1);
                     uint32_t ys = rnd.irand(0, h - 1);
-
+                    
                     uint32_t xl = rnd.irand(1, 100);
                     uint32_t yl = rnd.irand(1, 100);
 
                     uint32_t xe = minimum<int>(xs + xl - 1, w - 1);
                     uint32_t ye = minimum<int>(ys + yl - 1, h - 1);
-
+                    
                     color_rgba cols[4];
                     cols[0] = c;
                     for (uint32_t j = 1; j < 4; j++)
@@ -778,8 +887,74 @@ bool random_compression_fuzz_test()
                             }
                             else
                                 src_img(x, y) = q;
-                        } // x
+                        } // x 
                     } // y
+                }
+                else if ((r < 20) && (num_images))
+                {
+                    uint32_t image_index = rnd.irand(0, num_images - 1);
+
+                    const image& img = test_images[image_index];
+                    if (img.get_width())
+                    {
+                        float tw = (float)rnd.irand(1, minimum<int>(128, img.get_width()));
+                        float th = (float)rnd.irand(1, minimum<int>(128, img.get_height()));
+
+                        float u = (float)rnd.irand(0, img.get_width() - (int)tw);
+                        float v = (float)rnd.irand(0, img.get_height() - (int)th);
+
+                        u /= (float)img.get_width();
+                        v /= (float)img.get_height();
+
+                        tw /= (float)img.get_width();
+                        th /= (float)img.get_height();
+
+                        float dx = (float)rnd.irand(0, src_img.get_width() - 1);
+                        float dy = (float)rnd.irand(0, src_img.get_height() - 1);
+
+                        float dw = (float)rnd.irand(1, minimum<int>(256, img.get_width()));
+                        float dh = (float)rnd.irand(1, minimum<int>(256, img.get_height()));
+
+                        tri2 tri;
+                        tri.p0.set(dx, dy);
+                        tri.t0.set(u, v);
+
+                        tri.p1.set(dx + dw, dy);
+                        tri.t1.set(u + tw, v);
+
+                        tri.p2.set(dx + dw, dy + dh);
+                        tri.t2.set(u + tw, v + th);
+                        
+                        bool alpha_blend = rnd.bit();
+
+                        if (alpha_blend)
+                        {
+                            tri.c0.set(rnd.irand(100, 255), rnd.irand(100, 255), rnd.irand(100, 255), rnd.irand(1, 255));
+                            tri.c1.set(rnd.irand(100, 255), rnd.irand(100, 255), rnd.irand(100, 255), rnd.irand(1, 255));
+                            tri.c2.set(rnd.irand(100, 255), rnd.irand(100, 255), rnd.irand(100, 255), rnd.irand(1, 255));
+                        }
+                        else
+                        {
+                            tri.c0 = g_white_color;
+                            tri.c1 = g_white_color;
+                            tri.c2 = g_white_color;
+                        }
+
+                        draw_tri2(src_img, &img, tri, alpha_blend);
+
+                        tri.p0.set(dx, dy);
+                        tri.t0.set(u, v);
+
+                        tri.p1.set(dx + dw, dy + dh);
+                        tri.t1.set(u + tw, v + th);
+                        tri.c1 = tri.c2;
+
+                        tri.p2.set(dx, dy + dh);
+                        tri.t2.set(u, v + th);
+                        tri.c2.set(rnd.irand(100, 255), rnd.irand(100, 255), rnd.irand(100, 255), rnd.irand(1, 255));
+
+                        draw_tri2(src_img, &img, tri, alpha_blend);
+                    }
                 }
                 else
                 {
@@ -787,13 +962,24 @@ bool random_compression_fuzz_test()
                 }
             }
         }
-
+        
         if ((use_a) && (rnd.irand(0, 3) >= 2))
         {
             const uint32_t nt = rnd.irand(0, 1000);
-
+            
             for (uint32_t k = 0; k < nt; k++)
                 src_img(rnd.irand(0, w - 1), rnd.irand(0, h - 1)).a = rnd.byte();
+        }
+
+        if (rnd.bit())
+        {
+            int gridX = rnd.irand(8, 24);
+            int gridY = rnd.irand(8, 24);
+            float maxOffset = rnd.frand(0.0f, (float)maximum(gridX, gridY));
+
+            image tmp_img;
+            wrap_image(src_img, tmp_img, gridX, gridY, maxOffset, true, rnd);
+            src_img.swap(tmp_img);
         }
 
         if (!use_a)
@@ -805,12 +991,12 @@ bool random_compression_fuzz_test()
 
         //save_png("test.png", src_img);
         //fmt_printf("Has alpha: {}\n", src_img.has_alpha());
-
+        
         // Choose randomized codec parameters
         uint32_t flags = cFlagPrintStats | cFlagValidateOutput | cFlagPrintStatus;
-
-        //flags |= cFlagDebug;
-
+        
+        flags |= cFlagDebug;
+                
         flags |= cFlagThreaded;
 
         if (rnd.bit())
@@ -826,16 +1012,16 @@ bool random_compression_fuzz_test()
             flags |= cFlagREC2020;
 
         float quality = 0.0f;
-
+                
         switch (rnd_codec_class)
         {
         case (uint32_t)codec_class::cETC1S:
         {
             // ETC1S
-
+            
             // Choose random ETC1S quality level
             flags |= rnd.irand(1, 255);
-
+        
             break;
         }
         case (uint32_t)codec_class::cUASTC_LDR_4x4:
@@ -846,7 +1032,6 @@ bool random_compression_fuzz_test()
             {
                 // Choose random RDO lambda
                 quality = rnd.frand(0.0, 10.0f);
-                flags |= cFlagUASTCRDO;
             }
 
             // Choose random effort level
@@ -857,7 +1042,7 @@ bool random_compression_fuzz_test()
         case (uint32_t)codec_class::cUASTC_HDR_4x4:
         {
             // UASTC HDR 4x4
-
+            
             // Choose random effort level.
             flags |= rnd.irand(uastc_hdr_4x4_codec_options::cMinLevel, uastc_hdr_4x4_codec_options::cMaxLevel);
 
@@ -867,7 +1052,7 @@ bool random_compression_fuzz_test()
         case (uint32_t)codec_class::cUASTC_HDR_6x6:
         {
             // RDO ASTC HDR 6x6 or UASTC HDR 6x6
-
+            
             // Chose random effort level
             flags |= rnd.irand(0, astc_6x6_hdr::ASTC_HDR_6X6_MAX_USER_COMP_LEVEL);
 
@@ -879,12 +1064,33 @@ bool random_compression_fuzz_test()
 
             break;
         }
+        case (uint32_t)codec_class::cASTC_LDR:
+        case (uint32_t)codec_class::cXUASTC_LDR:
+        {
+            // ASTC/XUASTC LDR 4x4-12x12
+
+            // Choose random profile
+            uint32_t xuastc_ldr_syntax = rnd.irand(0, (uint32_t)basist::astc_ldr_t::xuastc_ldr_syntax::cTotal - 1);
+            flags |= (xuastc_ldr_syntax << cFlagXUASTCLDRSyntaxShift);
+
+            // Choose random effort
+            uint32_t effort = rnd.irand(basisu::astc_ldr::EFFORT_LEVEL_MIN, basisu::astc_ldr::EFFORT_LEVEL_MAX);
+            flags |= effort;
+
+            // Choose random weight grid DCT quality
+            quality = (float)rnd.frand(1.0f, 100.0f);
+
+            if (rnd.irand(0, 7) == 0)
+                quality = 0.0f; // sometimes disable DCT
+
+            break;
+        }
         default:
         {
             assert(0);
         }
         }
-
+        
         void* pComp_data = nullptr;
         image_stats stats;
 
@@ -892,7 +1098,7 @@ bool random_compression_fuzz_test()
         {
             basisu::vector<imagef> hdr_source_images;
             imagef hdr_src_img(src_img.get_width(), src_img.get_height());
-
+            
             const float max_y = rnd.frand(.000125f, 30000.0f) / 255.0f;
 
             for (uint32_t y = 0; y < src_img.get_height(); y++)
@@ -907,7 +1113,7 @@ bool random_compression_fuzz_test()
             }
 
             //write_exr("test.exr", hdr_src_img, 3, 0);
-
+            
             hdr_source_images.push_back(hdr_src_img);
             pComp_data = basisu::basis_compress(tex_mode, hdr_source_images, flags, quality, &comp_size, &stats);
         }
@@ -917,7 +1123,8 @@ bool random_compression_fuzz_test()
             ldr_source_images.push_back(src_img);
 
             //save_png("test.png", src_img);
-
+            //save_png(fmt_string("test_{}.png", seed), src_img);
+                                    
             pComp_data = basisu::basis_compress(tex_mode, ldr_source_images, flags, quality, &comp_size, &stats);
         }
 
@@ -941,39 +1148,66 @@ bool random_compression_fuzz_test()
             psnr2 });
 
     } // i
-
+               
     printf("PSNR Results:\n");
-
+    
     for (uint32_t i = 0; i < results.size(); i++)
         fmt_printf("{},{},{},{}\n", results[i].m_seed, (uint32_t)results[i].m_fmt, results[i].m_psnr1, results[i].m_psnr2);
-
+    
     printf("\n");
 
     for (uint32_t i = 0; i < results.size(); i++)
         fmt_printf("seed={} tex_mode={}, psnr1={}, psnr2={}\n", results[i].m_seed, (uint32_t)results[i].m_fmt, results[i].m_psnr1, results[i].m_psnr2);
-
+        
     // Success here is essentially not crashing or asserting or SAN'ing earlier
     printf("Success\n");
-
+    
     return true;
 }
+
+#ifdef FORCE_SAN_FAILURE
+static void force_san_failure()
+{
+    // Purposely do things that should trigger the address sanitizer
+    int arr[5] = { 0, 1, 2, 3, 4 };
+    printf("Out of bounds element: %d\n", arr[10]);
+
+    //uint8_t* p = (uint8_t *)malloc(10);
+    //p[10] = 99;
+
+    //uint8_t* p = (uint8_t *)malloc(10);
+    //free(p);
+    //p[0] = 99;
+}
+#endif // FORCE_SAN_FAILURE
 
 int main(int arg_c, char* arg_v[])
 {
     BASISU_NOTE_UNUSED(arg_c);
     BASISU_NOTE_UNUSED(arg_v);
 
+#if defined(DEBUG) | defined(_DEBUG)
+    printf("DEBUG\n");
+#endif
+#ifdef __SANITIZE_ADDRESS__
+    printf("__SANITIZE_ADDRESS__\n");
+#endif
+
+#ifdef FORCE_SAN_FAILURE
+    force_san_failure();
+#endif
+        
 #if USE_ENCODER
 	basisu_encoder_init(USE_OPENCL, false);
 
-    if (!random_compression_fuzz_test())
+    if (!random_compress_test())
         return EXIT_FAILURE;
-
+    
     if (!block_unpack_and_transcode_example())
         return EXIT_FAILURE;
 
     fuzz_uastc_hdr_transcoder_test();
-
+    
     if (!encode_etc1s())
     {
         fprintf(stderr, "encode_etc1s() failed!\n");

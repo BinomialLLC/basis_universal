@@ -7,7 +7,7 @@ class CORSRequestHandler(http.server.SimpleHTTPRequestHandler):
         self.send_header("Cross-Origin-Embedder-Policy", "require-corp")
         super().end_headers()
 
-PORT = 8080
+PORT = 8081
 with socketserver.TCPServer(("", PORT), CORSRequestHandler) as httpd:
     print(f"Serving at http://localhost:{PORT}")
     httpd.serve_forever()

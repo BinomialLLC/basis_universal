@@ -1,5 +1,5 @@
-// basisu_transcoder.cpp
-// Copyright (C) 2019-2024 Binomial LLC. All Rights Reserved.
+﻿// basisu_transcoder.cpp
+// Copyright (C) 2019-2026 Binomial LLC. All Rights Reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -107,6 +107,10 @@
 	#define BASISD_SUPPORT_ASTC 1
 #endif
 
+#ifndef BASISD_SUPPORT_XUASTC
+#define BASISD_SUPPORT_XUASTC 1
+#endif
+
 // Note that if BASISD_SUPPORT_ATC is enabled, BASISD_SUPPORT_DXT5A should also be enabled for alpha support.
 #ifndef BASISD_SUPPORT_ATC
 	#define BASISD_SUPPORT_ATC 1
@@ -161,6 +165,7 @@
 #define BASISD_WRITE_NEW_ETC2_EAC_R11_TABLES		0
 
 #ifndef BASISD_ENABLE_DEBUG_FLAGS
+	// DO NOT CHECK IN
 	#define BASISD_ENABLE_DEBUG_FLAGS	0
 #endif
 
@@ -177,6 +182,14 @@
 using namespace basist::astc_6x6_hdr;
 #endif
 
+#if BASISD_IS_BIG_ENDIAN
+const uint32_t BASISD_COLOR_RGBA_A_MASK = 0x000000FF;
+const uint32_t BASISD_COLOR_RGBA_RGB_MASK = ~BASISD_COLOR_RGBA_A_MASK;
+#else
+const uint32_t BASISD_COLOR_RGBA_A_MASK = 0xFF000000;
+const uint32_t BASISD_COLOR_RGBA_RGB_MASK = ~BASISD_COLOR_RGBA_A_MASK;
+#endif
+
 namespace basisu
 {
 	bool g_debug_printf;
@@ -188,7 +201,7 @@ namespace basisu
 
 	void debug_printf(const char* pFmt, ...)
 	{
-#if BASISU_FORCE_DEVEL_MESSAGES
+#if BASISU_FORCE_DEVEL_MESSAGES	
 		g_debug_printf = true;
 #endif
 		if (g_debug_printf)
@@ -202,7 +215,7 @@ namespace basisu
 
 	void debug_puts(const char* p)
 	{
-#if BASISU_FORCE_DEVEL_MESSAGES
+#if BASISU_FORCE_DEVEL_MESSAGES	
 		g_debug_printf = true;
 #endif
 		if (g_debug_printf)
@@ -235,6 +248,14 @@ namespace basist
 		g_debug_flags = f;
 #endif
 	}
+	
+	// Used by arith encoder/decoder
+	namespace arith_fastbits_f32
+	{
+		bool  g_initialized;
+		float g_lut_edge[TABLE_SIZE + 1]; // samples at m = 1 + i/TABLE_SIZE (for linear)
+
+	} // namespace arith_fastbits_f32
 
 	inline uint16_t byteswap_uint16(uint16_t v)
 	{
@@ -312,6 +333,8 @@ namespace basist
 				res[i] = basisu::lerp(a[i], b[i], s);
 			return res;
 		}
+
+		inline float norm() const { return dot(*this); }
 	};
 
 	uint16_t crc16(const void* r, size_t size, uint16_t crc)
@@ -329,6 +352,62 @@ namespace basist
 		return static_cast<uint16_t>(~crc);
 	}
 
+	uint32_t hash_hsieh(const uint8_t* pBuf, size_t len)
+	{
+		if (!pBuf || !len)
+			return 0;
+
+		uint32_t h = static_cast<uint32_t>(len);
+
+		const uint32_t bytes_left = len & 3;
+		len >>= 2;
+
+		while (len--)
+		{
+			const uint16_t* pWords = reinterpret_cast<const uint16_t*>(pBuf);
+
+			h += pWords[0];
+
+			const uint32_t t = (pWords[1] << 11) ^ h;
+			h = (h << 16) ^ t;
+
+			pBuf += sizeof(uint32_t);
+
+			h += h >> 11;
+		}
+
+		switch (bytes_left)
+		{
+		case 1:
+			h += *reinterpret_cast<const signed char*>(pBuf);
+			h ^= h << 10;
+			h += h >> 1;
+			break;
+		case 2:
+			h += *reinterpret_cast<const uint16_t*>(pBuf);
+			h ^= h << 11;
+			h += h >> 17;
+			break;
+		case 3:
+			h += *reinterpret_cast<const uint16_t*>(pBuf);
+			h ^= h << 16;
+			h ^= (static_cast<signed char>(pBuf[sizeof(uint16_t)])) << 18;
+			h += h >> 11;
+			break;
+		default:
+			break;
+		}
+
+		h ^= h << 3;
+		h += h >> 5;
+		h ^= h << 4;
+		h += h >> 17;
+		h ^= h << 25;
+		h += h >> 6;
+
+		return h;
+	}
+
 	struct vec4F
 	{
 		float c[4];
@@ -338,7 +417,7 @@ namespace basist
 		float operator[] (uint32_t index) const { assert(index < 4); return c[index]; }
 		float& operator[] (uint32_t index) { assert(index < 4); return c[index]; }
 	};
-
+		
 	enum etc_constants
 	{
 		cETC1BytesPerBlock = 8U,
@@ -411,14 +490,14 @@ namespace basist
 
 	//const uint8_t g_etc1_to_selector_index[cETC1SelectorValues] = { 2, 3, 1, 0 };
 	const uint8_t g_selector_index_to_etc1[cETC1SelectorValues] = { 3, 2, 0, 1 };
-
+	
 	static const uint8_t g_etc_5_to_8[32] = { 0, 8, 16, 24, 33, 41, 49, 57, 66, 74, 82, 90, 99, 107, 115, 123, 132, 140, 148, 156, 165, 173, 181, 189, 198, 206, 214, 222, 231, 239, 247, 255 };
 
 	struct decoder_etc_block
 	{
 		// big endian uint64:
 		// bit ofs:  56  48  40  32  24  16   8   0
-		// byte ofs: b0, b1, b2, b3, b4, b5, b6, b7
+		// byte ofs: b0, b1, b2, b3, b4, b5, b6, b7 
 		union
 		{
 			uint64_t m_uint64;
@@ -686,7 +765,7 @@ namespace basist
 		{
 			return (m_bytes[3] & 2) != 0;
 		}
-
+				
 		inline uint32_t get_inten_table(uint32_t subblock_id) const
 		{
 			assert(subblock_id < 2);
@@ -701,7 +780,7 @@ namespace basist
 			const uint32_t b = get_byte_bits(cETC1DeltaColor3BBitOffset, 3);
 			return static_cast<uint16_t>(b | (g << 3U) | (r << 6U));
 		}
-
+		
 		void get_block_colors(color32* pBlock_colors, uint32_t subblock_index) const
 		{
 			color32 b;
@@ -819,7 +898,7 @@ namespace basist
 			g = c.g;
 			b = c.b;
 		}
-
+				
 		static void unpack_color5(color32& result, uint16_t packed_color5, bool scaled)
 		{
 			result = unpack_color5(packed_color5, scaled, 255);
@@ -948,7 +1027,7 @@ namespace basist
 		static void get_block_color5_r(const color32& base_color5, uint32_t inten_table, uint32_t index, uint32_t &r)
 		{
 			assert(index < 4);
-
+						
 			uint32_t br = (base_color5.r << 3) | (base_color5.r >> 2);
 
 			const int* pInten_table = g_etc1_inten_tables[inten_table];
@@ -1124,7 +1203,7 @@ namespace basist
 		{ 1, 2, 2, 2 },
 		{ 1, 2, 3, 3 },
 	};
-
+	
 	static uint8_t g_etc1_to_dxt1_selector_mappings_raw_dxt1_256[NUM_ETC1_TO_DXT1_SELECTOR_MAPPINGS][256];
 	static uint8_t g_etc1_to_dxt1_selector_mappings_raw_dxt1_inv_256[NUM_ETC1_TO_DXT1_SELECTOR_MAPPINGS][256];
 
@@ -1515,9 +1594,9 @@ namespace basist
 		return best_err;
 	}
 #endif // BASISD_WRITE_NEW_ETC2_EAC_A8_TABLES
-
+		
 	static
-#if !BASISD_WRITE_NEW_ETC2_EAC_A8_TABLES
+#if !BASISD_WRITE_NEW_ETC2_EAC_A8_TABLES		
 		const
 #endif
 		etc1_g_to_eac_conversion s_etc1_g_to_etc2_a8[32 * 8][NUM_ETC2_EAC_SELECTOR_RANGES] =
@@ -2006,7 +2085,7 @@ namespace basist
 	void uastc_init();
 #endif
 
-#if BASISD_SUPPORT_UASTC_HDR
+#if BASISD_SUPPORT_UASTC_HDR	
 	namespace astc_6x6_hdr
 	{
 		static void init_quantize_tables();
@@ -2021,19 +2100,24 @@ namespace basist
 	}
 #endif
 
-	static bool g_transcoder_initialized;
+	namespace astc_ldr_t
+	{
+		void init_transcoding_tables();
+	}
 
+	static bool g_transcoder_initialized;
+		
 	// Library global initialization. Requires ~9 milliseconds when compiled and executed natively on a Core i7 2.2 GHz.
 	// If this is too slow, these computed tables can easilky be moved to be compiled in.
 	void basisu_transcoder_init()
 	{
 		if (g_transcoder_initialized)
 		{
-			BASISU_DEVEL_ERROR("basisu_transcoder::basisu_transcoder_init: Called more than once\n");
+			BASISU_DEVEL_ERROR("basisu_transcoder::basisu_transcoder_init: Called more than once\n");      
 			return;
 		}
-
-		BASISU_DEVEL_ERROR("basisu_transcoder::basisu_transcoder_init: Initializing (this is not an error)\n");
+         
+		BASISU_DEVEL_ERROR("basisu_transcoder::basisu_transcoder_init: Initializing (this is not an error)\n");      
 
 #if BASISD_SUPPORT_UASTC
 		uastc_init();
@@ -2041,7 +2125,8 @@ namespace basist
 
 #if BASISD_SUPPORT_UASTC_HDR
 		// TODO: Examine this, optimize for startup time/mem utilization.
-		astc_helpers::init_tables(false);
+		// XUASTC LDR decompressors need the rank tables
+		astc_helpers::init_tables();
 
 		astc_hdr_core_init();
 #endif
@@ -2049,7 +2134,7 @@ namespace basist
 #if BASISD_SUPPORT_ASTC
 		transcoder_init_astc();
 #endif
-
+				
 #if BASISD_WRITE_NEW_ASTC_TABLES
 		create_etc1_to_astc_conversion_table_0_47();
 		create_etc1_to_astc_conversion_table_0_255();
@@ -2159,9 +2244,23 @@ namespace basist
 		astc_6x6_hdr::init_quantize_tables();
 		fast_encode_bc6h_init();
 #endif
-
+		
 #if BASISD_SUPPORT_BC7_MODE5
 		bc7_mode_5_encoder::encode_bc7_mode5_init();
+#endif
+
+#if BASISD_SUPPORT_XUASTC
+		// TODO: XUASTC support macro
+		astc_ldr_t::init();
+		
+		astc_ldr_t::init_transcoding_tables();
+
+		// Used by arith encoder/decoder
+		arith_fastbits_f32::init();
+								
+		// Used by astc ldr transcoding
+		bc7f::init();
+		etc1f::init();
 #endif
 
 		g_transcoder_initialized = true;
@@ -2315,7 +2414,7 @@ namespace basist
 			std::swap(l, h);
 			pSelectors_xlat_256 = &g_etc1_to_dxt1_selector_mappings_raw_dxt1_inv_256[best_mapping][0];
 		}
-
+				
 		pDst_block->set_low_color(static_cast<uint16_t>(l));
 		pDst_block->set_high_color(static_cast<uint16_t>(h));
 
@@ -2475,7 +2574,7 @@ namespace basist
 		fxt1_block* pBlock = static_cast<fxt1_block*>(pDst);
 
 		// CC_MIXED is basically DXT1 with different encoding tricks.
-		// So transcode ETC1S to DXT1, then transcode that to FXT1 which is easy and nearly lossless.
+		// So transcode ETC1S to DXT1, then transcode that to FXT1 which is easy and nearly lossless. 
 		// (It's not completely lossless because FXT1 rounds in its color lerps while DXT1 doesn't, but it should be good enough.)
 		dxt1_block blk;
 		convert_etc1s_to_dxt1(&blk, pEndpoints, pSelectors, false);
@@ -2488,7 +2587,7 @@ namespace basist
 
 		uint32_t g0 = color0.g & 1;
 		uint32_t g1 = color1.g & 1;
-
+		
 		color0.g >>= 1;
 		color1.g >>= 1;
 
@@ -2496,7 +2595,7 @@ namespace basist
 		blk.m_selectors[1] = conv_dxt1_to_fxt1_sels(blk.m_selectors[1]);
 		blk.m_selectors[2] = conv_dxt1_to_fxt1_sels(blk.m_selectors[2]);
 		blk.m_selectors[3] = conv_dxt1_to_fxt1_sels(blk.m_selectors[3]);
-
+		
 		if ((blk.get_selector(0, 0) >> 1) != (g0 ^ g1))
 		{
 			std::swap(color0, color1);
@@ -2510,7 +2609,7 @@ namespace basist
 
 		if (fxt1_subblock == 0)
 		{
-			pBlock->m_hi.m_mode = 1;
+			pBlock->m_hi.m_mode = 1; 
 			pBlock->m_hi.m_alpha = 0;
 			pBlock->m_hi.m_glsb = g1 | (g1 << 1);
 			pBlock->m_hi.m_r0 = color0.r;
@@ -2831,7 +2930,7 @@ namespace basist
 		{
 			uint32_t r;
 			decoder_etc_block::get_block_color5_r(base_color, inten_table, low_selector, r);
-
+						
 			pDst_block->set_low_alpha(r);
 			pDst_block->set_high_alpha(r);
 			pDst_block->m_selectors[0] = 0;
@@ -2914,7 +3013,7 @@ namespace basist
 	static const uint8_t g_pvrtc_4[16] = { 0,16,33,49,66,82,99,115,140,156,173,189,206,222,239,255 };
 	static const uint8_t g_pvrtc_3[8] = { 0,33,74,107,148,181,222,255 };
 	static const uint8_t g_pvrtc_alpha[9] = { 0,34,68,102,136,170,204,238,255 };
-
+		
 	static const uint8_t g_pvrtc_5_floor[256] =
 	{
 		0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,2,2,2,2,2,2,2,2,3,3,3,3,3,3,3,3,
@@ -2938,7 +3037,7 @@ namespace basist
 		24,24,24,24,24,24,24,25,25,25,25,25,25,25,25,26,26,26,26,26,26,26,26,27,27,27,27,27,27,27,27,28,
 		28,28,28,28,28,28,28,28,29,29,29,29,29,29,29,29,30,30,30,30,30,30,30,30,31,31,31,31,31,31,31,31
 	};
-
+		
 	static const uint8_t g_pvrtc_4_floor[256] =
 	{
 		0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
@@ -2962,7 +3061,7 @@ namespace basist
 		12,12,12,12,12,12,12,12,12,12,12,12,12,12,12,13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,14,
 		14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15
 	};
-
+		
 	static const uint8_t g_pvrtc_3_floor[256] =
 	{
 		0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
@@ -2986,7 +3085,7 @@ namespace basist
 		6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,7,
 		7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7
 	};
-
+		
 	static const uint8_t g_pvrtc_alpha_floor[256] =
 	{
 		0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
@@ -3093,10 +3192,10 @@ namespace basist
 			}
 
 			assert((r < 32) && (g < 32) && (b < 32) && (a < 16));
-
+					
 			return color32(r, g, b, a);
 		}
-
+				
 		inline color32 get_endpoint_8888(uint32_t endpoint_index) const
 		{
 			assert(endpoint_index < 2);
@@ -3143,7 +3242,7 @@ namespace basist
 
 				a = g_pvrtc_alpha[a];
 			}
-
+			
 			return color32(r, g, b, a);
 		}
 
@@ -3152,7 +3251,7 @@ namespace basist
 			color32 c(get_endpoint_8888(endpoint_index));
 			return c.r + c.g + c.b + c.a;
 		}
-
+				
 		inline uint32_t get_opaque_endpoint_l0() const
 		{
 			uint32_t packed = m_endpoints & 0xFFFE;
@@ -3267,7 +3366,7 @@ namespace basist
 			else
 				m_endpoints = (m_endpoints & 0xFFFF0000U) | packed;
 		}
-
+				
 		// opaque endpoints:	554 or 555
 		// transparent endpoints: 3443 or 3444
 		inline void set_endpoint_raw(uint32_t endpoint_index, const color32& c, bool opaque_endpoint)
@@ -3320,7 +3419,7 @@ namespace basist
 			else
 				m_endpoints = (m_endpoints & 0xFFFF0000U) | packed;
 		}
-
+				
 		inline void set_endpoint_floor(uint32_t endpoint_index, const color32& c)
 		{
 			assert(endpoint_index < 2);
@@ -3429,12 +3528,6 @@ namespace basist
 		{ 6, 6, 2, 2 }, { 3, 9, 1, 3 }, { 12, 0, 4, 0 }, { 9, 3, 3, 1 },
 	};
 #endif
-
-	struct pvrtc1_temp_block
-	{
-		decoder_etc_block m_etc1_block;
-		uint32_t m_pvrtc_endpoints;
-	};
 
 	static inline uint32_t get_opaque_endpoint_l0(uint32_t endpoints)
 	{
@@ -3545,7 +3638,7 @@ namespace basist
 
 			for (int ey = 0; ey < 3; ey++)
 			{
-				int by = y + ey - 1;
+				int by = y + ey - 1; 
 
 				const uint32_t* pE = &pPVRTC_endpoints[(by & y_mask) * num_blocks_x];
 
@@ -3553,7 +3646,7 @@ namespace basist
 
 				for (int ex = 0; ex < 3; ex++)
 				{
-					int bx = 0 + ex - 1;
+					int bx = 0 + ex - 1; 
 
 					const uint32_t e = pE[bx & x_mask];
 
@@ -3702,8 +3795,8 @@ namespace basist
 	}
 
 	static void fixup_pvrtc1_4_modulation_rgba(
-		const decoder_etc_block* pETC_Blocks,
-		const uint32_t* pPVRTC_endpoints,
+		const decoder_etc_block* pETC_Blocks, 
+		const uint32_t* pPVRTC_endpoints, 
 		void* pDst_blocks, uint32_t num_blocks_x, uint32_t num_blocks_y, void *pAlpha_blocks,
 		const endpoint* pEndpoints, const selector* pSelectors)
 	{
@@ -3726,7 +3819,7 @@ namespace basist
 
 			for (int ey = 0; ey < 3; ey++)
 			{
-				int by = y + ey - 1;
+				int by = y + ey - 1; 
 
 				const uint32_t* pE = &pPVRTC_endpoints[(by & y_mask) * num_blocks_x];
 
@@ -3734,7 +3827,7 @@ namespace basist
 
 				for (int ex = 0; ex < 3; ex++)
 				{
-					int bx = 0 + ex - 1;
+					int bx = 0 + ex - 1; 
 
 					const uint32_t e = pE[bx & x_mask];
 
@@ -3748,13 +3841,13 @@ namespace basist
 			for (int x = 0; x < static_cast<int>(num_blocks_x); x++, block_index++)
 			{
 				const decoder_etc_block& src_block = pETC_Blocks[block_index];
-
+				
 				const uint16_t* pSrc_alpha_block = reinterpret_cast<const uint16_t*>(static_cast<const uint32_t*>(pAlpha_blocks) + x + (y * num_blocks_x));
 				const endpoint* pAlpha_endpoints = &pEndpoints[pSrc_alpha_block[0]];
 				const selector* pAlpha_selectors = &pSelectors[pSrc_alpha_block[1]];
-
+				
 				const uint32_t x_swizzle = (g_pvrtc_swizzle_table[x >> 8] << 17) | (g_pvrtc_swizzle_table[x & 0xFF] << 1);
-
+				
 				uint32_t swizzled = x_swizzle | y_swizzle;
 				if (num_blocks_x != num_blocks_y)
 				{
@@ -3897,7 +3990,7 @@ namespace basist
 	const uint32_t NUM_ETC1_TO_BC7_M5_SELECTOR_RANGES = sizeof(g_etc1_to_bc7_m5_selector_ranges) / sizeof(g_etc1_to_bc7_m5_selector_ranges[0]);
 
 	static uint32_t g_etc1_to_bc7_m5_selector_range_index[4][4];
-
+	
 	const uint32_t NUM_ETC1_TO_BC7_M5_SELECTOR_MAPPINGS = 10;
 	static const uint8_t g_etc1_to_bc7_m5_selector_mappings[NUM_ETC1_TO_BC7_M5_SELECTOR_MAPPINGS][4] =
 	{
@@ -3919,11 +4012,11 @@ namespace basist
 		uint8_t m_hi;
 		uint16_t m_err;
 	};
-
+		
 	static const etc1_to_bc7_m5_solution g_etc1_to_bc7_m5_color[32 * 8 * NUM_ETC1_TO_BC7_M5_SELECTOR_MAPPINGS * NUM_ETC1_TO_BC7_M5_SELECTOR_RANGES] = {
 #include "basisu_transcoder_tables_bc7_m5_color.inc"
 	};
-
+	
 	static dxt_selector_range g_etc1_to_bc7_m5a_selector_ranges[] =
 	{
 		{ 0, 3 },
@@ -3948,7 +4041,7 @@ namespace basist
 	{
 		#include "basisu_transcoder_tables_bc7_m5_alpha.inc"
 	};
-
+	
 	static inline uint32_t set_block_bits(uint8_t* pBytes, uint32_t val, uint32_t num_bits, uint32_t cur_ofs)
 	{
 		assert(num_bits < 32);
@@ -3972,83 +4065,6 @@ namespace basist
 
 		return cur_ofs;
 	}
-
-	struct bc7_mode_5
-	{
-		union
-		{
-			struct
-			{
-				uint64_t m_mode : 6;
-				uint64_t m_rot : 2;
-
-				uint64_t m_r0 : 7;
-				uint64_t m_r1 : 7;
-				uint64_t m_g0 : 7;
-				uint64_t m_g1 : 7;
-				uint64_t m_b0 : 7;
-				uint64_t m_b1 : 7;
-				uint64_t m_a0 : 8;
-				uint64_t m_a1_0 : 6;
-
-			} m_lo;
-
-			uint64_t m_lo_bits;
-		};
-
-		union
-		{
-			struct
-			{
-				uint64_t m_a1_1 : 2;
-
-				// bit 2
-				uint64_t m_c00 : 1;
-				uint64_t m_c10 : 2;
-				uint64_t m_c20 : 2;
-				uint64_t m_c30 : 2;
-
-				uint64_t m_c01 : 2;
-				uint64_t m_c11 : 2;
-				uint64_t m_c21 : 2;
-				uint64_t m_c31 : 2;
-
-				uint64_t m_c02 : 2;
-				uint64_t m_c12 : 2;
-				uint64_t m_c22 : 2;
-				uint64_t m_c32 : 2;
-
-				uint64_t m_c03 : 2;
-				uint64_t m_c13 : 2;
-				uint64_t m_c23 : 2;
-				uint64_t m_c33 : 2;
-
-				// bit 33
-				uint64_t m_a00 : 1;
-				uint64_t m_a10 : 2;
-				uint64_t m_a20 : 2;
-				uint64_t m_a30 : 2;
-
-				uint64_t m_a01 : 2;
-				uint64_t m_a11 : 2;
-				uint64_t m_a21 : 2;
-				uint64_t m_a31 : 2;
-
-				uint64_t m_a02 : 2;
-				uint64_t m_a12 : 2;
-				uint64_t m_a22 : 2;
-				uint64_t m_a32 : 2;
-
-				uint64_t m_a03 : 2;
-				uint64_t m_a13 : 2;
-				uint64_t m_a23 : 2;
-				uint64_t m_a33 : 2;
-
-			} m_hi;
-
-			uint64_t m_hi_bits;
-		};
-	};
 
 #if BASISD_WRITE_NEW_BC7_MODE5_TABLES
 	static void create_etc1_to_bc7_m5_color_conversion_table()
@@ -4095,7 +4111,7 @@ namespace basist
 									int err = block_colors[s].g - colors[g_etc1_to_bc7_m5_selector_mappings[m][s]];
 
 									int err_scale = 1;
-									// Special case when the intensity table is 7, low_selector is 0, and high_selector is 3. In this extreme case, it's likely the encoder is trying to strongly favor
+									// Special case when the intensity table is 7, low_selector is 0, and high_selector is 3. In this extreme case, it's likely the encoder is trying to strongly favor 
 									// the low/high selectors which are clamping to either 0 or 255.
 									if (((inten == 7) && (low_selector == 0) && (high_selector == 3)) && ((s == 0) || (s == 3)))
 										err_scale = 5;
@@ -4174,7 +4190,7 @@ namespace basist
 									int mapping_err = block_colors[s].g - colors[k];
 									mapping_err *= mapping_err;
 
-									// Special case when the intensity table is 7, low_selector is 0, and high_selector is 3. In this extreme case, it's likely the encoder is trying to strongly favor
+									// Special case when the intensity table is 7, low_selector is 0, and high_selector is 3. In this extreme case, it's likely the encoder is trying to strongly favor 
 									// the low/high selectors which are clamping to either 0 or 255.
 									if (((inten == 7) && (low_selector == 0) && (high_selector == 3)) && ((s == 0) || (s == 3)))
 										mapping_err *= 5;
@@ -4185,7 +4201,7 @@ namespace basist
 										best_k = k;
 									}
 								} // k
-
+								
 								total_err += best_mapping_err;
 								output_selectors |= (best_k << (s * 2));
 							} // s
@@ -4200,7 +4216,7 @@ namespace basist
 
 						} // lo
 					} // hi
-
+										
 					fprintf(pFile, "{%u,%u,%u},", best_lo, best_hi, best_output_selectors);
 					n++;
 					if ((n & 31) == 31)
@@ -4239,7 +4255,7 @@ namespace basist
 		{127,104},{126,105},{126,106},{127,106},{127,107},{126,108},{125,109},{127,109},{126,110},{126,111},{127,111},{127,112},{126,113},{126,114},{127,114},{127,115},
 		{126,116},{126,117},{127,117},{127,118},{126,119},{126,120},{127,120},{127,121},{126,122},{126,123},{127,123},{127,124},{126,125},{126,126},{127,126},{127,127}
 	};
-
+	
 	static void transcoder_init_bc7_mode5()
 	{
 #if 0
@@ -4267,9 +4283,9 @@ namespace basist
 					}
 
 				} // hi
-
+								
 			} // lo
-
+			
 			printf("{%u,%u},", g_bc7_m5_equals_1[i].m_hi, g_bc7_m5_equals_1[i].m_lo);
 			if ((i & 15) == 15) printf("\n");
 		}
@@ -4293,7 +4309,7 @@ namespace basist
 	static void convert_etc1s_to_bc7_m5_color(void* pDst, const endpoint* pEndpoints, const selector* pSelector)
 	{
 		bc7_mode_5* pDst_block = static_cast<bc7_mode_5*>(pDst);
-
+				
 		// First ensure the block is cleared to all 0's
 		static_cast<uint64_t*>(pDst)[0] = 0;
 		static_cast<uint64_t*>(pDst)[1] = 0;
@@ -4419,7 +4435,7 @@ namespace basist
 			pDst_block->m_lo.m_r1 = pTable_r[best_mapping].m_lo;
 			pDst_block->m_lo.m_g1 = pTable_g[best_mapping].m_lo;
 			pDst_block->m_lo.m_b1 = pTable_b[best_mapping].m_lo;
-
+			
 			s_inv = 3;
 		}
 		else
@@ -4440,7 +4456,7 @@ namespace basist
 			for (uint32_t x = 0; x < 4; x++)
 			{
 				const uint32_t s = pSelector->get_selector(x, y);
-
+				
 				const uint32_t os = pSelectors_xlat[s] ^ s_inv;
 
 				output_bits |= (os << output_bit_ofs);
@@ -4470,7 +4486,7 @@ namespace basist
 			pDst_block->m_lo.m_a0 = r;
 			pDst_block->m_lo.m_a1_0 = r & 63;
 			pDst_block->m_hi.m_a1_1 = r >> 6;
-
+					  
 			return;
 		}
 		else if (pSelector->m_num_unique_selectors == 2)
@@ -4520,7 +4536,7 @@ namespace basist
 		}
 
 		const uint32_t selector_range_table = g_etc1_to_bc7_m5a_selector_range_index[low_selector][high_selector];
-
+						
 		const etc1_g_to_bc7_m5a_conversion* pTable = &g_etc1_g_to_bc7_m5a[inten_table * (32 * NUM_ETC1_TO_BC7_M5A_SELECTOR_RANGES) + base_color_r * NUM_ETC1_TO_BC7_M5A_SELECTOR_RANGES + selector_range_table];
 
 		pDst_block->m_lo.m_a0 = pTable->m_lo;
@@ -4561,10 +4577,12 @@ namespace basist
 		set_block_bits((uint8_t*)pDst, output_bits, 31, 97);
 	}
 
+#if 0
 	static inline vec3F rgb_to_ycocg(const vec3F& rgb)
 	{
 		return vec3F(rgb.dot(vec3F(0.25f, 0.5f, 0.25f)), rgb.dot(vec3F(0.5f, 0.0f, -0.5f)), rgb.dot(vec3F(-0.25f, 0.5f, -0.25f)));
 	}
+#endif
 
 	static inline vec2F rgb_to_cocg(const vec3F& rgb)
 	{
@@ -4576,11 +4594,14 @@ namespace basist
 		return vec3F(ycocg.dot(vec3F(1.0f, 1.0f, -1.0f)), ycocg.dot(vec3F(1.0f, 0.0f, 1.0f)), ycocg.dot(vec3F(1.0f, -1.0f, -1.0f)));
 	}
 
+#if 0
 	static inline vec3F color32_to_vec3F(const color32& c)
 	{
 		return vec3F(c.r, c.g, c.b);
 	}
+#endif
 
+#if 0
 	static inline vec3F color5_to_ycocg(const endpoint& e)
 	{
 		const int r = (e.m_color5[0] << 3) | (e.m_color5[0] >> 2);
@@ -4588,6 +4609,7 @@ namespace basist
 		const int b = (e.m_color5[2] << 3) | (e.m_color5[2] >> 2);
 		return rgb_to_ycocg(vec3F((float)r, (float)g, (float)b));
 	}
+#endif
 
 	static inline vec2F color5_to_cocg(const endpoint& e)
 	{
@@ -4620,7 +4642,7 @@ namespace basist
 		const bool hq_bc7_mode_5_encoder_mode = false;
 
 		const int CHROMA_THRESH = 10;
-
+		
 		uint32_t total_filtered_blocks = 0;
 		BASISU_NOTE_UNUSED(total_filtered_blocks);
 
@@ -4629,7 +4651,7 @@ namespace basist
 			for (int bx = 0; bx < (int)num_blocks_x; bx++)
 			{
 				vec2F center_cocg(color5_to_cocg(pEndpoints[decoded_endpoints(bx, by)]));
-
+		
 				//bool filter_flag = false;
 				for (int dy = -1; dy <= 1; dy++)
 				{
@@ -4667,7 +4689,7 @@ namespace basist
 				total_filtered_blocks++;
 
 				bc7_mode_5* pDst_block = (bc7_mode_5*)(static_cast<uint8_t*>(pDst_blocks) + (bx + by * output_row_pitch_in_blocks_or_pixels) * sizeof(bc7_mode_5));
-
+				
 				//memset(pDst_block, 0x80, 16);
 
 				int lr = bc7_7_to_8(pDst_block->m_lo.m_r0);
@@ -4691,7 +4713,7 @@ namespace basist
 
 				float block_y_vals[16]; // [y][x]
 				float y_sum = 0.0f, y_sum_sq = 0.0f;
-
+				
 				for (uint32_t i = 0; i < 16; i++)
 				{
 					uint32_t sel = sel_bits & (i ? 3 : 1);
@@ -4700,7 +4722,7 @@ namespace basist
 					block_y_vals[i] = y;
 					y_sum += y;
 					y_sum_sq += y * y;
-
+					
 				} // i
 
 				const float S = 1.0f / 16.0f;
@@ -4723,14 +4745,14 @@ namespace basist
 						const float fy = ((float)((bpy + 2) & 3) + .5f) * (1.0f / 4.0f);
 
 						const int ubx = bx + ((bpx - 2) >> 2);
-
+												
 						vec2F a(get_endpoint_cocg_clamped(ubx, uby, decoded_endpoints, pEndpoints));
 						vec2F b(get_endpoint_cocg_clamped(ubx + 1, uby, decoded_endpoints, pEndpoints));
 						vec2F c(get_endpoint_cocg_clamped(ubx, uby + 1, decoded_endpoints, pEndpoints));
 						vec2F d(get_endpoint_cocg_clamped(ubx + 1, uby + 1, decoded_endpoints, pEndpoints));
 
 						assert((fx >= 0) && (fx <= 1.0f) && (fy >= 0) && (fy <= 1.0f));
-
+												
 						// TODO: Could merge this into 4 muls on each corner by weights
 						vec2F ab = vec2F::lerp(a, b, fx);
 						vec2F cd = vec2F::lerp(c, d, fx);
@@ -4747,7 +4769,7 @@ namespace basist
 				} // y
 
 				bc7_mode_5_encoder::encode_bc7_mode_5_block(pDst_block, block_to_pack, hq_bc7_mode_5_encoder_mode);
-
+				
 			} // bx
 		} // by
 
@@ -5136,7 +5158,7 @@ namespace basist
 	}
 #endif // BASISD_SUPPORT_ETC2_EAC_RG11
 
-// ASTC
+	// ASTC
 	struct etc1_to_astc_solution
 	{
 		uint8_t m_lo;
@@ -5183,7 +5205,7 @@ namespace basist
 
 	// The best selector mapping to use given a base base+inten table and used selector range for converting grayscale data.
 	static uint8_t g_etc1_to_astc_best_grayscale_mapping[32][8][NUM_ETC1_TO_ASTC_SELECTOR_RANGES];
-
+	
 #if BASISD_SUPPORT_ASTC_HIGHER_OPAQUE_QUALITY
 	static const etc1_to_astc_solution g_etc1_to_astc_0_255[32 * 8 * NUM_ETC1_TO_ASTC_SELECTOR_MAPPINGS * NUM_ETC1_TO_ASTC_SELECTOR_RANGES] = {
 #include "basisu_transcoder_tables_astc_0_255.inc"
@@ -5248,7 +5270,7 @@ namespace basist
 									int err = block_colors[s].g - colors[g_etc1_to_astc_selector_mappings[m][s]];
 
 									int err_scale = 1;
-									// Special case when the intensity table is 7, low_selector is 0, and high_selector is 3. In this extreme case, it's likely the encoder is trying to strongly favor
+									// Special case when the intensity table is 7, low_selector is 0, and high_selector is 3. In this extreme case, it's likely the encoder is trying to strongly favor 
 									// the low/high selectors which are clamping to either 0 or 255.
 									if (((inten == 7) && (low_selector == 0) && (high_selector == 3)) && ((s == 0) || (s == 3)))
 										err_scale = 8;
@@ -5269,7 +5291,7 @@ namespace basist
 						mapping_best_high[m] = best_hi;
 						mapping_best_err[m] = best_err;
 						highest_best_err = basisu::maximum(highest_best_err, best_err);
-
+												
 					} // m
 
 					for (uint32_t m = 0; m < NUM_ETC1_TO_ASTC_SELECTOR_MAPPINGS; m++)
@@ -5345,7 +5367,7 @@ namespace basist
 								{
 									int err = block_colors[s].g - colors[g_etc1_to_astc_selector_mappings[m][s]];
 
-									// Special case when the intensity table is 7, low_selector is 0, and high_selector is 3. In this extreme case, it's likely the encoder is trying to strongly favor
+									// Special case when the intensity table is 7, low_selector is 0, and high_selector is 3. In this extreme case, it's likely the encoder is trying to strongly favor 
 									// the low/high selectors which are clamping to either 0 or 255.
 									int err_scale = 1;
 									if (((inten == 7) && (low_selector == 0) && (high_selector == 3)) && ((s == 0) || (s == 3)))
@@ -5374,9 +5396,9 @@ namespace basist
 						uint64_t err = mapping_best_err[m];
 
 						err = basisu::minimum<uint64_t>(err, 0xFFFF);
-
+						
 						fprintf(pFile, "{%u,%u,%u},", mapping_best_low[m], mapping_best_high[m], (uint32_t)err);
-
+						
 						n++;
 						if ((n & 31) == 31)
 							fprintf(pFile, "\n");
@@ -5459,14 +5481,14 @@ namespace basist
 	struct astc_block_params
 	{
 		// 2 groups of 5, but only a max of 8 are used (RRGGBBAA00)
-		uint8_t m_endpoints[10];
+		uint8_t m_endpoints[10]; 
 		uint8_t m_weights[32];
 	};
-
-	// Packs a single format ASTC block using Color Endpoint Mode 12 (LDR RGBA direct), endpoint BISE range 13, 2-bit weights (range 2).
+	
+	// Packs a single format ASTC block using Color Endpoint Mode 12 (LDR RGBA direct), endpoint BISE range 13, 2-bit weights (range 2). 
 	// We're always going to output blocks containing alpha, even if the input doesn't have alpha, for simplicity.
 	// Each block always has 4x4 weights, uses range 13 BISE encoding on the endpoints (0-47), and each weight ranges from 0-3. This encoding should be roughly equal in quality vs. BC1 for color.
-	// 8 total endpoints, stored as RGBA LH LH LH LH order, each ranging from 0-47.
+	// 8 total endpoints, stored as RGBA LH LH LH LH order, each ranging from 0-47. 
 	// Note the input [0,47] endpoint values are not linear - they are encoded as outlined in the ASTC spec:
 	// https://www.khronos.org/registry/DataFormat/specs/1.2/dataformat.1.2.html#astc-endpoint-unquantization
 	// 32 total weights, stored as 16 CA CA, each ranging from 0-3.
@@ -5488,7 +5510,7 @@ namespace basist
 		astc_encode_trits(pOutput, pBlock->m_endpoints + 5, bit_pos, 4);
 
 		// Pack 32 2-bit weights, which are stored from the top down into the block in opposite bit order.
-
+				
 		for (uint32_t i = 0; i < 32; i++)
 		{
 			static const uint8_t s_reverse_bits[4] = { 0, 2, 1, 3 };
@@ -5497,7 +5519,7 @@ namespace basist
 		}
 	}
 
-	// CEM mode 12 (LDR RGBA Direct), 8-bit endpoints, 1-bit weights
+	// CEM mode 12 (LDR RGBA Direct), 8-bit endpoints, 1-bit weights 
 	// This ASTC mode is basically block truncation coding (BTC) using 1-bit weights and 8-bit/component endpoints - very convenient.
 	static void astc_pack_block_cem_12_weight_range0(uint32_t* pOutput, const astc_block_params* pBlock)
 	{
@@ -5535,7 +5557,7 @@ namespace basist
 		// https://www.khronos.org/registry/DataFormat/specs/1.2/dataformat.1.2.html#_block_mode
 		pBytes[0] = 0x42; pBytes[1] = 0x84; pBytes[2] = 0x00; pBytes[3] = 0x00;
 		pBytes[4] = 0x00; pBytes[5] = 0x00; pBytes[6] = 0x00; pBytes[7] = 0xc0;
-
+		
 		pOutput[2] = 0;
 		pOutput[3] = 0;
 
@@ -5561,7 +5583,7 @@ namespace basist
 		// Write constant block mode, color component selector, number of partitions, color endpoint mode
 		// https://www.khronos.org/registry/DataFormat/specs/1.2/dataformat.1.2.html#_block_mode
 		pBytes[0] = 0x42; pBytes[1] = 0x00; pBytes[2] = 0x01; pBytes[3] = 0x00;
-
+		
 		pOutput[1] = 0;
 		pOutput[2] = 0;
 		pOutput[3] = 0;
@@ -5589,7 +5611,7 @@ namespace basist
 	{
 		uint8_t m_lo, m_hi;
 	} g_astc_single_color_encoding_1[256];
-
+		
 	static void transcoder_init_astc()
 	{
 		for (uint32_t base_color = 0; base_color < 32; base_color++)
@@ -5667,7 +5689,7 @@ namespace basist
 				g_ise_to_unquant[bit | (trit << 4)] = unq;
 			}
 		}
-
+				
 		// Compute table used for optimal single color encoding.
 		for (int i = 0; i < 256; i++)
 		{
@@ -5682,9 +5704,9 @@ namespace basist
 
 					int l = lo_v | (lo_v << 8);
 					int h = hi_v | (hi_v << 8);
-
+										
 					int v = ((l * (64 - 21) + (h * 21) + 32) / 64) >> 8;
-
+					
 					int e = abs(v - i);
 
 					if (e < lowest_e)
@@ -5706,7 +5728,7 @@ namespace basist
 			for (int lo = 0; lo < 48; lo++)
 			{
 				const int lo_v = g_ise_to_unquant[lo];
-
+				
 				int e = abs(lo_v - i);
 
 				if (e < lowest_e)
@@ -5721,7 +5743,7 @@ namespace basist
 
 	// Converts opaque or color+alpha ETC1S block to ASTC 4x4.
 	// This function tries to use the best ASTC mode given the block's actual contents.
-	static void convert_etc1s_to_astc_4x4(void* pDst_block, const endpoint* pEndpoints, const selector* pSelector,
+	static void convert_etc1s_to_astc_4x4(void* pDst_block, const endpoint* pEndpoints, const selector* pSelector, 
 		bool transcode_alpha, const endpoint *pEndpoint_codebook, const selector *pSelector_codebook)
 	{
 		astc_block_params blk;
@@ -5765,7 +5787,7 @@ namespace basist
 			// See https://www.khronos.org/registry/DataFormat/specs/1.2/dataformat.1.2.html#astc-void-extent-blocks
 			uint32_t r, g, b;
 			decoder_etc_block::get_block_color5(base_color, inten_table, low_selector, r, g, b);
-
+						
 			uint32_t* pOutput = static_cast<uint32_t*>(pDst_block);
 			uint8_t* pBytes = reinterpret_cast<uint8_t*>(pDst_block);
 
@@ -5785,7 +5807,7 @@ namespace basist
 		}
 		else if ((pSelector->m_num_unique_selectors <= 2) && (num_unique_alpha_selectors <= 2))
 		{
-			// Both color and alpha use <= 2 unique selectors each.
+			// Both color and alpha use <= 2 unique selectors each. 
 			// Use block truncation coding, which is lossless with ASTC (8-bit endpoints, 1-bit weights).
 			color32 block_colors[4];
 			decoder_etc_block::get_block_colors5(block_colors, base_color, inten_table);
@@ -5832,7 +5854,7 @@ namespace basist
 					{
 						uint32_t s = alpha_selectors.get_selector(x, y);
 						s = (s == alpha_high_selector) ? 1 : 0;
-
+												
 						blk.m_weights[(x + y * 4) * 2 + 1] = static_cast<uint8_t>(s);
 					} // x
 				} // y
@@ -5865,12 +5887,12 @@ namespace basist
 
 			return;
 		}
-
+				
 		// Either alpha and/or color use > 2 unique selectors each, so we must do something more complex.
-
+				
 #if BASISD_SUPPORT_ASTC_HIGHER_OPAQUE_QUALITY
 		// The optional higher quality modes use 8-bits endpoints vs. [0,47] endpoints.
-
+		
 		// If the block's base color is grayscale, all pixels are grayscale, so encode the block as Luminance+Alpha.
 		if ((base_color.r == base_color.g) && (base_color.r == base_color.b))
 		{
@@ -5904,7 +5926,7 @@ namespace basist
 				{
 					// Convert ETC1S alpha
 					const uint32_t alpha_selector_range_table = g_etc1_to_astc_selector_range_index[alpha_low_selector][alpha_high_selector];
-
+										
 					//[32][8][RANGES][MAPPING]
 					const etc1_to_astc_solution* pTable_g = &g_etc1_to_astc_0_255[(alpha_inten_table * 32 + alpha_base_color.g) * (NUM_ETC1_TO_ASTC_SELECTOR_RANGES * NUM_ETC1_TO_ASTC_SELECTOR_MAPPINGS) + alpha_selector_range_table * NUM_ETC1_TO_ASTC_SELECTOR_MAPPINGS];
 
@@ -5912,7 +5934,7 @@ namespace basist
 
 					blk.m_endpoints[2] = pTable_g[best_mapping].m_lo;
 					blk.m_endpoints[3] = pTable_g[best_mapping].m_hi;
-
+										
 					const uint8_t* pSelectors_xlat = &g_etc1_to_astc_selector_mappings[best_mapping][0];
 
 					for (uint32_t y = 0; y < 4; y++)
@@ -5956,10 +5978,10 @@ namespace basist
 			{
 				// Convert ETC1S alpha
 				const uint32_t selector_range_table = g_etc1_to_astc_selector_range_index[low_selector][high_selector];
-
+								
 				//[32][8][RANGES][MAPPING]
 				const etc1_to_astc_solution* pTable_g = &g_etc1_to_astc_0_255[(inten_table * 32 + base_color.g) * (NUM_ETC1_TO_ASTC_SELECTOR_RANGES * NUM_ETC1_TO_ASTC_SELECTOR_MAPPINGS) + selector_range_table * NUM_ETC1_TO_ASTC_SELECTOR_MAPPINGS];
-
+								
 				const uint32_t best_mapping = g_etc1_to_astc_best_grayscale_mapping_0_255[base_color.g][inten_table][selector_range_table];
 
 				blk.m_endpoints[0] = pTable_g[best_mapping].m_lo;
@@ -6101,7 +6123,7 @@ namespace basist
 			{
 				// Convert ETC1S alpha
 				const uint32_t alpha_selector_range_table = g_etc1_to_astc_selector_range_index[alpha_low_selector][alpha_high_selector];
-
+								
 				//[32][8][RANGES][MAPPING]
 				const etc1_to_astc_solution* pTable_g = &g_etc1_to_astc[(alpha_inten_table * 32 + alpha_base_color.g) * (NUM_ETC1_TO_ASTC_SELECTOR_RANGES * NUM_ETC1_TO_ASTC_SELECTOR_MAPPINGS) + alpha_selector_range_table * NUM_ETC1_TO_ASTC_SELECTOR_MAPPINGS];
 
@@ -6145,7 +6167,7 @@ namespace basist
 			const uint32_t r = block_colors[low_selector].r;
 			const uint32_t g = block_colors[low_selector].g;
 			const uint32_t b = block_colors[low_selector].b;
-
+						
 			blk.m_endpoints[0] = g_astc_single_color_encoding_1[r].m_lo;
 			blk.m_endpoints[1] = g_astc_single_color_encoding_1[r].m_hi;
 
@@ -6247,7 +6269,7 @@ namespace basist
 
 			blk.m_endpoints[4] = pTable_b[best_mapping].m_lo;
 			blk.m_endpoints[5] = pTable_b[best_mapping].m_hi;
-
+						
 			int s0 = g_ise_to_unquant[blk.m_endpoints[0]] + g_ise_to_unquant[blk.m_endpoints[2]] + g_ise_to_unquant[blk.m_endpoints[4]];
 			int s1 = g_ise_to_unquant[blk.m_endpoints[1]] + g_ise_to_unquant[blk.m_endpoints[3]] + g_ise_to_unquant[blk.m_endpoints[5]];
 			bool invert = false;
@@ -6412,8 +6434,8 @@ namespace basist
 	static void transcoder_init_atc()
 	{
 		prepare_atc_single_color_table(g_pvrtc2_match45_equals_1, 16, 32, 1);
-		prepare_atc_single_color_table(g_atc_match55_equals_1, 32, 32, 1);
-		prepare_atc_single_color_table(g_atc_match56_equals_1, 32, 64, 1);
+		prepare_atc_single_color_table(g_atc_match55_equals_1, 32, 32, 1); 
+		prepare_atc_single_color_table(g_atc_match56_equals_1, 32, 64, 1); 
 
 		prepare_atc_single_color_table(g_pvrtc2_match4, 1, 16, 3);
 		prepare_atc_single_color_table(g_atc_match5, 1, 32, 3);
@@ -6467,7 +6489,7 @@ namespace basist
 
 			pBlock->set_low_color(g_atc_match55_equals_1[r].m_lo, g_atc_match56_equals_1[g].m_lo, g_atc_match55_equals_1[b].m_lo);
 			pBlock->set_high_color(g_atc_match55_equals_1[r].m_hi, g_atc_match56_equals_1[g].m_hi, g_atc_match55_equals_1[b].m_hi);
-
+						
 			pBlock->m_sels[0] = 0x55;
 			pBlock->m_sels[1] = 0x55;
 			pBlock->m_sels[2] = 0x55;
@@ -6602,7 +6624,7 @@ namespace basist
 									int err = block_colors[s].g - colors[g_etc1s_to_atc_selector_mappings[m][s]];
 
 									int err_scale = 1;
-									// Special case when the intensity table is 7, low_selector is 0, and high_selector is 3. In this extreme case, it's likely the encoder is trying to strongly favor
+									// Special case when the intensity table is 7, low_selector is 0, and high_selector is 3. In this extreme case, it's likely the encoder is trying to strongly favor 
 									// the low/high selectors which are clamping to either 0 or 255.
 									if (((inten == 7) && (low_selector == 0) && (high_selector == 3)) && ((s == 0) || (s == 3)))
 										err_scale = 5;
@@ -6676,7 +6698,7 @@ namespace basist
 									int err = block_colors[s].g - colors[g_etc1s_to_atc_selector_mappings[m][s]];
 
 									int err_scale = 1;
-									// Special case when the intensity table is 7, low_selector is 0, and high_selector is 3. In this extreme case, it's likely the encoder is trying to strongly favor
+									// Special case when the intensity table is 7, low_selector is 0, and high_selector is 3. In this extreme case, it's likely the encoder is trying to strongly favor 
 									// the low/high selectors which are clamping to either 0 or 255.
 									if (((inten == 7) && (low_selector == 0) && (high_selector == 3)) && ((s == 0) || (s == 3)))
 										err_scale = 5;
@@ -6706,7 +6728,7 @@ namespace basist
 		} // inten
 
 		fclose(pFile);
-
+		
 		// PVRTC2 45
 		fopen_s(&pFile, "basisu_transcoder_tables_pvrtc2_45.inc", "w");
 
@@ -6751,7 +6773,7 @@ namespace basist
 									int err = block_colors[s].g - colors[g_etc1s_to_atc_selector_mappings[m][s]];
 
 									int err_scale = 1;
-									// Special case when the intensity table is 7, low_selector is 0, and high_selector is 3. In this extreme case, it's likely the encoder is trying to strongly favor
+									// Special case when the intensity table is 7, low_selector is 0, and high_selector is 3. In this extreme case, it's likely the encoder is trying to strongly favor 
 									// the low/high selectors which are clamping to either 0 or 255.
 									if (((inten == 7) && (low_selector == 0) && (high_selector == 3)) && ((s == 0) || (s == 3)))
 										err_scale = 5;
@@ -6828,7 +6850,7 @@ namespace basist
 									int err = block_colors[s].g - colors[g_etc1s_to_atc_selector_mappings[m][s]];
 
 									int err_scale = 1;
-									// Special case when the intensity table is 7, low_selector is 0, and high_selector is 3. In this extreme case, it's likely the encoder is trying to strongly favor
+									// Special case when the intensity table is 7, low_selector is 0, and high_selector is 3. In this extreme case, it's likely the encoder is trying to strongly favor 
 									// the low/high selectors which are clamping to either 0 or 255.
 									if (((inten == 7) && (low_selector == 0) && (high_selector == 3)) && ((s == 0) || (s == 3)))
 										err_scale = 5;
@@ -6905,7 +6927,7 @@ namespace basist
 									int err = block_colors[s].g - colors[g_etc1s_to_atc_selector_mappings[m][s]];
 
 									int err_scale = 1;
-									// Special case when the intensity table is 7, low_selector is 0, and high_selector is 3. In this extreme case, it's likely the encoder is trying to strongly favor
+									// Special case when the intensity table is 7, low_selector is 0, and high_selector is 3. In this extreme case, it's likely the encoder is trying to strongly favor 
 									// the low/high selectors which are clamping to either 0 or 255.
 									if (((inten == 7) && (low_selector == 0) && (high_selector == 3)) && ((s == 0) || (s == 3)))
 										err_scale = 5;
@@ -6982,7 +7004,7 @@ namespace basist
 									int err = block_colors[s].g - colors[g_etc1s_to_atc_selector_mappings[m][s]];
 
 									int err_scale = 1;
-									// Special case when the intensity table is 7, low_selector is 0, and high_selector is 3. In this extreme case, it's likely the encoder is trying to strongly favor
+									// Special case when the intensity table is 7, low_selector is 0, and high_selector is 3. In this extreme case, it's likely the encoder is trying to strongly favor 
 									// the low/high selectors which are clamping to either 0 or 255.
 									if (((inten == 7) && (low_selector == 0) && (high_selector == 3)) && ((s == 0) || (s == 3)))
 										err_scale = 5;
@@ -7110,12 +7132,12 @@ namespace basist
 	{
 		uint8_t m_l, m_h;
 	} g_pvrtc2_trans_match44[256];
-
+		
 	static struct
 	{
 		uint8_t m_l, m_h;
 	} g_pvrtc2_alpha_match33[256];
-
+	
 	static struct
 	{
 		uint8_t m_l, m_h;
@@ -7125,7 +7147,7 @@ namespace basist
 	{
 		uint8_t m_l, m_h;
 	} g_pvrtc2_alpha_match33_3[256];
-
+		
 	// PVRTC2 can be forced to look like a slightly weaker variant of ATC/BC1, so that's what we do here for simplicity.
 	static void convert_etc1s_to_pvrtc2_rgb(void* pDst, const endpoint* pEndpoints, const selector* pSelector)
 	{
@@ -7237,7 +7259,7 @@ namespace basist
 			pBlock->m_modulation[3] = (uint8_t)sels3;
 		}
 	}
-
+				
 	static inline vec4F* vec4F_set_scalar(vec4F* pV, float x) { pV->c[0] = x; pV->c[1] = x; pV->c[2] = x;	pV->c[3] = x;	return pV; }
 	static inline vec4F* vec4F_set(vec4F* pV, float x, float y, float z, float w) { pV->c[0] = x;	pV->c[1] = y;	pV->c[2] = z;	pV->c[3] = w;	return pV; }
 	static inline vec4F* vec4F_saturate_in_place(vec4F* pV) { pV->c[0] = saturate(pV->c[0]); pV->c[1] = saturate(pV->c[1]); pV->c[2] = saturate(pV->c[2]); pV->c[3] = saturate(pV->c[3]); return pV; }
@@ -7255,9 +7277,9 @@ namespace basist
 	}
 
 	static inline int sq(int x) { return x * x; }
-
-	// PVRTC2 is a slightly borked format for alpha: In Non-Interpolated mode, the way AlphaB8 is expanded from 4 to 8 bits means it can never be 0.
-	// This is actually very bad, because on 100% transparent blocks which have non-trivial color pixels, part of the color channel will leak into alpha!
+						
+	// PVRTC2 is a slightly borked format for alpha: In Non-Interpolated mode, the way AlphaB8 is expanded from 4 to 8 bits means it can never be 0. 
+	// This is actually very bad, because on 100% transparent blocks which have non-trivial color pixels, part of the color channel will leak into alpha! 
 	// And there's nothing straightforward we can do because using the other modes is too expensive/complex. I can see why Apple didn't adopt it.
 	static void convert_etc1s_to_pvrtc2_rgba(void* pDst, const endpoint* pEndpoints, const selector* pSelector, const endpoint* pEndpoint_codebook, const selector* pSelector_codebook)
 	{
@@ -7312,13 +7334,13 @@ namespace basist
 		const uint32_t high_selector = pSelector->m_hi_selector;
 
 		const int num_unique_color_selectors = pSelector->m_num_unique_selectors;
-
+				
 		// We need to reencode the block at the pixel level, unfortunately, from two ETC1S planes.
 		// Do 4D incremental PCA, project all pixels to this hyperline, then quantize to packed endpoints and compute the modulation values.
 		const int br = (base_color.r << 3) | (base_color.r >> 2);
 		const int bg = (base_color.g << 3) | (base_color.g >> 2);
 		const int bb = (base_color.b << 3) | (base_color.b >> 2);
-
+		
 		color32 block_cols[4];
 		for (uint32_t i = 0; i < 4; i++)
 		{
@@ -7347,14 +7369,14 @@ namespace basist
 			decoder_etc_block::get_block_color5(base_color, inten_table, low_selector, r, g, b);
 
 			// Mod 0
-			uint32_t lr0 = (r * 15 + 128) / 255, lg0 = (g * 15 + 128) / 255, lb0 = (b * 7 + 128) / 255;
+			uint32_t lr0 = (r * 15 + 128) / 255, lg0 = (g * 15 + 128) / 255, lb0 = (b * 7 + 128) / 255; 
 			uint32_t la0 = g_pvrtc2_alpha_match33_0[constant_alpha_val].m_l;
 
 			uint32_t cr0 = (lr0 << 1) | (lr0 >> 3);
 			uint32_t cg0 = (lg0 << 1) | (lg0 >> 3);
 			uint32_t cb0 = (lb0 << 2) | (lb0 >> 1);
 			uint32_t ca0 = (la0 << 1);
-
+			
 			cr0 = (cr0 << 3) | (cr0 >> 2);
 			cg0 = (cg0 << 3) | (cg0 >> 2);
 			cb0 = (cb0 << 3) | (cb0 >> 2);
@@ -7383,14 +7405,14 @@ namespace basist
 			uint32_t cg3 = (lg3 << 1) | (lg3 >> 3);
 			uint32_t cb3 = (lb3 << 1) | (lb3 >> 3);
 			uint32_t ca3 = (la3 << 1) | 1;
-
+			
 			cr3 = (cr3 << 3) | (cr3 >> 2);
 			cg3 = (cg3 << 3) | (cg3 >> 2);
 			cb3 = (cb3 << 3) | (cb3 >> 2);
 			ca3 = (ca3 << 4) | ca3;
 
 			uint32_t err3 = sq(cr3 - r) + sq(cg3 - g) + sq(cb3 - b) + sq(ca3 - constant_alpha_val) * 2;
-
+			
 			// Mod 1
 			uint32_t lr1 = g_pvrtc2_trans_match44[r].m_l, lg1 = g_pvrtc2_trans_match44[g].m_l, lb1 = g_pvrtc2_trans_match34[b].m_l;
 			uint32_t hr1 = g_pvrtc2_trans_match44[r].m_h, hg1 = g_pvrtc2_trans_match44[g].m_h, hb1 = g_pvrtc2_trans_match34[b].m_h;
@@ -7465,7 +7487,7 @@ namespace basist
 			// It's a solid color block.
 			uint32_t low_a = block_cols[alpha_selectors.m_lo_selector].a;
 			uint32_t high_a = block_cols[alpha_selectors.m_hi_selector].a;
-
+			
 			const float S = 1.0f / 255.0f;
 			vec4F_set(&minColor, block_cols[low_selector].r * S, block_cols[low_selector].g * S, block_cols[low_selector].b * S, low_a * S);
 			vec4F_set(&maxColor, block_cols[low_selector].r * S, block_cols[low_selector].g * S, block_cols[low_selector].b * S, high_a * S);
@@ -7477,7 +7499,7 @@ namespace basist
 			vec4F_set(&minColor, block_cols[low_selector].r * S, block_cols[low_selector].g * S, block_cols[low_selector].b * S, constant_alpha_val * S);
 			vec4F_set(&maxColor, block_cols[high_selector].r * S, block_cols[high_selector].g * S, block_cols[high_selector].b * S, constant_alpha_val * S);
 	   }
-		// See if any of the block colors got clamped - if so the principle axis got distorted (it's no longer just the ETC1S luma axis).
+		// See if any of the block colors got clamped - if so the principle axis got distorted (it's no longer just the ETC1S luma axis). 
 		// To keep quality up we need to use full 4D PCA in this case.
 		else if ((block_cols[low_selector].c[0] == 0) || (block_cols[high_selector].c[0] == 255) ||
 				(block_cols[low_selector].c[1] == 0) || (block_cols[high_selector].c[1] == 255) ||
@@ -7528,7 +7550,7 @@ namespace basist
 			}
 
 			vec4F_normalize_in_place(&axis);
-
+						
 			if (vec4F_dot(&axis, &axis) < .5f)
 				vec4F_set_scalar(&axis, .5f);
 
@@ -7628,10 +7650,10 @@ namespace basist
 
 		// 4433 4443
 		color32 trialMinColor, trialMaxColor;
-
+				
 		trialMinColor.set_clamped((int)(minColor.c[0] * 15.0f + .5f), (int)(minColor.c[1] * 15.0f + .5f), (int)(minColor.c[2] * 7.0f + .5f), (int)(minColor.c[3] * 7.0f + .5f));
 		trialMaxColor.set_clamped((int)(maxColor.c[0] * 15.0f + .5f), (int)(maxColor.c[1] * 15.0f + .5f), (int)(maxColor.c[2] * 15.0f + .5f), (int)(maxColor.c[3] * 7.0f + .5f));
-
+				
 		pBlock->set_trans_low_color(trialMinColor.r, trialMinColor.g, trialMinColor.b, trialMinColor.a);
 		pBlock->set_trans_high_color(trialMaxColor.r, trialMaxColor.g, trialMaxColor.b, trialMaxColor.a);
 
@@ -7704,7 +7726,7 @@ namespace basist
 			}
 		}
 	}
-
+		
 	static void transcoder_init_pvrtc2()
 	{
 		for (uint32_t v = 0; v < 256; v++)
@@ -7810,7 +7832,7 @@ namespace basist
 			g_pvrtc2_trans_match34[v].m_l = (uint8_t)best_l;
 			g_pvrtc2_trans_match34[v].m_h = (uint8_t)best_h;
 		}
-
+				
 		for (uint32_t v = 0; v < 256; v++)
 		{
 			int best_l = 0, best_h = 0, lowest_err = INT_MAX;
@@ -7844,12 +7866,12 @@ namespace basist
 #endif // BASISD_SUPPORT_PVRTC2
 
 	//------------------------------------------------------------------------------------------------
-
+	
 	// BC7 mode 5 RGB encoder
 
 #if BASISD_SUPPORT_BC7_MODE5
 	namespace bc7_mode_5_encoder
-	{
+	{		
 		static float g_mode5_rgba_midpoints[128];
 
 		void encode_bc7_mode5_init()
@@ -8124,10 +8146,10 @@ namespace basist
 			}
 
 			int block_max_var = basisu::maximum(icov[0], icov[3], icov[5]); // not divided by 16, i.e. scaled by 16
-
+			
 			// TODO: Tune this
 			const int32_t SIMPLE_BLOCK_THRESH = 10 * 16;
-
+						
 			if ((!hq_mode) && (block_max_var < SIMPLE_BLOCK_THRESH))
 			{
 				const int L = 16, H = 239;
@@ -8168,7 +8190,7 @@ namespace basist
 				saxis_g = (int)(alt_xg * m);
 				saxis_b = (int)(alt_xb * m);
 			}
-
+						
 			saxis_r = (int)((uint32_t)saxis_r << 4U);
 			saxis_g = (int)((uint32_t)saxis_g << 4U);
 			saxis_b = (int)((uint32_t)saxis_b << 4U);
@@ -8320,7 +8342,7 @@ namespace basist
 		sym_codec.stop();
 
 		m_local_selectors.resize(num_selectors);
-
+		
 		if (!sym_codec.init(pSelectors_data, selectors_data_size))
 		{
 			BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::decode_palettes: fail 5\n");
@@ -8345,7 +8367,7 @@ namespace basist
 				BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::decode_palettes: hybrid global selector codebooks are unsupported\n");
 				return false;
 			}
-
+				
 			const bool used_raw_encoding = (sym_codec.get_bits(1) == 1);
 
 			if (used_raw_encoding)
@@ -8526,7 +8548,7 @@ namespace basist
 			if (!output_rows_in_pixels)
 				output_rows_in_pixels = orig_height;
 		}
-
+		
 		basisu::vector<uint32_t>* pPrev_frame_indices = nullptr;
 		if (is_video)
 		{
@@ -8554,12 +8576,12 @@ namespace basist
 		}
 
 		approx_move_to_front selector_history_buf(m_selector_history_buf_size);
-
+				
 		uint32_t cur_selector_rle_count = 0;
 
 		decoder_etc_block block;
 		memset(&block, 0, sizeof(block));
-
+				
 		//block.set_flip_bit(true);
 		// Setting the flip bit to false to be compatible with the Khronos KDFS.
 		block.set_flip_bit(false);
@@ -8595,7 +8617,7 @@ namespace basist
 		if (!endpoints.size() || !selectors.size())
 		{
 			BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_slice: global codebooks must be unpacked first\n");
-
+			
 			if (pPVRTC_work_mem)
 				free(pPVRTC_work_mem);
 
@@ -8606,7 +8628,7 @@ namespace basist
 		const uint32_t SELECTOR_HISTORY_BUF_RLE_SYMBOL_INDEX = m_selector_history_buf_size + SELECTOR_HISTORY_BUF_FIRST_SYMBOL_INDEX;
 
 #if BASISD_SUPPORT_BC7_MODE5
-		const bool bc7_chroma_filtering = ((decode_flags & cDecodeFlagsNoETC1SChromaFiltering) == 0) &&
+		const bool bc7_chroma_filtering = ((decode_flags & cDecodeFlagsNoETC1SChromaFiltering) == 0) && 
 			((fmt == block_format::cBC7_M5_COLOR) || (fmt == block_format::cBC7));
 
 		basisu::vector2D<uint16_t> decoded_endpoints;
@@ -8831,7 +8853,7 @@ namespace basist
 				case block_format::cETC1:
 				{
 					decoder_etc_block* pDst_block = reinterpret_cast<decoder_etc_block*>(static_cast<uint8_t*>(pDst_blocks) + (block_x + block_y * output_row_pitch_in_blocks_or_pixels) * output_block_or_pixel_stride_in_bytes);
-
+					
 					block.set_base5_color(decoder_etc_block::pack_color5(pEndpoints->m_color5, false));
 					block.set_inten_table(0, pEndpoints->m_inten5);
 					block.set_inten_table(1, pEndpoints->m_inten5);
@@ -8882,7 +8904,7 @@ namespace basist
 					const uint32_t low_selector = pSelector->m_lo_selector;
 					const uint32_t high_selector = pSelector->m_hi_selector;
 
-					// Get block's RGB bounding box
+					// Get block's RGB bounding box 
 					color32 block_colors[2];
 					decoder_etc_block::get_block_colors5_bounds(block_colors, base_color, inten_table, low_selector, high_selector);
 
@@ -8898,7 +8920,7 @@ namespace basist
 					pPVRTC_endpoints[block_x + block_y * num_blocks_x] = temp.m_endpoints;
 #else
 					assert(0);
-#endif
+#endif	
 
 					break;
 				}
@@ -8906,7 +8928,7 @@ namespace basist
 				{
 #if BASISD_SUPPORT_PVRTC1
 					assert(pAlpha_blocks);
-
+					
 					block.set_base5_color(decoder_etc_block::pack_color5(pEndpoints->m_color5, false));
 					block.set_inten_table(0, pEndpoints->m_inten5);
 					block.set_inten_table(1, pEndpoints->m_inten5);
@@ -8914,7 +8936,7 @@ namespace basist
 
 					((decoder_etc_block*)pPVRTC_work_mem)[block_x + block_y * num_blocks_x] = block;
 
-					// Get block's RGBA bounding box
+					// Get block's RGBA bounding box 
 					const color32& base_color = pEndpoints->m_color5;
 					const uint32_t inten_table = pEndpoints->m_inten5;
 					const uint32_t low_selector = pSelector->m_lo_selector;
@@ -8949,7 +8971,7 @@ namespace basist
 					pPVRTC_endpoints[block_x + block_y * num_blocks_x] = temp.m_endpoints;
 #else
 					assert(0);
-#endif
+#endif	
 
 					break;
 				}
@@ -8990,7 +9012,7 @@ namespace basist
 #endif
 					break;
 				}
-				case block_format::cASTC_4x4:
+				case block_format::cASTC_LDR_4x4:
 				{
 #if BASISD_SUPPORT_ASTC
 					void* pDst_block = static_cast<uint8_t*>(pDst_blocks) + (block_x + block_y * output_row_pitch_in_blocks_or_pixels) * output_block_or_pixel_stride_in_bytes;
@@ -9039,7 +9061,7 @@ namespace basist
 					assert(transcode_alpha);
 
 					void* pDst_block = static_cast<uint8_t*>(pDst_blocks) + (block_x + block_y * output_row_pitch_in_blocks_or_pixels) * output_block_or_pixel_stride_in_bytes;
-
+										
 					convert_etc1s_to_pvrtc2_rgba(pDst_block, pEndpoints, pSelector, &endpoints[0], &selectors[0]);
 #endif
 					break;
@@ -9055,10 +9077,10 @@ namespace basist
 				{
 					assert(sizeof(uint32_t) == output_block_or_pixel_stride_in_bytes);
 					uint8_t* pDst_pixels = static_cast<uint8_t*>(pDst_blocks) + (block_x * 4 + block_y * 4 * output_row_pitch_in_blocks_or_pixels) * sizeof(uint32_t);
-
+										
 					const uint32_t max_x = basisu::minimum<int>(4, (int)output_row_pitch_in_blocks_or_pixels - (int)block_x * 4);
 					const uint32_t max_y = basisu::minimum<int>(4, (int)output_rows_in_pixels - (int)block_y * 4);
-
+					
 					int colors[4];
 					decoder_etc_block::get_block_colors5_g(colors, pEndpoints->m_color5, pEndpoints->m_inten5);
 
@@ -9072,7 +9094,7 @@ namespace basist
 							pDst_pixels[3+4] = static_cast<uint8_t>(colors[(s >> 2) & 3]);
 							pDst_pixels[3+8] = static_cast<uint8_t>(colors[(s >> 4) & 3]);
 							pDst_pixels[3+12] = static_cast<uint8_t>(colors[(s >> 6) & 3]);
-
+							
 							pDst_pixels += output_row_pitch_in_blocks_or_pixels * sizeof(uint32_t);
 						}
 					}
@@ -9101,7 +9123,7 @@ namespace basist
 
 					color32 colors[4];
 					decoder_etc_block::get_block_colors5(colors, pEndpoints->m_color5, pEndpoints->m_inten5);
-
+					
 					for (uint32_t y = 0; y < max_y; y++)
 					{
 						const uint32_t s = pSelector->m_selectors[y];
@@ -9222,7 +9244,7 @@ namespace basist
 								cur = byteswap_uint16(cur);
 
 							cur = (cur & 0xF) | packed_colors[(s >> (x * 2)) & 3];
-
+							
 							if (BASISD_IS_BIG_ENDIAN)
 								cur = byteswap_uint16(cur);
 
@@ -9322,7 +9344,7 @@ namespace basist
 		if (endpoint_pred_repeat_count != 0)
 		{
 			BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_slice: endpoint_pred_repeat_count != 0. The file is corrupted or this is a bug\n");
-
+			
 			if (pPVRTC_work_mem)
 				free(pPVRTC_work_mem);
 
@@ -9353,22 +9375,19 @@ namespace basist
 	}
 
 	bool basis_validate_output_buffer_size(
-		basis_tex_format source_format,
 		transcoder_texture_format target_format,
 		uint32_t output_blocks_buf_size_in_blocks_or_pixels,
 		uint32_t orig_width, uint32_t orig_height,
 		uint32_t output_row_pitch_in_blocks_or_pixels,
 		uint32_t output_rows_in_pixels)
 	{
-		BASISU_NOTE_UNUSED(source_format);
-
 		if (basis_transcoder_format_is_uncompressed(target_format))
 		{
 			// Assume the output buffer is orig_width by orig_height
 			if (!output_row_pitch_in_blocks_or_pixels)
 				output_row_pitch_in_blocks_or_pixels = orig_width;
 
-			if (!output_rows_in_pixels)
+			if (!output_rows_in_pixels) 
 				output_rows_in_pixels = orig_height;
 
 			// Now make sure the output buffer is large enough, or we'll overwrite memory.
@@ -9380,11 +9399,12 @@ namespace basist
 		}
 		else
 		{
+			// Take into account the destination format's block width/height.
 			const uint32_t dst_block_width = basis_get_block_width(target_format);
 			const uint32_t dst_block_height = basis_get_block_height(target_format);
 			//const uint32_t bytes_per_block = basis_get_bytes_per_block_or_pixel(target_format);
-
-			// Take into account the destination format's block width/height.
+			
+			// Compute how many blocks should be in the output.
 			const uint32_t num_dst_blocks_x = (orig_width + dst_block_width - 1) / dst_block_width;
 			const uint32_t num_dst_blocks_y = (orig_height + dst_block_height - 1) / dst_block_height;
 			const uint32_t total_dst_blocks = num_dst_blocks_x * num_dst_blocks_y;
@@ -9402,7 +9422,7 @@ namespace basist
 
 		return true;
 	}
-
+		
 	uint32_t basis_compute_transcoded_image_size_in_bytes(transcoder_texture_format target_format, uint32_t orig_width, uint32_t orig_height)
 	{
 		assert(orig_width && orig_height);
@@ -9418,7 +9438,7 @@ namespace basist
 			const uint32_t bytes_per_slice = bytes_per_line * orig_height;
 			return bytes_per_slice;
 		}
-
+		
 		// Compressed formats are 2D arrays of blocks.
 		const uint32_t bytes_per_block = basis_get_bytes_per_block_or_pixel(target_format);
 
@@ -9489,12 +9509,12 @@ namespace basist
 			// Switch to PVRTC1 RGB if the input doesn't have alpha.
 			target_format = transcoder_texture_format::cTFPVRTC1_4_RGB;
 		}
-
+				
 		const bool transcode_alpha_data_to_opaque_formats = (decode_flags & cDecodeFlagsTranscodeAlphaDataToOpaqueFormats) != 0;
 		const uint32_t bytes_per_block_or_pixel = basis_get_bytes_per_block_or_pixel(target_format);
 		const uint32_t total_slice_blocks = num_blocks_x * num_blocks_y;
-
-		if (!basis_validate_output_buffer_size(basis_tex_format::cETC1S, target_format, output_blocks_buf_size_in_blocks_or_pixels, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, output_rows_in_pixels))
+		
+		if (!basis_validate_output_buffer_size(target_format, output_blocks_buf_size_in_blocks_or_pixels, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, output_rows_in_pixels))
 		{
 			BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: output buffer size too small\n");
 			return false;
@@ -9520,7 +9540,7 @@ namespace basist
 		{
 			//status = transcode_slice(pData, data_size, slice_index_to_decode, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cETC1, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
 			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pData, data_len, block_format::cETC1, bytes_per_block_or_pixel, false, is_video, is_alpha_slice, level_index, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, false, nullptr, output_rows_in_pixels, decode_flags);
-
+							
 			if (!status)
 			{
 				BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: transcode_slice() to ETC1 failed\n");
@@ -9645,7 +9665,7 @@ namespace basist
 
 			if (basis_file_has_alpha_slices)
 			{
-				// First decode the alpha data
+				// First decode the alpha data 
 				//status = transcode_slice(pData, data_size, slice_index + 1, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cETC2_EAC_A8, 16, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
 				status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + alpha_offset, alpha_length, block_format::cETC2_EAC_A8, bytes_per_block_or_pixel, false, is_video, true, level_index, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, false, nullptr, output_rows_in_pixels, decode_flags);
 			}
@@ -9683,8 +9703,8 @@ namespace basist
 			return false;
 #else
 			assert(bytes_per_block_or_pixel == 16);
-
-			// First decode the alpha data
+						
+			// First decode the alpha data 
 			if (basis_file_has_alpha_slices)
 			{
 				//status = transcode_slice(pData, data_size, slice_index + 1, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cBC4, 16, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
@@ -9754,7 +9774,7 @@ namespace basist
 			break;
 #endif
 		}
-		case transcoder_texture_format::cTFASTC_4x4_RGBA:
+		case transcoder_texture_format::cTFASTC_LDR_4x4_RGBA:
 		{
 #if !BASISD_SUPPORT_ASTC
 			BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: ASTC unsupported\n");
@@ -9771,13 +9791,13 @@ namespace basist
 				{
 					// Now decode the color data and transcode to ASTC. The transcoder function will read the alpha selector data from the output texture as it converts and
 					// transcode both the alpha and color data at the same time to ASTC.
-					//status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cASTC_4x4, 16, decode_flags | cDecodeFlagsOutputHasAlphaIndices, output_row_pitch_in_blocks_or_pixels, pState);
-					status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + rgb_offset, rgb_length, block_format::cASTC_4x4, bytes_per_block_or_pixel, false, is_video, false, level_index, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, true, nullptr, output_rows_in_pixels, decode_flags);
+					//status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cASTC_LDR_4x4, 16, decode_flags | cDecodeFlagsOutputHasAlphaIndices, output_row_pitch_in_blocks_or_pixels, pState);
+					status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + rgb_offset, rgb_length, block_format::cASTC_LDR_4x4, bytes_per_block_or_pixel, false, is_video, false, level_index, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, true, nullptr, output_rows_in_pixels, decode_flags);
 				}
 			}
 			else
-				//status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cASTC_4x4, 16, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
-				status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + rgb_offset, rgb_length, block_format::cASTC_4x4, bytes_per_block_or_pixel, false, is_video, false, level_index, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, false, nullptr, output_rows_in_pixels, decode_flags);
+				//status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cASTC_LDR_4x4, 16, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
+				status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + rgb_offset, rgb_length, block_format::cASTC_LDR_4x4, bytes_per_block_or_pixel, false, is_video, false, level_index, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, false, nullptr, output_rows_in_pixels, decode_flags);
 
 			if (!status)
 			{
@@ -9813,7 +9833,7 @@ namespace basist
 #else
 			assert(bytes_per_block_or_pixel == 16);
 
-			// First decode the alpha data
+			// First decode the alpha data 
 			if (basis_file_has_alpha_slices)
 			{
 				//status = transcode_slice(pData, data_size, slice_index + 1, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cBC4, 16, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
@@ -9873,7 +9893,7 @@ namespace basist
 				}
 				else
 				{
-					// Now decode the color data and transcode to PVRTC2 RGBA.
+					// Now decode the color data and transcode to PVRTC2 RGBA. 
 					//status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cPVRTC2_4_RGBA, bytes_per_block_or_pixel, decode_flags | cDecodeFlagsOutputHasAlphaIndices, output_row_pitch_in_blocks_or_pixels, pState);
 					status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + rgb_offset, rgb_length, block_format::cPVRTC2_4_RGBA, bytes_per_block_or_pixel, false, is_video, false, level_index, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, true, nullptr, output_rows_in_pixels, decode_flags);
 				}
@@ -9894,7 +9914,7 @@ namespace basist
 		{
 			// Raw 32bpp pixels, decoded in the usual raster order (NOT block order) into an image in memory.
 
-			// First decode the alpha data
+			// First decode the alpha data 
 			if (basis_file_has_alpha_slices)
 				//status = transcode_slice(pData, data_size, slice_index + 1, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cA32, sizeof(uint32_t), decode_flags, output_row_pitch_in_blocks_or_pixels, pState, nullptr, output_rows_in_pixels);
 				status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + alpha_offset, alpha_length, block_format::cA32, sizeof(uint32_t), false, is_video, true, level_index, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, false, nullptr, output_rows_in_pixels, decode_flags);
@@ -9935,7 +9955,7 @@ namespace basist
 		{
 			// Raw 16bpp pixels, decoded in the usual raster order (NOT block order) into an image in memory.
 
-			// First decode the alpha data
+			// First decode the alpha data 
 			if (basis_file_has_alpha_slices)
 				//status = transcode_slice(pData, data_size, slice_index + 1, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cRGBA4444_ALPHA, sizeof(uint16_t), decode_flags, output_row_pitch_in_blocks_or_pixels, pState, nullptr, output_rows_in_pixels);
 				status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + alpha_offset, alpha_length, block_format::cRGBA4444_ALPHA, sizeof(uint16_t), false, is_video, true, level_index, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, false, nullptr, output_rows_in_pixels, decode_flags);
@@ -10039,14 +10059,15 @@ namespace basist
 	}
 
 	//------------------------------------------------------------------------------------------------
-
+	// UASTC LDR 4x4 transcoder
+	//------------------------------------------------------------------------------------------------
 	basisu_lowlevel_uastc_ldr_4x4_transcoder::basisu_lowlevel_uastc_ldr_4x4_transcoder()
 	{
 	}
 
 	bool basisu_lowlevel_uastc_ldr_4x4_transcoder::transcode_slice(
 		void* pDst_blocks, uint32_t num_blocks_x, uint32_t num_blocks_y, const uint8_t* pImage_data, uint32_t image_data_size, block_format fmt,
-        uint32_t output_block_or_pixel_stride_in_bytes, bool bc1_allow_threecolor_blocks, bool has_alpha,
+        uint32_t output_block_or_pixel_stride_in_bytes, bool bc1_allow_threecolor_blocks, bool has_alpha, 
 		const uint32_t orig_width, const uint32_t orig_height, uint32_t output_row_pitch_in_blocks_or_pixels,
 		basisu_transcoder_state* pState, uint32_t output_rows_in_pixels, int channel0, int channel1, uint32_t decode_flags)
 	{
@@ -10107,7 +10128,7 @@ namespace basist
 			for (uint32_t block_y = 0; block_y < num_blocks_y; ++block_y)
 			{
 				void* pDst_block = (uint8_t*)pDst_blocks + block_y * output_row_pitch_in_blocks_or_pixels * output_block_or_pixel_stride_in_bytes;
-
+								
 				for (uint32_t block_x = 0; block_x < num_blocks_x; ++block_x, ++pSource_block, pDst_block = (uint8_t *)pDst_block + output_block_or_pixel_stride_in_bytes)
 				{
 					switch (fmt)
@@ -10143,7 +10164,7 @@ namespace basist
 					}
 					case block_format::cBC4:
 					{
-						if (channel0 < 0)
+						if (channel0 < 0) 
 							channel0 = 0;
 						status = transcode_uastc_to_bc4(*pSource_block, pDst_block, high_quality, channel0);
 						break;
@@ -10163,7 +10184,7 @@ namespace basist
 						status = transcode_uastc_to_bc7(*pSource_block, pDst_block);
 						break;
 					}
-					case block_format::cASTC_4x4:
+					case block_format::cASTC_LDR_4x4:
 					{
 						status = transcode_uastc_to_astc(*pSource_block, pDst_block);
 						break;
@@ -10306,7 +10327,7 @@ namespace basist
 		return false;
 #endif
 	}
-
+		
 	bool basisu_lowlevel_uastc_ldr_4x4_transcoder::transcode_image(
 		transcoder_texture_format target_format,
 		void* pOutput_blocks, uint32_t output_blocks_buf_size_in_blocks_or_pixels,
@@ -10328,7 +10349,7 @@ namespace basist
 		{
 			BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_ldr_4x4_transcoder::transcode_image: source data buffer too small\n");
 			return false;
-		}
+		}	
 
 		if ((target_format == transcoder_texture_format::cTFPVRTC1_4_RGB) || (target_format == transcoder_texture_format::cTFPVRTC1_4_RGBA))
 		{
@@ -10350,12 +10371,12 @@ namespace basist
 		const uint32_t bytes_per_block_or_pixel = basis_get_bytes_per_block_or_pixel(target_format);
 		//const uint32_t total_slice_blocks = num_blocks_x * num_blocks_y;
 
-		if (!basis_validate_output_buffer_size(basis_tex_format::cUASTC4x4, target_format, output_blocks_buf_size_in_blocks_or_pixels, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, output_rows_in_pixels))
+		if (!basis_validate_output_buffer_size(target_format, output_blocks_buf_size_in_blocks_or_pixels, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, output_rows_in_pixels))
 		{
 			BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_ldr_4x4_transcoder::transcode_image: output buffer size too small\n");
 			return false;
 		}
-
+				
 		bool status = false;
 
 		// UASTC4x4
@@ -10363,10 +10384,9 @@ namespace basist
 		{
 		case transcoder_texture_format::cTFETC1_RGB:
 		{
-			//status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cETC1, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
 			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + slice_offset, slice_length, block_format::cETC1,
 				bytes_per_block_or_pixel, false, has_alpha, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels, channel0, channel1, decode_flags);
-
+				
 			if (!status)
 			{
 				BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_ldr_4x4_transcoder::transcode_image: transcode_slice() to ETC1 failed\n");
@@ -10375,7 +10395,6 @@ namespace basist
 		}
 		case transcoder_texture_format::cTFETC2_RGBA:
 		{
-			//status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cETC2_RGBA, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
 			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + slice_offset, slice_length, block_format::cETC2_RGBA,
 				bytes_per_block_or_pixel, false, has_alpha, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels, channel0, channel1, decode_flags);
 			if (!status)
@@ -10387,7 +10406,6 @@ namespace basist
 		case transcoder_texture_format::cTFBC1_RGB:
 		{
 			// TODO: ETC1S allows BC1 from alpha channel. That doesn't seem actually useful, though.
-			//status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cBC1, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
 			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + slice_offset, slice_length, block_format::cBC1,
 				bytes_per_block_or_pixel, true, has_alpha, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels, channel0, channel1, decode_flags);
 			if (!status)
@@ -10398,7 +10416,6 @@ namespace basist
 		}
 		case transcoder_texture_format::cTFBC3_RGBA:
 		{
-			//status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cBC3, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
 			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + slice_offset, slice_length, block_format::cBC3,
 				bytes_per_block_or_pixel, false, has_alpha, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels, channel0, channel1, decode_flags);
 			if (!status)
@@ -10409,9 +10426,6 @@ namespace basist
 		}
 		case transcoder_texture_format::cTFBC4_R:
 		{
-			//status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cBC4, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState,
-			//	nullptr, 0,
-			//	((has_alpha) && (transcode_alpha_data_to_opaque_formats)) ? 3 : 0);
 			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + slice_offset, slice_length, block_format::cBC4,
 				bytes_per_block_or_pixel, false, has_alpha, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels,
 				((has_alpha) && (transcode_alpha_data_to_opaque_formats)) ? 3 : 0, -1, decode_flags);
@@ -10423,9 +10437,6 @@ namespace basist
 		}
 		case transcoder_texture_format::cTFBC5_RG:
 		{
-			//status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cBC5, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState,
-			//	nullptr, 0,
-			//	0, 3);
 			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + slice_offset, slice_length, block_format::cBC5,
 				bytes_per_block_or_pixel, false, has_alpha, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels,
 				0, 3, decode_flags);
@@ -10438,7 +10449,6 @@ namespace basist
 		case transcoder_texture_format::cTFBC7_RGBA:
 		case transcoder_texture_format::cTFBC7_ALT:
 		{
-			//status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cBC7, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
 			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + slice_offset, slice_length, block_format::cBC7,
 				bytes_per_block_or_pixel, false, has_alpha, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels, -1, -1, decode_flags);
 			if (!status)
@@ -10449,7 +10459,6 @@ namespace basist
 		}
 		case transcoder_texture_format::cTFPVRTC1_4_RGB:
 		{
-			//status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cPVRTC1_4_RGB, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
 			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + slice_offset, slice_length, block_format::cPVRTC1_4_RGB,
 				bytes_per_block_or_pixel, false, has_alpha, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels, -1, -1, decode_flags);
 			if (!status)
@@ -10460,7 +10469,6 @@ namespace basist
 		}
 		case transcoder_texture_format::cTFPVRTC1_4_RGBA:
 		{
-			//status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cPVRTC1_4_RGBA, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
 			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + slice_offset, slice_length, block_format::cPVRTC1_4_RGBA,
 				bytes_per_block_or_pixel, false, has_alpha, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels, -1, -1, decode_flags);
 			if (!status)
@@ -10469,10 +10477,9 @@ namespace basist
 			}
 			break;
 		}
-		case transcoder_texture_format::cTFASTC_4x4_RGBA:
+		case transcoder_texture_format::cTFASTC_LDR_4x4_RGBA:
 		{
-			//status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cASTC_4x4, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
-			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + slice_offset, slice_length, block_format::cASTC_4x4,
+			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + slice_offset, slice_length, block_format::cASTC_LDR_4x4,
 				bytes_per_block_or_pixel, false, has_alpha, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels, -1, -1, decode_flags);
 			if (!status)
 			{
@@ -10483,29 +10490,26 @@ namespace basist
 		case transcoder_texture_format::cTFATC_RGB:
 		case transcoder_texture_format::cTFATC_RGBA:
 		{
-			BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_ldr_4x4_transcoder::transcode_image: UASTC->ATC currently unsupported\n");
+			BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_ldr_4x4_transcoder::transcode_image: UASTC LDR 4x4->ATC currently unsupported\n");
 			return false;
 		}
 		case transcoder_texture_format::cTFFXT1_RGB:
 		{
-			BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_ldr_4x4_transcoder::transcode_image: UASTC->FXT1 currently unsupported\n");
+			BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_ldr_4x4_transcoder::transcode_image: UASTC LDR 4x4->FXT1 currently unsupported\n");
 			return false;
 		}
 		case transcoder_texture_format::cTFPVRTC2_4_RGB:
 		{
-			BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_ldr_4x4_transcoder::transcode_image: UASTC->PVRTC2 currently unsupported\n");
+			BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_ldr_4x4_transcoder::transcode_image: UASTC LDR 4x4->PVRTC2 currently unsupported\n");
 			return false;
 		}
 		case transcoder_texture_format::cTFPVRTC2_4_RGBA:
 		{
-			BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_ldr_4x4_transcoder::transcode_image: UASTC->PVRTC2 currently unsupported\n");
+			BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_ldr_4x4_transcoder::transcode_image: UASTC LDR 4x4->PVRTC2 currently unsupported\n");
 			return false;
 		}
 		case transcoder_texture_format::cTFETC2_EAC_R11:
 		{
-			//status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cETC2_EAC_R11, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState,
-			//	nullptr, 0,
-			//	((has_alpha) && (transcode_alpha_data_to_opaque_formats)) ? 3 : 0);
 			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + slice_offset, slice_length, block_format::cETC2_EAC_R11,
 				bytes_per_block_or_pixel, false, has_alpha, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels,
 				((has_alpha) && (transcode_alpha_data_to_opaque_formats)) ? 3 : 0, -1, decode_flags);
@@ -10517,9 +10521,6 @@ namespace basist
 		}
 		case transcoder_texture_format::cTFETC2_EAC_RG11:
 		{
-			//status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cETC2_EAC_RG11, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState,
-			//	nullptr, 0,
-			//	0, 3);
 			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + slice_offset, slice_length, block_format::cETC2_EAC_RG11,
 				bytes_per_block_or_pixel, false, has_alpha, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels,
 				0, 3, decode_flags);
@@ -10531,7 +10532,6 @@ namespace basist
 		}
 		case transcoder_texture_format::cTFRGBA32:
 		{
-			//status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cRGBA32, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
 			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + slice_offset, slice_length, block_format::cRGBA32,
 				bytes_per_block_or_pixel, false, has_alpha, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels, -1, -1, decode_flags);
 			if (!status)
@@ -10542,7 +10542,6 @@ namespace basist
 		}
 		case transcoder_texture_format::cTFRGB565:
 		{
-			//status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cRGB565, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
 			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + slice_offset, slice_length, block_format::cRGB565,
 				bytes_per_block_or_pixel, false, has_alpha, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels, -1, -1, decode_flags);
 			if (!status)
@@ -10553,7 +10552,6 @@ namespace basist
 		}
 		case transcoder_texture_format::cTFBGR565:
 		{
-			//status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cBGR565, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
 			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + slice_offset, slice_length, block_format::cBGR565,
 				bytes_per_block_or_pixel, false, has_alpha, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels, -1, -1, decode_flags);
 			if (!status)
@@ -10564,7 +10562,6 @@ namespace basist
 		}
 		case transcoder_texture_format::cTFRGBA4444:
 		{
-			//status = transcode_slice(pData, data_size, slice_index, pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, block_format::cRGBA4444, bytes_per_block_or_pixel, decode_flags, output_row_pitch_in_blocks_or_pixels, pState);
 			status = transcode_slice(pOutput_blocks, num_blocks_x, num_blocks_y, pCompressed_data + slice_offset, slice_length, block_format::cRGBA4444,
 				bytes_per_block_or_pixel, false, has_alpha, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels, -1, -1, decode_flags);
 			if (!status)
@@ -10583,9 +10580,10 @@ namespace basist
 
 		return status;
 	}
-
+	
 	//------------------------------------------------------------------------------------------------
-	// UASTC HDR 4x4
+	// UASTC HDR 4x4 transcoding
+	//------------------------------------------------------------------------------------------------
 
 	basisu_lowlevel_uastc_hdr_4x4_transcoder::basisu_lowlevel_uastc_hdr_4x4_transcoder()
 	{
@@ -10593,7 +10591,7 @@ namespace basist
 
 	bool basisu_lowlevel_uastc_hdr_4x4_transcoder::transcode_slice(
 		void* pDst_blocks, uint32_t num_blocks_x, uint32_t num_blocks_y, const uint8_t* pImage_data, uint32_t image_data_size, block_format fmt,
-		uint32_t output_block_or_pixel_stride_in_bytes, bool bc1_allow_threecolor_blocks, bool has_alpha,
+		uint32_t output_block_or_pixel_stride_in_bytes, bool bc1_allow_threecolor_blocks, bool has_alpha, 
 		const uint32_t orig_width, const uint32_t orig_height, uint32_t output_row_pitch_in_blocks_or_pixels,
 		basisu_transcoder_state* pState, uint32_t output_rows_in_pixels, int channel0, int channel1, uint32_t decode_flags)
 	{
@@ -10642,7 +10640,7 @@ namespace basist
 		bool status = false;
 
 		// TODO: Optimize pure memcpy() case.
-
+			
 		for (uint32_t block_y = 0; block_y < num_blocks_y; ++block_y)
 		{
 			void* pDst_block = (uint8_t*)pDst_blocks + block_y * output_row_pitch_in_blocks_or_pixels * output_block_or_pixel_stride_in_bytes;
@@ -10677,7 +10675,7 @@ namespace basist
 						uint32_t blk_texels[4][4];
 
 						status = astc_helpers::decode_block(log_blk, blk_texels, 4, 4, astc_helpers::cDecodeModeRGB9E5);
-
+						
 						if (status)
 						{
 							const uint32_t max_x = basisu::minimum<int>(4, (int)output_row_pitch_in_blocks_or_pixels - (int)block_x * 4);
@@ -10691,7 +10689,7 @@ namespace basist
 							} // y
 						}
 					}
-
+					
 					break;
 				}
 				case block_format::cRGBA_HALF:
@@ -10703,7 +10701,7 @@ namespace basist
 						half_float* pDst_pixels = reinterpret_cast<half_float*>(
 							static_cast<uint8_t*>(pDst_blocks) + (block_x * 4 + block_y * 4 * output_row_pitch_in_blocks_or_pixels) * sizeof(half_float) * 4
 							);
-
+												
 						half_float blk_texels[4][4][4];
 						status = astc_helpers::decode_block(log_blk, blk_texels, 4, 4, astc_helpers::cDecodeModeHDR16);
 
@@ -10769,7 +10767,7 @@ namespace basist
 
 				if (!status)
 				{
-					BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_hdr_4x4_transcoder::transcode_slice: Transcoder failed to unpack a UASTC HDR block - this is a bug, or the data was corrupted\n");
+					BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_hdr_4x4_transcoder::transcode_slice: Transcoder failed to unpack a UASTC HDR block - this is a bug, or the data was corrupted\n");					
 					return false;
 				}
 
@@ -10825,7 +10823,7 @@ namespace basist
 		const uint32_t bytes_per_block_or_pixel = basis_get_bytes_per_block_or_pixel(target_format);
 		//const uint32_t total_slice_blocks = num_blocks_x * num_blocks_y;
 
-		if (!basis_validate_output_buffer_size(basis_tex_format::cUASTC_HDR_4x4, target_format, output_blocks_buf_size_in_blocks_or_pixels, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, output_rows_in_pixels))
+		if (!basis_validate_output_buffer_size(target_format, output_blocks_buf_size_in_blocks_or_pixels, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, output_rows_in_pixels))
 		{
 			BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_hdr_4x4_transcoder::transcode_image: output buffer size too small\n");
 			return false;
@@ -10962,7 +10960,7 @@ namespace basist
 
 		assert(((orig_width + 5) / 6) == num_blocks_x);
 		assert(((orig_height + 5) / 6) == num_blocks_y);
-
+				
 		if (fmt == block_format::cBC6H)
 		{
 			const uint32_t num_dst_blocks_x = (orig_width + 3) / 4;
@@ -10987,7 +10985,7 @@ namespace basist
 			fast_bc6h_params bc6h_enc_params;
 			const bool hq_flag = (decode_flags & cDecodeFlagsHighQuality) != 0;
 			bc6h_enc_params.m_max_2subset_pats_to_try = hq_flag ? 1 : 0;
-
+						
 			for (uint32_t src_block_y = 0; src_block_y < num_blocks_y; src_block_y += 2)
 			{
 				const uint32_t num_inner_blocks_y = basisu::minimum<uint32_t>(2, num_blocks_y - src_block_y);
@@ -11003,7 +11001,7 @@ namespace basist
 							const astc_blk* pS = pSource_block + (src_block_y + iy) * num_blocks_x + (src_block_x + ix);
 
 							half_float blk_texels[6][6][4];
-
+							
 							astc_helpers::log_astc_block log_blk;
 							status = astc_helpers::unpack_block(pS, log_blk, 6, 6);
 							if (!status)
@@ -11011,7 +11009,7 @@ namespace basist
 								BASISU_DEVEL_ERROR("basisu_lowlevel_astc_hdr_6x6_transcoder::transcode_slice: Transcoder failed to unpack a ASTC HDR block - this is a bug, or the data was corrupted\n");
 								return false;
 							}
-
+							
 							status = astc_helpers::decode_block(log_blk, blk_texels, 6, 6, astc_helpers::cDecodeModeHDR16);
 							if (!status)
 							{
@@ -11026,14 +11024,14 @@ namespace basist
 									unpacked_blocks[iy * 6 + y][ix * 6 + x][0] = blk_texels[y][x][0];
 									unpacked_blocks[iy * 6 + y][ix * 6 + x][1] = blk_texels[y][x][1];
 									unpacked_blocks[iy * 6 + y][ix * 6 + x][2] = blk_texels[y][x][2];
-
+																		
 								} // x
 							} // y
 
 						} // ix
 
 					} // iy
-
+	
 					const uint32_t dst_x = src_block_x * 6;
 					assert((dst_x & 3) == 0);
 					const uint32_t dst_block_x = dst_x >> 2;
@@ -11066,10 +11064,10 @@ namespace basist
 									src_pixels[y][x][0] = unpacked_blocks[src_pixel_y][src_pixel_x][0];
 									src_pixels[y][x][1] = unpacked_blocks[src_pixel_y][src_pixel_x][1];
 									src_pixels[y][x][2] = unpacked_blocks[src_pixel_y][src_pixel_x][2];
-
+									
 								} // x
 							} // y
-
+							
 							astc_6x6_hdr::fast_encode_bc6h(&src_pixels[0][0][0], pDst_block, bc6h_enc_params);
 
 						} // dx
@@ -11078,7 +11076,7 @@ namespace basist
 				} // block_x
 
 			} // block_y
-
+						
 			status = true;
 		}
 		else
@@ -11204,7 +11202,7 @@ namespace basist
 
 					if (!status)
 					{
-						BASISU_DEVEL_ERROR("basisu_lowlevel_astc_hdr_6x6_transcoder::transcode_slice: Transcoder failed to unpack a ASTC HDR block - this is a bug, or the data was corrupted\n");
+						BASISU_DEVEL_ERROR("basisu_lowlevel_astc_hdr_6x6_transcoder::transcode_slice: Transcoder failed to unpack a ASTC HDR block - this is a bug, or the data was corrupted\n");					
 						return false;
 					}
 
@@ -11261,7 +11259,7 @@ namespace basist
 		const uint32_t bytes_per_block_or_pixel = basis_get_bytes_per_block_or_pixel(target_format);
 		//const uint32_t total_slice_blocks = num_blocks_x * num_blocks_y;
 
-		if (!basis_validate_output_buffer_size(basis_tex_format::cASTC_HDR_6x6, target_format, output_blocks_buf_size_in_blocks_or_pixels, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, output_rows_in_pixels))
+		if (!basis_validate_output_buffer_size(target_format, output_blocks_buf_size_in_blocks_or_pixels, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, output_rows_in_pixels))
 		{
 			BASISU_DEVEL_ERROR("basisu_lowlevel_astc_hdr_6x6_transcoder::transcode_image: output buffer size too small\n");
 			return false;
@@ -11334,14 +11332,14 @@ namespace basist
 	}
 
 	//------------------------------------------------------------------------------------------------
-	// ASTC 6x6 HDR intermediate
+	// UASTC 6x6 HDR intermediate
 
-	basisu_lowlevel_astc_hdr_6x6_intermediate_transcoder::basisu_lowlevel_astc_hdr_6x6_intermediate_transcoder()
+	basisu_lowlevel_uastc_hdr_6x6_intermediate_transcoder::basisu_lowlevel_uastc_hdr_6x6_intermediate_transcoder()
 	{
 	}
 
 	// num_blocks_x/num_blocks_y are source 6x6 blocks
-	bool basisu_lowlevel_astc_hdr_6x6_intermediate_transcoder::transcode_slice(
+	bool basisu_lowlevel_uastc_hdr_6x6_intermediate_transcoder::transcode_slice(
 		void* pDst_blocks, uint32_t num_blocks_x, uint32_t num_blocks_y, const uint8_t* pImage_data, uint32_t image_data_size, block_format fmt,
 		uint32_t output_block_or_pixel_stride_in_bytes, bool bc1_allow_threecolor_blocks, bool has_alpha,
 		const uint32_t orig_width, const uint32_t orig_height, uint32_t output_row_pitch_in_blocks_or_pixels,
@@ -11359,7 +11357,7 @@ namespace basist
 		assert(g_transcoder_initialized);
 		if (!g_transcoder_initialized)
 		{
-			BASISU_DEVEL_ERROR("basisu_lowlevel_astc_hdr_6x6_intermediate_transcoder::transcode_slice: Transcoder not globally initialized.\n");
+			BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_hdr_6x6_intermediate_transcoder::transcode_slice: Transcoder not globally initialized.\n");
 			return false;
 		}
 
@@ -11372,14 +11370,14 @@ namespace basist
 		bool dec_status = astc_6x6_hdr::decode_6x6_hdr(pImage_data, image_data_size, decoded_blocks, dec_width, dec_height);
 		if (!dec_status)
 		{
-			BASISU_DEVEL_ERROR("basisu_lowlevel_astc_hdr_6x6_intermediate_transcoder::transcode_slice: decode_6x6_hdr() failed.\n");
+			BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_hdr_6x6_intermediate_transcoder::transcode_slice: decode_6x6_hdr() failed.\n");
 			return false;
 		}
 
 		if ((dec_width != orig_width) || (dec_height != orig_height) ||
 			(decoded_blocks.get_width() != num_blocks_x) || (decoded_blocks.get_height() != num_blocks_y))
 		{
-			BASISU_DEVEL_ERROR("basisu_lowlevel_astc_hdr_6x6_intermediate_transcoder::transcode_slice: unexpected decoded width/height\n");
+			BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_hdr_6x6_intermediate_transcoder::transcode_slice: unexpected decoded width/height\n");
 			return false;
 		}
 
@@ -11422,20 +11420,20 @@ namespace basist
 			}
 			else if (output_row_pitch_in_blocks_or_pixels < num_dst_blocks_x)
 			{
-				BASISU_DEVEL_ERROR("basisu_lowlevel_astc_hdr_6x6_intermediate_transcoder::transcode_slice: output_row_pitch_in_blocks_or_pixels is too low\n");
+				BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_hdr_6x6_intermediate_transcoder::transcode_slice: output_row_pitch_in_blocks_or_pixels is too low\n");
 				return false;
 			}
 
 			if (output_block_or_pixel_stride_in_bytes != sizeof(bc6h_block))
 			{
-				BASISU_DEVEL_ERROR("basisu_lowlevel_astc_hdr_6x6_intermediate_transcoder::transcode_slice: invalid output_block_or_pixel_stride_in_bytes\n");
+				BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_hdr_6x6_intermediate_transcoder::transcode_slice: invalid output_block_or_pixel_stride_in_bytes\n");
 				return false;
 			}
 
 			fast_bc6h_params bc6h_enc_params;
 			const bool hq_flag = (decode_flags & cDecodeFlagsHighQuality) != 0;
 			bc6h_enc_params.m_max_2subset_pats_to_try = hq_flag ? 1 : 0;
-
+									
 			for (uint32_t src_block_y = 0; src_block_y < num_blocks_y; src_block_y += 2)
 			{
 				const uint32_t num_inner_blocks_y = basisu::minimum<uint32_t>(2, num_blocks_y - src_block_y);
@@ -11456,14 +11454,14 @@ namespace basist
 							status = astc_helpers::unpack_block(pS, log_blk, 6, 6);
 							if (!status)
 							{
-								BASISU_DEVEL_ERROR("basisu_lowlevel_astc_hdr_6x6_intermediate_transcoder::transcode_slice: Transcoder failed to unpack a ASTC HDR block - this is a bug, or the data was corrupted\n");
+								BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_hdr_6x6_intermediate_transcoder::transcode_slice: Transcoder failed to unpack a ASTC HDR block - this is a bug, or the data was corrupted\n");
 								return false;
 							}
 
 							status = astc_helpers::decode_block(log_blk, blk_texels, 6, 6, astc_helpers::cDecodeModeHDR16);
 							if (!status)
 							{
-								BASISU_DEVEL_ERROR("basisu_lowlevel_astc_hdr_6x6_intermediate_transcoder::transcode_slice: Transcoder failed to unpack a ASTC HDR block - this is a bug, or the data was corrupted\n");
+								BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_hdr_6x6_intermediate_transcoder::transcode_slice: Transcoder failed to unpack a ASTC HDR block - this is a bug, or the data was corrupted\n");
 								return false;
 							}
 
@@ -11516,7 +11514,7 @@ namespace basist
 
 								} // x
 							} // y
-
+														
 							astc_6x6_hdr::fast_encode_bc6h(&src_pixels[0][0][0], pDst_block, bc6h_enc_params);
 
 						} // dx
@@ -11651,7 +11649,7 @@ namespace basist
 
 					if (!status)
 					{
-						BASISU_DEVEL_ERROR("basisu_lowlevel_astc_hdr_6x6_intermediate_transcoder::transcode_slice: Transcoder failed to unpack a ASTC HDR block - this is a bug, or the data was corrupted\n");
+						BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_hdr_6x6_intermediate_transcoder::transcode_slice: Transcoder failed to unpack a ASTC HDR block - this is a bug, or the data was corrupted\n");
 						return false;
 					}
 
@@ -11662,7 +11660,7 @@ namespace basist
 
 		return true;
 #else
-		BASISU_DEVEL_ERROR("basisu_lowlevel_astc_hdr_6x6_intermediate_transcoder::transcode_slice: ASTC HDR is unsupported\n");
+		BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_hdr_6x6_intermediate_transcoder::transcode_slice: ASTC HDR is unsupported\n");
 
 		BASISU_NOTE_UNUSED(decode_flags);
 		BASISU_NOTE_UNUSED(channel0);
@@ -11681,7 +11679,7 @@ namespace basist
 #endif
 	}
 
-	bool basisu_lowlevel_astc_hdr_6x6_intermediate_transcoder::transcode_image(
+	bool basisu_lowlevel_uastc_hdr_6x6_intermediate_transcoder::transcode_image(
 		transcoder_texture_format target_format,
 		void* pOutput_blocks, uint32_t output_blocks_buf_size_in_blocks_or_pixels,
 		const uint8_t* pCompressed_data, uint32_t compressed_data_length,
@@ -11701,16 +11699,16 @@ namespace basist
 
 		if (((uint64_t)slice_offset + slice_length) > (uint64_t)compressed_data_length)
 		{
-			BASISU_DEVEL_ERROR("basisu_lowlevel_astc_hdr_6x6_intermediate_transcoder::transcode_image: source data buffer too small\n");
+			BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_hdr_6x6_intermediate_transcoder::transcode_image: source data buffer too small\n");
 			return false;
 		}
 
 		const uint32_t bytes_per_block_or_pixel = basis_get_bytes_per_block_or_pixel(target_format);
 		//const uint32_t total_slice_blocks = num_blocks_x * num_blocks_y;
 
-		if (!basis_validate_output_buffer_size(basis_tex_format::cASTC_HDR_6x6, target_format, output_blocks_buf_size_in_blocks_or_pixels, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, output_rows_in_pixels))
+		if (!basis_validate_output_buffer_size(target_format, output_blocks_buf_size_in_blocks_or_pixels, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, output_rows_in_pixels))
 		{
-			BASISU_DEVEL_ERROR("basisu_lowlevel_astc_hdr_6x6_intermediate_transcoder::transcode_image: output buffer size too small\n");
+			BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_hdr_6x6_intermediate_transcoder::transcode_image: output buffer size too small\n");
 			return false;
 		}
 
@@ -11725,7 +11723,7 @@ namespace basist
 
 			if (!status)
 			{
-				BASISU_DEVEL_ERROR("basisu_lowlevel_astc_hdr_6x6_intermediate_transcoder::transcode_image: transcode_slice() to ASTC_HDR failed\n");
+				BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_hdr_6x6_intermediate_transcoder::transcode_image: transcode_slice() to ASTC_HDR failed\n");
 			}
 			break;
 		}
@@ -11735,7 +11733,7 @@ namespace basist
 				bytes_per_block_or_pixel, false, has_alpha, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels, channel0, channel1, decode_flags);
 			if (!status)
 			{
-				BASISU_DEVEL_ERROR("basisu_lowlevel_astc_hdr_6x6_intermediate_transcoder::transcode_image: transcode_slice() to BC6H failed\n");
+				BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_hdr_6x6_intermediate_transcoder::transcode_image: transcode_slice() to BC6H failed\n");
 			}
 			break;
 		}
@@ -11745,7 +11743,7 @@ namespace basist
 				bytes_per_block_or_pixel, false, has_alpha, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels, channel0, channel1, decode_flags);
 			if (!status)
 			{
-				BASISU_DEVEL_ERROR("basisu_lowlevel_astc_hdr_6x6_intermediate_transcoder::transcode_image: transcode_slice() to RGB_HALF failed\n");
+				BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_hdr_6x6_intermediate_transcoder::transcode_image: transcode_slice() to RGB_HALF failed\n");
 			}
 			break;
 		}
@@ -11755,7 +11753,7 @@ namespace basist
 				bytes_per_block_or_pixel, false, has_alpha, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels, channel0, channel1, decode_flags);
 			if (!status)
 			{
-				BASISU_DEVEL_ERROR("basisu_lowlevel_astc_hdr_6x6_intermediate_transcoder::transcode_image: transcode_slice() to RGBA_HALF failed\n");
+				BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_hdr_6x6_intermediate_transcoder::transcode_image: transcode_slice() to RGBA_HALF failed\n");
 			}
 			break;
 		}
@@ -11765,14 +11763,14 @@ namespace basist
 				bytes_per_block_or_pixel, false, has_alpha, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels, channel0, channel1 , decode_flags);
 			if (!status)
 			{
-				BASISU_DEVEL_ERROR("basisu_lowlevel_astc_hdr_6x6_intermediate_transcoder::transcode_image: transcode_slice() to RGBA_HALF failed\n");
+				BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_hdr_6x6_intermediate_transcoder::transcode_image: transcode_slice() to RGBA_HALF failed\n");
 			}
 			break;
 		}
 		default:
 		{
 			assert(0);
-			BASISU_DEVEL_ERROR("basisu_lowlevel_astc_hdr_6x6_intermediate_transcoder::transcode_image: Invalid format\n");
+			BASISU_DEVEL_ERROR("basisu_lowlevel_uastc_hdr_6x6_intermediate_transcoder::transcode_image: Invalid format\n");
 			break;
 		}
 		}
@@ -11781,7 +11779,7 @@ namespace basist
 	}
 
 	//------------------------------------------------------------------------------------------------
-
+	
 	basisu_transcoder::basisu_transcoder() :
 		m_ready_to_transcode(false)
 	{
@@ -11809,7 +11807,7 @@ namespace basist
 				return false;
 			}
 		}
-#endif
+#endif		
 
 		return true;
 	}
@@ -11896,7 +11894,7 @@ namespace basist
 					return false;
 				}
 			}
-
+		
 			// This flag dates back to pre-Basis Universal, when .basis supported full ETC1 too.
 			if ((pHeader->m_flags & cBASISHeaderFlagETC1S) == 0)
 			{
@@ -11912,7 +11910,7 @@ namespace basist
 				return false;
 			}
 		}
-
+		
 		if ((pHeader->m_slice_desc_file_ofs >= data_size) ||
 			((data_size - pHeader->m_slice_desc_file_ofs) < (sizeof(basis_slice_desc) * pHeader->m_total_slices))
 			)
@@ -12028,20 +12026,20 @@ namespace basist
 
 		image_info.m_image_index = image_index;
 		image_info.m_total_levels = total_levels;
-
+		
 		image_info.m_alpha_flag = false;
 
 		// For ETC1S, if anything has alpha all images have alpha. For UASTC, we only report alpha when the image actually has alpha.
 		if (pHeader->m_tex_format == (int)basis_tex_format::cETC1S)
-			image_info.m_alpha_flag = (pHeader->m_flags & cBASISHeaderFlagHasAlphaSlices) != 0;
+			image_info.m_alpha_flag = (pHeader->m_flags & cBASISHeaderFlagHasAlphaSlices) != 0; 
 		else
 			image_info.m_alpha_flag = (slice_desc.m_flags & cSliceDescFlagsHasAlpha) != 0;
 
 		image_info.m_iframe_flag = (slice_desc.m_flags & cSliceDescFlagsFrameIsIFrame) != 0;
-
+				
 		const uint32_t block_width = basis_tex_format_get_block_width((basis_tex_format)((uint32_t)pHeader->m_tex_format));
 		const uint32_t block_height = basis_tex_format_get_block_height((basis_tex_format)((uint32_t)pHeader->m_tex_format));
-
+				
 		image_info.m_width = slice_desc.m_num_blocks_x * block_width;
 		image_info.m_height = slice_desc.m_num_blocks_y * block_height;
 		image_info.m_orig_width = slice_desc.m_orig_width;
@@ -12161,13 +12159,13 @@ namespace basist
 
 		image_info.m_image_index = image_index;
 		image_info.m_level_index = level_index;
-
+		
 		// For ETC1S, if anything has alpha all images have alpha. For UASTC, we only report alpha when the image actually has alpha.
 		if (pHeader->m_tex_format == (int)basis_tex_format::cETC1S)
 			image_info.m_alpha_flag = (pHeader->m_flags & cBASISHeaderFlagHasAlphaSlices) != 0;
 		else
 			image_info.m_alpha_flag = (slice_desc.m_flags & cSliceDescFlagsHasAlpha) != 0;
-
+		
 		const uint32_t block_width = basis_tex_format_get_block_width((basis_tex_format)((uint32_t)pHeader->m_tex_format));
 		const uint32_t block_height = basis_tex_format_get_block_height((basis_tex_format)((uint32_t)pHeader->m_tex_format));
 
@@ -12230,8 +12228,9 @@ namespace basist
 		file_info.m_tex_format = static_cast<basis_tex_format>(static_cast<int>(pHeader->m_tex_format));
 
 		file_info.m_etc1s = (pHeader->m_tex_format == (int)basis_tex_format::cETC1S);
-
+		
 		file_info.m_y_flipped = (pHeader->m_flags & cBASISHeaderFlagYFlipped) != 0;
+		file_info.m_srgb = (pHeader->m_flags & cBASISHeaderFlagSRGB) != 0;
 		file_info.m_has_alpha_slices = (pHeader->m_flags & cBASISHeaderFlagHasAlphaSlices) != 0;
 
 		const uint32_t total_slices = pHeader->m_total_slices;
@@ -12302,7 +12301,7 @@ namespace basist
 
 		return true;
 	}
-
+		
 	bool basisu_transcoder::start_transcoding(const void* pData, uint32_t data_size)
 	{
 		if (!validate_header_quick(pData, data_size))
@@ -12410,7 +12409,7 @@ namespace basist
 				m_lowlevel_etc1s_decoder.clear();
 			}
 		}
-
+		
 		m_ready_to_transcode = true;
 
 		return true;
@@ -12421,7 +12420,7 @@ namespace basist
 		m_lowlevel_etc1s_decoder.clear();
 
 		m_ready_to_transcode = false;
-
+		
 		return true;
 	}
 
@@ -12459,6 +12458,8 @@ namespace basist
 
 		const basis_slice_desc& slice_desc = reinterpret_cast<const basis_slice_desc*>(pDataU8 + pHeader->m_slice_desc_file_ofs)[slice_index];
 
+		const uint32_t dst_block_width = get_block_width(fmt), dst_block_height = get_block_height(fmt);
+										
 		if (basis_block_format_is_uncompressed(fmt))
 		{
 			// Assume the output buffer is orig_width by orig_height
@@ -12487,33 +12488,23 @@ namespace basist
 				return false;
 			}
 		}
-		else if (fmt == block_format::cASTC_HDR_6x6)
-		{
-			const uint32_t num_blocks_6x6_x = (slice_desc.m_orig_width + 5) / 6;
-			const uint32_t num_blocks_6x6_y = (slice_desc.m_orig_height + 5) / 6;
-			const uint32_t total_blocks_6x6 = num_blocks_6x6_x * num_blocks_6x6_y;
-
-			if (output_blocks_buf_size_in_blocks_or_pixels < total_blocks_6x6)
-			{
-				BASISU_DEVEL_ERROR("basisu_transcoder::transcode_slice: output_blocks_buf_size_in_blocks_or_pixels < total_blocks_6x6\n");
-				return false;
-			}
-		}
 		else
 		{
-			// must be a 4x4 pixel block format
-			const uint32_t num_blocks_4x4_x = (slice_desc.m_orig_width + 3) / 4;
-			const uint32_t num_blocks_4x4_y = (slice_desc.m_orig_height + 3) / 4;
-			const uint32_t total_4x4_blocks = num_blocks_4x4_x * num_blocks_4x4_y;
+			const uint32_t dst_num_blocks_x = (slice_desc.m_orig_width + dst_block_width - 1) / dst_block_width;
+			const uint32_t dst_num_blocks_y = (slice_desc.m_orig_height + dst_block_height - 1) / dst_block_height;
+			const uint32_t dst_total_blocks = dst_num_blocks_x * dst_num_blocks_y;
 
-			if (output_blocks_buf_size_in_blocks_or_pixels < total_4x4_blocks)
+			if (output_blocks_buf_size_in_blocks_or_pixels < dst_total_blocks)
 			{
 				BASISU_DEVEL_ERROR("basisu_transcoder::transcode_slice: output_blocks_buf_size_in_blocks_or_pixels < total_blocks\n");
 				return false;
 			}
 		}
+				
+		const bool is_xuastc_ldr = basis_tex_format_is_xuastc_ldr((basis_tex_format)(uint32_t)pHeader->m_tex_format);
+		const bool is_astc_ldr = basis_tex_format_is_astc_ldr((basis_tex_format)(uint32_t)pHeader->m_tex_format);
 
-		if ((pHeader->m_tex_format == (uint32_t)basis_tex_format::cETC1S) || (pHeader->m_tex_format == (uint32_t)basis_tex_format::cUASTC4x4))
+		if ((pHeader->m_tex_format == (uint32_t)basis_tex_format::cETC1S) || (pHeader->m_tex_format == (uint32_t)basis_tex_format::cUASTC_LDR_4x4) || is_xuastc_ldr || is_astc_ldr)
 		{
 			if ((fmt == block_format::cPVRTC1_4_RGB) || (fmt == block_format::cPVRTC1_4_RGBA))
 			{
@@ -12538,16 +12529,18 @@ namespace basist
 			BASISU_DEVEL_ERROR("basisu_transcoder::transcode_slice: invalid slice_desc.m_file_size, or passed in buffer too small\n");
 			return false;
 		}
-
+		
 		if (pHeader->m_tex_format == (int)basis_tex_format::cASTC_HDR_6x6)
 		{
+			// ASTC HDR 6x6
 			return m_lowlevel_astc_6x6_hdr_decoder.transcode_slice(pOutput_blocks, slice_desc.m_num_blocks_x, slice_desc.m_num_blocks_y,
 				pDataU8 + slice_desc.m_file_ofs, slice_desc.m_file_size,
 				fmt, output_block_or_pixel_stride_in_bytes, (decode_flags & cDecodeFlagsBC1ForbidThreeColorBlocks) == 0, *pHeader, slice_desc, output_row_pitch_in_blocks_or_pixels, pState,
 				output_rows_in_pixels, channel0, channel1, decode_flags);
 		}
-		else if (pHeader->m_tex_format == (int)basis_tex_format::cASTC_HDR_6x6_INTERMEDIATE)
+		else if (pHeader->m_tex_format == (int)basis_tex_format::cUASTC_HDR_6x6_INTERMEDIATE)
 		{
+			// UASTC HDR 6x6
 			return m_lowlevel_astc_6x6_hdr_intermediate_decoder.transcode_slice(pOutput_blocks, slice_desc.m_num_blocks_x, slice_desc.m_num_blocks_y,
 				pDataU8 + slice_desc.m_file_ofs, slice_desc.m_file_size,
 				fmt, output_block_or_pixel_stride_in_bytes, (decode_flags & cDecodeFlagsBC1ForbidThreeColorBlocks) == 0, *pHeader, slice_desc, output_row_pitch_in_blocks_or_pixels, pState,
@@ -12555,20 +12548,33 @@ namespace basist
 		}
 		else if (pHeader->m_tex_format == (int)basis_tex_format::cUASTC_HDR_4x4)
 		{
+			// UASTC HDR 4x4
 			return m_lowlevel_uastc_4x4_hdr_decoder.transcode_slice(pOutput_blocks, slice_desc.m_num_blocks_x, slice_desc.m_num_blocks_y,
 				pDataU8 + slice_desc.m_file_ofs, slice_desc.m_file_size,
 				fmt, output_block_or_pixel_stride_in_bytes, (decode_flags & cDecodeFlagsBC1ForbidThreeColorBlocks) == 0, *pHeader, slice_desc, output_row_pitch_in_blocks_or_pixels, pState,
 				output_rows_in_pixels, channel0, channel1, decode_flags);
 		}
-		else if (pHeader->m_tex_format == (int)basis_tex_format::cUASTC4x4)
+		else if (pHeader->m_tex_format == (int)basis_tex_format::cUASTC_LDR_4x4)
 		{
-			return m_lowlevel_uastc_decoder.transcode_slice(pOutput_blocks, slice_desc.m_num_blocks_x, slice_desc.m_num_blocks_y,
+			// UASTC LDR 4x4
+			return m_lowlevel_uastc_ldr_4x4_decoder.transcode_slice(pOutput_blocks, slice_desc.m_num_blocks_x, slice_desc.m_num_blocks_y,
+				pDataU8 + slice_desc.m_file_ofs, slice_desc.m_file_size,
+				fmt, output_block_or_pixel_stride_in_bytes, (decode_flags & cDecodeFlagsBC1ForbidThreeColorBlocks) == 0, *pHeader, slice_desc, output_row_pitch_in_blocks_or_pixels, pState,
+				output_rows_in_pixels, channel0, channel1, decode_flags);
+		}
+		else if ((is_xuastc_ldr) || (is_astc_ldr))
+		{
+			// XUASTC LDR 4x4-12x12 or ASTC LDR 4x4-12x12
+			const bool use_astc_srgb_decode_profile = (pHeader->m_flags & cBASISHeaderFlagSRGB) != 0;
+
+			return m_lowlevel_xuastc_ldr_decoder.transcode_slice((basis_tex_format)(uint32_t)pHeader->m_tex_format, use_astc_srgb_decode_profile, pOutput_blocks, slice_desc.m_num_blocks_x, slice_desc.m_num_blocks_y,
 				pDataU8 + slice_desc.m_file_ofs, slice_desc.m_file_size,
 				fmt, output_block_or_pixel_stride_in_bytes, (decode_flags & cDecodeFlagsBC1ForbidThreeColorBlocks) == 0, *pHeader, slice_desc, output_row_pitch_in_blocks_or_pixels, pState,
 				output_rows_in_pixels, channel0, channel1, decode_flags);
 		}
 		else
 		{
+			// must be ETC1S
 			return m_lowlevel_etc1s_decoder.transcode_slice(pOutput_blocks, slice_desc.m_num_blocks_x, slice_desc.m_num_blocks_y,
 				pDataU8 + slice_desc.m_file_ofs, slice_desc.m_file_size,
 				fmt, output_block_or_pixel_stride_in_bytes, (decode_flags & cDecodeFlagsBC1ForbidThreeColorBlocks) == 0, *pHeader, slice_desc, output_row_pitch_in_blocks_or_pixels, pState,
@@ -12647,7 +12653,7 @@ namespace basist
 
 		if (!output_row_pitch_in_blocks_or_pixels)
 			output_row_pitch_in_blocks_or_pixels = num_blocks_x;
-
+				
 		if ((fmt == block_format::cETC2_EAC_A8) || (fmt == block_format::cETC2_EAC_R11))
 		{
 #if BASISD_SUPPORT_ETC2_EAC_A8
@@ -12733,7 +12739,7 @@ namespace basist
 		if (slice_index < 0)
 		{
 			BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: failed finding slice index\n");
-			// Unable to find the requested image/level
+			// Unable to find the requested image/level 
 			return false;
 		}
 
@@ -12742,7 +12748,7 @@ namespace basist
 			// Switch to PVRTC1 RGB if the input doesn't have alpha.
 			fmt = transcoder_texture_format::cTFPVRTC1_4_RGB;
 		}
-
+				
 		if (pHeader->m_tex_format == (int)basis_tex_format::cETC1S)
 		{
 			if (pSlice_descs[slice_index].m_flags & cSliceDescFlagsHasAlpha)
@@ -12779,10 +12785,13 @@ namespace basist
 				}
 			}
 		}
-
+								
 		bool status = false;
 
-		if ((pHeader->m_tex_format == (int)basis_tex_format::cETC1S) || (pHeader->m_tex_format == (int)basis_tex_format::cUASTC4x4))
+		const bool is_xuastc_ldr = basis_tex_format_is_xuastc_ldr((basis_tex_format)(uint32_t)pHeader->m_tex_format);
+		const bool is_astc_ldr = basis_tex_format_is_astc_ldr((basis_tex_format)(uint32_t)pHeader->m_tex_format);
+
+		if ((pHeader->m_tex_format == (int)basis_tex_format::cETC1S) || (pHeader->m_tex_format == (int)basis_tex_format::cUASTC_LDR_4x4) || is_xuastc_ldr || is_astc_ldr)
 		{
 			// Only do this on 4x4 LDR formats that supports transcoding to PVRTC1.
 			const uint32_t total_slice_blocks = pSlice_descs[slice_index].m_num_blocks_x * pSlice_descs[slice_index].m_num_blocks_y;
@@ -12790,28 +12799,28 @@ namespace basist
 			if (((fmt == transcoder_texture_format::cTFPVRTC1_4_RGB) || (fmt == transcoder_texture_format::cTFPVRTC1_4_RGBA)) && (output_blocks_buf_size_in_blocks_or_pixels > total_slice_blocks))
 			{
 				// The transcoder doesn't write beyond total_slice_blocks, so we need to clear the rest ourselves.
-				// For GL usage, PVRTC1 4bpp image size is (max(width, 8)* max(height, 8) * 4 + 7) / 8.
+				// For GL usage, PVRTC1 4bpp image size is (max(width, 8)* max(height, 8) * 4 + 7) / 8. 
 				// However, for KTX and internally in Basis this formula isn't used, it's just ((width+3)/4) * ((height+3)/4) * bytes_per_block_or_pixel. This is all the transcoder actually writes to memory.
 				memset(static_cast<uint8_t*>(pOutput_blocks) + total_slice_blocks * bytes_per_block_or_pixel, 0, (output_blocks_buf_size_in_blocks_or_pixels - total_slice_blocks) * bytes_per_block_or_pixel);
 			}
 		}
-
+		
 		if (pHeader->m_tex_format == (int)basis_tex_format::cASTC_HDR_6x6)
 		{
+			// ASTC HDR 6x6
 			const basis_slice_desc* pSlice_desc = &pSlice_descs[slice_index];
 
-			// Use the container independent image transcode method.
 			status = m_lowlevel_astc_6x6_hdr_decoder.transcode_image(fmt,
 				pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels,
 				(const uint8_t*)pData, data_size, pSlice_desc->m_num_blocks_x, pSlice_desc->m_num_blocks_y, pSlice_desc->m_orig_width, pSlice_desc->m_orig_height, pSlice_desc->m_level_index,
 				pSlice_desc->m_file_ofs, pSlice_desc->m_file_size,
 				decode_flags, basis_file_has_alpha_slices, pHeader->m_tex_type == cBASISTexTypeVideoFrames, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels);
 		}
-		else if (pHeader->m_tex_format == (int)basis_tex_format::cASTC_HDR_6x6_INTERMEDIATE)
+		else if (pHeader->m_tex_format == (int)basis_tex_format::cUASTC_HDR_6x6_INTERMEDIATE)
 		{
+			// UASTC HDR 6x6
 			const basis_slice_desc* pSlice_desc = &pSlice_descs[slice_index];
 
-			// Use the container independent image transcode method.
 			status = m_lowlevel_astc_6x6_hdr_intermediate_decoder.transcode_image(fmt,
 				pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels,
 				(const uint8_t*)pData, data_size, pSlice_desc->m_num_blocks_x, pSlice_desc->m_num_blocks_y, pSlice_desc->m_orig_width, pSlice_desc->m_orig_height, pSlice_desc->m_level_index,
@@ -12820,28 +12829,50 @@ namespace basist
 		}
 		else if (pHeader->m_tex_format == (int)basis_tex_format::cUASTC_HDR_4x4)
 		{
+			// UASTC HDR 4x4
 			const basis_slice_desc* pSlice_desc = &pSlice_descs[slice_index];
 
-			// Use the container independent image transcode method.
 			status = m_lowlevel_uastc_4x4_hdr_decoder.transcode_image(fmt,
 				pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels,
 				(const uint8_t*)pData, data_size, pSlice_desc->m_num_blocks_x, pSlice_desc->m_num_blocks_y, pSlice_desc->m_orig_width, pSlice_desc->m_orig_height, pSlice_desc->m_level_index,
 				pSlice_desc->m_file_ofs, pSlice_desc->m_file_size,
 				decode_flags, basis_file_has_alpha_slices, pHeader->m_tex_type == cBASISTexTypeVideoFrames, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels);
 		}
-		else if (pHeader->m_tex_format == (int)basis_tex_format::cUASTC4x4)
+		else if (pHeader->m_tex_format == (int)basis_tex_format::cUASTC_LDR_4x4)
 		{
+			// UASTC LDR 4x4
 			const basis_slice_desc* pSlice_desc = &pSlice_descs[slice_index];
 
-			// Use the container independent image transcode method.
-			status = m_lowlevel_uastc_decoder.transcode_image(fmt,
+			status = m_lowlevel_uastc_ldr_4x4_decoder.transcode_image(fmt,
 				pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels,
 				(const uint8_t*)pData, data_size, pSlice_desc->m_num_blocks_x, pSlice_desc->m_num_blocks_y, pSlice_desc->m_orig_width, pSlice_desc->m_orig_height, pSlice_desc->m_level_index,
 				pSlice_desc->m_file_ofs, pSlice_desc->m_file_size,
 				decode_flags, basis_file_has_alpha_slices, pHeader->m_tex_type == cBASISTexTypeVideoFrames, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels);
 		}
-		else
+		else if (is_xuastc_ldr || is_astc_ldr)
 		{
+			// XUASTC LDR 4x4-12x12 or ASTC LDR 4x4-12x12
+			const basis_slice_desc* pSlice_desc = &pSlice_descs[slice_index];
+
+			const bool use_astc_srgb_decode_profile = (pHeader->m_flags & cBASISHeaderFlagSRGB) != 0;
+						
+			status = m_lowlevel_xuastc_ldr_decoder.transcode_image((basis_tex_format)(uint32_t)pHeader->m_tex_format, use_astc_srgb_decode_profile, fmt,
+				pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels,
+				(const uint8_t*)pData, data_size, pSlice_desc->m_num_blocks_x, pSlice_desc->m_num_blocks_y, pSlice_desc->m_orig_width, pSlice_desc->m_orig_height, pSlice_desc->m_level_index,
+				pSlice_desc->m_file_ofs, pSlice_desc->m_file_size,
+				decode_flags, basis_file_has_alpha_slices, pHeader->m_tex_type == cBASISTexTypeVideoFrames, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels);
+		}
+		else 
+		{
+			// ETC1S
+			
+			// sanity check
+			if (pHeader->m_tex_format != (uint32_t)basis_tex_format::cETC1S)
+			{
+				BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: unsupported texture format\n");
+				return false;
+			}
+
 			// ETC1S
 			const basis_slice_desc* pSlice_desc = &pSlice_descs[slice_index];
 			const basis_slice_desc* pAlpha_slice_desc = basis_file_has_alpha_slices ? &pSlice_descs[slice_index + 1] : nullptr;
@@ -12866,14 +12897,14 @@ namespace basist
 				decode_flags, basis_file_has_alpha_slices, pHeader->m_tex_type == cBASISTexTypeVideoFrames, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels);
 
 		} // if (pHeader->m_tex_format == (int)basis_tex_format::cUASTC4x4)
-
+      
 		if (!status)
 		{
 			BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: Returning false\n");
 		}
 		else
 		{
-			//BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: Returning true\n");
+			//BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: Returning true\n");      
 		}
 
 		return status;
@@ -12899,7 +12930,22 @@ namespace basist
 		case transcoder_texture_format::cTFETC2_RGBA:
 		case transcoder_texture_format::cTFBC3_RGBA:
 		case transcoder_texture_format::cTFBC5_RG:
-		case transcoder_texture_format::cTFASTC_4x4_RGBA:
+
+		case transcoder_texture_format::cTFASTC_LDR_4x4_RGBA:
+		case transcoder_texture_format::cTFASTC_LDR_5x4_RGBA:
+		case transcoder_texture_format::cTFASTC_LDR_5x5_RGBA:
+		case transcoder_texture_format::cTFASTC_LDR_6x5_RGBA:
+		case transcoder_texture_format::cTFASTC_LDR_6x6_RGBA:
+		case transcoder_texture_format::cTFASTC_LDR_8x5_RGBA:
+		case transcoder_texture_format::cTFASTC_LDR_8x6_RGBA:
+		case transcoder_texture_format::cTFASTC_LDR_10x5_RGBA:
+		case transcoder_texture_format::cTFASTC_LDR_10x6_RGBA:
+		case transcoder_texture_format::cTFASTC_LDR_8x8_RGBA:
+		case transcoder_texture_format::cTFASTC_LDR_10x8_RGBA:
+		case transcoder_texture_format::cTFASTC_LDR_10x10_RGBA:
+		case transcoder_texture_format::cTFASTC_LDR_12x10_RGBA:
+		case transcoder_texture_format::cTFASTC_LDR_12x12_RGBA:
+
 		case transcoder_texture_format::cTFASTC_HDR_4x4_RGBA:
 		case transcoder_texture_format::cTFASTC_HDR_6x6_RGBA:
 		case transcoder_texture_format::cTFATC_RGBA:
@@ -12939,7 +12985,7 @@ namespace basist
 		case transcoder_texture_format::cTFETC2_RGBA: return "ETC2_RGBA";
 		case transcoder_texture_format::cTFBC3_RGBA: return "BC3_RGBA";
 		case transcoder_texture_format::cTFBC5_RG: return "BC5_RG";
-		case transcoder_texture_format::cTFASTC_4x4_RGBA: return "ASTC_RGBA";
+		
 		case transcoder_texture_format::cTFASTC_HDR_4x4_RGBA: return "ASTC_HDR_4X4_RGBA";
 		case transcoder_texture_format::cTFASTC_HDR_6x6_RGBA: return "ASTC_HDR_6X6_RGBA";
 		case transcoder_texture_format::cTFATC_RGB: return "ATC_RGB";
@@ -12957,9 +13003,70 @@ namespace basist
 		case transcoder_texture_format::cTFETC2_EAC_R11: return "ETC2_EAC_R11";
 		case transcoder_texture_format::cTFETC2_EAC_RG11: return "ETC2_EAC_RG11";
 		case transcoder_texture_format::cTFBC6H: return "BC6H";
+
+		case transcoder_texture_format::cTFASTC_LDR_4x4_RGBA: return "ASTC_LDR_4X4_RGBA";
+		case transcoder_texture_format::cTFASTC_LDR_5x4_RGBA: return "ASTC_LDR_5X4_RGBA";
+		case transcoder_texture_format::cTFASTC_LDR_5x5_RGBA: return "ASTC_LDR_5X5_RGBA";
+		case transcoder_texture_format::cTFASTC_LDR_6x5_RGBA: return "ASTC_LDR_6X5_RGBA";
+		case transcoder_texture_format::cTFASTC_LDR_6x6_RGBA: return "ASTC_LDR_6X6_RGBA";
+		case transcoder_texture_format::cTFASTC_LDR_8x5_RGBA: return "ASTC_LDR_8X5_RGBA";
+		case transcoder_texture_format::cTFASTC_LDR_8x6_RGBA: return "ASTC_LDR_8X6_RGBA";
+		case transcoder_texture_format::cTFASTC_LDR_10x5_RGBA: return "ASTC_LDR_10X5_RGBA";
+		case transcoder_texture_format::cTFASTC_LDR_10x6_RGBA: return "ASTC_LDR_10X6_RGBA";
+		case transcoder_texture_format::cTFASTC_LDR_8x8_RGBA: return "ASTC_LDR_8X8_RGBA";
+		case transcoder_texture_format::cTFASTC_LDR_10x8_RGBA: return "ASTC_LDR_10X8_RGBA";
+		case transcoder_texture_format::cTFASTC_LDR_10x10_RGBA: return "ASTC_LDR_10X10_RGBA";
+		case transcoder_texture_format::cTFASTC_LDR_12x10_RGBA: return "ASTC_LDR_12X10_RGBA";
+		case transcoder_texture_format::cTFASTC_LDR_12x12_RGBA: return "ASTC_LDR_12X12_RGBA";
+
 		default:
 			assert(0);
 			BASISU_DEVEL_ERROR("basis_get_basisu_texture_format: Invalid fmt\n");
+			break;
+		}
+		return "";
+	}
+
+	const char* basis_get_tex_format_name(basis_tex_format fmt)
+	{
+		switch (fmt)
+		{
+		case basis_tex_format::cETC1S: return "ETC1S"; break;
+		case basis_tex_format::cUASTC_LDR_4x4: return "UASTC LDR 4x4"; break;
+		case basis_tex_format::cUASTC_HDR_4x4: return "UASTC_HDR_4x4"; break;
+		case basis_tex_format::cASTC_HDR_6x6: return "ASTC_HDR_6x6"; break;
+		case basis_tex_format::cUASTC_HDR_6x6_INTERMEDIATE: return "UASTC_HDR_6x6"; break;
+		case basis_tex_format::cXUASTC_LDR_4x4: return "XUASTC LDR 4x4"; break;
+		case basis_tex_format::cXUASTC_LDR_5x4: return "XUASTC LDR 5x4"; break;
+		case basis_tex_format::cXUASTC_LDR_5x5: return "XUASTC LDR 5x5"; break;
+		case basis_tex_format::cXUASTC_LDR_6x5: return "XUASTC LDR 6x5"; break;
+		case basis_tex_format::cXUASTC_LDR_6x6: return "XUASTC LDR 6x6"; break;
+		case basis_tex_format::cXUASTC_LDR_8x5: return "XUASTC LDR 8x5"; break;
+		case basis_tex_format::cXUASTC_LDR_8x6: return "XUASTC LDR 8x6"; break;
+		case basis_tex_format::cXUASTC_LDR_10x5: return "XUASTC LDR 10x5"; break;
+		case basis_tex_format::cXUASTC_LDR_10x6: return "XUASTC LDR 10x6"; break;
+		case basis_tex_format::cXUASTC_LDR_8x8: return "XUASTC LDR 8x8"; break;
+		case basis_tex_format::cXUASTC_LDR_10x8: return "XUASTC LDR 10x8"; break;
+		case basis_tex_format::cXUASTC_LDR_10x10: return "XUASTC LDR 10x10"; break;
+		case basis_tex_format::cXUASTC_LDR_12x10: return "XUASTC LDR 12x10"; break;
+		case basis_tex_format::cXUASTC_LDR_12x12: return "XUASTC LDR 12x12"; break;
+		case basis_tex_format::cASTC_LDR_4x4: return "ASTC LDR 4x4"; break;
+		case basis_tex_format::cASTC_LDR_5x4: return "ASTC LDR 5x4"; break;
+		case basis_tex_format::cASTC_LDR_5x5: return "ASTC LDR 5x5"; break;
+		case basis_tex_format::cASTC_LDR_6x5: return "ASTC LDR 6x5"; break;
+		case basis_tex_format::cASTC_LDR_6x6: return "ASTC LDR 6x6"; break;
+		case basis_tex_format::cASTC_LDR_8x5: return "ASTC LDR 8x5"; break;
+		case basis_tex_format::cASTC_LDR_8x6: return "ASTC LDR 8x6"; break;
+		case basis_tex_format::cASTC_LDR_10x5: return "ASTC LDR 10x5"; break;
+		case basis_tex_format::cASTC_LDR_10x6: return "ASTC LDR 10x6"; break;
+		case basis_tex_format::cASTC_LDR_8x8: return "ASTC LDR 8x8"; break;
+		case basis_tex_format::cASTC_LDR_10x8: return "ASTC LDR 10x8"; break;
+		case basis_tex_format::cASTC_LDR_10x10: return "ASTC LDR 10x10"; break;
+		case basis_tex_format::cASTC_LDR_12x10: return "ASTC LDR 12x10"; break;
+		case basis_tex_format::cASTC_LDR_12x12: return "ASTC LDR 12x12"; break;
+		default:
+			assert(0);
+			BASISU_DEVEL_ERROR("basis_get_tex_format_name: Invalid parameter\n");
 			break;
 		}
 		return "";
@@ -12976,7 +13083,22 @@ namespace basist
 		case block_format::cBC7: return "BC7";
 		case block_format::cETC2_RGBA: return "ETC2_RGBA";
 		case block_format::cBC3: return "BC3";
-		case block_format::cASTC_4x4: return "ASTC_4x4";
+		
+		case block_format::cASTC_LDR_4x4: return "ASTC_LDR_4x4";
+		case block_format::cASTC_LDR_5x4: return "ASTC_LDR_5x4";
+		case block_format::cASTC_LDR_5x5: return "ASTC_LDR_5x5";
+		case block_format::cASTC_LDR_6x5: return "ASTC_LDR_6x5";
+		case block_format::cASTC_LDR_6x6: return "ASTC_LDR_6x6";
+		case block_format::cASTC_LDR_8x5: return "ASTC_LDR_8x5";
+		case block_format::cASTC_LDR_8x6: return "ASTC_LDR_8x6";
+		case block_format::cASTC_LDR_10x5: return "ASTC_LDR_10x5";
+		case block_format::cASTC_LDR_10x6: return "ASTC_LDR_10x6";
+		case block_format::cASTC_LDR_8x8: return "ASTC_LDR_8x8";
+		case block_format::cASTC_LDR_10x8: return "ASTC_LDR_10x8";
+		case block_format::cASTC_LDR_10x10: return "ASTC_LDR_10x10";
+		case block_format::cASTC_LDR_12x10: return "ASTC_LDR_12x10";
+		case block_format::cASTC_LDR_12x12: return "ASTC_LDR_12x12";
+
 		case block_format::cATC_RGB: return "ATC_RGB";
 		case block_format::cRGBA32: return "RGBA32";
 		case block_format::cRGB565: return "RGB565";
@@ -13027,7 +13149,22 @@ namespace basist
 		{
 		case transcoder_texture_format::cTFETC2_RGBA:
 		case transcoder_texture_format::cTFBC3_RGBA:
-		case transcoder_texture_format::cTFASTC_4x4_RGBA:
+		
+		case transcoder_texture_format::cTFASTC_LDR_4x4_RGBA:
+		case transcoder_texture_format::cTFASTC_LDR_5x4_RGBA:
+		case transcoder_texture_format::cTFASTC_LDR_5x5_RGBA:
+		case transcoder_texture_format::cTFASTC_LDR_6x5_RGBA:
+		case transcoder_texture_format::cTFASTC_LDR_6x6_RGBA:
+		case transcoder_texture_format::cTFASTC_LDR_8x5_RGBA:
+		case transcoder_texture_format::cTFASTC_LDR_8x6_RGBA:
+		case transcoder_texture_format::cTFASTC_LDR_10x5_RGBA:
+		case transcoder_texture_format::cTFASTC_LDR_10x6_RGBA:
+		case transcoder_texture_format::cTFASTC_LDR_8x8_RGBA:
+		case transcoder_texture_format::cTFASTC_LDR_10x8_RGBA:
+		case transcoder_texture_format::cTFASTC_LDR_10x10_RGBA:
+		case transcoder_texture_format::cTFASTC_LDR_12x10_RGBA:
+		case transcoder_texture_format::cTFASTC_LDR_12x12_RGBA:
+
 		case transcoder_texture_format::cTFASTC_HDR_4x4_RGBA: // technically this ASTC HDR format supports alpha, but we currently don't exploit that in our encoders
 		case transcoder_texture_format::cTFASTC_HDR_6x6_RGBA: // technically this ASTC HDR format supports alpha, but we currently don't exploit that in our encoders
 		case transcoder_texture_format::cTFBC7_RGBA:
@@ -13062,6 +13199,33 @@ namespace basist
 		return false;
 	}
 
+	bool basis_is_transcoder_texture_format_astc(transcoder_texture_format fmt)
+	{
+		switch (fmt)
+		{
+		case transcoder_texture_format::cTFASTC_LDR_4x4_RGBA:
+		case transcoder_texture_format::cTFASTC_LDR_5x4_RGBA:
+		case transcoder_texture_format::cTFASTC_LDR_5x5_RGBA:
+		case transcoder_texture_format::cTFASTC_LDR_6x5_RGBA:
+		case transcoder_texture_format::cTFASTC_LDR_6x6_RGBA:
+		case transcoder_texture_format::cTFASTC_LDR_8x5_RGBA:
+		case transcoder_texture_format::cTFASTC_LDR_8x6_RGBA:
+		case transcoder_texture_format::cTFASTC_LDR_10x5_RGBA:
+		case transcoder_texture_format::cTFASTC_LDR_10x6_RGBA:
+		case transcoder_texture_format::cTFASTC_LDR_8x8_RGBA:
+		case transcoder_texture_format::cTFASTC_LDR_10x8_RGBA:
+		case transcoder_texture_format::cTFASTC_LDR_10x10_RGBA:
+		case transcoder_texture_format::cTFASTC_LDR_12x10_RGBA:
+		case transcoder_texture_format::cTFASTC_LDR_12x12_RGBA:
+		case transcoder_texture_format::cTFASTC_HDR_4x4_RGBA:
+		case transcoder_texture_format::cTFASTC_HDR_6x6_RGBA:
+			return true;
+		default:
+			break;
+		}
+		return false;
+	}
+
 	basisu::texture_format basis_get_basisu_texture_format(transcoder_texture_format fmt)
 	{
 		switch (fmt)
@@ -13076,7 +13240,22 @@ namespace basist
 		case transcoder_texture_format::cTFETC2_RGBA: return basisu::texture_format::cETC2_RGBA;
 		case transcoder_texture_format::cTFBC3_RGBA: return basisu::texture_format::cBC3;
 		case transcoder_texture_format::cTFBC5_RG: return basisu::texture_format::cBC5;
-		case transcoder_texture_format::cTFASTC_4x4_RGBA: return basisu::texture_format::cASTC_LDR_4x4;
+
+		case transcoder_texture_format::cTFASTC_LDR_4x4_RGBA: return basisu::texture_format::cASTC_LDR_4x4;
+		case transcoder_texture_format::cTFASTC_LDR_5x4_RGBA: return basisu::texture_format::cASTC_LDR_5x4;
+		case transcoder_texture_format::cTFASTC_LDR_5x5_RGBA: return basisu::texture_format::cASTC_LDR_5x5;
+		case transcoder_texture_format::cTFASTC_LDR_6x5_RGBA: return basisu::texture_format::cASTC_LDR_6x5;
+		case transcoder_texture_format::cTFASTC_LDR_6x6_RGBA: return basisu::texture_format::cASTC_LDR_6x6;
+		case transcoder_texture_format::cTFASTC_LDR_8x5_RGBA: return basisu::texture_format::cASTC_LDR_8x5;
+		case transcoder_texture_format::cTFASTC_LDR_8x6_RGBA: return basisu::texture_format::cASTC_LDR_8x6;
+		case transcoder_texture_format::cTFASTC_LDR_10x5_RGBA: return basisu::texture_format::cASTC_LDR_10x5;
+		case transcoder_texture_format::cTFASTC_LDR_10x6_RGBA: return basisu::texture_format::cASTC_LDR_10x6;
+		case transcoder_texture_format::cTFASTC_LDR_8x8_RGBA: return basisu::texture_format::cASTC_LDR_8x8;
+		case transcoder_texture_format::cTFASTC_LDR_10x8_RGBA: return basisu::texture_format::cASTC_LDR_10x8;
+		case transcoder_texture_format::cTFASTC_LDR_10x10_RGBA: return basisu::texture_format::cASTC_LDR_10x10;
+		case transcoder_texture_format::cTFASTC_LDR_12x10_RGBA: return basisu::texture_format::cASTC_LDR_12x10; 
+		case transcoder_texture_format::cTFASTC_LDR_12x12_RGBA: return basisu::texture_format::cASTC_LDR_12x12;
+
 		case transcoder_texture_format::cTFASTC_HDR_4x4_RGBA: return basisu::texture_format::cASTC_HDR_4x4;
 		case transcoder_texture_format::cTFASTC_HDR_6x6_RGBA: return basisu::texture_format::cASTC_HDR_6x6;
 		case transcoder_texture_format::cTFBC6H: return basisu::texture_format::cBC6HUnsigned;
@@ -13142,14 +13321,14 @@ namespace basist
 		}
 		return false;
 	}
-
+	
 	uint32_t basis_get_uncompressed_bytes_per_pixel(transcoder_texture_format fmt)
 	{
 		switch (fmt)
 		{
 		case transcoder_texture_format::cTFRGBA32:
 		case transcoder_texture_format::cTFRGB_9E5:
-			return sizeof(uint32_t);
+			return sizeof(uint32_t); 
 		case transcoder_texture_format::cTFRGB565:
 		case transcoder_texture_format::cTFBGR565:
 		case transcoder_texture_format::cTFRGBA4444:
@@ -13163,27 +13342,57 @@ namespace basist
 		}
 		return 0;
 	}
-
-	uint32_t basis_get_block_width(transcoder_texture_format tex_type)
+	
+	uint32_t basis_get_block_width(transcoder_texture_format fmt)
 	{
-		switch (tex_type)
+		switch (fmt)
 		{
 			case transcoder_texture_format::cTFFXT1_RGB:
 				return 8;
 			case transcoder_texture_format::cTFASTC_HDR_6x6_RGBA:
 				return 6;
+
+			case transcoder_texture_format::cTFASTC_LDR_5x4_RGBA: return 5;
+			case transcoder_texture_format::cTFASTC_LDR_5x5_RGBA: return 5;
+			case transcoder_texture_format::cTFASTC_LDR_6x5_RGBA: return 6;
+			case transcoder_texture_format::cTFASTC_LDR_6x6_RGBA: return 6;
+			case transcoder_texture_format::cTFASTC_LDR_8x5_RGBA: return 8;
+			case transcoder_texture_format::cTFASTC_LDR_8x6_RGBA: return 8;
+			case transcoder_texture_format::cTFASTC_LDR_10x5_RGBA: return 10;
+			case transcoder_texture_format::cTFASTC_LDR_10x6_RGBA: return 10;
+			case transcoder_texture_format::cTFASTC_LDR_8x8_RGBA: return 8;
+			case transcoder_texture_format::cTFASTC_LDR_10x8_RGBA: return 10;
+			case transcoder_texture_format::cTFASTC_LDR_10x10_RGBA: return 10;
+			case transcoder_texture_format::cTFASTC_LDR_12x10_RGBA: return 12;
+			case transcoder_texture_format::cTFASTC_LDR_12x12_RGBA: return 12;
+
 			default:
 				break;
 		}
 		return 4;
 	}
 
-	uint32_t basis_get_block_height(transcoder_texture_format tex_type)
+	uint32_t basis_get_block_height(transcoder_texture_format fmt)
 	{
-		switch (tex_type)
+		switch (fmt)
 		{
 		case transcoder_texture_format::cTFASTC_HDR_6x6_RGBA:
 			return 6;
+					
+		case transcoder_texture_format::cTFASTC_LDR_5x5_RGBA: return 5;
+		case transcoder_texture_format::cTFASTC_LDR_6x5_RGBA: return 5;
+		case transcoder_texture_format::cTFASTC_LDR_6x6_RGBA: return 6;
+		case transcoder_texture_format::cTFASTC_LDR_8x5_RGBA: return 5;
+		case transcoder_texture_format::cTFASTC_LDR_8x6_RGBA: return 6;
+		case transcoder_texture_format::cTFASTC_LDR_10x5_RGBA: return 5;
+		case transcoder_texture_format::cTFASTC_LDR_10x6_RGBA: return 6;
+		case transcoder_texture_format::cTFASTC_LDR_8x8_RGBA: return 8;
+		case transcoder_texture_format::cTFASTC_LDR_10x8_RGBA: return 8;
+		case transcoder_texture_format::cTFASTC_LDR_10x10_RGBA: return 10;
+		case transcoder_texture_format::cTFASTC_LDR_12x10_RGBA: return 10;
+		case transcoder_texture_format::cTFASTC_LDR_12x12_RGBA: return 12;
+
+
 		default:
 			break;
 		}
@@ -13195,8 +13404,36 @@ namespace basist
 		switch (fmt)
 		{
 		case basis_tex_format::cASTC_HDR_6x6:
-		case basis_tex_format::cASTC_HDR_6x6_INTERMEDIATE:
+		case basis_tex_format::cUASTC_HDR_6x6_INTERMEDIATE:
 			return 6;
+		case basis_tex_format::cXUASTC_LDR_4x4: return 4;
+		case basis_tex_format::cXUASTC_LDR_5x4: return 5;
+		case basis_tex_format::cXUASTC_LDR_5x5: return 5;
+		case basis_tex_format::cXUASTC_LDR_6x5: return 6;
+		case basis_tex_format::cXUASTC_LDR_6x6: return 6;
+		case basis_tex_format::cXUASTC_LDR_8x5: return 8;
+		case basis_tex_format::cXUASTC_LDR_8x6: return 8; 
+		case basis_tex_format::cXUASTC_LDR_10x5: return 10;
+		case basis_tex_format::cXUASTC_LDR_10x6: return 10;
+		case basis_tex_format::cXUASTC_LDR_8x8: return 8;
+		case basis_tex_format::cXUASTC_LDR_10x8: return 10;
+		case basis_tex_format::cXUASTC_LDR_10x10: return 10;
+		case basis_tex_format::cXUASTC_LDR_12x10: return 12; 
+		case basis_tex_format::cXUASTC_LDR_12x12: return 12;
+		case basis_tex_format::cASTC_LDR_4x4: return 4;
+		case basis_tex_format::cASTC_LDR_5x4: return 5;
+		case basis_tex_format::cASTC_LDR_5x5: return 5;
+		case basis_tex_format::cASTC_LDR_6x5: return 6;
+		case basis_tex_format::cASTC_LDR_6x6: return 6;
+		case basis_tex_format::cASTC_LDR_8x5: return 8;
+		case basis_tex_format::cASTC_LDR_8x6: return 8;
+		case basis_tex_format::cASTC_LDR_10x5: return 10;
+		case basis_tex_format::cASTC_LDR_10x6: return 10;
+		case basis_tex_format::cASTC_LDR_8x8: return 8;
+		case basis_tex_format::cASTC_LDR_10x8: return 10;
+		case basis_tex_format::cASTC_LDR_10x10: return 10;
+		case basis_tex_format::cASTC_LDR_12x10: return 12;
+		case basis_tex_format::cASTC_LDR_12x12: return 12;
 		default:
 			break;
 		}
@@ -13208,8 +13445,36 @@ namespace basist
 		switch (fmt)
 		{
 		case basis_tex_format::cASTC_HDR_6x6:
-		case basis_tex_format::cASTC_HDR_6x6_INTERMEDIATE:
+		case basis_tex_format::cUASTC_HDR_6x6_INTERMEDIATE:
 			return 6;
+		case basis_tex_format::cXUASTC_LDR_4x4: return 4;
+		case basis_tex_format::cXUASTC_LDR_5x4: return 4;
+		case basis_tex_format::cXUASTC_LDR_5x5: return 5;
+		case basis_tex_format::cXUASTC_LDR_6x5: return 5;
+		case basis_tex_format::cXUASTC_LDR_6x6: return 6;
+		case basis_tex_format::cXUASTC_LDR_8x5: return 5;
+		case basis_tex_format::cXUASTC_LDR_8x6: return 6;
+		case basis_tex_format::cXUASTC_LDR_10x5: return 5;
+		case basis_tex_format::cXUASTC_LDR_10x6: return 6;
+		case basis_tex_format::cXUASTC_LDR_8x8: return 8;
+		case basis_tex_format::cXUASTC_LDR_10x8: return 8;
+		case basis_tex_format::cXUASTC_LDR_10x10: return 10;
+		case basis_tex_format::cXUASTC_LDR_12x10: return 10;
+		case basis_tex_format::cXUASTC_LDR_12x12: return 12;
+		case basis_tex_format::cASTC_LDR_4x4: return 4;
+		case basis_tex_format::cASTC_LDR_5x4: return 4;
+		case basis_tex_format::cASTC_LDR_5x5: return 5;
+		case basis_tex_format::cASTC_LDR_6x5: return 5;
+		case basis_tex_format::cASTC_LDR_6x6: return 6;
+		case basis_tex_format::cASTC_LDR_8x5: return 5;
+		case basis_tex_format::cASTC_LDR_8x6: return 6;
+		case basis_tex_format::cASTC_LDR_10x5: return 5;
+		case basis_tex_format::cASTC_LDR_10x6: return 6;
+		case basis_tex_format::cASTC_LDR_8x8: return 8;
+		case basis_tex_format::cASTC_LDR_10x8: return 8;
+		case basis_tex_format::cASTC_LDR_10x10: return 10;
+		case basis_tex_format::cASTC_LDR_12x10: return 10;
+		case basis_tex_format::cASTC_LDR_12x12: return 12;
 		default:
 			break;
 		}
@@ -13222,7 +13487,7 @@ namespace basist
 		{
 		case basis_tex_format::cUASTC_HDR_4x4:
 		case basis_tex_format::cASTC_HDR_6x6:
-		case basis_tex_format::cASTC_HDR_6x6_INTERMEDIATE:
+		case basis_tex_format::cUASTC_HDR_6x6_INTERMEDIATE:
 			return true;
 		default:
 			break;
@@ -13230,9 +13495,136 @@ namespace basist
 		return false;
 	}
 
+	// Given a basis_tex_format (mode or codec), return the corresponding ASTC texture_format with the proper block size from 4x4-12x12.
+	basisu::texture_format basis_get_texture_format_from_xuastc_or_astc_ldr_basis_tex_format(basis_tex_format fmt)
+	{
+		switch (fmt)
+		{
+		case basis_tex_format::cXUASTC_LDR_4x4:
+		case basis_tex_format::cASTC_LDR_4x4:
+			return basisu::texture_format::cASTC_LDR_4x4;
+		case basis_tex_format::cXUASTC_LDR_5x4:
+		case basis_tex_format::cASTC_LDR_5x4:
+			return basisu::texture_format::cASTC_LDR_5x4;
+		case basis_tex_format::cXUASTC_LDR_5x5:
+		case basis_tex_format::cASTC_LDR_5x5:
+			return basisu::texture_format::cASTC_LDR_5x5;
+		case basis_tex_format::cXUASTC_LDR_6x5:
+		case basis_tex_format::cASTC_LDR_6x5:
+			return basisu::texture_format::cASTC_LDR_6x5;
+		case basis_tex_format::cXUASTC_LDR_6x6:
+		case basis_tex_format::cASTC_LDR_6x6:
+			return basisu::texture_format::cASTC_LDR_6x6;
+		case basis_tex_format::cXUASTC_LDR_8x5:
+		case basis_tex_format::cASTC_LDR_8x5:
+			return basisu::texture_format::cASTC_LDR_8x5;
+		case basis_tex_format::cXUASTC_LDR_8x6:
+		case basis_tex_format::cASTC_LDR_8x6:
+			return basisu::texture_format::cASTC_LDR_8x6;
+		case basis_tex_format::cXUASTC_LDR_10x5:
+		case basis_tex_format::cASTC_LDR_10x5:
+			return basisu::texture_format::cASTC_LDR_10x5;
+		case basis_tex_format::cXUASTC_LDR_10x6:
+		case basis_tex_format::cASTC_LDR_10x6:
+			return basisu::texture_format::cASTC_LDR_10x6;
+		case basis_tex_format::cXUASTC_LDR_8x8:
+		case basis_tex_format::cASTC_LDR_8x8:
+			return basisu::texture_format::cASTC_LDR_8x8;
+		case basis_tex_format::cXUASTC_LDR_10x8:
+		case basis_tex_format::cASTC_LDR_10x8:
+			return basisu::texture_format::cASTC_LDR_10x8;
+		case basis_tex_format::cXUASTC_LDR_10x10:
+		case basis_tex_format::cASTC_LDR_10x10:
+			return basisu::texture_format::cASTC_LDR_10x10;
+		case basis_tex_format::cXUASTC_LDR_12x10:
+		case basis_tex_format::cASTC_LDR_12x10:
+			return basisu::texture_format::cASTC_LDR_12x10;
+		case basis_tex_format::cXUASTC_LDR_12x12:
+		case basis_tex_format::cASTC_LDR_12x12:
+			return basisu::texture_format::cASTC_LDR_12x12;
+		default:
+			assert(0);
+			return basisu::texture_format::cInvalidTextureFormat;
+		}
+	}
+
+	// Given any basis_tex_format (mode or codec), return the corresponding transcoder_texture_format with the proper ASTC block size from 4x4-12x12.
+	transcoder_texture_format basis_get_transcoder_texture_format_from_xuastc_or_astc_ldr_basis_tex_format(basis_tex_format fmt)
+	{
+		switch (fmt)
+		{
+		// XUASTC 4x4-12x12 and ASTC 4x4-12x12
+		case basis_tex_format::cXUASTC_LDR_4x4:
+		case basis_tex_format::cASTC_LDR_4x4:
+			return transcoder_texture_format::cTFASTC_LDR_4x4_RGBA;
+		case basis_tex_format::cXUASTC_LDR_5x4:
+		case basis_tex_format::cASTC_LDR_5x4:
+			return transcoder_texture_format::cTFASTC_LDR_5x4_RGBA;
+		case basis_tex_format::cXUASTC_LDR_5x5:
+		case basis_tex_format::cASTC_LDR_5x5:
+			return transcoder_texture_format::cTFASTC_LDR_5x5_RGBA;
+		case basis_tex_format::cXUASTC_LDR_6x5:
+		case basis_tex_format::cASTC_LDR_6x5:
+			return transcoder_texture_format::cTFASTC_LDR_6x5_RGBA;
+		case basis_tex_format::cXUASTC_LDR_6x6:
+		case basis_tex_format::cASTC_LDR_6x6:
+			return transcoder_texture_format::cTFASTC_LDR_6x6_RGBA;
+		case basis_tex_format::cXUASTC_LDR_8x5:
+		case basis_tex_format::cASTC_LDR_8x5:
+			return transcoder_texture_format::cTFASTC_LDR_8x5_RGBA;
+		case basis_tex_format::cXUASTC_LDR_8x6:
+		case basis_tex_format::cASTC_LDR_8x6:
+			return transcoder_texture_format::cTFASTC_LDR_8x6_RGBA;
+		case basis_tex_format::cXUASTC_LDR_10x5:
+		case basis_tex_format::cASTC_LDR_10x5:
+			return transcoder_texture_format::cTFASTC_LDR_10x5_RGBA;
+		case basis_tex_format::cXUASTC_LDR_10x6:
+		case basis_tex_format::cASTC_LDR_10x6:
+			return transcoder_texture_format::cTFASTC_LDR_10x6_RGBA;
+		case basis_tex_format::cXUASTC_LDR_8x8:
+		case basis_tex_format::cASTC_LDR_8x8:
+			return transcoder_texture_format::cTFASTC_LDR_8x8_RGBA;
+		case basis_tex_format::cXUASTC_LDR_10x8:
+		case basis_tex_format::cASTC_LDR_10x8:
+			return transcoder_texture_format::cTFASTC_LDR_10x8_RGBA;
+		case basis_tex_format::cXUASTC_LDR_10x10:
+		case basis_tex_format::cASTC_LDR_10x10:
+			return transcoder_texture_format::cTFASTC_LDR_10x10_RGBA;
+		case basis_tex_format::cXUASTC_LDR_12x10:
+		case basis_tex_format::cASTC_LDR_12x10:
+			return transcoder_texture_format::cTFASTC_LDR_12x10_RGBA;
+		case basis_tex_format::cXUASTC_LDR_12x12:
+		case basis_tex_format::cASTC_LDR_12x12:
+			return transcoder_texture_format::cTFASTC_LDR_12x12_RGBA;
+		
+		// ETC1S/UASTC LDR 4x4
+		case basis_tex_format::cETC1S:
+		case basis_tex_format::cUASTC_LDR_4x4:
+			return transcoder_texture_format::cTFASTC_LDR_4x4_RGBA;
+
+		// HDR formats
+		case basis_tex_format::cUASTC_HDR_4x4:
+			return transcoder_texture_format::cTFASTC_HDR_4x4_RGBA;
+
+		case basis_tex_format::cASTC_HDR_6x6:
+		case basis_tex_format::cUASTC_HDR_6x6_INTERMEDIATE:
+			return transcoder_texture_format::cTFASTC_HDR_6x6_RGBA;
+
+		default:
+			assert(0);
+			return transcoder_texture_format::cTFASTC_LDR_4x4_RGBA;
+		}
+	}
+
+	transcoder_texture_format basis_get_transcoder_texture_format_from_basis_tex_format(basis_tex_format fmt)
+	{
+		return basis_get_transcoder_texture_format_from_xuastc_or_astc_ldr_basis_tex_format(fmt);
+	}
+	
+	// For a given basis_tex_format (mode or codec), is the specified transcoder_texture_format supported?
 	bool basis_is_format_supported(transcoder_texture_format tex_type, basis_tex_format fmt)
 	{
-		if ((fmt == basis_tex_format::cASTC_HDR_6x6) || (fmt == basis_tex_format::cASTC_HDR_6x6_INTERMEDIATE))
+		if ((fmt == basis_tex_format::cASTC_HDR_6x6) || (fmt == basis_tex_format::cUASTC_HDR_6x6_INTERMEDIATE))
 		{
 			// RDO UASTC HDR 6x6, or our custom intermediate format
 #if BASISD_SUPPORT_UASTC_HDR
@@ -13266,37 +13658,182 @@ namespace basist
 			}
 #endif
 		}
-		else if (fmt == basis_tex_format::cUASTC4x4)
+		else if (fmt == basis_tex_format::cUASTC_LDR_4x4)
 		{
 			// UASTC LDR 4x4
 #if BASISD_SUPPORT_UASTC
+			// IMPORTANT : This is defined as the formats which DON'T support UASTC LDR 4x4 transcoding.
 			switch (tex_type)
 			{
-			// These niche formats aren't currently supported for UASTC - everything else is.
+			// These niche formats aren't currently supported for UASTC LDR 4x4 - everything else is.
 			case transcoder_texture_format::cTFPVRTC2_4_RGB:
 			case transcoder_texture_format::cTFPVRTC2_4_RGBA:
 			case transcoder_texture_format::cTFATC_RGB:
 			case transcoder_texture_format::cTFATC_RGBA:
 			case transcoder_texture_format::cTFFXT1_RGB:
-			// UASTC LDR doesn't support transcoding to HDR formats
+			// UASTC LDR 4x4 doesn't support transcoding to HDR formats
 			case transcoder_texture_format::cTFASTC_HDR_4x4_RGBA:
 			case transcoder_texture_format::cTFASTC_HDR_6x6_RGBA:
 			case transcoder_texture_format::cTFBC6H:
 			case transcoder_texture_format::cTFRGBA_HALF:
 			case transcoder_texture_format::cTFRGB_HALF:
 			case transcoder_texture_format::cTFRGB_9E5:
+			case transcoder_texture_format::cTFASTC_LDR_5x4_RGBA:
+			case transcoder_texture_format::cTFASTC_LDR_5x5_RGBA:
+			case transcoder_texture_format::cTFASTC_LDR_6x5_RGBA:
+			case transcoder_texture_format::cTFASTC_LDR_6x6_RGBA:
+			case transcoder_texture_format::cTFASTC_LDR_8x5_RGBA:
+			case transcoder_texture_format::cTFASTC_LDR_8x6_RGBA:
+			case transcoder_texture_format::cTFASTC_LDR_10x5_RGBA:
+			case transcoder_texture_format::cTFASTC_LDR_10x6_RGBA:
+			case transcoder_texture_format::cTFASTC_LDR_8x8_RGBA:
+			case transcoder_texture_format::cTFASTC_LDR_10x8_RGBA:
+			case transcoder_texture_format::cTFASTC_LDR_10x10_RGBA:
+			case transcoder_texture_format::cTFASTC_LDR_12x10_RGBA:
+			case transcoder_texture_format::cTFASTC_LDR_12x12_RGBA:
 				return false;
 			default:
 				return true;
 			}
 #endif
 		}
+		else if ( (basis_tex_format_is_xuastc_ldr(fmt)) || (basis_tex_format_is_astc_ldr(fmt)) )
+		{
+			// XUASTC LDR 4x4-12x12 or ASTC LDR 4x4-12x12
+			switch (tex_type)
+			{
+			case transcoder_texture_format::cTFBC1_RGB:
+			case transcoder_texture_format::cTFBC3_RGBA:
+			case transcoder_texture_format::cTFBC4_R:
+			case transcoder_texture_format::cTFBC5_RG:
+			case transcoder_texture_format::cTFBC7_RGBA:
+			case transcoder_texture_format::cTFETC1_RGB:
+			case transcoder_texture_format::cTFETC2_RGBA:
+			case transcoder_texture_format::cTFETC2_EAC_R11:
+			case transcoder_texture_format::cTFETC2_EAC_RG11:
+			case transcoder_texture_format::cTFPVRTC1_4_RGB:
+			case transcoder_texture_format::cTFPVRTC1_4_RGBA:
+			// Uncompressed formats
+			case transcoder_texture_format::cTFRGBA32:
+			case transcoder_texture_format::cTFRGB565:
+			case transcoder_texture_format::cTFBGR565:
+			case transcoder_texture_format::cTFRGBA4444:
+				return true;
+			default:
+				break;
+			}
+
+			// Ensure they're using the block size for ASTC LDR that matches the XUASTC format's block size.
+			switch (fmt)
+			{
+			case basis_tex_format::cXUASTC_LDR_4x4:
+			case basis_tex_format::cASTC_LDR_4x4:
+			{
+				if (tex_type == transcoder_texture_format::cTFASTC_LDR_4x4_RGBA)
+					return true;
+				break;
+			}
+			case basis_tex_format::cXUASTC_LDR_5x4:
+			case basis_tex_format::cASTC_LDR_5x4:
+			{
+				if (tex_type == transcoder_texture_format::cTFASTC_LDR_5x4_RGBA)
+					return true;
+				break;
+			}
+			case basis_tex_format::cXUASTC_LDR_5x5:
+			case basis_tex_format::cASTC_LDR_5x5:
+			{
+				if (tex_type == transcoder_texture_format::cTFASTC_LDR_5x5_RGBA)
+					return true;
+				break;
+			}
+			case basis_tex_format::cXUASTC_LDR_6x5:
+			case basis_tex_format::cASTC_LDR_6x5:
+			{
+				if (tex_type == transcoder_texture_format::cTFASTC_LDR_6x5_RGBA)
+					return true;
+				break;
+			}
+			case basis_tex_format::cXUASTC_LDR_6x6:
+			case basis_tex_format::cASTC_LDR_6x6:
+			{
+				if (tex_type == transcoder_texture_format::cTFASTC_LDR_6x6_RGBA)
+					return true;
+				break;
+			}
+			case basis_tex_format::cXUASTC_LDR_8x5:
+			case basis_tex_format::cASTC_LDR_8x5:
+			{
+				if (tex_type == transcoder_texture_format::cTFASTC_LDR_8x5_RGBA)
+					return true;
+				break;
+			}
+			case basis_tex_format::cXUASTC_LDR_8x6:
+			case basis_tex_format::cASTC_LDR_8x6:
+			{
+				if (tex_type == transcoder_texture_format::cTFASTC_LDR_8x6_RGBA)
+					return true;
+				break;
+			}
+			case basis_tex_format::cXUASTC_LDR_10x5:
+			case basis_tex_format::cASTC_LDR_10x5:
+			{
+				if (tex_type == transcoder_texture_format::cTFASTC_LDR_10x5_RGBA)
+					return true;
+				break;
+			}
+			case basis_tex_format::cXUASTC_LDR_10x6:
+			case basis_tex_format::cASTC_LDR_10x6:
+			{
+				if (tex_type == transcoder_texture_format::cTFASTC_LDR_10x6_RGBA)
+					return true;
+				break;
+			}
+			case basis_tex_format::cXUASTC_LDR_8x8:
+			case basis_tex_format::cASTC_LDR_8x8:
+			{
+				if (tex_type == transcoder_texture_format::cTFASTC_LDR_8x8_RGBA)
+					return true;
+				break;
+			}
+			case basis_tex_format::cXUASTC_LDR_10x8:
+			case basis_tex_format::cASTC_LDR_10x8:
+			{
+				if (tex_type == transcoder_texture_format::cTFASTC_LDR_10x8_RGBA)
+					return true;
+				break;
+			}
+			case basis_tex_format::cXUASTC_LDR_10x10:
+			case basis_tex_format::cASTC_LDR_10x10:
+			{
+				if (tex_type == transcoder_texture_format::cTFASTC_LDR_10x10_RGBA)
+					return true;
+				break;
+			}
+			case basis_tex_format::cXUASTC_LDR_12x10:
+			case basis_tex_format::cASTC_LDR_12x10:
+			{
+				if (tex_type == transcoder_texture_format::cTFASTC_LDR_12x10_RGBA)
+					return true;
+				break;
+			}
+			case basis_tex_format::cXUASTC_LDR_12x12:
+			case basis_tex_format::cASTC_LDR_12x12:
+			{
+				if (tex_type == transcoder_texture_format::cTFASTC_LDR_12x12_RGBA)
+					return true;
+				break;
+			}
+			default:
+				break;
+			}
+		}
 		else
 		{
 			// ETC1S
 			switch (tex_type)
 			{
-				// ETC1 and uncompressed are always supported.
+			// ETC1 and uncompressed are always supported.
 			case transcoder_texture_format::cTFETC1_RGB:
 			case transcoder_texture_format::cTFRGBA32:
 			case transcoder_texture_format::cTFRGB565:
@@ -13330,8 +13867,8 @@ namespace basist
 			case transcoder_texture_format::cTFETC2_RGBA:
 				return true;
 #endif
-#if BASISD_SUPPORT_ASTC
-			case transcoder_texture_format::cTFASTC_4x4_RGBA:
+#if BASISD_SUPPORT_ASTC		
+			case transcoder_texture_format::cTFASTC_LDR_4x4_RGBA:
 				return true;
 #endif
 #if BASISD_SUPPORT_ATC
@@ -13361,9 +13898,9 @@ namespace basist
 		return false;
 	}
 
-	// ------------------------------------------------------------------------------------------------------
+	// ------------------------------------------------------------------------------------------------------ 
 	// UASTC LDR 4x4
-	// ------------------------------------------------------------------------------------------------------
+	// ------------------------------------------------------------------------------------------------------ 
 
 #if BASISD_SUPPORT_UASTC
 	const astc_bc7_common_partition2_desc g_astc_bc7_common_partitions2[TOTAL_ASTC_BC7_COMMON_PARTITIONS2] =
@@ -14088,7 +14625,7 @@ namespace basist
 
 		if (group_size)
 		{
-			// Range has trits or quints - pack each group of 5 or 3 values
+			// Range has trits or quints - pack each group of 5 or 3 values 
 			const int total_groups = (group_size == 5) ? ((num_vals + 4) / 5) : ((num_vals + 2) / 3);
 
 			for (int group_index = 0; group_index < total_groups; group_index++)
@@ -14380,7 +14917,7 @@ namespace basist
 	bool unpack_uastc(const uastc_block& blk, unpacked_uastc_block& unpacked, bool blue_contract_check, bool read_hints)
 	{
 		//memset(&unpacked, 0, sizeof(unpacked));
-
+				
 #if 0
 		uint8_t table[128];
 		memset(table, 0xFF, sizeof(table));
@@ -14436,7 +14973,7 @@ namespace basist
 
 			return true;
 		}
-
+				
 		if (read_hints)
 		{
 			if (g_uastc_mode_has_bc1_hint0[mode])
@@ -14469,7 +15006,7 @@ namespace basist
 		}
 		else
 			bit_ofs += g_uastc_mode_total_hint_bits[mode];
-
+				
 		uint32_t subsets = 1;
 		switch (mode)
 		{
@@ -14682,7 +15219,7 @@ namespace basist
 		{
 			// All other modes have <= 64 weight bits.
 			uint64_t bits;
-
+			
 			// Read the weight bits
 			if ((BASISD_IS_BIG_ENDIAN) || (!BASISD_USE_UNALIGNED_WORD_READS))
 				bits = read_bits64(blk.m_bytes, bit_ofs, basisu::minimum<int>(64, 128 - (int)bit_ofs));
@@ -14690,31 +15227,31 @@ namespace basist
 			{
 				bits = blk.m_dwords[2];
 				bits |= (((uint64_t)blk.m_dwords[3]) << 32U);
-
+				
 				if (bit_ofs >= 64U)
 					bits >>= (bit_ofs - 64U);
 				else
 				{
 					assert(bit_ofs >= 56U);
-
+					
 					uint32_t bits_needed = 64U - bit_ofs;
 					bits <<= bits_needed;
 					bits |= (blk.m_bytes[7] >> (8U - bits_needed));
 				}
 			}
-
+						
 			bit_ofs = 0;
 
 			const uint32_t mask = (1U << weight_bits) - 1U;
 			const uint32_t anchor_mask = (1U << (weight_bits - 1U)) - 1U;
-
+			
 			if (total_planes == 2)
 			{
 				// Dual plane modes always have a single subset, and the first 2 weights are anchors.
 
 				unpacked.m_astc.m_weights[0] = (uint8_t)((uint32_t)(bits >> bit_ofs) & anchor_mask);
 				bit_ofs += (weight_bits - 1);
-
+				
 				unpacked.m_astc.m_weights[1] = (uint8_t)((uint32_t)(bits >> bit_ofs) & anchor_mask);
 				bit_ofs += (weight_bits - 1);
 
@@ -14732,7 +15269,7 @@ namespace basist
 					if (weight_bits == 4)
 					{
 						assert(bit_ofs == 0);
-
+						
 						// Specialize the most common case: 4-bit weights.
 						unpacked.m_astc.m_weights[0] = (uint8_t)((uint32_t)(bits) & 7);
 						unpacked.m_astc.m_weights[1] = (uint8_t)((uint32_t)(bits >> 3) & 15);
@@ -14991,7 +15528,7 @@ namespace basist
 		return unpack_uastc(unpacked_blk, pPixels, srgb);
 	}
 
-	// Determines the best shared pbits to use to encode xl/xh
+	// Determines the best shared pbit to use to encode xl/xh
 	static void determine_shared_pbits(
 		uint32_t total_comps, uint32_t comp_bits, float xl[4], float xh[4],
 		color_quad_u8& bestMinColor, color_quad_u8& bestMaxColor, uint32_t best_pbits[2])
@@ -15195,6 +15732,8 @@ namespace basist
 			}
 
 			uint32_t best_pbits[2];
+			basisu::clear_obj(best_pbits);
+
 			color_quad_u8 bestMinColor, bestMaxColor;
 			determine_unique_pbits((total_comps == 2) ? 4 : total_comps, 7, xl, xh, bestMinColor, bestMaxColor, best_pbits);
 
@@ -15278,7 +15817,7 @@ namespace basist
 		}
 		case 2:
 		{
-			// 2. DualPlane: 0, WeightRange : 5 (8), Subsets : 2, EndpointRange : 8 (16) - BC7 MODE1
+			// 2. DualPlane: 0, WeightRange : 5 (8), Subsets : 2, EndpointRange : 8 (16) - BC7 MODE1 
 			dst_blk.m_mode = 1;
 			dst_blk.m_partition = g_astc_bc7_common_partitions2[unpacked_src_blk.m_common_pattern].m_bc7;
 
@@ -15505,6 +16044,7 @@ namespace basist
 		case UASTC_MODE_INDEX_SOLID_COLOR:
 		{
 			// Void-Extent: Solid Color RGBA (BC7 MODE5 or MODE6)
+			// TODO: Why prefer mode 6 here? Mode 5 is lossless.
 			const color32& solid_color = unpacked_src_blk.m_solid_color;
 
 			uint32_t best_err0 = g_bc7_mode_6_optimal_endpoints[solid_color.r][0].m_error + g_bc7_mode_6_optimal_endpoints[solid_color.g][0].m_error +
@@ -16217,7 +16757,7 @@ namespace basist
 		bool flip = pack_etc1_y_estimate_flipped(&block_y[0][0], upper_avg, lower_avg, left_avg, right_avg);
 
 		// non-flipped: | |
-		// vs.
+		// vs. 
 		// flipped:     --
 		//              --
 
@@ -16828,7 +17368,7 @@ namespace basist
 	static const uint8_t s_uastc2_to_bc1[4] = { 0, 2, 3, 1 };
 	static const uint8_t s_uastc1_to_bc1[2] = { 0, 1 };
 	const uint8_t* s_uastc_to_bc1_weights[6] = { nullptr, s_uastc1_to_bc1, s_uastc2_to_bc1, s_uastc3_to_bc1, s_uastc4_to_bc1, s_uastc5_to_bc1 };
-
+				
 	void encode_bc4(void* pDst, const uint8_t* pPixels, uint32_t stride)
 	{
 		uint32_t min0_v, max0_v, min1_v, max1_v,min2_v, max2_v, min3_v, max3_v;
@@ -16916,7 +17456,7 @@ namespace basist
 			a2 |= (s_tran2[(v2 >= t0) + (v2 >= t1) + (v2 >= t2) + (v2 >= t3) + (v2 >= t4) + (v2 >= t5) + (v2 >= t6)] << 12U);
 			a3 |= (s_tran3[(v3 >= t0) + (v3 >= t1) + (v3 >= t2) + (v3 >= t3) + (v3 >= t4) + (v3 >= t5) + (v3 >= t6)] << 12U);
 		}
-
+		
 		{
 			const int v0 = pPixels[8 * stride] * 14 + bias;
 			const int v1 = pPixels[9 * stride] * 14 + bias;
@@ -16940,7 +17480,7 @@ namespace basist
 		}
 
 		const uint64_t f = a0 | a1 | a2 | a3;
-
+		
 		pDst_bytes[2] = (uint8_t)f;
 		pDst_bytes[3] = (uint8_t)(f >> 8U);
 		pDst_bytes[4] = (uint8_t)(f >> 16U);
@@ -16963,7 +17503,7 @@ namespace basist
 		int dots[4];
 		for (uint32_t i = 0; i < 4; i++)
 			dots[i] = (int)block_r[i] * ar + (int)block_g[i] * ag + (int)block_b[i] * ab;
-
+				
 		int t0 = dots[0] + dots[1], t1 = dots[1] + dots[2], t2 = dots[2] + dots[3];
 
 		ar *= 2; ag *= 2; ab *= 2;
@@ -16972,7 +17512,7 @@ namespace basist
 		{
 			const int d = pSrc_pixels[i].r * ar + pSrc_pixels[i].g * ag + pSrc_pixels[i].b * ab;
 			static const uint8_t s_sels[4] = { 3, 2, 1, 0 };
-
+		
 			// Rounding matters here!
 			// d <= t0: <=, not <, to the later LS step "sees" a wider range of selectors. It matters for quality.
 			sels[i] = s_sels[(d <= t0) + (d < t1) + (d < t2)];
@@ -17013,11 +17553,11 @@ namespace basist
 			sels[i+3] = s_sels[(d3 <= t0) + (d3 < t1) + (d3 < t2)];
 		}
 	}
-
+				
 	static bool compute_least_squares_endpoints_rgb(const color32* pColors, const uint8_t* pSelectors, vec3F* pXl, vec3F* pXh)
 	{
 		// Derived from bc7enc16's LS function.
-		// Least squares using normal equations: http://www.cs.cornell.edu/~bindel/class/cs3220-s12/notes/lec10.pdf
+		// Least squares using normal equations: http://www.cs.cornell.edu/~bindel/class/cs3220-s12/notes/lec10.pdf 
 		// I did this in matrix form first, expanded out all the ops, then optimized it a bit.
 		uint32_t uq00_r = 0, uq10_r = 0, ut_r = 0, uq00_g = 0, uq10_g = 0, ut_g = 0, uq00_b = 0, uq10_b = 0, ut_b = 0;
 
@@ -17091,7 +17631,7 @@ namespace basist
 		return true;
 	}
 
-	void encode_bc1_solid_block(void* pDst, uint32_t fr, uint32_t fg, uint32_t fb)
+	void encode_bc1_solid_block(void* pDst, uint32_t fr, uint32_t fg, uint32_t fb) 
 	{
 		dxt1_block* pDst_block = static_cast<dxt1_block*>(pDst);
 
@@ -17143,19 +17683,19 @@ namespace basist
 	{
 		const color32* pSrc_pixels = (const color32*)pPixels;
 		dxt1_block* pDst_block = static_cast<dxt1_block*>(pDst);
-
+		
 		int avg_r = -1, avg_g = 0, avg_b = 0;
 		int lr = 0, lg = 0, lb = 0, hr = 0, hg = 0, hb = 0;
 		uint8_t sels[16];
-
+		
 		const bool use_sels = (flags & cEncodeBC1UseSelectors) != 0;
 		if (use_sels)
 		{
 			// Caller is jamming in their own selectors for us to try.
 			const uint32_t s = pDst_block->m_selectors[0] | (pDst_block->m_selectors[1] << 8) | (pDst_block->m_selectors[2] << 16) | (pDst_block->m_selectors[3] << 24);
-
+			
 			static const uint8_t s_sel_tran[4] = { 0, 3, 1, 2 };
-
+			
 			for (uint32_t i = 0; i < 16; i++)
 				sels[i] = s_sel_tran[(s >> (i * 2)) & 3];
 		}
@@ -17167,13 +17707,13 @@ namespace basist
 			for (j = 1; j < 16; j++)
 				if ((pSrc_pixels[j].r != fr) || (pSrc_pixels[j].g != fg) || (pSrc_pixels[j].b != fb))
 					break;
-
+						
 			if (j == 16)
 			{
 				encode_bc1_solid_block(pDst, fr, fg, fb);
 				return;
 			}
-
+			
 			// Select 2 colors along the principle axis. (There must be a faster/simpler way.)
 			int total_r = fr, total_g = fg, total_b = fb;
 			int max_r = fr, max_g = fg, max_b = fb;
@@ -17207,7 +17747,7 @@ namespace basist
 			float cov[6];
 			for (uint32_t i = 0; i < 6; i++)
 				cov[i] = static_cast<float>(icov[i])* (1.0f / 255.0f);
-
+			
 #if 0
 			// Seems silly to use full PCA to choose 2 colors. The diff in avg. PSNR between using PCA vs. not is small (~.025 difference).
 			// TODO: Try 2 or 3 different normalized diagonal vectors, choose the one that results in the largest dot delta
@@ -17239,7 +17779,7 @@ namespace basist
 				saxis_b = (int)(xb * m);
 			}
 #endif
-
+			
 			int low_dot = INT_MAX, high_dot = INT_MIN, low_c = 0, high_c = 0;
 			for (uint32_t i = 0; i < 16; i++)
 			{
@@ -17263,7 +17803,7 @@ namespace basist
 			hr = to_5(pSrc_pixels[high_c].r);
 			hg = to_6(pSrc_pixels[high_c].g);
 			hb = to_5(pSrc_pixels[high_c].b);
-
+						
 			bc1_find_sels(pSrc_pixels, lr, lg, lb, hr, hg, hb, sels);
 		} // if (use_sels)
 
@@ -17310,13 +17850,13 @@ namespace basist
 				hg = basisu::clamp((int)((xh.c[1]) * (63.0f / 255.0f) + .5f), 0, 63);
 				hb = basisu::clamp((int)((xh.c[2]) * (31.0f / 255.0f) + .5f), 0, 31);
 			}
-
+									
 			bc1_find_sels(pSrc_pixels, lr, lg, lb, hr, hg, hb, sels);
 		}
 
 		uint32_t lc16 = dxt1_block::pack_unscaled_color(lr, lg, lb);
 		uint32_t hc16 = dxt1_block::pack_unscaled_color(hr, hg, hb);
-
+				
 		// Always forbid 3 color blocks
 		if (lc16 == hc16)
 		{
@@ -17368,7 +17908,7 @@ namespace basist
 			pDst_block->m_selectors[3] = (uint8_t)(packed_sels >> 24) ^ invert_mask;
 		}
 	}
-
+		
 	void encode_bc1_alt(void* pDst, const uint8_t* pPixels, uint32_t flags)
 	{
 		const color32* pSrc_pixels = (const color32*)pPixels;
@@ -17417,8 +17957,8 @@ namespace basist
 				min_r = basisu::minimum(min_r, r); min_g = basisu::minimum(min_g, g); min_b = basisu::minimum(min_b, b);
 				total_r += r; total_g += g; total_b += b;
 			}
-
-			if (grayscale_flag)
+						
+			if (grayscale_flag) 
 			{
 				// Grayscale blocks are a common enough case to specialize.
 				if ((max_r - min_r) < 2)
@@ -17735,7 +18275,7 @@ namespace basist
 			// Always forbid 3 color blocks
 			uint16_t lc16 = (uint16_t)b.get_low_color();
 			uint16_t hc16 = (uint16_t)b.get_high_color();
-
+			
 			uint8_t mask = 0;
 
 			// Make l > h
@@ -17965,7 +18505,7 @@ namespace basist
 		blk.m_base = static_cast<uint8_t>(a);
 		blk.m_table = 13;
 		blk.m_multiplier = 0;
-
+				
 		memcpy(blk.m_selectors, g_etc2_eac_a8_sel4, sizeof(g_etc2_eac_a8_sel4));
 
 		return;
@@ -18655,7 +19195,7 @@ namespace basist
 				if (!unpack_uastc(pSrc_blocks[x + y * num_blocks_x], block_pixels, false))
 					return false;
 
-				// Get block's RGB bounding box
+				// Get block's RGB bounding box 
 				color32 low_color(255, 255, 255, 255), high_color(0, 0, 0, 0);
 
 				if (from_alpha)
@@ -18714,7 +19254,7 @@ namespace basist
 				if (!unpack_uastc(pSrc_blocks[x + y * num_blocks_x], block_pixels, false))
 					return false;
 
-				// Get block's RGBA bounding box
+				// Get block's RGBA bounding box 
 				color32 low_color(255, 255, 255, 255), high_color(0, 0, 0, 0);
 
 				for (uint32_t i = 0; i < 16; i++)
@@ -18830,9 +19370,9 @@ namespace basist
 
 #endif // #if BASISD_SUPPORT_UASTC
 
-// ------------------------------------------------------------------------------------------------------
+// ------------------------------------------------------------------------------------------------------ 
 // KTX2
-// ------------------------------------------------------------------------------------------------------
+// ------------------------------------------------------------------------------------------------------ 
 
 #if BASISD_SUPPORT_KTX2
 	const uint8_t g_ktx2_file_identifier[12] = { 0xAB, 0x4B, 0x54, 0x58, 0x20, 0x32, 0x30, 0xBB, 0x0D, 0x0A, 0x1A, 0x0A };
@@ -18854,8 +19394,8 @@ namespace basist
 		m_key_values.clear();
 		memset((void *)&m_etc1s_header, 0, sizeof(m_etc1s_header));
 		m_etc1s_image_descs.clear();
-		m_astc_6x6_intermediate_image_descs.clear();
-
+		m_slice_offset_len_descs.clear();
+				
 		m_format = basist::basis_tex_format::cETC1S;
 
 		m_dfd_color_model = 0;
@@ -18867,12 +19407,17 @@ namespace basist
 		m_dfd_chan1 = KTX2_DF_CHANNEL_UASTC_RGB;
 
 		m_etc1s_transcoder.clear();
-
+				
 		m_def_transcoder_state.clear();
-
+		
 		m_has_alpha = false;
 		m_is_video = false;
 		m_ldr_hdr_upconversion_nit_multiplier = 0.0f;
+	}
+
+	static bool is_vk_format_astc_ldr(uint32_t fmt)
+	{
+		return (fmt >= KTX2_FORMAT_ASTC_4x4_UNORM_BLOCK) && (fmt <= KTX2_FORMAT_ASTC_12x12_SRGB_BLOCK);
 	}
 
 	bool ktx2_transcoder::init(const void* pData, uint32_t data_size)
@@ -18904,9 +19449,10 @@ namespace basist
 		memcpy((void *)&m_header, pData, sizeof(m_header));
 
 		// Check for supported VK formats. We may also need to parse the DFD.
-		if ((m_header.m_vk_format != KTX2_VK_FORMAT_UNDEFINED) &&
-			(m_header.m_vk_format != basist::KTX2_FORMAT_ASTC_4x4_SFLOAT_BLOCK) &&
-			(m_header.m_vk_format != basist::KTX2_FORMAT_ASTC_6x6_SFLOAT_BLOCK))
+		if ((m_header.m_vk_format != KTX2_VK_FORMAT_UNDEFINED) && 
+			(m_header.m_vk_format != basist::KTX2_FORMAT_ASTC_4x4_SFLOAT_BLOCK) && 
+			(m_header.m_vk_format != basist::KTX2_FORMAT_ASTC_6x6_SFLOAT_BLOCK) &&
+			!is_vk_format_astc_ldr(m_header.m_vk_format))
 		{
 			BASISU_DEVEL_ERROR("ktx2_transcoder::init: KTX2 file must be in ETC1S or UASTC LDR/HDR format\n");
 			return false;
@@ -18943,7 +19489,7 @@ namespace basist
 				return false;
 			}
 		}
-
+		
 		// 3.7 levelCount: "levelCount=0 is allowed, except for block-compressed formats"
 		if (m_header.m_level_count < 1)
 		{
@@ -18966,14 +19512,6 @@ namespace basist
 
 		if (m_header.m_supercompression_scheme == KTX2_SS_BASISLZ)
 		{
-#if 0
-			if (m_header.m_sgd_byte_length <= sizeof(ktx2_etc1s_global_data_header))
-			{
-				BASISU_DEVEL_ERROR("ktx2_transcoder::init: Supercompression global data is too small\n");
-				return false;
-			}
-#endif
-
 			if (m_header.m_sgd_byte_offset.get_uint64() < sizeof(ktx2_header))
 			{
 				BASISU_DEVEL_ERROR("ktx2_transcoder::init: Supercompression global data offset is too low\n");
@@ -19002,7 +19540,7 @@ namespace basist
 		}
 
 		memcpy((void *)&m_levels[0], m_pData + sizeof(ktx2_header), level_index_size_in_bytes);
-
+		
 		// Sanity check the level offsets and byte sizes
 		for (uint32_t i = 0; i < m_levels.size(); i++)
 		{
@@ -19022,9 +19560,9 @@ namespace basist
 				BASISU_DEVEL_ERROR("ktx2_transcoder::init: Invalid level offset and/or length\n");
 				return false;
 			}
-
+			
 			const uint64_t MAX_SANE_LEVEL_UNCOMP_SIZE = 2048ULL * 1024ULL * 1024ULL;
-
+			
 			if (m_levels[i].m_uncompressed_byte_length.get_uint64() >= MAX_SANE_LEVEL_UNCOMP_SIZE)
 			{
 				BASISU_DEVEL_ERROR("ktx2_transcoder::init: Invalid level offset (too large)\n");
@@ -19061,7 +19599,7 @@ namespace basist
 			BASISU_DEVEL_ERROR("ktx2_transcoder::init: Invalid DFD offset and/or length\n");
 			return false;
 		}
-
+				
 		const uint8_t* pDFD = m_pData + m_header.m_dfd_byte_offset;
 
 		if (!m_dfd.try_resize(m_header.m_dfd_byte_length))
@@ -19071,17 +19609,16 @@ namespace basist
 		}
 
 		memcpy(m_dfd.data(), pDFD, m_header.m_dfd_byte_length);
-
-		// This is all hard coded for only ETC1S and UASTC.
+				
 		uint32_t dfd_total_size = basisu::read_le_dword(pDFD);
-
+		
 		// 3.10.3: Sanity check
 		if (dfd_total_size != m_header.m_dfd_byte_length)
 		{
 			BASISU_DEVEL_ERROR("ktx2_transcoder::init: DFD size validation failed (1)\n");
 			return false;
 		}
-
+				
 		// 3.10.3: More sanity checking
 		if (m_header.m_kvd_byte_length)
 		{
@@ -19094,11 +19631,15 @@ namespace basist
 
 		const uint32_t dfd_bits = basisu::read_le_dword(pDFD + 3 * sizeof(uint32_t));
 		const uint32_t sample_channel0 = basisu::read_le_dword(pDFD + 7 * sizeof(uint32_t));
-
+		const uint32_t texel_block_dimensions = basisu::read_le_dword(pDFD + 4 * sizeof(uint32_t));
+		 
 		m_dfd_color_model = dfd_bits & 255;
 		m_dfd_color_prims = (ktx2_df_color_primaries)((dfd_bits >> 8) & 255);
 		m_dfd_transfer_func = (dfd_bits >> 16) & 255;
 		m_dfd_flags = (dfd_bits >> 24) & 255;
+
+		const uint32_t block_width = (texel_block_dimensions & 0xFF) + 1;
+		const uint32_t block_height = ((texel_block_dimensions >> 8) & 0xFF) + 1;
 
 		// See 3.10.1.Restrictions
 		if ((m_dfd_transfer_func != KTX2_KHR_DF_TRANSFER_LINEAR) && (m_dfd_transfer_func != KTX2_KHR_DF_TRANSFER_SRGB))
@@ -19107,7 +19648,59 @@ namespace basist
 			return false;
 		}
 
-		if (m_dfd_color_model == KTX2_KDF_DF_MODEL_ETC1S)
+		if (is_vk_format_astc_ldr(m_header.m_vk_format))
+		{
+			// ASTC LDR 4x4-12x12
+			// We usually read the DFD and decide the format from there. This decides off the VK format.
+			if (m_dfd_color_model != KTX2_KDF_DF_MODEL_ASTC)
+			{
+				BASISU_DEVEL_ERROR("ktx2_transcoder::init: Invalid DFD color model (expected ASTC)\n");
+				return false;
+			}
+						
+			uint32_t vk_fmt = m_header.m_vk_format;
+			const bool is_srgb_fmt = (vk_fmt & 1) == 0;
+
+			if (is_srgb_fmt)
+				vk_fmt--;
+
+			switch (vk_fmt)
+			{
+			case KTX2_FORMAT_ASTC_4x4_UNORM_BLOCK: m_format = basis_tex_format::cASTC_LDR_4x4; break;
+			case KTX2_FORMAT_ASTC_5x4_UNORM_BLOCK: m_format = basis_tex_format::cASTC_LDR_5x4; break;
+			case KTX2_FORMAT_ASTC_5x5_UNORM_BLOCK: m_format = basis_tex_format::cASTC_LDR_5x5; break;
+			case KTX2_FORMAT_ASTC_6x5_UNORM_BLOCK: m_format = basis_tex_format::cASTC_LDR_6x5; break;
+			case KTX2_FORMAT_ASTC_6x6_UNORM_BLOCK: m_format = basis_tex_format::cASTC_LDR_6x6; break;
+			case KTX2_FORMAT_ASTC_8x5_UNORM_BLOCK: m_format = basis_tex_format::cASTC_LDR_8x5; break;
+			case KTX2_FORMAT_ASTC_8x6_UNORM_BLOCK: m_format = basis_tex_format::cASTC_LDR_8x6; break;
+			case KTX2_FORMAT_ASTC_8x8_UNORM_BLOCK: m_format = basis_tex_format::cASTC_LDR_8x8; break;
+			case KTX2_FORMAT_ASTC_10x5_UNORM_BLOCK: m_format = basis_tex_format::cASTC_LDR_10x5; break;
+			case KTX2_FORMAT_ASTC_10x6_UNORM_BLOCK: m_format = basis_tex_format::cASTC_LDR_10x6; break;
+			case KTX2_FORMAT_ASTC_10x8_UNORM_BLOCK: m_format = basis_tex_format::cASTC_LDR_10x8; break;
+			case KTX2_FORMAT_ASTC_10x10_UNORM_BLOCK: m_format = basis_tex_format::cASTC_LDR_10x10; break;
+			case KTX2_FORMAT_ASTC_12x10_UNORM_BLOCK: m_format = basis_tex_format::cASTC_LDR_12x10; break;
+			case KTX2_FORMAT_ASTC_12x12_UNORM_BLOCK: m_format = basis_tex_format::cASTC_LDR_12x12; break;
+			default:
+				assert(0);
+				return false;
+			}
+
+			// Sanity check the vkformat's astc block size vs. the DFD's.
+			uint32_t actual_block_width = 0, actual_block_height = 0;
+			get_basis_tex_format_block_size(m_format, actual_block_width, actual_block_height);
+			if ((actual_block_width != block_width) || (actual_block_height != block_height))
+			{
+				BASISU_DEVEL_ERROR("ktx2_transcoder::init: vkFormat's ASTC block size is not in sync with the DFD's block dimensions\n");
+				return false;
+			}
+
+			m_dfd_samples = 1;
+			m_dfd_chan0 = (ktx2_df_channel_id)((sample_channel0 >> 24) & 15);
+
+			// We're assuming "DATA" means RGBA so it has alpha.
+			m_has_alpha = (m_dfd_chan0 == KTX2_DF_CHANNEL_UASTC_RGBA) || (m_dfd_chan0 == KTX2_DF_CHANNEL_UASTC_RRRG);
+		}
+		else if (m_dfd_color_model == KTX2_KDF_DF_MODEL_ETC1S)
 		{
 			if (m_header.m_vk_format != basist::KTX2_VK_FORMAT_UNDEFINED)
 			{
@@ -19116,11 +19709,11 @@ namespace basist
 			}
 
 			m_format = basist::basis_tex_format::cETC1S;
-
+			
 			// 3.10.2: "Whether the image has 1 or 2 slices can be determined from the DFD's sample count."
 			// If m_has_alpha is true it may be 2-channel RRRG or 4-channel RGBA, but we let the caller deal with that.
 			m_has_alpha = (m_header.m_dfd_byte_length == 60);
-
+			
 			m_dfd_samples = m_has_alpha ? 2 : 1;
 			m_dfd_chan0 = (ktx2_df_channel_id)((sample_channel0 >> 24) & 15);
 
@@ -19138,11 +19731,11 @@ namespace basist
 				return false;
 			}
 
-			m_format = basist::basis_tex_format::cUASTC4x4;
+			m_format = basist::basis_tex_format::cUASTC_LDR_4x4;
 
 			m_dfd_samples = 1;
 			m_dfd_chan0 = (ktx2_df_channel_id)((sample_channel0 >> 24) & 15);
-
+			
 			// We're assuming "DATA" means RGBA so it has alpha.
 			m_has_alpha = (m_dfd_chan0 == KTX2_DF_CHANNEL_UASTC_RGBA) || (m_dfd_chan0 == KTX2_DF_CHANNEL_UASTC_RRRG);
 		}
@@ -19180,7 +19773,7 @@ namespace basist
 
 			m_has_alpha = false;
 		}
-		else if (m_dfd_color_model == KTX2_KDF_DF_MODEL_ASTC_HDR_6X6_INTERMEDIATE)
+		else if (m_dfd_color_model == KTX2_KDF_DF_MODEL_UASTC_HDR_6X6_INTERMEDIATE)
 		{
 			// Custom variable block size ASTC HDR 6x6 texture data.
 			if (m_header.m_vk_format != basist::KTX2_VK_FORMAT_UNDEFINED)
@@ -19189,12 +19782,51 @@ namespace basist
 				return false;
 			}
 
-			m_format = basist::basis_tex_format::cASTC_HDR_6x6_INTERMEDIATE;
+			m_format = basist::basis_tex_format::cUASTC_HDR_6x6_INTERMEDIATE;
 
 			m_dfd_samples = 1;
 			m_dfd_chan0 = (ktx2_df_channel_id)((sample_channel0 >> 24) & 15);
 
 			m_has_alpha = false;
+		}
+		else if (m_dfd_color_model == KTX2_KDF_DF_MODEL_XUASTC_LDR_INTERMEDIATE)
+		{
+			if (m_header.m_vk_format != basist::KTX2_VK_FORMAT_UNDEFINED)
+			{
+				BASISU_DEVEL_ERROR("ktx2_transcoder::init: Invalid header vkFormat\n");
+				return false;
+			}
+
+			// Extract ASTC block dimensions from texel_block_dimensions, validate, select basis_tex_format.
+			m_format = basist::basis_tex_format::cETC1S; // bogus value to start
+
+#define BUT_BLOCK_SIZE(x, y, t) if ((block_width == (x)) && (block_height == (y))) { m_format = (t); }
+			BUT_BLOCK_SIZE(4, 4, basis_tex_format::cXUASTC_LDR_4x4);
+			BUT_BLOCK_SIZE(5, 4, basis_tex_format::cXUASTC_LDR_5x4);
+			BUT_BLOCK_SIZE(5, 5, basis_tex_format::cXUASTC_LDR_5x5);
+			BUT_BLOCK_SIZE(6, 5, basis_tex_format::cXUASTC_LDR_6x5);
+			BUT_BLOCK_SIZE(6, 6, basis_tex_format::cXUASTC_LDR_6x6);
+			BUT_BLOCK_SIZE(8, 5, basis_tex_format::cXUASTC_LDR_8x5);
+			BUT_BLOCK_SIZE(8, 6, basis_tex_format::cXUASTC_LDR_8x6);
+			BUT_BLOCK_SIZE(10, 5, basis_tex_format::cXUASTC_LDR_10x5);
+			BUT_BLOCK_SIZE(10, 6, basis_tex_format::cXUASTC_LDR_10x6);
+			BUT_BLOCK_SIZE(8, 8, basis_tex_format::cXUASTC_LDR_8x8);
+			BUT_BLOCK_SIZE(10, 8, basis_tex_format::cXUASTC_LDR_10x8);
+			BUT_BLOCK_SIZE(10, 10, basis_tex_format::cXUASTC_LDR_10x10);
+			BUT_BLOCK_SIZE(12, 10, basis_tex_format::cXUASTC_LDR_12x10);
+			BUT_BLOCK_SIZE(12, 12, basis_tex_format::cXUASTC_LDR_12x12);
+#undef BUT_BLOCK_SIZE
+
+			if (m_format == basist::basis_tex_format::cETC1S)
+			{
+				BASISU_DEVEL_ERROR("ktx2_transcoder::init: Unsupported XUASTC LDR block dimensions (not valid ASTC)\n");
+				return false;
+			}
+									
+			m_dfd_samples = 1;
+			m_dfd_chan0 = (ktx2_df_channel_id)((sample_channel0 >> 24) & 15);
+
+			m_has_alpha = (m_dfd_chan0 == KTX2_DF_CHANNEL_UASTC_RGBA) || (m_dfd_chan0 == KTX2_DF_CHANNEL_UASTC_RRRG);
 		}
 		else
 		{
@@ -19202,7 +19834,7 @@ namespace basist
 			BASISU_DEVEL_ERROR("ktx2_transcoder::init: Unsupported DFD color model\n");
 			return false;
 		}
-
+				
 		if (!read_key_values())
 		{
 			BASISU_DEVEL_ERROR("ktx2_transcoder::init: read_key_values() failed\n");
@@ -19261,7 +19893,7 @@ namespace basist
 
 		return nullptr;
 	}
-
+	
 	bool ktx2_transcoder::start_transcoding()
 	{
 		if (!m_pData)
@@ -19270,14 +19902,14 @@ namespace basist
 			return false;
 		}
 
-		if (m_header.m_supercompression_scheme == KTX2_SS_BASISLZ)
+		if (m_header.m_supercompression_scheme == KTX2_SS_BASISLZ) 
 		{
 			if (m_format == basis_tex_format::cETC1S)
 			{
 				// Check if we've already decompressed the ETC1S global data. If so don't unpack it again.
 				if (!m_etc1s_transcoder.get_endpoints().empty())
 					return true;
-
+				 
 				if (!decompress_etc1s_global_data())
 				{
 					BASISU_DEVEL_ERROR("ktx2_transcoder::start_transcoding: decompress_etc1s_global_data() failed\n");
@@ -19301,14 +19933,15 @@ namespace basist
 					}
 				}
 			}
-			else if (m_format == basis_tex_format::cASTC_HDR_6x6_INTERMEDIATE)
+			else if ( (m_format == basis_tex_format::cUASTC_HDR_6x6_INTERMEDIATE) || basis_tex_format_is_xuastc_ldr(m_format) )
 			{
-				if (m_astc_6x6_intermediate_image_descs.size())
+				// UASTC HDR 6x6 and XUASTC LDR 4x4-12x12 require an array of slice offset/len structs to determine where the compressed data starts for each independent compressed texture slice.
+				if (m_slice_offset_len_descs.size())
 					return true;
 
-				if (!read_astc_6x6_hdr_intermediate_global_data())
+				if (!read_slice_offset_len_global_data())
 				{
-					BASISU_DEVEL_ERROR("ktx2_transcoder::start_transcoding: read_astc_6x6_hdr_intermediate_global_data() failed\n");
+					BASISU_DEVEL_ERROR("ktx2_transcoder::start_transcoding: read_slice_offset_len_global_data() failed\n");
 					return false;
 				}
 			}
@@ -19356,7 +19989,7 @@ namespace basist
 			BASISU_DEVEL_ERROR("ktx2_transcoder::get_image_level_info: layer_index >= maximum<uint32_t>(m_header.m_layer_count, 1)\n");
 			return false;
 		}
-
+				
 		const uint32_t level_width = basisu::maximum<uint32_t>(m_header.m_pixel_width >> level_index, 1);
 		const uint32_t level_height = basisu::maximum<uint32_t>(m_header.m_pixel_height >> level_index, 1);
 
@@ -19380,7 +20013,7 @@ namespace basist
 		level_info.m_total_blocks = num_blocks_x * num_blocks_y;
 		level_info.m_alpha_flag = m_has_alpha;
 		level_info.m_iframe_flag = false;
-
+		
 		if (m_etc1s_image_descs.size())
 		{
 			const uint32_t etc1s_image_index =
@@ -19393,9 +20026,9 @@ namespace basist
 
 		return true;
 	}
-
+		
 	bool ktx2_transcoder::transcode_image_level(
-		uint32_t level_index, uint32_t layer_index, uint32_t face_index,
+		uint32_t level_index, uint32_t layer_index, uint32_t face_index, 
 		void* pOutput_blocks, uint32_t output_blocks_buf_size_in_blocks_or_pixels,
 		basist::transcoder_texture_format fmt,
 		uint32_t decode_flags, uint32_t output_row_pitch_in_blocks_or_pixels, uint32_t output_rows_in_pixels, int channel0, int channel1,
@@ -19403,16 +20036,16 @@ namespace basist
 	{
 		if (!m_pData)
 		{
-			BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_2D: Must call init() first\n");
+			BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_level: Must call init() first\n");
 			return false;
 		}
 
 		if (!pState)
 			pState = &m_def_transcoder_state;
-
+										
 		if (level_index >= m_levels.size())
 		{
-			BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_2D: level_index >= m_levels.size()\n");
+			BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_level: level_index >= m_levels.size()\n");
 			return false;
 		}
 
@@ -19420,34 +20053,34 @@ namespace basist
 		{
 			if (face_index >= 6)
 			{
-				BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_2D: face_index >= 6\n");
+				BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_level: face_index >= 6\n");
 				return false;
 			}
 		}
 		else if (face_index != 0)
 		{
-			BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_2D: face_index != 0\n");
+			BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_level: face_index != 0\n");
 			return false;
 		}
 
 		if (layer_index >= basisu::maximum<uint32_t>(m_header.m_layer_count, 1))
 		{
-			BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_2D: layer_index >= maximum<uint32_t>(m_header.m_layer_count, 1)\n");
+			BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_level: layer_index >= maximum<uint32_t>(m_header.m_layer_count, 1)\n");
 			return false;
 		}
 
 		const uint8_t* pComp_level_data = m_pData + m_levels[level_index].m_byte_offset.get_uint64();
 		uint64_t comp_level_data_size = m_levels[level_index].m_byte_length.get_uint64();
-
+		
 		const uint8_t* pUncomp_level_data = pComp_level_data;
 		uint64_t uncomp_level_data_size = comp_level_data_size;
 
 		if (uncomp_level_data_size > UINT32_MAX)
 		{
-			BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_2D: uncomp_level_data_size > UINT32_MAX\n");
+			BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_level: uncomp_level_data_size > UINT32_MAX\n");
 			return false;
 		}
-
+				
 		if (m_header.m_supercompression_scheme == KTX2_SS_ZSTANDARD)
 		{
 			// Check if we've already decompressed this level's supercompressed data.
@@ -19456,7 +20089,7 @@ namespace basist
 				// Uncompress the entire level's supercompressed data.
 				if (!decompress_level_data(level_index, pState->m_level_uncomp_data))
 				{
-					BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_2D: decompress_level_data() failed\n");
+					BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_level: decompress_level_data() failed\n");
 					return false;
 				}
 				pState->m_uncomp_data_level_index = level_index;
@@ -19465,18 +20098,19 @@ namespace basist
 			pUncomp_level_data = pState->m_level_uncomp_data.data();
 			uncomp_level_data_size = pState->m_level_uncomp_data.size();
 		}
-
+				
 		const uint32_t level_width = basisu::maximum<uint32_t>(m_header.m_pixel_width >> level_index, 1);
 		const uint32_t level_height = basisu::maximum<uint32_t>(m_header.m_pixel_height >> level_index, 1);
 		const uint32_t num_blocks4_x = (level_width + 3) >> 2;
 		const uint32_t num_blocks4_y = (level_height + 3) >> 2;
-
+		
 		if (m_format == basist::basis_tex_format::cETC1S)
 		{
+			// ETC1S
 			// Ensure start_transcoding() was called.
 			if (m_etc1s_transcoder.get_endpoints().empty())
 			{
-				BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_2D: must call start_transcoding() first\n");
+				BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_level: must call start_transcoding() first\n");
 				return false;
 			}
 
@@ -19484,12 +20118,11 @@ namespace basist
 				(level_index * basisu::maximum<uint32_t>(m_header.m_layer_count, 1) * m_header.m_face_count) +
 				layer_index * m_header.m_face_count +
 				face_index;
-
+		
 			// Sanity check
 			if (etc1s_image_index >= m_etc1s_image_descs.size())
 			{
-				BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_2D: etc1s_image_index >= m_etc1s_image_descs.size()\n");
-				assert(0);
+				BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_level: etc1s_image_index >= m_etc1s_image_descs.size()\n");
 				return false;
 			}
 
@@ -19504,15 +20137,16 @@ namespace basist
 				decode_flags, m_has_alpha,
 				m_is_video, output_row_pitch_in_blocks_or_pixels, &pState->m_transcoder_state, output_rows_in_pixels))
 			{
-				BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_2D: ETC1S transcode_image() failed, this is either a bug or the file is corrupted/invalid\n");
+				BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_level: ETC1S transcode_image() failed, this is either a bug or the file is corrupted/invalid\n");
 				return false;
 			}
 		}
-		else if (m_format == basist::basis_tex_format::cASTC_HDR_6x6_INTERMEDIATE)
+		else if (m_format == basist::basis_tex_format::cUASTC_HDR_6x6_INTERMEDIATE)
 		{
-			if (!m_astc_6x6_intermediate_image_descs.size())
+			// UASTC HDR 6x6
+			if (!m_slice_offset_len_descs.size())
 			{
-				BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_2D: must call start_transcoding() first\n");
+				BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_level: must call start_transcoding() first\n");
 				return false;
 			}
 
@@ -19525,102 +20159,219 @@ namespace basist
 				face_index;
 
 			// Sanity check
-			if (image_index >= m_astc_6x6_intermediate_image_descs.size())
+			if (image_index >= m_slice_offset_len_descs.size())
 			{
-				BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_2D: Invalid image_index\n");
-				assert(0);
+				BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_level: Invalid image_index\n");
 				return false;
 			}
 
-			const ktx2_astc_hdr_6x6_intermediate_image_desc& image_desc = m_astc_6x6_intermediate_image_descs[image_index];
-
+			const ktx2_slice_offset_len_desc& image_desc = m_slice_offset_len_descs[image_index];
+						
 			if (!m_astc_hdr_6x6_intermediate_transcoder.transcode_image(fmt,
 				pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels,
 				m_pData, m_data_size, num_blocks6_x, num_blocks6_y, level_width, level_height, level_index,
-				m_levels[level_index].m_byte_offset.get_uint64() + image_desc.m_rgb_slice_byte_offset, image_desc.m_rgb_slice_byte_length,
+				m_levels[level_index].m_byte_offset.get_uint64() + image_desc.m_slice_byte_offset, image_desc.m_slice_byte_length,
 				decode_flags, m_has_alpha, m_is_video, output_row_pitch_in_blocks_or_pixels, nullptr, output_rows_in_pixels, channel0, channel1))
 			{
-				BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_2D: ASTC 6x6 HDR transcode_image() failed, this is either a bug or the file is corrupted/invalid\n");
+				BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_level: ASTC 6x6 HDR transcode_image() failed, this is either a bug or the file is corrupted/invalid\n");
 				return false;
 			}
 		}
 		else if (m_format == basist::basis_tex_format::cASTC_HDR_6x6)
 		{
+			// plain ASTC HDR 6x6
 			const uint32_t num_blocks6_x = (level_width + 5) / 6;
 			const uint32_t num_blocks6_y = (level_height + 5) / 6;
 
 			// Compute length and offset to uncompressed 2D UASTC texture data, given the face/layer indices.
 			assert(uncomp_level_data_size == m_levels[level_index].m_uncompressed_byte_length.get_uint64());
-			const uint32_t total_2D_image_size = num_blocks6_x * num_blocks6_y * sizeof(astc_helpers::astc_block);
 
-			const uint32_t uncomp_ofs = (layer_index * m_header.m_face_count + face_index) * total_2D_image_size;
+			const uint64_t total_2D_image_size = (uint64_t)num_blocks6_x * num_blocks6_y * sizeof(astc_helpers::astc_block);
+
+			const uint64_t uncomp_ofs = (layer_index * m_header.m_face_count + face_index) * total_2D_image_size;
+
+			if ((total_2D_image_size > UINT32_MAX) || ((size_t)uncomp_ofs != uncomp_ofs))
+			{
+				BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_level: size too large\n");
+				return false;
+			}
 
 			// Sanity checks
 			if (uncomp_ofs >= uncomp_level_data_size)
 			{
-				BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_2D: uncomp_ofs >= total_2D_image_size\n");
+				BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_level: uncomp_ofs >= total_2D_image_size\n");
 				return false;
 			}
 
 			if ((uncomp_level_data_size - uncomp_ofs) < total_2D_image_size)
 			{
-				BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_2D: (uncomp_level_data_size - uncomp_ofs) < total_2D_image_size\n");
+				BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_level: (uncomp_level_data_size - uncomp_ofs) < total_2D_image_size\n");
 				return false;
 			}
+
+			assert(total_2D_image_size <= UINT32_MAX);
 
 			if (!m_astc_hdr_6x6_transcoder.transcode_image(fmt,
 				pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels,
-				(const uint8_t*)pUncomp_level_data + uncomp_ofs, (uint32_t)total_2D_image_size, num_blocks6_x, num_blocks6_y, level_width, level_height, level_index,
+				(const uint8_t*)pUncomp_level_data + (size_t)uncomp_ofs, (uint32_t)total_2D_image_size, num_blocks6_x, num_blocks6_y, level_width, level_height, level_index,
 				0, (uint32_t)total_2D_image_size,
 				decode_flags, m_has_alpha, m_is_video, output_row_pitch_in_blocks_or_pixels, nullptr, output_rows_in_pixels, channel0, channel1))
 			{
-				BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_2D: ASTC 6x6 HDR transcode_image() failed, this is either a bug or the file is corrupted/invalid\n");
+				BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_level: ASTC 6x6 HDR transcode_image() failed, this is either a bug or the file is corrupted/invalid\n");
 				return false;
 			}
 		}
-		else if ((m_format == basist::basis_tex_format::cUASTC4x4) ||
-			     (m_format == basist::basis_tex_format::cUASTC_HDR_4x4))
+		else if (basis_tex_format_is_astc_ldr(m_format))
 		{
-			// Compute length and offset to uncompressed 2D UASTC texture data, given the face/layer indices.
-			assert(uncomp_level_data_size == m_levels[level_index].m_uncompressed_byte_length.get_uint64());
-			const uint32_t total_2D_image_size = num_blocks4_x * num_blocks4_y * KTX2_UASTC_BLOCK_SIZE;
+			// ASTC LDR 4x4-12x12
+			const uint32_t block_width = get_block_width(), block_height = get_block_height();
 
-			const uint32_t uncomp_ofs = (layer_index * m_header.m_face_count + face_index) * total_2D_image_size;
+			const uint32_t num_blocks_x = (level_width + block_width - 1) / block_width;
+			const uint32_t num_blocks_y = (level_height + block_height - 1) / block_height;
+
+			//assert(uncomp_level_data_size == m_levels[level_index].m_uncompressed_byte_length.get_uint64());
+			if (uncomp_level_data_size != m_levels[level_index].m_uncompressed_byte_length.get_uint64())
+			{
+				BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_level: m_uncompressed_byte_length is invalid\n");
+				return false;
+			}
+
+			const uint64_t total_2D_image_size = (uint64_t)num_blocks_x * num_blocks_y * sizeof(astc_helpers::astc_block);
+			
+			const uint64_t uncomp_ofs = (layer_index * m_header.m_face_count + face_index) * total_2D_image_size;
+
+			if ((total_2D_image_size > UINT32_MAX) || ((size_t)uncomp_ofs != uncomp_ofs))
+			{
+				BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_level: size too large\n");
+				return false;
+			}
 
 			// Sanity checks
 			if (uncomp_ofs >= uncomp_level_data_size)
 			{
-				BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_2D: uncomp_ofs >= total_2D_image_size\n");
+				BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_level: uncomp_ofs >= total_2D_image_size\n");
 				return false;
 			}
 
 			if ((uncomp_level_data_size - uncomp_ofs) < total_2D_image_size)
 			{
-				BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_2D: (uncomp_level_data_size - uncomp_ofs) < total_2D_image_size\n");
+				BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_level: (uncomp_level_data_size - uncomp_ofs) < total_2D_image_size\n");
 				return false;
 			}
 
+			assert(total_2D_image_size <= UINT32_MAX);
+
+			// if the header's vkformat is odd, it's linear, even is sRGB
+			const bool uses_astc_src_decode_profile = ((uint32_t)m_header.m_vk_format & 1) == 0;
+
+			if (!m_xuastc_ldr_transcoder.transcode_image(m_format, uses_astc_src_decode_profile, fmt,
+				pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels,
+				(const uint8_t*)pUncomp_level_data + (size_t)uncomp_ofs, (uint32_t)total_2D_image_size, num_blocks_x, num_blocks_y, level_width, level_height, level_index,
+				0, (uint32_t)total_2D_image_size,
+				decode_flags, m_has_alpha, m_is_video, output_row_pitch_in_blocks_or_pixels, nullptr, output_rows_in_pixels, channel0, channel1))
+			{
+				BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_level: ASTC 6x6 HDR transcode_image() failed, this is either a bug or the file is corrupted/invalid\n");
+				return false;
+			}
+
+		}
+		else if (basis_tex_format_is_xuastc_ldr(m_format))
+		{
+			// XUASTC LDR 4x4-12x12
+			if (!m_slice_offset_len_descs.size())
+			{
+				BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_level: must call start_transcoding() first\n");
+				return false;
+			}
+
+			const uint32_t block_width = get_block_width(), block_height = get_block_height();
+
+			const uint32_t num_blocks_x = (level_width + block_width - 1) / block_width;
+			const uint32_t num_blocks_y = (level_height + block_height - 1) / block_height;
+
+			const uint32_t image_index =
+				(level_index * basisu::maximum<uint32_t>(m_header.m_layer_count, 1) * m_header.m_face_count) +
+				layer_index * m_header.m_face_count +
+				face_index;
+
+			// Sanity check
+			if (image_index >= m_slice_offset_len_descs.size())
+			{
+				BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_level: Invalid image_index\n");
+				return false;
+			}
+
+			const ktx2_slice_offset_len_desc& image_desc = m_slice_offset_len_descs[image_index];
+
+			// XUASTC LDR has its own tiny header at the start of the compressed data with this profile bit, so it'll use that for decoding if needed.
+			bool uses_astc_src_decode_profile = true;
+
+			if (!m_xuastc_ldr_transcoder.transcode_image(m_format, uses_astc_src_decode_profile, fmt,
+				pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels,
+				m_pData, m_data_size, num_blocks_x, num_blocks_y, level_width, level_height, level_index,
+				m_levels[level_index].m_byte_offset.get_uint64() + image_desc.m_slice_byte_offset, image_desc.m_slice_byte_length,
+				decode_flags, m_has_alpha, m_is_video, output_row_pitch_in_blocks_or_pixels, nullptr, output_rows_in_pixels, channel0, channel1))
+			{
+				BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_level: XUASTC LDR transcode_image() failed, this is either a bug or the file is corrupted/invalid\n");
+				return false;
+			}
+
+		}
+		else if ((m_format == basist::basis_tex_format::cUASTC_LDR_4x4) ||
+			     (m_format == basist::basis_tex_format::cUASTC_HDR_4x4))
+		{
+			// UASTC LDR 4x4 and UASTC HDR 4x4
+			
+			// Compute length and offset to uncompressed 2D UASTC texture data, given the face/layer indices.
+			assert(uncomp_level_data_size == m_levels[level_index].m_uncompressed_byte_length.get_uint64());
+			const uint64_t total_2D_image_size = (uint64_t)num_blocks4_x * num_blocks4_y * KTX2_UASTC_BLOCK_SIZE;
+						
+			const uint64_t uncomp_ofs = (layer_index * m_header.m_face_count + face_index) * total_2D_image_size;
+
+			if ((total_2D_image_size > UINT32_MAX) || ((size_t)uncomp_ofs != uncomp_ofs))
+			{
+				BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_level: size too large\n");
+				return false;
+			}
+
+			// Sanity checks
+			if (uncomp_ofs >= uncomp_level_data_size)
+			{
+				BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_level: uncomp_ofs >= total_2D_image_size\n");
+				return false;
+			}
+
+			if ((uncomp_level_data_size - uncomp_ofs) < total_2D_image_size)
+			{
+				BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_level: (uncomp_level_data_size - uncomp_ofs) < total_2D_image_size\n");
+				return false;
+			}
+
+			assert(total_2D_image_size <= UINT32_MAX);
+
 			if (m_format == basist::basis_tex_format::cUASTC_HDR_4x4)
 			{
+				// UASTC HDR 4x4
 				if (!m_uastc_hdr_transcoder.transcode_image(fmt,
 					pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels,
 					(const uint8_t*)pUncomp_level_data + uncomp_ofs, (uint32_t)total_2D_image_size, num_blocks4_x, num_blocks4_y, level_width, level_height, level_index,
 					0, (uint32_t)total_2D_image_size,
 					decode_flags, m_has_alpha, m_is_video, output_row_pitch_in_blocks_or_pixels, nullptr, output_rows_in_pixels, channel0, channel1))
 				{
-					BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_2D: UASTC HDR transcode_image() failed, this is either a bug or the file is corrupted/invalid\n");
+					BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_level: UASTC HDR transcode_image() failed, this is either a bug or the file is corrupted/invalid\n");
 					return false;
 				}
 			}
 			else
 			{
-				if (!m_uastc_transcoder.transcode_image(fmt,
+				// UASTC LDR 4x4
+				if (!m_uastc_ldr_transcoder.transcode_image(fmt,
 					pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels,
 					(const uint8_t*)pUncomp_level_data + uncomp_ofs, (uint32_t)total_2D_image_size, num_blocks4_x, num_blocks4_y, level_width, level_height, level_index,
 					0, (uint32_t)total_2D_image_size,
 					decode_flags, m_has_alpha, m_is_video, output_row_pitch_in_blocks_or_pixels, nullptr, output_rows_in_pixels, channel0, channel1))
 				{
-					BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_2D: UASTC transcode_image() failed, this is either a bug or the file is corrupted/invalid\n");
+					BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_level: UASTC transcode_image() failed, this is either a bug or the file is corrupted/invalid\n");
 					return false;
 				}
 			}
@@ -19628,19 +20379,19 @@ namespace basist
 		else
 		{
 			// Shouldn't get here.
-			BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_2D: Internal error\n");
+			BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_level: Internal error\n");
 			assert(0);
 			return false;
 		}
 
 		return true;
 	}
-
+		
 	bool ktx2_transcoder::decompress_level_data(uint32_t level_index, basisu::uint8_vec& uncomp_data)
 	{
 		const uint8_t* pComp_data = m_levels[level_index].m_byte_offset.get_uint64() + m_pData;
 		const uint64_t comp_size = m_levels[level_index].m_byte_length.get_uint64();
-
+						
 		const uint64_t uncomp_size = m_levels[level_index].m_uncompressed_byte_length.get_uint64();
 
 		if (((size_t)comp_size) != comp_size)
@@ -19659,7 +20410,7 @@ namespace basist
 			BASISU_DEVEL_ERROR("ktx2_transcoder::decompress_level_data: Out of memory\n");
 			return false;
 		}
-
+		
 		if (m_header.m_supercompression_scheme == KTX2_SS_ZSTANDARD)
 		{
 #if BASISD_SUPPORT_KTX2_ZSTD
@@ -19675,6 +20426,8 @@ namespace basist
 				return false;
 			}
 #else
+			BASISU_NOTE_UNUSED(pComp_data);
+
 			BASISU_DEVEL_ERROR("ktx2_transcoder::decompress_level_data: File uses Zstd supercompression, but Zstd support was not enabled at compile time (BASISD_SUPPORT_KTX2_ZSTD is 0)\n");
 			return false;
 #endif
@@ -19683,38 +20436,38 @@ namespace basist
 		return true;
 	}
 
-	bool ktx2_transcoder::read_astc_6x6_hdr_intermediate_global_data()
+	bool ktx2_transcoder::read_slice_offset_len_global_data()
 	{
 		const uint32_t image_count = basisu::maximum<uint32_t>(m_header.m_layer_count, 1) * m_header.m_face_count * m_header.m_level_count;
 		assert(image_count);
 
 		const uint8_t* pSrc = m_pData + m_header.m_sgd_byte_offset.get_uint64();
 
-		if (m_header.m_sgd_byte_length.get_uint64() != image_count * sizeof(ktx2_astc_hdr_6x6_intermediate_image_desc))
+		if (m_header.m_sgd_byte_length.get_uint64() != image_count * sizeof(ktx2_slice_offset_len_desc))
 		{
-			BASISU_DEVEL_ERROR("ktx2_transcoder::decompress_astc_6x6_hdr_intermediate_global_data: Invalid global data length\n");
+			BASISU_DEVEL_ERROR("ktx2_transcoder::read_slice_offset_len_global_data: Invalid global data length\n");
 			return false;
 		}
 
-		m_astc_6x6_intermediate_image_descs.resize(image_count);
-
-		memcpy((void *)m_astc_6x6_intermediate_image_descs.data(), pSrc, sizeof(ktx2_astc_hdr_6x6_intermediate_image_desc) * image_count);
+		m_slice_offset_len_descs.resize(image_count);
+		
+		memcpy((void *)m_slice_offset_len_descs.data(), pSrc, sizeof(ktx2_slice_offset_len_desc) * image_count);
 
 		// Sanity check the image descs
 		for (uint32_t i = 0; i < image_count; i++)
 		{
 			// transcode_image() will validate the slice offsets/lengths before transcoding.
 
-			if (!m_astc_6x6_intermediate_image_descs[i].m_rgb_slice_byte_length)
+			if (!m_slice_offset_len_descs[i].m_slice_byte_length)
 			{
-				BASISU_DEVEL_ERROR("ktx2_transcoder::decompress_astc_6x6_hdr_intermediate_global_data: image descs sanity check failed (1)\n");
+				BASISU_DEVEL_ERROR("ktx2_transcoder::read_slice_offset_len_global_data: image descs sanity check failed (1)\n");
 				return false;
 			}
 		}
 
 		return true;
 	}
-
+		
 	bool ktx2_transcoder::decompress_etc1s_global_data()
 	{
 		// Note: we don't actually support 3D textures in here yet
@@ -19753,13 +20506,13 @@ namespace basist
 			BASISU_DEVEL_ERROR("ktx2_transcoder::decompress_etc1s_global_data: SGD byte length is too small, file is invalid or corrupted\n");
 			return false;
 		}
-
+				
 		if (!m_etc1s_image_descs.try_resize(image_count))
 		{
 			BASISU_DEVEL_ERROR("ktx2_transcoder::decompress_etc1s_global_data: Out of memory\n");
 			return false;
 		}
-
+		
 		memcpy((void *)m_etc1s_image_descs.data(), pSrc, sizeof(ktx2_etc1s_image_desc) * image_count);
 		pSrc += sizeof(ktx2_etc1s_image_desc) * image_count;
 
@@ -19793,7 +20546,7 @@ namespace basist
 			BASISU_DEVEL_ERROR("ktx2_transcoder::decompress_etc1s_global_data: decode_tables() failed, file is invalid or corrupted\n");
 			return false;
 		}
-
+				
 		if (!m_etc1s_transcoder.decode_palettes(
 			m_etc1s_header.m_endpoint_count,	pEndpoint_data, m_etc1s_header.m_endpoints_byte_length,
 			m_etc1s_header.m_selector_count,	pSelector_data, m_etc1s_header.m_selectors_byte_length))
@@ -19801,7 +20554,7 @@ namespace basist
 			BASISU_DEVEL_ERROR("ktx2_transcoder::decompress_etc1s_global_data: decode_palettes() failed, file is likely corrupted\n");
 			return false;
 		}
-
+				
 		return true;
 	}
 
@@ -19842,7 +20595,7 @@ namespace basist
 		while (src_left > sizeof(uint32_t))
 		{
 			uint32_t l = basisu::read_le_dword(pSrc);
-
+			
 			pSrc += sizeof(uint32_t);
 			src_left -= sizeof(uint32_t);
 
@@ -19863,7 +20616,7 @@ namespace basist
 				BASISU_DEVEL_ERROR("ktx2_transcoder::read_key_values: Out of memory\n");
 				return false;
 			}
-
+			
 			basisu::uint8_vec& key_data = m_key_values.back().m_key;
 			basisu::uint8_vec& value_data = m_key_values.back().m_value;
 
@@ -19892,7 +20645,7 @@ namespace basist
 				BASISU_DEVEL_ERROR("ktx2_transcoder::read_key_values: Out of memory\n");
 				return false;
 			}
-
+						
 			if (!value_data.try_resize(l))
 			{
 				BASISU_DEVEL_ERROR("ktx2_transcoder::read_key_values: Out of memory\n");
@@ -19928,7 +20681,7 @@ namespace basist
 
 		return true;
 	}
-
+		
 #endif // BASISD_SUPPORT_KTX2
 
 	bool basisu_transcoder_supports_ktx2()
@@ -19995,10 +20748,10 @@ namespace basist
 		basist::half_float result = (basist::half_float)((s << 15) | (e << 10) | m);
 		return result;
 	}
-
+		
 	//------------------------------------------------------------------------------------------------
 	// HDR support
-	//
+	// 
 	// Originally from bc6h_enc.cpp
 	// BC6H decoder fuzzed vs. DirectXTex's for unsigned/signed
 
@@ -20027,7 +20780,7 @@ namespace basist
 	const bc6h_bit_layout g_bc6h_bit_layouts[NUM_BC6H_MODES][MAX_BC6H_LAYOUT_INDEX] =
 	{
 		// comp_index, subset*2+lh_index, last_bit, first_bit
-		//------------------------        mode 0: 2 subsets, Weight bits: 46 bits, Endpoint bits: 75 bits (10.555, 10.555, 10.555), delta
+		//------------------------        mode 0: 2 subsets, Weight bits: 46 bits, Endpoint bits: 75 bits (10.555, 10.555, 10.555), delta            
 		{ { 1, 2, 4, -1 }, { 2, 2, 4, -1 }, { 2, 3, 4, -1 }, { 0, 0, 9, 0 }, { 1, 0, 9, 0 }, { 2, 0, 9, 0 }, { 0, 1, 4, 0 },
 		{ 1, 3, 4, -1 }, { 1, 2, 3, 0 }, { 1, 1, 4, 0 }, { 2, 3, 0, -1 }, { 1, 3, 3, 0 }, { 2, 1, 4, 0 }, { 2, 3, 1, -1 },
 		{ 2, 2, 3, 0 }, { 0, 2, 4, 0 }, { 2, 3, 2, -1 }, { 0, 3, 4, 0 }, { 2, 3, 3, -1 }, { 3, -1, 4, 0 }, {-1, 0, 0, 0} },
@@ -20078,7 +20831,7 @@ namespace basist
 		{ { 0, 0, 9, 0 },{ 1, 0, 9, 0 },{ 2, 0, 9, 0 },{ 0, 1, 3, 0 },{ 0, 0, 10, 15 },{ 1, 1, 3, 0 },{ 1, 0, 10, 15 },{ 2, 1, 3, 0 },{ 2, 0, 10, 15 }, {-1, 0, 0, 0} }
 	};
 
-	// The same as the first 32 2-subset patterns in BC7.
+	// The same as the first 32 2-subset patterns in BC7. 
 	// Bit 7 is a flag indicating that the weight uses 1 less bit than usual.
 	const uint8_t g_bc6h_2subset_patterns[TOTAL_BC6H_PARTITION_PATTERNS][4][4] = // [pat][y][x]
 	{
@@ -20102,7 +20855,7 @@ namespace basist
 
 	const uint8_t g_bc6h_weight3[8] = { 0, 9, 18, 27, 37, 46, 55, 64 };
 	const uint8_t g_bc6h_weight4[16] = { 0, 4, 9, 13, 17, 21, 26, 30, 34, 38, 43, 47, 51, 55, 60, 64 };
-
+	
 	static inline void write_bits(uint64_t val, uint32_t num_bits, uint32_t& bit_pos, uint64_t& l, uint64_t& h)
 	{
 		assert((num_bits) && (num_bits < 64) && (bit_pos < 128));
@@ -20231,15 +20984,18 @@ namespace basist
 		return unq;
 	}
 #endif
-
+		
 	// 6,7,8,9,10,11,12
 	const uint32_t BC6H_BLOG_TAB_MIN = 6;
 	const uint32_t BC6H_BLOG_TAB_MAX = 12;
 	//const uint32_t BC6H_BLOG_TAB_NUM = BC6H_BLOG_TAB_MAX - BC6H_BLOG_TAB_MIN + 1;
-
+	
 	// Handles 16, or 6-12 bits. Others assert.
 	static inline uint32_t half_to_blog_tab(half_float h, uint32_t num_bits)
 	{
+		BASISU_NOTE_UNUSED(BC6H_BLOG_TAB_MIN);
+		BASISU_NOTE_UNUSED(BC6H_BLOG_TAB_MAX);
+
 		assert(h <= MAX_BC6H_HALF_FLOAT_AS_UINT);
 		assert((num_bits == 16) || ((num_bits >= BC6H_BLOG_TAB_MIN) && (num_bits <= BC6H_BLOG_TAB_MAX)));
 
@@ -20255,7 +21011,7 @@ namespace basist
 		else
 		{
 			assert((num_bits >= BC6H_BLOG_TAB_MIN) && (num_bits <= BC6H_BLOG_TAB_MAX));
-
+			
 			// Note: This used to be done using a table lookup, but it required ~224KB of tables. This isn't quite as accurate, but the error is very slight (+-1 half values as ints).
 			return bc6h_half_to_blog(h, num_bits);
 		}
@@ -20385,7 +21141,7 @@ namespace basist
 
 			log_blk.m_mode = mode;
 			pack_bc6h_block(*pPacked_block, log_blk);
-
+						
 			return;
 		}
 
@@ -20785,13 +21541,13 @@ namespace basist
 		half_float endpoints[3][2];
 		endpoints[0][0] = pColor[0];
 		endpoints[0][1] = pColor[0];
-
+				
 		endpoints[1][0] = pColor[1];
 		endpoints[1][1] = pColor[1];
 
 		endpoints[2][0] = pColor[2];
 		endpoints[2][1] = pColor[2];
-
+				
 		bc6h_enc_block_1subset_4bit_weights(pPacked_block, endpoints, weights);
 
 		return true;
@@ -20828,7 +21584,7 @@ namespace basist
 
 	static inline int astc_hdr_sign_extend(int src, int num_src_bits)
 	{
-		assert(basisu::in_range(num_src_bits, 2, 31));
+		assert(basisu::is_in_range(num_src_bits, 2, 31));
 
 		const bool negative = (src & (1 << (num_src_bits - 1))) != 0;
 		if (negative)
@@ -21069,7 +21825,7 @@ namespace basist
 			if (ohm & 0x12) vb1 |= (x3 << 7);
 
 			const int shamt = (mode >> 1) ^ 3;
-
+			
 			va  = (uint32_t)va  << shamt;
 			vb0 = (uint32_t)vb0 << shamt;
 			vb1 = (uint32_t)vb1 << shamt;
@@ -21139,7 +21895,7 @@ namespace basist
 	{
 		assert(g_astc_hdr_core_initialized);
 		assert((best_blk.m_weight_ise_range >= 1) && (best_blk.m_weight_ise_range <= 8));
-
+		
 		if (best_blk.m_weight_ise_range == 5)
 		{
 			// Use 3-bit BC6H weights which are a perfect match for 3-bit ASTC weights, but encode 1-subset as 2 equal subsets
@@ -21221,7 +21977,7 @@ namespace basist
 		assert(g_astc_hdr_core_initialized);
 		assert(best_blk.m_num_partitions == 2);
 		assert(common_part_index < basist::TOTAL_ASTC_BC6H_COMMON_PARTITIONS2);
-
+		
 		half_float bc6h_endpoints[2][3][2]; // [subset][comp][lh_index]
 
 		// UASTC HDR checks
@@ -21230,7 +21986,7 @@ namespace basist
 			return false;
 		if ((best_blk.m_color_endpoint_modes[0] != 7) && (best_blk.m_color_endpoint_modes[0] != 11))
 			return false;
-
+				
 		if (best_blk.m_color_endpoint_modes[0] == 7)
 		{
 			if (!(((best_blk.m_weight_ise_range == 1) && (best_blk.m_endpoint_ise_range == 20)) ||
@@ -21355,7 +22111,7 @@ namespace basist
 			assert(0);
 			return false;
 		}
-
+				
 		if (log_blk.m_solid_color_flag_ldr)
 		{
 			// Don't support LDR solid colors.
@@ -21371,7 +22127,7 @@ namespace basist
 		// Only support 4x4 grid sizes
 		if ((log_blk.m_grid_width != 4) || (log_blk.m_grid_height != 4))
 			return false;
-
+				
 		// Don't support dual plane encoding
 		if (log_blk.m_dual_plane)
 			return false;
@@ -21379,11 +22135,11 @@ namespace basist
 		if (log_blk.m_num_partitions == 1)
 		{
 			// Handle 1 partition (or subset)
-
+			
 			// UASTC HDR checks
 			if ((log_blk.m_weight_ise_range < 1) || (log_blk.m_weight_ise_range > 8))
 				return false;
-
+									
 			int e[2][3];
 			bool success;
 
@@ -21429,7 +22185,7 @@ namespace basist
 			for (uint32_t i = 0; i < 2; i++)
 				if (is_half_inf_or_nan(h_e[0][i]) || is_half_inf_or_nan(h_e[1][i]) || is_half_inf_or_nan(h_e[2][i]))
 					return false;
-
+			
 			// Transcode to bc6h
 			if (!transcode_bc6h_1subset(h_e, log_blk, dst_blk))
 				return false;
@@ -21442,7 +22198,7 @@ namespace basist
 				return false;
 
 			assert(common_bc7_pat_index < (int)basist::TOTAL_ASTC_BC6H_COMMON_PARTITIONS2);
-
+						
 			if (!transcode_bc6h_2subsets(common_bc7_pat_index, log_blk, dst_blk))
 				return false;
 		}
@@ -21454,7 +22210,7 @@ namespace basist
 
 		return true;
 	}
-
+			
 	// ASTC 6x6 support
 	namespace astc_6x6_hdr
 	{
@@ -21582,7 +22338,7 @@ namespace basist
 			// 3x3
 			{ false, 7, 3, 3, 3, astc_helpers::BISE_64_LEVELS, astc_helpers::BISE_8_LEVELS,   astc_helpers::BISE_64_LEVELS,  astc_helpers::BISE_8_LEVELS, 0, 0 },
 
-			// 6x4
+			// 6x4 
 			{ false, 7, 3, 6, 4, astc_helpers::BISE_64_LEVELS, astc_helpers::BISE_2_LEVELS,   astc_helpers::BISE_64_LEVELS,  astc_helpers::BISE_2_LEVELS, BASIST_HDR_6X6_LEVEL2, 0 },
 			{ false, 7, 3, 4, 6, astc_helpers::BISE_64_LEVELS, astc_helpers::BISE_2_LEVELS,   astc_helpers::BISE_64_LEVELS,  astc_helpers::BISE_2_LEVELS, BASIST_HDR_6X6_LEVEL2, 0 },
 
@@ -21610,7 +22366,7 @@ namespace basist
 			{ false, 7, 3, 5, 4, astc_helpers::BISE_40_LEVELS, astc_helpers::BISE_3_LEVELS,   astc_helpers::BISE_40_LEVELS,  astc_helpers::BISE_3_LEVELS, 0, 0 },
 			{ false, 7, 3, 4, 5, astc_helpers::BISE_40_LEVELS, astc_helpers::BISE_3_LEVELS,   astc_helpers::BISE_40_LEVELS,  astc_helpers::BISE_3_LEVELS, 0, 0 },
 		};
-
+						
 		const reuse_xy_delta g_reuse_xy_deltas[NUM_REUSE_XY_DELTAS] =
 		{
 			{ -1, 0 }, { -2, 0 }, { -3, 0 }, { -4, 0 },
@@ -21656,27 +22412,27 @@ namespace basist
 			int bit = get_bit(src_val, src_bit);
 			dst |= (bit << dst_bit);
 		}
-
-		// Valid for weight ISE ranges 12-192 levels. Preserves upper 2 or 3 bits post-quantization.
-		static uint8_t g_quantize_tables_preserve2[astc_helpers::TOTAL_ISE_RANGES - 1][256];
-		static uint8_t g_quantize_tables_preserve3[astc_helpers::TOTAL_ISE_RANGES - 1][256];
+				
+		// Valid for weight ISE ranges 6-192 or 8-192 levels. Preserves upper 2 or 3 bits post-quantization.
+		uint8_t g_quantize_tables_preserve2[21 - 1][256]; // astc_helpers::TOTAL_ISE_RANGES=21, valid for >= BISE_6_LEVELS
+		uint8_t g_quantize_tables_preserve3[21 - 1][256]; // valid for >= BISE_8_LEVELS
 
 		const uint32_t g_part2_unique_index_to_seed[NUM_UNIQUE_PARTITIONS2] =
 		{
-			86, 959, 936, 476, 1007, 672, 447, 423, 488, 422, 273, 65, 267, 786, 585, 195, 108, 731, 878, 812, 264, 125, 868, 581, 258, 390, 549, 872, 661, 352, 645, 543, 988,
-			906, 903, 616, 482, 529, 3, 286, 272, 303, 151, 504, 498, 260, 79, 66, 608, 769, 305, 610, 1014, 967, 835, 789, 7, 951, 691, 15, 763, 976, 438, 314, 601, 673, 177,
-			252, 615, 436, 220, 899, 623, 433, 674, 278, 797, 107, 847, 114, 470, 760, 821, 490, 329, 945, 387, 471, 225, 172, 83, 418, 966, 439, 316, 247, 43, 343, 625, 798,
-			1, 61, 73, 307, 136, 474, 42, 664, 1013, 249, 389, 227, 374, 121, 48, 538, 226, 309, 554, 802, 834, 335, 495, 10, 955, 461, 293, 508, 153, 101, 63, 139, 31, 687,
-			132, 174, 324, 545, 289, 39, 178, 594, 963, 854, 222, 323, 998, 964, 598, 475, 720, 1019, 983, 91, 703, 614, 394, 612, 281, 207, 930, 758, 586, 128, 517, 426, 306,
-			168, 713, 36, 458, 876, 368, 780, 5, 9, 214, 109, 553, 726, 175, 103, 753, 684, 44, 665, 53, 500, 367, 611, 119, 732, 639, 326, 203, 156, 686, 910, 255, 62, 392, 591,
-			112, 88, 213, 19, 1022, 478, 90, 486, 799, 702, 730, 414, 99, 1008, 142, 886, 373, 216, 69, 393, 299, 648, 415, 822, 912, 110, 567, 550, 693, 2, 138, 59, 271, 562, 295,
-			714, 719, 199, 893, 831, 1006, 662, 235, 262, 78, 51, 902, 298, 190, 169, 583, 347, 890, 958, 909, 49, 987, 696, 633, 480, 50, 764, 826, 1023, 1016, 437, 891, 774, 257,
-			724, 791, 526, 593, 690, 638, 858, 895, 794, 995, 130, 87, 877, 819, 318, 649, 376, 211, 284, 937, 370, 688, 229, 994, 115, 842, 60, 521, 95, 694, 804, 146, 754, 487, 55,
-			17, 770, 450, 223, 4, 137, 911, 236, 683, 523, 47, 181, 24, 270, 602, 736, 11, 355, 148, 351, 762, 1009, 16, 210, 619, 805, 874, 807, 887, 403, 999, 810, 27, 402, 551, 135,
-			778, 33, 409, 993, 71, 363, 159, 183, 77, 596, 670, 380, 968, 811, 404, 348, 539, 158, 578, 196, 621, 68, 530, 193, 100, 167, 919, 353, 366, 327, 643, 948, 518, 756, 801, 558,
-			28, 705, 116, 94, 898, 453, 622, 647, 231, 445, 652, 230, 191, 277, 292, 254, 198, 766, 386, 232, 29, 70, 942, 740, 291, 607, 411, 496, 839, 8, 675, 319, 742, 21, 547, 627, 716,
-			663, 23, 914, 631, 595, 499, 685, 950, 510, 54, 587, 432, 45, 646, 25, 122, 947, 171, 862, 441, 808, 722, 14, 74, 658, 129, 266, 1001, 534, 395, 527, 250, 206, 237, 67, 897, 634,
-			572, 569, 533, 37, 341, 89, 463, 419, 75, 134, 283, 943, 519, 362, 144, 681, 407, 954, 131, 455, 934, 46, 513, 339, 194, 361, 606, 852, 546, 655, 1015, 147, 506, 240, 56, 836, 76,
+			86, 959, 936, 476, 1007, 672, 447, 423, 488, 422, 273, 65, 267, 786, 585, 195, 108, 731, 878, 812, 264, 125, 868, 581, 258, 390, 549, 872, 661, 352, 645, 543, 988, 
+			906, 903, 616, 482, 529, 3, 286, 272, 303, 151, 504, 498, 260, 79, 66, 608, 769, 305, 610, 1014, 967, 835, 789, 7, 951, 691, 15, 763, 976, 438, 314, 601, 673, 177, 
+			252, 615, 436, 220, 899, 623, 433, 674, 278, 797, 107, 847, 114, 470, 760, 821, 490, 329, 945, 387, 471, 225, 172, 83, 418, 966, 439, 316, 247, 43, 343, 625, 798, 
+			1, 61, 73, 307, 136, 474, 42, 664, 1013, 249, 389, 227, 374, 121, 48, 538, 226, 309, 554, 802, 834, 335, 495, 10, 955, 461, 293, 508, 153, 101, 63, 139, 31, 687, 
+			132, 174, 324, 545, 289, 39, 178, 594, 963, 854, 222, 323, 998, 964, 598, 475, 720, 1019, 983, 91, 703, 614, 394, 612, 281, 207, 930, 758, 586, 128, 517, 426, 306, 
+			168, 713, 36, 458, 876, 368, 780, 5, 9, 214, 109, 553, 726, 175, 103, 753, 684, 44, 665, 53, 500, 367, 611, 119, 732, 639, 326, 203, 156, 686, 910, 255, 62, 392, 591, 
+			112, 88, 213, 19, 1022, 478, 90, 486, 799, 702, 730, 414, 99, 1008, 142, 886, 373, 216, 69, 393, 299, 648, 415, 822, 912, 110, 567, 550, 693, 2, 138, 59, 271, 562, 295, 
+			714, 719, 199, 893, 831, 1006, 662, 235, 262, 78, 51, 902, 298, 190, 169, 583, 347, 890, 958, 909, 49, 987, 696, 633, 480, 50, 764, 826, 1023, 1016, 437, 891, 774, 257, 
+			724, 791, 526, 593, 690, 638, 858, 895, 794, 995, 130, 87, 877, 819, 318, 649, 376, 211, 284, 937, 370, 688, 229, 994, 115, 842, 60, 521, 95, 694, 804, 146, 754, 487, 55, 
+			17, 770, 450, 223, 4, 137, 911, 236, 683, 523, 47, 181, 24, 270, 602, 736, 11, 355, 148, 351, 762, 1009, 16, 210, 619, 805, 874, 807, 887, 403, 999, 810, 27, 402, 551, 135, 
+			778, 33, 409, 993, 71, 363, 159, 183, 77, 596, 670, 380, 968, 811, 404, 348, 539, 158, 578, 196, 621, 68, 530, 193, 100, 167, 919, 353, 366, 327, 643, 948, 518, 756, 801, 558, 
+			28, 705, 116, 94, 898, 453, 622, 647, 231, 445, 652, 230, 191, 277, 292, 254, 198, 766, 386, 232, 29, 70, 942, 740, 291, 607, 411, 496, 839, 8, 675, 319, 742, 21, 547, 627, 716, 
+			663, 23, 914, 631, 595, 499, 685, 950, 510, 54, 587, 432, 45, 646, 25, 122, 947, 171, 862, 441, 808, 722, 14, 74, 658, 129, 266, 1001, 534, 395, 527, 250, 206, 237, 67, 897, 634, 
+			572, 569, 533, 37, 341, 89, 463, 419, 75, 134, 283, 943, 519, 362, 144, 681, 407, 954, 131, 455, 934, 46, 513, 339, 194, 361, 606, 852, 546, 655, 1015, 147, 506, 240, 56, 836, 76, 
 			98, 600, 430, 388, 980, 695, 817, 279, 58, 215, 149, 170, 531, 870, 18, 727, 154, 26, 938, 929, 302, 697, 452, 218, 700, 524, 828, 751, 869, 217, 440, 354
 		};
 
@@ -21707,7 +22463,9 @@ namespace basist
 
 		static void init_quantize_tables()
 		{
-			for (uint32_t ise_range = astc_helpers::BISE_192_LEVELS; ise_range >= astc_helpers::BISE_12_LEVELS; ise_range--)
+			// 9/15/2025 changed lower range for LDR
+			// for (uint32_t ise_range = astc_helpers::BISE_192_LEVELS; ise_range >= astc_helpers::BISE_12_LEVELS; ise_range--)
+			for (uint32_t ise_range = astc_helpers::BISE_192_LEVELS; ise_range >= astc_helpers::BISE_6_LEVELS; ise_range--)
 			{
 				const uint32_t num_levels = astc_helpers::get_ise_levels(ise_range);
 				const auto& ise_to_val_tab = astc_helpers::g_dequant_tables.get_endpoint_tab(ise_range).m_ISE_to_val;
@@ -21739,6 +22497,7 @@ namespace basist
 						g_quantize_tables_preserve2[ise_range][desired_val] = (uint8_t)best_ise_val;
 					}
 
+					if (ise_range >= astc_helpers::BISE_8_LEVELS)
 					{
 						uint32_t best_err = UINT32_MAX;
 						int best_ise_val = -1;
@@ -21894,7 +22653,7 @@ namespace basist
 #endif
 		}
 
-		void copy_weight_grid(bool dual_plane, uint32_t grid_x, uint32_t grid_y, const uint8_t* transcode_weights, astc_helpers::log_astc_block& decomp_blk)
+		void copy_weight_grid(bool dual_plane, uint32_t grid_x, uint32_t grid_y, const uint8_t* transcode_weights, astc_helpers::log_astc_block& decomp_blk, bool orig_behavior)
 		{
 			assert(decomp_blk.m_weight_ise_range >= astc_helpers::BISE_2_LEVELS);
 			assert(decomp_blk.m_weight_ise_range <= astc_helpers::BISE_32_LEVELS);
@@ -21913,11 +22672,12 @@ namespace basist
 
 				compute_upsample_weights(4, 4, 2, 2, weights);
 
-				for (uint32_t y = 0; y < 4; y++)
+				for (uint32_t dy = 0; dy < 4; dy++)
 				{
-					for (uint32_t x = 0; x < 4; x++)
+					for (uint32_t dx = 0; dx < 4; dx++)
 					{
-						const astc_helpers::weighted_sample& sample = weights[x + y * 4];
+						const astc_helpers::weighted_sample& sample = weights[dx + dy * 4];
+						const int sx = sample.m_src_x, sy = sample.m_src_y;
 
 						uint32_t total_weight = 8;
 
@@ -21928,7 +22688,19 @@ namespace basist
 								if (!sample.m_weights[yo][xo])
 									continue;
 
-								total_weight += dequant_weight[transcode_weights[basisu::in_bounds((x + xo) + (y + yo) * grid_x, 0, grid_x * grid_y)]] * sample.m_weights[yo][xo];
+								// 10/17/2025 - bugfix. Orig release would always sample the 1st or 2nd weight here. Minor issue - encoder would have detected it, hurting R-D performance a tiny bit but not encoding/decoding correctness.
+								// However, this fix does cause decoding divergence from original encodes. The divergence seems minor and can only happen at higher lambdas.
+								if (orig_behavior)
+								{
+									// Original, incorrect, but ultimately harmless behavior.
+									total_weight += dequant_weight[transcode_weights[basisu::is_in_bounds((dx + xo) + (dy + yo) * grid_x, 0, grid_x * grid_y)]] * sample.m_weights[yo][xo];
+								}
+								else
+								{
+									// Correct behavior.
+									assert(basisu::is_in_bounds((sx + xo) + (sy + yo) * grid_x, 0, grid_x * grid_y));
+									total_weight += dequant_weight[transcode_weights[(sx + xo) + (sy + yo) * grid_x]] * sample.m_weights[yo][xo];
+								}
 							} // x
 						} // y
 
@@ -21936,7 +22708,7 @@ namespace basist
 
 						assert(total_weight <= 64);
 
-						decomp_blk.m_weights[x + y * 4] = quant_weight[total_weight];
+						decomp_blk.m_weights[dx + dy * 4] = quant_weight[total_weight];
 					}
 				}
 			}
@@ -22063,7 +22835,7 @@ namespace basist
 			assert((cem == 7) || (cem == 11));
 			return (cem == 11) ? basist::NUM_MODE11_ENDPOINTS : basist::NUM_MODE7_ENDPOINTS;
 		}
-
+				
 		const uint32_t g_bc6h_weights4[16] = { 0, 4, 9, 13, 17, 21, 26, 30, 34, 38, 43, 47, 51, 55, 60, 64 };
 
 #if 0
@@ -22147,7 +22919,7 @@ namespace basist
 			float res = (float)fast_float_to_half_no_clamp_neg_nan_or_inf(fabsf(f)) * ((f < 0.0f) ? -1.0f : 1.0f);
 			return res;
 		}
-
+		
 		// Supports positive and denormals only. No NaN or Inf.
 		static BASISU_FORCE_INLINE float fast_half_to_float_pos_not_inf_or_nan(basist::half_float h)
 		{
@@ -22188,7 +22960,7 @@ namespace basist
 			int max_r, int max_g, int max_b, int64_t block_max_var)
 		{
 			BASISU_NOTE_UNUSED(block_max_var);
-
+			
 			float fmin_r = fast_half_to_float_pos_not_inf_or_nan((basist::half_float)min_r);
 			float fmin_g = fast_half_to_float_pos_not_inf_or_nan((basist::half_float)min_g);
 			float fmin_b = fast_half_to_float_pos_not_inf_or_nan((basist::half_float)min_b);
@@ -22225,12 +22997,12 @@ namespace basist
 				pWeights[i] = (uint8_t)basisu::clamp((int)(w * frr + lr), 0, 15);
 			}
 		}
-
+		
 		static double assign_weights_4(
 			const vec3F* pFloat_pixels, const float* pPixel_scales,
 			uint8_t* pWeights,
 			int min_r, int min_g, int min_b,
-			int max_r, int max_g, int max_b, int64_t block_max_var, bool try_2subsets_flag,
+			int max_r, int max_g, int max_b, int64_t block_max_var, bool try_2subsets_flag, 
 			const fast_bc6h_params& params)
 		{
 			float cr[16], cg[16], cb[16];
@@ -22348,7 +23120,7 @@ namespace basist
 
 						pWeights[i] = (uint8_t)best_idx;
 
-						// Giesen's MRSSE (Mean Relative Sum of Squared Errors).
+						// Giesen's MRSSE (Mean Relative Sum of Squared Errors). 
 						// Our ASTC HDR encoder uses slightly slower approx. MSLE, and it's too late/risky to eval the difference vs. MRSSE on the larger ASTC HDR blocks.
 						float err = basisu::squaref(qr - cr[best_idx]) + basisu::squaref(qg - cg[best_idx]) + basisu::squaref(qb - cb[best_idx]);
 						total_err += err * pPixel_scales[i];
@@ -22448,7 +23220,7 @@ namespace basist
 
 				float best_error = basisu::squaref(subset_cr[subset][0] - qr) + basisu::squaref(subset_cg[subset][0] - qg) + basisu::squaref(subset_cb[subset][0] - qb);
 				uint32_t best_idx = 0;
-
+								
 				for (uint32_t j = 1; j < 8; j++)
 				{
 					float e = basisu::squaref(subset_cr[subset][j] - qr) + basisu::squaref(subset_cg[subset][j] - qg) + basisu::squaref(subset_cb[subset][j] - qb);
@@ -22521,7 +23293,7 @@ namespace basist
 
 		static basist::vec4F g_bc6h_ls_weights_3[8];
 		static basist::vec4F g_bc6h_ls_weights_4[16];
-
+				
 		const uint32_t BC6H_NUM_PATS = 32;
 		static uint32_t g_bc6h_pats2[BC6H_NUM_PATS];
 
@@ -22587,7 +23359,7 @@ namespace basist
 
 		static void bc6h_quant_endpoints(
 			uint32_t min_hr, uint32_t min_hg, uint32_t min_hb, uint32_t max_hr, uint32_t max_hg, uint32_t max_hb,
-			uint32_t& min_r, uint32_t& min_g, uint32_t& min_b, uint32_t& max_r, uint32_t& max_g, uint32_t& max_b,
+			uint32_t& min_r, uint32_t& min_g, uint32_t& min_b, uint32_t& max_r, uint32_t& max_g, uint32_t& max_b, 
 			int bits)
 		{
 			min_r = basist::bc6h_half_to_blog((basist::half_float)min_hr, bits);
@@ -22613,7 +23385,7 @@ namespace basist
 			max_hb = bc6h_convert_to_half(bc6h_dequantize(max_bb, bits));
 		}
 
-		static BASISU_FORCE_INLINE int popcount32(uint32_t x)
+		static BASISU_FORCE_INLINE int popcount32(uint32_t x) 
 		{
 #if defined(__EMSCRIPTEN__) || defined(__clang__) || defined(__GNUC__)
 			return __builtin_popcount(x);
@@ -22621,7 +23393,7 @@ namespace basist
 			return __popcnt(x);
 #else
 			int count = 0;
-			while (x)
+			while (x) 
 			{
 				x &= (x - 1);
 				++count;
@@ -22634,23 +23406,23 @@ namespace basist
 		{
 			return (x >= 0.0f) ? (int)(x + 0.5f) : (int)(x - 0.5f);
 		}
-
+												
 		static void fast_encode_bc6h_2subsets_pattern(
 			uint32_t best_pat_index, uint32_t best_pat_bits,
 			const basist::half_float* pPixels, const vec3F* pFloat_pixels, const float* pPixel_scales,
 			double& cur_error, basist::bc6h_logical_block& log_blk,
 			int64_t block_max_var,
-			int mean_r, int mean_g, int mean_b,
+			int mean_r, int mean_g, int mean_b, 
 			const fast_bc6h_params& params)
 		{
 			BASISU_NOTE_UNUSED(block_max_var);
-
+						
 			uint32_t subset_means[2][3] = { { 0 } };
 			for (uint32_t i = 0; i < 16; i++)
 			{
 				const uint32_t subset_index = (best_pat_bits >> i) & 1;
 				const uint32_t r = pPixels[i * 3 + 0], g = pPixels[i * 3 + 1], b = pPixels[i * 3 + 2];
-
+				
 				subset_means[subset_index][0] += r;
 				subset_means[subset_index][1] += g;
 				subset_means[subset_index][2] += b;
@@ -22703,7 +23475,7 @@ namespace basist
 
 				subset_axis[subset_index].set(axis_r, axis_g, axis_b);
 			} // s
-
+						
 			float subset_min_dot[2] = { basisu::BIG_FLOAT_VAL, basisu::BIG_FLOAT_VAL };
 			float subset_max_dot[2] = { -basisu::BIG_FLOAT_VAL, -basisu::BIG_FLOAT_VAL };
 			int subset_min_idx[2] = { 0 }, subset_max_idx[2] = { 0 };
@@ -22820,7 +23592,7 @@ namespace basist
 			if (params.m_num_diff_endpoint_modes_to_try)
 			{
 				// ordered from largest base bits to least
-				static const int s_bc6h_mode_order2[2] = { 5, 1 };
+				static const int s_bc6h_mode_order2[2] = { 5, 1 }; 
 				static const int s_bc6h_mode_order4[4] = { 0, 5, 7, 1 };
 				static const int s_bc6h_mode_order9[9] = { 2, 3, 4, 0,  5, 6, 7, 8,  1 };
 
@@ -22848,7 +23620,7 @@ namespace basist
 					BASISU_NOTE_UNUSED(base_bitmask);
 
 					const uint32_t num_delta_bits[3] = { g_bc6h_mode_sig_bits[mode][1], g_bc6h_mode_sig_bits[mode][2], g_bc6h_mode_sig_bits[mode][3] };
-					const int delta_bitmasks[3] = { (1 << num_delta_bits[0]) - 1, (1 << num_delta_bits[1]) - 1, (1 << num_delta_bits[2]) - 1 };
+					//const int delta_bitmasks[3] = { (1 << num_delta_bits[0]) - 1, (1 << num_delta_bits[1]) - 1, (1 << num_delta_bits[2]) - 1 };
 
 					for (uint32_t subset_index = 0; subset_index < 2; subset_index++)
 					{
@@ -22928,10 +23700,10 @@ namespace basist
 
 				trial_log_blk.m_mode = bc6h_mode_index;
 				trial_log_blk.m_partition_pattern = best_pat_index;
-
+				
 				memcpy(trial_log_blk.m_endpoints, abs_blog_endpoints, sizeof(trial_log_blk.m_endpoints));
 				memcpy(trial_log_blk.m_weights, trial_weights, 16);
-
+							
 				if (trial_log_blk.m_weights[0] & 4)
 				{
 					for (uint32_t c = 0; c < 3; c++)
@@ -22958,7 +23730,7 @@ namespace basist
 							trial_log_blk.m_weights[i] = 7 - trial_log_blk.m_weights[i];
 					}
 				}
-
+								
 				if (bc6h_mode_index != BC6H_2SUBSET_ABS_ENDPOINT_MODE)
 				{
 					const uint32_t num_delta_bits[3] = { g_bc6h_mode_sig_bits[bc6h_mode_index][1], g_bc6h_mode_sig_bits[bc6h_mode_index][2], g_bc6h_mode_sig_bits[bc6h_mode_index][3] };
@@ -22999,7 +23771,7 @@ namespace basist
 			const basist::half_float* pPixels, const vec3F* pFloat_pixels, const float* pPixel_scales,
 			double& cur_error, basist::bc6h_logical_block& log_blk,
 			int64_t block_max_var,
-			int mean_r, int mean_g, int mean_b, float block_axis_r, float block_axis_g, float block_axis_b,
+			int mean_r, int mean_g, int mean_b, float block_axis_r, float block_axis_g, float block_axis_b, 
 			const fast_bc6h_params& params)
 		{
 			assert((params.m_max_2subset_pats_to_try > 0) && (params.m_max_2subset_pats_to_try <= BC6H_NUM_PATS));
@@ -23020,7 +23792,7 @@ namespace basist
 				}
 				return;
 			}
-
+			
 			uint32_t desired_pat_bits = 0;
 			for (uint32_t i = 0; i < 16; i++)
 			{
@@ -23098,13 +23870,13 @@ namespace basist
 			uint32_t omin_r = UINT32_MAX, omin_g = UINT32_MAX, omin_b = UINT32_MAX;
 			uint32_t omax_r = 0, omax_g = 0, omax_b = 0;
 			uint32_t total_r = 0, total_g = 0, total_b = 0;
-
+						
 			for (uint32_t i = 0; i < 16; i++)
 			{
 				uint32_t r = pPixels[i * 3 + 0];
 				uint32_t g = pPixels[i * 3 + 1];
 				uint32_t b = pPixels[i * 3 + 2];
-
+								
 				total_r += r;
 				total_g += g;
 				total_b += b;
@@ -23129,13 +23901,13 @@ namespace basist
 
 				log_blk.m_endpoints[2][0] = basist::bc6h_half_to_blog16((basist::half_float)omin_b);
 				log_blk.m_endpoints[2][1] = 0;
-
+				
 				log_blk.m_mode = 13;
 				pack_bc6h_block(*pBlock, log_blk);
 
 				return;
 			}
-
+			
 			uint32_t min_r, min_g, min_b, max_r, max_g, max_b;
 
 			int mean_r = (total_r + 8) / 16;
@@ -23157,9 +23929,9 @@ namespace basist
 				icov[4] += g * b;
 				icov[5] += b * b;
 			}
-
+						
 			int64_t block_max_var = basisu::maximum(icov[0], icov[3], icov[5]); // not divided by 16, i.e. scaled by 16
-
+			
 			if (block_max_var < (FAST_BC6H_STD_DEV_THRESH * FAST_BC6H_STD_DEV_THRESH * 16))
 			{
 				// Simple block
@@ -23254,7 +24026,7 @@ namespace basist
 
 			uint32_t min_idx = 0, max_idx = 0;
 			float min_dot = basisu::BIG_FLOAT_VAL, max_dot = -basisu::BIG_FLOAT_VAL;
-
+								
 			for (uint32_t i = 0; i < 16; i++)
 			{
 				float r = (float)pPixels[i * 3 + 0];
@@ -23295,7 +24067,7 @@ namespace basist
 			bc6h_quant_dequant_endpoints(min_r, min_g, min_b, max_r, max_g, max_b, 10);
 
 			cur_err = assign_weights_4(float_pixels, pixel_scales, log_blk.m_weights, min_r, min_g, min_b, max_r, max_g, max_b, block_max_var, try_2subsets, params);
-
+						
 			const uint32_t MAX_LS_PASSES = params.m_hq_ls ? 2 : 1;
 			for (uint32_t pass = 0; pass < MAX_LS_PASSES; pass++)
 			{
@@ -23371,7 +24143,7 @@ namespace basist
 
 					min_b = trial_min_b;
 					max_b = trial_max_b;
-
+												
 					memcpy(log_blk.m_weights, trial_weights, 16);
 				}
 				else
@@ -23413,7 +24185,7 @@ namespace basist
 					std::swap(log_blk.m_endpoints[c][0], log_blk.m_endpoints[c][1]);
 				}
 			}
-
+			
 			if ((params.m_max_2subset_pats_to_try > 0) && ((try_2subsets) && (block_max_var > (FAST_BC6H_COMPLEX_STD_DEV_THRESH * FAST_BC6H_COMPLEX_STD_DEV_THRESH * 16))))
 			{
 				fast_encode_bc6h_2subsets(pPixels, float_pixels, pixel_scales, cur_err, log_blk, block_max_var, mean_r, mean_g, mean_b, axis_r, axis_g, axis_b, params);
@@ -23439,7 +24211,12 @@ namespace basist
 			if (!decoder.init(pComp_data, comp_data_size))
 				return false;
 
-			if (decoder.get_bits(16) != 0xABCD)
+			bool orig_behavior = false;
+
+			uint32_t hdr_sig = decoder.get_bits(16);
+			if (hdr_sig == UASTC_6x6_HDR_SIG0)
+				orig_behavior = true;
+			else if (hdr_sig != UASTC_6x6_HDR_SIG1)
 				return false;
 
 			width = decoder.get_bits(16);
@@ -23621,7 +24398,7 @@ namespace basist
 					uint8_t transcode_weights[MAX_BLOCK_W * MAX_BLOCK_H * 2];
 					requantize_astc_weights(total_grid_weights, log_blk.m_weights, log_blk.m_weight_ise_range, transcode_weights, decomp_blk.m_weight_ise_range);
 
-					copy_weight_grid(log_blk.m_dual_plane, log_blk.m_grid_width, log_blk.m_grid_height, transcode_weights, decomp_blk);
+					copy_weight_grid(log_blk.m_dual_plane, log_blk.m_grid_width, log_blk.m_grid_height, transcode_weights, decomp_blk, orig_behavior);
 #else
 					assert(log_blk.m_user_mode < TOTAL_BLOCK_MODE_DECS);
 					const block_mode_desc& bmd = g_block_mode_descs[(uint32_t)log_blk.m_user_mode];
@@ -23655,7 +24432,7 @@ namespace basist
 					uint8_t transcode_weights[BLOCK_W * BLOCK_H * 2];
 					requantize_astc_weights(total_grid_weights, log_blk.m_weights, log_blk.m_weight_ise_range, transcode_weights, bmd.m_transcode_weight_ise_range);
 
-					copy_weight_grid(bmd.m_dp, bmd.m_grid_x, bmd.m_grid_y, transcode_weights, decomp_blk);
+					copy_weight_grid(bmd.m_dp, bmd.m_grid_x, bmd.m_grid_y, transcode_weights, decomp_blk, orig_behavior);
 #endif
 					status = astc_helpers::pack_astc_block(phys_blk, decomp_blk);
 					if (!status)
@@ -23741,7 +24518,7 @@ namespace basist
 						uint8_t transcode_weights[BLOCK_W * BLOCK_H * 2];
 						requantize_astc_weights(total_grid_weights, log_blk.m_weights, bmd.m_weight_ise_range, transcode_weights, bmd.m_transcode_weight_ise_range);
 
-						copy_weight_grid(bmd.m_dp, bmd.m_grid_x, bmd.m_grid_y, transcode_weights, decomp_blk);
+						copy_weight_grid(bmd.m_dp, bmd.m_grid_x, bmd.m_grid_y, transcode_weights, decomp_blk, orig_behavior);
 
 						status = astc_helpers::pack_astc_block(phys_blk, decomp_blk);
 						if (!status)
@@ -23839,7 +24616,7 @@ namespace basist
 						uint8_t transcode_weights[BLOCK_W * BLOCK_H * 2];
 						requantize_astc_weights(total_grid_weights, log_blk.m_weights, bmd.m_weight_ise_range, transcode_weights, bmd.m_transcode_weight_ise_range);
 
-						copy_weight_grid(bmd.m_dp, bmd.m_grid_x, bmd.m_grid_y, transcode_weights, decomp_blk);
+						copy_weight_grid(bmd.m_dp, bmd.m_grid_x, bmd.m_grid_y, transcode_weights, decomp_blk, orig_behavior);
 
 						status = astc_helpers::pack_astc_block(phys_blk, decomp_blk);
 						if (!status)
@@ -23923,7 +24700,7 @@ namespace basist
 						uint8_t transcode_weights[BLOCK_W * BLOCK_H * 2];
 						requantize_astc_weights(total_grid_weights, log_blk.m_weights, bmd.m_weight_ise_range, transcode_weights, bmd.m_transcode_weight_ise_range);
 
-						copy_weight_grid(bmd.m_dp, bmd.m_grid_x, bmd.m_grid_y, transcode_weights, decomp_blk);
+						copy_weight_grid(bmd.m_dp, bmd.m_grid_x, bmd.m_grid_y, transcode_weights, decomp_blk, orig_behavior);
 
 						status = astc_helpers::pack_astc_block(phys_blk, decomp_blk);
 						if (!status)
@@ -23971,4 +24748,17030 @@ namespace basist
 
 #endif // BASISD_SUPPORT_UASTC_HDR
 
+#if BASISD_SUPPORT_XUASTC
+namespace astc_ldr_t
+{
+	bool g_initialized;
+	astc_block_grid_data_hash_t g_astc_block_grid_data_hash;
+
+	// Used for quickly bumping up or down quantized, 2 complement+shifted base+offset delta values without disturbing the MSB.
+	static basisu::vector<uint8_t> g_base_ofs_nudges[astc_helpers::BISE_256_LEVELS + 1][2]; // [endpoint_ise_range][pos=0, neg=1]
+
+	const int s_unique_ldr_index_to_astc_cem[6] =
+	{
+		astc_helpers::CEM_LDR_LUM_DIRECT,
+		astc_helpers::CEM_LDR_LUM_ALPHA_DIRECT,
+		astc_helpers::CEM_LDR_RGB_BASE_SCALE,
+		astc_helpers::CEM_LDR_RGB_DIRECT,
+		astc_helpers::CEM_LDR_RGB_BASE_SCALE_PLUS_TWO_A,
+		astc_helpers::CEM_LDR_RGBA_DIRECT
+	};
+		
+	static void compute_base_ofs_requantize_tabs()
+	{
+		for (uint32_t e_ise_range = astc_helpers::FIRST_VALID_ENDPOINT_ISE_RANGE; e_ise_range <= astc_helpers::LAST_VALID_ENDPOINT_ISE_RANGE; e_ise_range++)
+		{
+			const uint32_t num_levels = astc_helpers::get_ise_levels(e_ise_range);
+
+			for (uint32_t pos_or_neg = 0; pos_or_neg < 2; pos_or_neg++)
+			{
+				g_base_ofs_nudges[e_ise_range][pos_or_neg].resize(num_levels);
+
+				const int delta = pos_or_neg ? -1 : 1;
+
+				for (uint32_t cur_ise = 0; cur_ise < num_levels; cur_ise++)
+				{
+					int cur_dequant = astc_helpers::g_dequant_tables.get_endpoint_tab(e_ise_range).m_ISE_to_val[cur_ise];
+
+					int cur_a = cur_dequant, cur_b = 0;
+					astc_helpers::bit_transfer_signed_dec(cur_a, cur_b);
+
+					int best_err = INT_MAX;
+					uint32_t best_trial_ise = 0;
+
+					for (uint32_t trial_ise = 0; trial_ise < num_levels; trial_ise++)
+					{
+						int trial_dequant = astc_helpers::g_dequant_tables.get_endpoint_tab(e_ise_range).m_ISE_to_val[trial_ise];
+
+						int trial_a = trial_dequant, trial_b = 0;
+						astc_helpers::bit_transfer_signed_dec(trial_a, trial_b);
+
+						// ensure the transferred bit hasn't changed
+						if (cur_b != trial_b)
+							continue;
+
+						// skip if the decoded delta hasn't changed at all
+						if (trial_a == cur_a)
+							continue;
+
+						// do they want to nudge neg or pos
+						if (delta < 0)
+						{
+							// neg nudge, but trial delta is higher
+							if (trial_a > cur_a)
+								continue;
+						}
+						else
+						{
+							// pos nudge, but trial delta is lower
+							if (trial_a < cur_a)
+								continue;
+						}
+
+						int e = basisu::iabs(trial_a - cur_a);
+						if (e < best_err)
+						{
+							best_err = e;
+							best_trial_ise = trial_ise;
+						}
+					} // trial_ise
+
+					if (best_err == INT_MAX)
+					{
+						//fmt_printf("Failed nudge: eise:{}, delta: {}, curise:{}, cura:{}, curb:{}\n", e_ise_range, delta, cur_ise, cur_a, cur_b);
+
+						// Failed to nudge, leave it unchanged
+						best_trial_ise = cur_ise;
+					}
+
+					g_base_ofs_nudges[e_ise_range][pos_or_neg][cur_ise] = (uint8_t)best_trial_ise;
+
+				} // cur_ise
+
+			} // pos_or_neg
+
+		} // e_ise_range
+	}
+
+	void init()
+	{
+		if (g_initialized)
+			return;
+
+		g_initialized = true;
+
+		init_astc_block_grid_data_hash();
+
+		compute_base_ofs_requantize_tabs();
+	}
+		
+	color_rgba blue_contract_enc(color_rgba orig, bool& did_clamp, int encoded_b)
+	{
+		color_rgba enc;
+
+		int tr = orig.r * 2 - encoded_b;
+		int tg = orig.g * 2 - encoded_b;
+		if ((tr < 0) || (tr > 255) || (tg < 0) || (tg > 255))
+			did_clamp = true;
+
+		enc.r = (uint8_t)basisu::clamp<int>(tr, 0, 255);
+		enc.g = (uint8_t)basisu::clamp<int>(tg, 0, 255);
+		enc.b = (uint8_t)orig.b;
+		enc.a = orig.a;
+		return enc;
+	}
+
+	color_rgba blue_contract_dec(int enc_r, int enc_g, int enc_b, int enc_a)
+	{
+		color_rgba dec;
+		dec.r = (uint8_t)((enc_r + enc_b) >> 1);
+		dec.g = (uint8_t)((enc_g + enc_b) >> 1);
+		dec.b = (uint8_t)enc_b;
+		dec.a = (uint8_t)enc_a;
+		return dec;
+	}
+		
+	static inline int quant_preserve2(uint32_t ise_range, uint32_t v)
+	{
+		if (ise_range == astc_helpers::BISE_256_LEVELS)
+			return v;
+
+		assert(ise_range >= astc_helpers::BISE_6_LEVELS);
+
+		return basist::astc_6x6_hdr::g_quantize_tables_preserve2[ise_range][v];
+	}
+
+	//----------------------------------------------------------------------------------
+	// Requantize endpoints, but preserves blue contraction and base+ofs bits as much as possible.
+
+	// Blue contraction should be preserved almost always if quantizing down, except with base+ofs (extremely to incredibly rare).
+	// endpoints never swapped for base+ofs
+	// NOTE: Cannot use any floating point math for determinism across compilers.
+	bool requantize_ise_endpoints(uint32_t cem,
+		uint32_t src_ise_endpoint_range, const uint8_t* pSrc_endpoints,
+		uint32_t dst_ise_endpoint_range, uint8_t* pDst_endpoints)
+	{
+		if (!astc_helpers::is_cem_ldr(cem))
+		{
+			assert(0);
+			return false;
+		}
+
+		const uint32_t num_endpoint_vals = astc_helpers::get_num_cem_values(cem);
+		assert(num_endpoint_vals <= astc_helpers::MAX_CEM_ENDPOINT_VALS);
+
+		if (src_ise_endpoint_range == dst_ise_endpoint_range)
+		{
+			memcpy(pDst_endpoints, pSrc_endpoints, num_endpoint_vals);
+			return true;
+		}
+
+		uint8_t dequantized_src_vals_temp[astc_helpers::MAX_CEM_ENDPOINT_VALS];
+		const uint8_t* pDequantized_src_vals = pSrc_endpoints;
+
+		if (src_ise_endpoint_range != astc_helpers::BISE_256_LEVELS)
+		{
+			const auto& dequant_tab = astc_helpers::g_dequant_tables.get_endpoint_tab(src_ise_endpoint_range).m_ISE_to_val;
+
+			for (uint32_t i = 0; i < num_endpoint_vals; i++)
+				dequantized_src_vals_temp[i] = dequant_tab[pSrc_endpoints[i]];
+
+			pDequantized_src_vals = dequantized_src_vals_temp;
+		}
+
+		if (dst_ise_endpoint_range == astc_helpers::BISE_256_LEVELS)
+		{
+			memcpy(pDst_endpoints, pDequantized_src_vals, num_endpoint_vals);
+			return true;
+		}
+
+		const auto& dst_quant_tab = astc_helpers::g_dequant_tables.get_endpoint_tab(dst_ise_endpoint_range).m_val_to_ise;
+
+		if ((cem == astc_helpers::CEM_LDR_RGB_BASE_PLUS_OFFSET) || (cem == astc_helpers::CEM_LDR_RGBA_BASE_PLUS_OFFSET))
+		{
+			const auto& dst_dequant_tab = astc_helpers::g_dequant_tables.get_endpoint_tab(dst_ise_endpoint_range).m_ISE_to_val;
+
+			for (uint32_t i = 0; i < num_endpoint_vals; i++)
+			{
+				// preserve v1,v3,v5,v7, which have 2 MSB's that need to be preserved during requant
+				if (i & 1)
+					pDst_endpoints[i] = (uint8_t)quant_preserve2(dst_ise_endpoint_range, pDequantized_src_vals[i]);
+				else
+					pDst_endpoints[i] = dst_quant_tab[pDequantized_src_vals[i]];
+			}
+
+#ifdef _DEBUG
+			{
+				const auto& src_dequant_tab = astc_helpers::g_dequant_tables.get_endpoint_tab(src_ise_endpoint_range).m_ISE_to_val;
+
+				// ensure MSB's did not change
+				for (uint32_t i = 0; i < num_endpoint_vals; i++)
+				{
+					int src_v = src_dequant_tab[pSrc_endpoints[i]];
+					int dst_v = dst_dequant_tab[pDst_endpoints[i]];
+					assert((src_v & 128) == (dst_v & 128));
+
+					if (i & 1)
+					{
+						assert((src_v & 64) == (dst_v & 64));
+					}
+				}
+			}
+#endif
+
+			const bool src_used_blue_contract = astc_helpers::used_blue_contraction(cem, pSrc_endpoints, src_ise_endpoint_range);
+			// src delta sum was < 0 if it used blue contraction, >= 0 if it did NOT
+
+			int v0 = dst_dequant_tab[pDst_endpoints[0]], v1 = dst_dequant_tab[pDst_endpoints[1]];
+			int v2 = dst_dequant_tab[pDst_endpoints[2]], v3 = dst_dequant_tab[pDst_endpoints[3]];
+			int v4 = dst_dequant_tab[pDst_endpoints[4]], v5 = dst_dequant_tab[pDst_endpoints[5]];
+
+			astc_helpers::bit_transfer_signed_dec(v1, v0);
+			astc_helpers::bit_transfer_signed_dec(v3, v2);
+			astc_helpers::bit_transfer_signed_dec(v5, v4);
+
+			int s = v1 + v3 + v5;
+			bool quant_used_blue_contraction = (s < 0);
+
+			// Kind of a dumb algorithm, but it only tries 2-3 times in random testing.
+			//const uint32_t MAX_TRIES = 10;
+			const uint32_t MAX_TRIES = 5;
+
+			uint32_t tries = 0;
+
+			if (src_used_blue_contract != quant_used_blue_contraction)
+			{
+				int nudge_delta = quant_used_blue_contraction ? 1 : -1;
+
+				uint32_t cur_c_rover = 2; // b first
+								
+				for (tries = 0; tries < MAX_TRIES; tries++)
+				{
+					for (uint32_t j = 0; j < 3; j++)
+					{
+						const uint32_t i = (cur_c_rover + j) % 3;
+
+						// This will either nudge the delta, or fail because it's either at the [-32,31] limit or it can't go further in the desired delta direction due to quantization limits
+						uint32_t new_ise_v = g_base_ofs_nudges[dst_ise_endpoint_range][(nudge_delta < 0) ? 1 : 0][pDst_endpoints[1 + i * 2]];
+
+						if (new_ise_v != pDst_endpoints[1 + i * 2])
+						{
+							// It changed, so a successful nudge, but the base MSB should be preserved
+							pDst_endpoints[1 + i * 2] = (uint8_t)new_ise_v;
+							break;
+						}
+					}
+
+					v0 = dst_dequant_tab[pDst_endpoints[0]], v1 = dst_dequant_tab[pDst_endpoints[1]];
+					v2 = dst_dequant_tab[pDst_endpoints[2]], v3 = dst_dequant_tab[pDst_endpoints[3]];
+					v4 = dst_dequant_tab[pDst_endpoints[4]], v5 = dst_dequant_tab[pDst_endpoints[5]];
+
+					astc_helpers::bit_transfer_signed_dec(v1, v0);
+					astc_helpers::bit_transfer_signed_dec(v3, v2);
+					astc_helpers::bit_transfer_signed_dec(v5, v4);
+
+					s = v1 + v3 + v5;
+					quant_used_blue_contraction = (s < 0);
+
+					if (src_used_blue_contract == quant_used_blue_contraction)
+						break;
+
+					++cur_c_rover;
+
+				} // tries
+			}
+
+			if (tries < MAX_TRIES)
+			{
+				assert(astc_helpers::used_blue_contraction(cem, pDst_endpoints, dst_ise_endpoint_range) == astc_helpers::used_blue_contraction(cem, pSrc_endpoints, src_ise_endpoint_range));
+			}
+			else
+			{
+				// It failed to adjust, ultimately harmless as we have RGB(A) direct anyway (and at this likely very low quant level, it won't matter).
+				// TODO: We could try more adjustments, but this seems extremely unlikely to be worth the trouble after random testing.
+
+#if BASISU_ASTC_LDR_DEBUG_MSGS
+				static bool s_msg_printed = false;
+				if (!s_msg_printed)
+					fmt_debug_printf("requantize_ise_endpoints: blue contraction enforcement failed\n");
+#endif
+			}
+
+#ifdef _DEBUG
+			{
+				const auto& src_dequant_tab = astc_helpers::g_dequant_tables.get_endpoint_tab(src_ise_endpoint_range).m_ISE_to_val;
+
+				// ensure MSB's did not change
+				for (uint32_t i = 0; i < num_endpoint_vals; i++)
+				{
+					int src_v = src_dequant_tab[pSrc_endpoints[i]];
+					int dst_v = dst_dequant_tab[pDst_endpoints[i]];
+					assert((src_v & 128) == (dst_v & 128));
+				}
+			}
+#endif
+		}
+		else if ((cem == astc_helpers::CEM_LDR_RGB_DIRECT) || (cem == astc_helpers::CEM_LDR_RGBA_DIRECT))
+		{
+			const auto& dst_dequant_tab = astc_helpers::g_dequant_tables.get_endpoint_tab(dst_ise_endpoint_range).m_ISE_to_val;
+
+			// See if the original colors were blue contracted
+			uint32_t s0 = pDequantized_src_vals[0] + pDequantized_src_vals[2] + pDequantized_src_vals[4];
+			uint32_t s1 = pDequantized_src_vals[1] + pDequantized_src_vals[3] + pDequantized_src_vals[5];
+
+			const bool orig_used_blue_contract = s1 < s0;
+
+			for (uint32_t i = 0; i < num_endpoint_vals; i++)
+				pDst_endpoints[i] = dst_quant_tab[pDequantized_src_vals[i]];
+
+			uint32_t dequant_s0 = dst_dequant_tab[pDst_endpoints[0]] + dst_dequant_tab[pDst_endpoints[2]] + dst_dequant_tab[pDst_endpoints[4]];
+			uint32_t dequant_s1 = dst_dequant_tab[pDst_endpoints[1]] + dst_dequant_tab[pDst_endpoints[3]] + dst_dequant_tab[pDst_endpoints[5]];
+
+			const bool quant_used_blue_contract = dequant_s1 < dequant_s0;
+
+			if (orig_used_blue_contract != quant_used_blue_contract)
+			{
+				if (dequant_s0 == dequant_s1)
+				{
+					assert(orig_used_blue_contract);
+					assert(!quant_used_blue_contract);
+
+					// swapping won't work because sums are equal, so force dst to use blue contraction by nudgling a component
+					// original s1<s0, but now requant_s1>=requant_s0
+
+					if (dequant_s1)
+					{
+						// decrease s1
+						for (uint32_t i = 0; i < 3; i++)
+						{
+							uint32_t new_ise_v = astc_helpers::apply_delta_to_bise_endpoint_val(dst_ise_endpoint_range, pDst_endpoints[1 + i * 2], -1);
+							if (new_ise_v != pDst_endpoints[1 + i * 2])
+							{
+								pDst_endpoints[1 + i * 2] = (uint8_t)new_ise_v;
+								break;
+							}
+						}
+					}
+					else
+					{
+						// both are 0, increase s0
+						for (uint32_t i = 0; i < 3; i++)
+						{
+							uint32_t new_ise_val = astc_helpers::apply_delta_to_bise_endpoint_val(dst_ise_endpoint_range, pDst_endpoints[i * 2], 1);
+							if (new_ise_val != pDst_endpoints[i * 2])
+							{
+								pDst_endpoints[i * 2] = (uint8_t)new_ise_val;
+								break;
+							}
+						}
+					}
+				}
+				else
+				{
+					std::swap(pDst_endpoints[0], pDst_endpoints[1]);
+					std::swap(pDst_endpoints[2], pDst_endpoints[3]);
+					std::swap(pDst_endpoints[4], pDst_endpoints[5]);
+
+					if (cem == astc_helpers::CEM_LDR_RGBA_DIRECT)
+						std::swap(pDst_endpoints[6], pDst_endpoints[7]);
+				}
+			}
+
+			assert(astc_helpers::used_blue_contraction(cem, pDst_endpoints, dst_ise_endpoint_range) == astc_helpers::used_blue_contraction(cem, pSrc_endpoints, src_ise_endpoint_range));
+		}
+		else
+		{
+			for (uint32_t i = 0; i < num_endpoint_vals; i++)
+				pDst_endpoints[i] = dst_quant_tab[pDequantized_src_vals[i]];
+
+#ifdef _DEBUG
+			{
+				const auto& src_dequant_tab = astc_helpers::g_dequant_tables.get_endpoint_tab(src_ise_endpoint_range).m_ISE_to_val;
+				const auto& dst_dequant_tab = astc_helpers::g_dequant_tables.get_endpoint_tab(dst_ise_endpoint_range).m_ISE_to_val;
+
+				// ensure MSB's did not change
+				for (uint32_t i = 0; i < num_endpoint_vals; i++)
+				{
+					int src_v = src_dequant_tab[pSrc_endpoints[i]];
+					int dst_v = dst_dequant_tab[pDst_endpoints[i]];
+					assert((src_v & 128) == (dst_v & 128));
+				}
+			}
+#endif
+		}
+
+		return true;
+	}
+
+	// First packs base+ofs to ise20 (always enforcing blue contraction), then quantizes down (preserving blue contraction whenever possible, which might possibly not be in extreme quantizations).
+	// NOTE: Cannot use any floating point math for determinism across compilers.
+	bool pack_base_offset(
+		uint32_t cem_index, uint32_t dst_ise_endpoint_range, uint8_t* pPacked_endpoints,
+		const color_rgba& l, const color_rgba& h,
+		bool use_blue_contraction, bool auto_disable_blue_contraction_if_clamped,
+		bool& blue_contraction_clamped_flag, bool& base_ofs_clamped_flag, bool& endpoints_swapped)
+	{
+		blue_contraction_clamped_flag = false;
+		base_ofs_clamped_flag = false;
+		endpoints_swapped = false;
+
+		if ((cem_index != astc_helpers::CEM_LDR_RGB_BASE_PLUS_OFFSET) && (cem_index != astc_helpers::CEM_LDR_RGBA_BASE_PLUS_OFFSET))
+		{
+			assert(0);
+			return false;
+		}
+
+		color_rgba pack_l(l), pack_h(h);
+
+		if (use_blue_contraction)
+		{
+			color_rgba enc_l(blue_contract_enc(pack_l, blue_contraction_clamped_flag, pack_l.b));
+			color_rgba enc_h(blue_contract_enc(pack_h, blue_contraction_clamped_flag, pack_h.b));
+
+			if ((blue_contraction_clamped_flag) && (auto_disable_blue_contraction_if_clamped))
+			{
+				use_blue_contraction = false;
+			}
+			else
+			{
+				pack_h = enc_l;
+				pack_l = enc_h;
+
+				endpoints_swapped = true;
+			}
+		}
+
+		int dr = 0, dg = 0, db = 0, da = 0;
+		bool pack_uses_blue_contraction = false;
+		int low_clamp = -32;
+
+		// first 2 passes try with swapping by asymmetric clamping, then next 2 try with symmetric clamping, should always succeed
+		for (uint32_t pass = 0; pass < 4; pass++)
+		{
+			// Take previous CEM's values and try to encode to base+offset as best we can, it may clamp
+			int orig_dr = pack_h.r - pack_l.r, orig_dg = pack_h.g - pack_l.g, orig_db = pack_h.b - pack_l.b, orig_da = pack_h.a - pack_l.a;
+
+			base_ofs_clamped_flag = false;
+
+			dr = basisu::clamp<int>(orig_dr, low_clamp, 31);
+			if (dr != orig_dr) base_ofs_clamped_flag = true;
+
+			dg = basisu::clamp<int>(orig_dg, low_clamp, 31);
+			if (dg != orig_dg) base_ofs_clamped_flag = true;
+
+			db = basisu::clamp<int>(orig_db, low_clamp, 31);
+			if (db != orig_db) base_ofs_clamped_flag = true;
+
+			da = basisu::clamp<int>(orig_da, low_clamp, 31);
+			if (da != orig_da) base_ofs_clamped_flag = true;
+
+			int s = dr + dg + db;
+
+			pack_uses_blue_contraction = s < 0;
+
+			if (pack_uses_blue_contraction == use_blue_contraction)
+				break;
+
+			if (s == 0)
+			{
+				assert(!pack_uses_blue_contraction);
+				assert(use_blue_contraction);
+
+				// !pack_uses_blue_contraction here, sum=0, so force sum negative
+				if (db > -32)
+					db--;
+				else if (dr > -32)
+					dr--;
+				else if (dg > -32)
+					dg--;
+				else
+				{
+					// they can't be all -32 (or negative), otherwise sum couldn't be 0
+					assert(0);
+				}
+
+				assert((dr + dg + db) < 0);
+
+				pack_uses_blue_contraction = true;
+
+				break;
+			}
+
+			if (pass == 3)
+			{
+				// theoretically unreachable
+				assert(0);
+				break;
+			}
+
+			if (pass == 1)
+			{
+				// Try 2 more swap passes, but enforce a symmetric clamp range - this *should* work.
+				low_clamp = -31;
+			}
+
+			std::swap(pack_l, pack_h);
+			endpoints_swapped = !endpoints_swapped;
+
+		} // pass
+
+		int v0 = pack_l.r, v2 = pack_l.g, v4 = pack_l.b;
+		int v1 = dr, v3 = dg, v5 = db;
+
+		// lossless at 8-bits
+		astc_helpers::bit_transfer_signed_enc(v1, v0);
+		astc_helpers::bit_transfer_signed_enc(v3, v2);
+		astc_helpers::bit_transfer_signed_enc(v5, v4);
+
+		int v6 = 0, v7 = 0;
+		if (astc_helpers::does_cem_have_alpha(cem_index))
+		{
+			v6 = pack_l.a;
+			v7 = da;
+
+			astc_helpers::bit_transfer_signed_enc(v7, v6);
+		}
+
+		uint8_t new_endpoints8[astc_helpers::MAX_CEM_ENDPOINT_VALS];
+
+		new_endpoints8[0] = (uint8_t)v0;
+		new_endpoints8[1] = (uint8_t)v1;
+
+		new_endpoints8[2] = (uint8_t)v2;
+		new_endpoints8[3] = (uint8_t)v3;
+
+		new_endpoints8[4] = (uint8_t)v4;
+		new_endpoints8[5] = (uint8_t)v5;
+
+		if (astc_helpers::does_cem_have_alpha(cem_index))
+		{
+			new_endpoints8[6] = (uint8_t)v6;
+			new_endpoints8[7] = (uint8_t)v7;
+		}
+
+		// This should always succeed.
+		assert(astc_helpers::used_blue_contraction(cem_index, new_endpoints8, astc_helpers::BISE_256_LEVELS) == use_blue_contraction);
+
+		// requant predicted 256 level endpoints to current endpoint quant level, this will nearly always (if not always) succeed
+		bool status = requantize_ise_endpoints(
+			cem_index, astc_helpers::BISE_256_LEVELS, new_endpoints8,
+			dst_ise_endpoint_range, pPacked_endpoints);
+
+		// can't assert because requant to a very low quant level could have failed to preserve blue contraction (in practice, super rare, perhaps impossible - still determining)
+		//assert(astc_helpers::used_blue_contraction(cem_index, pPredicted_endpoints, cur_blk.m_endpoint_ise_range) == pack_uses_blue_contraction);
+
+		return status;
+	}
+
+	// converts a previous block's endpoints, using any supported LDR CEM/endpoint quant level, into a new CEM/endpoint quant level
+	// used for prediction or *potentially* coding purposes
+	// will return num_dst_endpoint_vals residuals in cur_blk's endpoint level quant
+	// NOTE: Cannot use any floating point math for determinism across compilers.
+	bool convert_endpoints_across_cems(
+		uint32_t prev_cem, uint32_t prev_endpoint_ise_range, const uint8_t* pPrev_endpoints,
+		uint32_t dst_cem, uint32_t dst_endpoint_ise_range, uint8_t* pDst_endpoints,
+		bool always_repack,
+		bool use_blue_contraction, bool auto_disable_blue_contraction_if_clamped,
+		bool& blue_contraction_clamped_flag, bool& base_ofs_clamped_flag)
+	{
+		blue_contraction_clamped_flag = false;
+		base_ofs_clamped_flag = false;
+
+		const uint32_t num_dst_endpoint_vals = astc_helpers::get_num_cem_values(dst_cem);
+
+		const auto& dst_quant_tab = astc_helpers::g_dequant_tables.get_endpoint_tab(dst_endpoint_ise_range).m_val_to_ise;
+		const auto& dst_dequant_tab = astc_helpers::g_dequant_tables.get_endpoint_tab(dst_endpoint_ise_range).m_ISE_to_val;
+
+		if ((prev_cem == dst_cem) && (!always_repack))
+		{
+			// CEM's are precisely equal
+			// Requantize prev block's endpoints into the current block's quant levels, and we're done
+			return requantize_ise_endpoints(
+				prev_cem, prev_endpoint_ise_range, pPrev_endpoints,
+				dst_endpoint_ise_range, pDst_endpoints);
+		}
+
+		// CEM's cannot be precisely equal now, compute base CEM's (removing alpha from consideration)
+		if (!always_repack)
+		{
+			// this path preserves the original's blue contraction status
+			const uint32_t prev_base_cem = astc_helpers::get_base_cem_without_alpha(prev_cem);
+			const uint32_t dst_base_cem = astc_helpers::get_base_cem_without_alpha(dst_cem);
+
+			// prev cem has alpha, cur cem doesn't, but otherwise modes identical, so it's being stripped
+			if ((prev_base_cem == dst_base_cem) && (!astc_helpers::does_cem_have_alpha(dst_cem)))
+			{
+				assert(astc_helpers::does_cem_have_alpha(prev_cem));
+				assert(astc_helpers::get_num_cem_values(prev_base_cem) == num_dst_endpoint_vals);
+
+				// Requantize prev block's endpoints into the current block's quant levels, but ignore the alpha values (which are always the last 2 entries)
+				return requantize_ise_endpoints(
+					prev_base_cem, prev_endpoint_ise_range, pPrev_endpoints,
+					dst_endpoint_ise_range, pDst_endpoints);
+			}
+
+			// if prev cem doesn't have alpha, but the current cem does, but otherwise modes are identical, so add sane alpha (both 255) and hope for best in the prediction
+			if ((prev_base_cem == dst_base_cem) && (astc_helpers::does_cem_have_alpha(dst_cem)))
+			{
+				assert(!astc_helpers::does_cem_have_alpha(prev_base_cem));
+
+				// requant previous endpoints to current endpoint quant level
+				bool status = requantize_ise_endpoints(
+					prev_base_cem, prev_endpoint_ise_range, pPrev_endpoints,
+					dst_endpoint_ise_range, pDst_endpoints);
+
+				if (!status)
+					return false;
+
+				// just plug in 255 to both alphas
+				const int ise_a_val = dst_quant_tab[255];
+
+				switch (dst_cem)
+				{
+				case astc_helpers::CEM_LDR_LUM_ALPHA_DIRECT:
+				{
+					assert(num_dst_endpoint_vals == 4);
+					pDst_endpoints[2] = (uint8_t)ise_a_val;
+					pDst_endpoints[3] = (uint8_t)ise_a_val;
+					break;
+				}
+				case astc_helpers::CEM_LDR_RGBA_DIRECT:
+				{
+					assert(num_dst_endpoint_vals == 8);
+					pDst_endpoints[6] = (uint8_t)ise_a_val;
+					pDst_endpoints[7] = (uint8_t)ise_a_val;
+					break;
+				}
+				case astc_helpers::CEM_LDR_RGB_BASE_SCALE_PLUS_TWO_A:
+				{
+					assert(num_dst_endpoint_vals == 6);
+					pDst_endpoints[4] = (uint8_t)ise_a_val;
+					pDst_endpoints[5] = (uint8_t)ise_a_val;
+					break;
+				}
+				case astc_helpers::CEM_LDR_RGBA_BASE_PLUS_OFFSET:
+				{
+					assert(num_dst_endpoint_vals == 8);
+
+					// alphas should decode to 255, 255
+					pDst_endpoints[6] = (uint8_t)ise_a_val;		// base
+					pDst_endpoints[7] = (uint8_t)dst_quant_tab[128];  // offset, top bit should be preserved
+					break;
+				}
+				default:
+					assert(0);
+					break;
+				}
+												
+				return true;
+			}
+
+		} // !always_repack
+
+		// Here the CEM's are not even in the same class.
+		// Do something reasonable to convert to the current block's CEM encoding and hope the residual distribution is reasonable.
+
+		// fully decode the endpoints, undoing any quant, blue contraction or bit transfers
+		color_rgba prev_l, prev_h;
+		decode_endpoints(prev_cem, pPrev_endpoints, prev_endpoint_ise_range, prev_l, prev_h);
+
+		uint8_t new_endpoints8[astc_helpers::MAX_CEM_ENDPOINT_VALS] = { 0 };
+
+		// now pack the endpoints to the desired CEM
+		switch (dst_cem)
+		{
+		case astc_helpers::CEM_LDR_LUM_DIRECT:
+		case astc_helpers::CEM_LDR_LUM_ALPHA_DIRECT:
+		{
+			// Take previous endpoints and convert to luma/alpha low/high.
+			new_endpoints8[0] = (prev_l.r + prev_l.g + prev_l.b + 1) / 3;
+			new_endpoints8[1] = (prev_h.r + prev_h.g + prev_h.b + 1) / 3;
+
+			if (dst_cem == astc_helpers::CEM_LDR_LUM_ALPHA_DIRECT)
+			{
+				new_endpoints8[2] = prev_l.a;
+				new_endpoints8[3] = prev_h.a;
+			}
+
+			// ensure L<H, so predicting against other luma blocks is more successful (but less successful vs. blue contraction blocks)
+			if ((prev_cem != astc_helpers::CEM_LDR_LUM_DIRECT) && (prev_cem != astc_helpers::CEM_LDR_LUM_ALPHA_DIRECT))
+			{
+				if (new_endpoints8[0] > new_endpoints8[1])
+				{
+					std::swap(new_endpoints8[0], new_endpoints8[1]);
+					std::swap(new_endpoints8[2], new_endpoints8[3]);
+				}
+			}
+
+			// requant predicted 256 level endpoints to current endpoint quant level
+			return requantize_ise_endpoints(dst_cem, astc_helpers::BISE_256_LEVELS, new_endpoints8, dst_endpoint_ise_range, pDst_endpoints);
+		}
+
+		case astc_helpers::CEM_LDR_RGB_DIRECT:
+		case astc_helpers::CEM_LDR_RGBA_DIRECT:
+		{
+			// Take previous endpoints and convert to rgb(a) direct, explictly preserving previous ordering (to preserve the previous's endpoints usage of blue contraction, if it used it).
+			new_endpoints8[0] = prev_l.r;
+			new_endpoints8[1] = prev_h.r;
+
+			new_endpoints8[2] = prev_l.g;
+			new_endpoints8[3] = prev_h.g;
+
+			new_endpoints8[4] = prev_l.b;
+			new_endpoints8[5] = prev_h.b;
+
+			if (dst_cem == astc_helpers::CEM_LDR_RGBA_DIRECT)
+			{
+				new_endpoints8[6] = prev_l.a;
+				new_endpoints8[7] = prev_h.a;
+			}
+
+			if (use_blue_contraction)
+			{
+				color_rgba enc_l(blue_contract_enc(prev_l, blue_contraction_clamped_flag, dst_dequant_tab[dst_quant_tab[prev_l.b]]));
+				color_rgba enc_h(blue_contract_enc(prev_h, blue_contraction_clamped_flag, dst_dequant_tab[dst_quant_tab[prev_h.b]]));
+
+				if ((auto_disable_blue_contraction_if_clamped) && (blue_contraction_clamped_flag))
+				{
+					use_blue_contraction = false;
+				}
+				else
+				{
+					new_endpoints8[0] = enc_h.r;
+					new_endpoints8[1] = enc_l.r;
+
+					new_endpoints8[2] = enc_h.g;
+					new_endpoints8[3] = enc_l.g;
+
+					new_endpoints8[4] = enc_h.b;
+					new_endpoints8[5] = enc_l.b;
+
+					if (dst_cem == astc_helpers::CEM_LDR_RGBA_DIRECT)
+					{
+						new_endpoints8[6] = prev_h.a;
+						new_endpoints8[7] = prev_l.a;
+					}
+				}
+			}
+
+			uint32_t s0 = new_endpoints8[0] + new_endpoints8[2] + new_endpoints8[4];
+			uint32_t s1 = new_endpoints8[1] + new_endpoints8[3] + new_endpoints8[5];
+			bool pack_used_blue_contraction = s1 < s0;
+
+			if (pack_used_blue_contraction != use_blue_contraction)
+			{
+				if (s0 == s1)
+				{
+					assert(!pack_used_blue_contraction);
+
+					// swapping won't work because sums are equal, so force dst to use blue contraction by nudgling a component
+					// require s1<s0
+
+					if (s1)
+					{
+						// decrease s1
+						for (uint32_t i = 0; i < 3; i++)
+						{
+							uint32_t new_ise_v = astc_helpers::apply_delta_to_bise_endpoint_val(astc_helpers::BISE_256_LEVELS, new_endpoints8[1 + i * 2], -1);
+							if (new_ise_v != new_endpoints8[1 + i * 2])
+							{
+								new_endpoints8[1 + i * 2] = (uint8_t)new_ise_v;
+								break;
+							}
+						}
+					}
+					else
+					{
+						// both are 0, increase s0
+						for (uint32_t i = 0; i < 3; i++)
+						{
+							uint32_t new_ise_val = astc_helpers::apply_delta_to_bise_endpoint_val(astc_helpers::BISE_256_LEVELS, new_endpoints8[i * 2], 1);
+							if (new_ise_val != new_endpoints8[i * 2])
+							{
+								new_endpoints8[i * 2] = (uint8_t)new_ise_val;
+								break;
+							}
+						}
+					}
+				}
+				else
+				{
+					for (uint32_t i = 0; i < num_dst_endpoint_vals; i += 2)
+						std::swap(new_endpoints8[i], new_endpoints8[i + 1]);
+				}
+			}
+
+			assert(astc_helpers::used_blue_contraction(dst_cem, new_endpoints8, astc_helpers::BISE_256_LEVELS) == use_blue_contraction);
+
+			// requant predicted 256 level endpoints to current endpoint quant level
+			bool status = requantize_ise_endpoints(dst_cem, astc_helpers::BISE_256_LEVELS, new_endpoints8, dst_endpoint_ise_range, pDst_endpoints);
+
+			// should always have succeeded with rgb(a) direct
+			assert(astc_helpers::used_blue_contraction(dst_cem, pDst_endpoints, dst_endpoint_ise_range) == use_blue_contraction);
+
+			if (!status)
+				return false;
+
+			break;
+		}
+		case astc_helpers::CEM_LDR_RGB_BASE_SCALE:
+		case astc_helpers::CEM_LDR_RGB_BASE_SCALE_PLUS_TWO_A:
+		{
+			color_rgba lc(prev_l), hc(prev_h);
+
+			// Normalize the l/h colors for proper base+scale packing if the endpoints came from a non-base-scale CEM (unless the colors came from base_scale, in which case, leave them alone).
+			if ((prev_cem != astc_helpers::CEM_LDR_RGB_BASE_SCALE) &&
+				(prev_cem != astc_helpers::CEM_LDR_RGB_BASE_SCALE_PLUS_TWO_A))
+			{
+				if ((lc.r + lc.g + lc.b) > (hc.r + hc.g + hc.b))
+				{
+					std::swap(lc, hc);
+				}
+			}
+
+			new_endpoints8[0] = hc.r;
+			new_endpoints8[1] = hc.g;
+			new_endpoints8[2] = hc.b;
+
+#if 0
+			// TODO: remove FP here
+			vec3F lf((float)lc.r, (float)lc.g, (float)lc.b);
+			vec3F hf((float)hc.r, (float)hc.g, (float)hc.b);
+
+			const float MAX_S = 255.0f / 256.0f;
+
+			float scale = MAX_S;
+
+			float d = lf.dot(hf);
+			float nrm = hf.norm();
+			if (nrm > 0.0f)
+				scale = d / nrm;
+
+			scale = basisu::clamp(scale, 0.0f, MAX_S);
+
+			new_endpoints8[3] = (uint8_t)basisu::clamp<int>((int)std::round(scale * 256.0f), 0, 255); // explictly not 255.0f, but 256.0f, decoder divides scale by 256.0f
+#endif
+
+			{
+				int id = (lc.r * hc.r) + (lc.g * hc.g) + (lc.b * hc.b);
+				int inrm = (hc.r * hc.r) + (hc.g * hc.g) + (hc.b * hc.b);
+
+				const int IMAX_S = (1024 * 255) / 256;
+				
+				int iscale = IMAX_S;
+				if (inrm > 0)
+					iscale = (id * 1024) / inrm;
+
+				iscale = basisu::clamp<int>(iscale, 0, IMAX_S);
+
+				iscale = (iscale + 2) >> 2;
+				iscale = basisu::clamp<int>(iscale, 0, 255);
+
+				//assert(basisu::iabs(new_endpoints8[3] - iscale) <= 1);
+				new_endpoints8[3] = static_cast<uint8_t>(iscale);
+			}
+
+			if (dst_cem == astc_helpers::CEM_LDR_RGB_BASE_SCALE_PLUS_TWO_A)
+			{
+				new_endpoints8[4] = lc.a;
+				new_endpoints8[5] = hc.a;
+
+				if ((prev_cem != astc_helpers::CEM_LDR_RGB_BASE_SCALE) &&
+					(prev_cem != astc_helpers::CEM_LDR_RGB_BASE_SCALE_PLUS_TWO_A))
+				{
+					// ensure val4 < val5 for proper lerping on single plane (correlated alpha)
+					if (new_endpoints8[4] > new_endpoints8[5])
+						std::swap(new_endpoints8[4], new_endpoints8[5]);
+				}
+			}
+
+			// requant predicted 256 level endpoints to current endpoint quant level
+			return requantize_ise_endpoints(dst_cem, astc_helpers::BISE_256_LEVELS, new_endpoints8, dst_endpoint_ise_range, pDst_endpoints);
+		}
+		case astc_helpers::CEM_LDR_RGB_BASE_PLUS_OFFSET:
+		case astc_helpers::CEM_LDR_RGBA_BASE_PLUS_OFFSET:
+		{
+			bool endpoints_swapped = false;
+
+			return pack_base_offset(dst_cem, dst_endpoint_ise_range, pDst_endpoints, prev_l, prev_h, use_blue_contraction, auto_disable_blue_contraction_if_clamped,
+				blue_contraction_clamped_flag, base_ofs_clamped_flag, endpoints_swapped);
+		}
+		default:
+		{
+			assert(0);
+			return false;
+		}
+		}
+
+		return true;
+	}
+
+	// Assumes ise 20 (256 levels)
+	void decode_endpoints_ise20(uint32_t cem_index, const uint8_t* pEndpoint_vals, color32& l, color32& h)
+	{
+		assert(astc_helpers::is_cem_ldr(cem_index));
+
+		int ldr_endpoints[4][2];
+		astc_helpers::decode_endpoint(cem_index, ldr_endpoints, pEndpoint_vals);
+
+		for (uint32_t c = 0; c < 4; c++)
+		{
+			assert((ldr_endpoints[c][0] >= 0) && (ldr_endpoints[c][0] <= 255));
+			assert((ldr_endpoints[c][1] >= 0) && (ldr_endpoints[c][1] <= 255));
+
+			l[c] = (uint8_t)ldr_endpoints[c][0];
+			h[c] = (uint8_t)ldr_endpoints[c][1];
+		}
+	}
+
+	void decode_endpoints(uint32_t cem_index, const uint8_t* pEndpoint_vals, uint32_t endpoint_ise_index, color32& l, color32& h, float* pScale)
+	{
+		const uint32_t total_endpoint_vals = astc_helpers::get_num_cem_values(cem_index);
+
+		const auto& endpoint_dequant_tab = astc_helpers::g_dequant_tables.get_endpoint_tab(endpoint_ise_index).m_ISE_to_val;
+
+		uint8_t dequantized_endpoints[astc_helpers::MAX_CEM_ENDPOINT_VALS];
+		for (uint32_t i = 0; i < total_endpoint_vals; i++)
+			dequantized_endpoints[i] = endpoint_dequant_tab[pEndpoint_vals[i]];
+
+		decode_endpoints_ise20(cem_index, dequantized_endpoints, l, h);
+
+		if ((pScale) && ((cem_index == astc_helpers::CEM_LDR_RGB_BASE_SCALE) || (cem_index == astc_helpers::CEM_LDR_RGB_BASE_SCALE_PLUS_TWO_A)))
+		{
+			*pScale = (float)dequantized_endpoints[3] * (1.0f / 256.0f);
+		}
+	}
+
+	// Assumes ise 20 (256 levels)
+	void decode_endpoints_ise20(uint32_t cem_index, const uint8_t* pEndpoint_vals, color_rgba& l, color_rgba& h)
+	{
+		assert(astc_helpers::is_cem_ldr(cem_index));
+
+		int ldr_endpoints[4][2];
+		astc_helpers::decode_endpoint(cem_index, ldr_endpoints, pEndpoint_vals);
+
+		for (uint32_t c = 0; c < 4; c++)
+		{
+			assert((ldr_endpoints[c][0] >= 0) && (ldr_endpoints[c][0] <= 255));
+			assert((ldr_endpoints[c][1] >= 0) && (ldr_endpoints[c][1] <= 255));
+
+			l[c] = (uint8_t)ldr_endpoints[c][0];
+			h[c] = (uint8_t)ldr_endpoints[c][1];
+		}
+	}
+
+	void decode_endpoints(uint32_t cem_index, const uint8_t* pEndpoint_vals, uint32_t endpoint_ise_index, color_rgba& l, color_rgba& h, float* pScale)
+	{
+		const uint32_t total_endpoint_vals = astc_helpers::get_num_cem_values(cem_index);
+
+		const auto& endpoint_dequant_tab = astc_helpers::g_dequant_tables.get_endpoint_tab(endpoint_ise_index).m_ISE_to_val;
+
+		uint8_t dequantized_endpoints[astc_helpers::MAX_CEM_ENDPOINT_VALS];
+		for (uint32_t i = 0; i < total_endpoint_vals; i++)
+			dequantized_endpoints[i] = endpoint_dequant_tab[pEndpoint_vals[i]];
+
+		decode_endpoints_ise20(cem_index, dequantized_endpoints, l, h);
+
+		if ((pScale) && ((cem_index == astc_helpers::CEM_LDR_RGB_BASE_SCALE) || (cem_index == astc_helpers::CEM_LDR_RGB_BASE_SCALE_PLUS_TWO_A)))
+		{
+			*pScale = (float)dequantized_endpoints[3] * (1.0f / 256.0f);
+		}
+	}
+
+	// TODO: Duplicated in astc_hdr
+	void compute_upsample_matrix(basisu::vector2D<float>& upsample_matrix, uint32_t block_width, uint32_t block_height, uint32_t grid_width, uint32_t grid_height)
+	{
+		assert((block_width >= 2) && (block_width <= astc_helpers::MAX_BLOCK_DIM));
+		assert((block_height >= 2) && (block_height <= astc_helpers::MAX_BLOCK_DIM));
+		assert((grid_width >= 2) && (grid_width <= block_width));
+		assert((grid_height >= 2) && (grid_height <= block_height));
+
+		const uint32_t num_block_samples = block_width * block_height;
+		const uint32_t num_grid_samples = grid_width * grid_height;
+
+		astc_helpers::weighted_sample samples[astc_helpers::MAX_BLOCK_DIM * astc_helpers::MAX_BLOCK_DIM];
+		basisu::clear_obj(samples);
+
+		astc_helpers::compute_upsample_weights(block_width, block_height, grid_width, grid_height, samples);
+
+		// Compute upsample matrix: output num_block_samples (rows), input num_grid_samples (cols)
+		upsample_matrix.resize_rows_cols(num_block_samples, num_grid_samples);
+
+		basisu::vector<float> weights(num_grid_samples);
+
+		// compute which source sample(s) contribute to it.
+		for (uint32_t d = 0; d < num_block_samples; d++)
+		{
+			const astc_helpers::weighted_sample& ws = samples[d];
+
+			weights.set_all(0.0f);
+
+			for (uint32_t y = 0; y < 2; y++)
+			{
+				for (uint32_t x = 0; x < 2; x++)
+				{
+					float w = ws.m_weights[y][x] * (1.0f / 16.0f);
+					if (!w)
+						continue;
+
+					assert((ws.m_src_x + x) < grid_width);
+					assert((ws.m_src_y + y) < grid_height);
+
+					assert(weights[(ws.m_src_x + x) + (ws.m_src_y + y) * grid_width] == 0.0f);
+					weights[(ws.m_src_x + x) + (ws.m_src_y + y) * grid_width] = w;
+				} //  x
+			} // y
+
+			for (uint32_t i = 0; i < num_grid_samples; i++)
+				upsample_matrix.at_row_col(d, i) = weights[i];
+
+		} // d
+	}
+
+	// TODO: Only needed by ASTC LDR encoder
+	void compute_adjoint_downsample_matrix(basisu::vector<float>& downsample_matrix, uint32_t block_width, uint32_t block_height, uint32_t grid_width, uint32_t grid_height)
+	{
+		assert((block_width >= 2) && (block_width <= astc_helpers::MAX_BLOCK_DIM));
+		assert((block_height >= 2) && (block_height <= astc_helpers::MAX_BLOCK_DIM));
+		assert((grid_width >= 2) && (grid_width <= block_width));
+		assert((grid_height >= 2) && (grid_height <= block_height));
+
+		const uint32_t num_block_samples = block_width * block_height;
+		const uint32_t num_grid_samples = grid_width * grid_height;
+
+		// Compute upsample matrix: output num_block_samples (rows), input num_grid_samples (cols)
+		basisu::vector2D<float> upsample_matrix;
+		compute_upsample_matrix(upsample_matrix, block_width, block_height, grid_width, grid_height);
+
+		basisu::vector<float> Dinv(num_grid_samples);
+		for (uint32_t j = 0; j < num_grid_samples; j++)
+		{
+			float sum = 0.0f;
+
+			for (uint32_t i = 0; i < num_block_samples; i++)
+				sum += upsample_matrix.at_row_col(i, j);
+
+			if (sum > 0.0f)
+				Dinv[j] = 1.0f / sum;
+		}
+
+		// Create downsample matrix: num_grid_samples rows, num_block_samples cols
+		downsample_matrix.resize(num_grid_samples * num_block_samples);
+		downsample_matrix.set_all(0.0f);
+
+		for (uint32_t j = 0; j < num_grid_samples; ++j)
+			for (uint32_t i = 0; i < num_block_samples; ++i)
+				downsample_matrix[j * num_block_samples + i] = Dinv[j] * upsample_matrix.at_row_col(i, j);
+	}
+		
+	const astc_block_grid_data* find_astc_block_grid_data(uint32_t block_width, uint32_t block_height, uint32_t grid_width, uint32_t grid_height)
+	{
+		auto find_res(g_astc_block_grid_data_hash.find(astc_block_grid_config(block_width, block_height, grid_width, grid_height)));
+		assert(find_res != g_astc_block_grid_data_hash.end());
+
+		return &find_res->second;
+	}
+
+	void init_astc_block_grid_data_hash()
+	{
+		if (g_astc_block_grid_data_hash.size())
+			return;
+
+		g_astc_block_grid_data_hash.clear();
+		g_astc_block_grid_data_hash.reserve(384);
+
+		// TODO: Iterate over all valid block sizes more efficiently
+		for (uint32_t block_h = 4; block_h <= 12; block_h++)
+		{
+			for (uint32_t block_w = 4; block_w <= 12; block_w++)
+			{
+				if (!astc_helpers::is_valid_block_size(block_w, block_h))
+					continue;
+
+				for (uint32_t grid_h = 2; grid_h <= block_h; grid_h++)
+				{
+					for (uint32_t grid_w = 2; grid_w <= block_w; grid_w++)
+					{
+						const int bw = block_w, bh = block_h;
+						const int gw = grid_w, gh = grid_h;
+
+						const int num_texels = bw * bh;
+						const int num_weights = gw * gh;
+
+						basisu::vector2D<float> upsample_matrix;
+						compute_upsample_matrix(upsample_matrix, bw, bh, gw, gh);
+
+						float accum = 0.0f;
+						for (int t = 0; t < num_texels; ++t)
+						{
+							float row_sum_sq = 0.0f;
+							const float* row = &(upsample_matrix.get_ptr())[t * num_weights];
+
+							for (int i = 0; i < num_weights; ++i)
+							{
+								float w = row[i];
+								row_sum_sq += w * w;
+							}
+
+							accum += row_sum_sq;
+						}
+
+						// estimate of MSE weight quantization reduction due to bilinear weight grid upsampling
+						// TODO: Gamma is used during encoding now, not transcoding.
+						const float weight_gamma = accum / (float)num_texels;
+
+						astc_block_grid_data grid_data(weight_gamma);
+						grid_data.m_upsample_matrix = upsample_matrix;
+
+						basisu::vector<float>& downsample_matrix = grid_data.m_downsample_matrix;
+						compute_adjoint_downsample_matrix(downsample_matrix, bw, bh, gw, gh);
+
+						auto res = g_astc_block_grid_data_hash.insert(astc_block_grid_config(bw, bh, gw, gh), grid_data);
+						assert(res.second);
+						BASISU_NOTE_UNUSED(res);
+
+					} // grid_w
+				} // grid_h
+
+			} // block_h
+
+		} // block_w
+	}
+
+#include "basisu_idct.h"
+
+#if 0
+	typedef void (*idct_1d_func_ptr)(const float* src, int src_stride, float* dst, int dst_stride);
+
+	const idct_1d_func_ptr g_idct_1d_func_ptrs[11] =
+	{
+		idct_1d_2,
+		idct_1d_3,
+		idct_1d_4,
+
+		idct_1d_5,
+		idct_1d_6,
+		idct_1d_7,
+		idct_1d_8,
+
+		idct_1d_9,
+		idct_1d_10,
+		idct_1d_11,
+		idct_1d_12,
+	};
+#endif
+
+	static inline void idct_2d(const float* pSrc, float* pDst, uint32_t num_rows, uint32_t num_cols)
+	{
+		assert((num_rows >= 2) && (num_rows <= 12));
+		assert((num_cols >= 2) && (num_cols <= 12));
+
+		float temp[12 * 12];
+
+		// IDCT cols from src to temp
+
+#if 0
+		// This works but uses slow WASM indirect calls
+				
+		const idct_1d_func_ptr pCol_xform = g_idct_1d_func_ptrs[num_rows - 2];
+		for (uint32_t c = 0; c < num_cols; c++)
+		{
+			(*pCol_xform)(pSrc + c, num_cols, temp + c, num_cols);
+		}
+#else
+		switch (num_rows)
+		{
+		case 2:
+			for (uint32_t c = 0; c < num_cols; c++)
+				idct_1d_2(pSrc + c, num_cols, temp + c, num_cols);
+			break;
+		case 3:
+			for (uint32_t c = 0; c < num_cols; c++)
+				idct_1d_3(pSrc + c, num_cols, temp + c, num_cols);
+			break;
+		case 4:
+			for (uint32_t c = 0; c < num_cols; c++)
+				idct_1d_4(pSrc + c, num_cols, temp + c, num_cols);
+			break;
+		case 5:
+			for (uint32_t c = 0; c < num_cols; c++)
+				idct_1d_5(pSrc + c, num_cols, temp + c, num_cols);
+			break;
+		case 6:
+			for (uint32_t c = 0; c < num_cols; c++)
+				idct_1d_6(pSrc + c, num_cols, temp + c, num_cols);
+			break;
+		case 7:
+			for (uint32_t c = 0; c < num_cols; c++)
+				idct_1d_7(pSrc + c, num_cols, temp + c, num_cols);
+			break;
+		case 8:
+			for (uint32_t c = 0; c < num_cols; c++)
+				idct_1d_8(pSrc + c, num_cols, temp + c, num_cols);
+			break;
+		case 9:
+			for (uint32_t c = 0; c < num_cols; c++)
+				idct_1d_9(pSrc + c, num_cols, temp + c, num_cols);
+			break;
+		case 10:
+			for (uint32_t c = 0; c < num_cols; c++)
+				idct_1d_10(pSrc + c, num_cols, temp + c, num_cols);
+			break;
+		case 11:
+			for (uint32_t c = 0; c < num_cols; c++)
+				idct_1d_11(pSrc + c, num_cols, temp + c, num_cols);
+			break;
+		case 12:
+		default:
+			for (uint32_t c = 0; c < num_cols; c++)
+				idct_1d_12(pSrc + c, num_cols, temp + c, num_cols);
+			break;
+		}
+#endif
+
+		// IDCT rows from temp to dst
+
+#if 0
+		// This works but uses slow WASM indirect calls
+		const idct_1d_func_ptr pRow_xform = g_idct_1d_func_ptrs[num_cols - 2];
+
+		float* pTemp_row = temp;
+		float* pDst_row = pDst;
+		for (uint32_t r = 0; r < num_rows; r++)
+		{
+			(*pRow_xform)(pTemp_row, 1, pDst_row, 1);
+			pTemp_row += num_cols;
+			pDst_row += num_cols;
+		}
+#else
+		float* pTemp_row = temp;
+		float* pDst_row = pDst;
+		switch (num_cols)
+		{
+		case 2:
+			for (uint32_t r = 0; r < num_rows; r++, pTemp_row += num_cols, pDst_row += num_cols)
+				idct_1d_2(pTemp_row, 1, pDst_row, 1);
+			break;
+		case 3:
+			for (uint32_t r = 0; r < num_rows; r++, pTemp_row += num_cols, pDst_row += num_cols)
+				idct_1d_3(pTemp_row, 1, pDst_row, 1);
+			break;
+		case 4:
+			for (uint32_t r = 0; r < num_rows; r++, pTemp_row += num_cols, pDst_row += num_cols)
+				idct_1d_4(pTemp_row, 1, pDst_row, 1);
+			break;
+		case 5:
+			for (uint32_t r = 0; r < num_rows; r++, pTemp_row += num_cols, pDst_row += num_cols)
+				idct_1d_5(pTemp_row, 1, pDst_row, 1);
+			break;
+		case 6:
+			for (uint32_t r = 0; r < num_rows; r++, pTemp_row += num_cols, pDst_row += num_cols)
+				idct_1d_6(pTemp_row, 1, pDst_row, 1);
+			break;
+		case 7:
+			for (uint32_t r = 0; r < num_rows; r++, pTemp_row += num_cols, pDst_row += num_cols)
+				idct_1d_7(pTemp_row, 1, pDst_row, 1);
+			break;
+		case 8:
+			for (uint32_t r = 0; r < num_rows; r++, pTemp_row += num_cols, pDst_row += num_cols)
+				idct_1d_8(pTemp_row, 1, pDst_row, 1);
+			break;
+		case 9:
+			for (uint32_t r = 0; r < num_rows; r++, pTemp_row += num_cols, pDst_row += num_cols)
+				idct_1d_9(pTemp_row, 1, pDst_row, 1);
+			break;
+		case 10:
+			for (uint32_t r = 0; r < num_rows; r++, pTemp_row += num_cols, pDst_row += num_cols)
+				idct_1d_10(pTemp_row, 1, pDst_row, 1);
+			break;
+		case 11:
+			for (uint32_t r = 0; r < num_rows; r++, pTemp_row += num_cols, pDst_row += num_cols)
+				idct_1d_11(pTemp_row, 1, pDst_row, 1);
+			break;
+		case 12:
+		default:
+			for (uint32_t r = 0; r < num_rows; r++, pTemp_row += num_cols, pDst_row += num_cols)
+				idct_1d_12(pTemp_row, 1, pDst_row, 1);
+			break;
+		}
+#endif
+	}
+				
+	bool dct2f::init(uint32_t rows, uint32_t cols)
+	{
+		if ((rows < 2u) || (rows > cMaxSize) ||
+			(cols < 2u) || (cols > cMaxSize))
+		{
+			assert(0);
+			return false;
+		}
+
+		m_rows = rows;
+		m_cols = cols;
+
+		m_c_col.assign(m_rows * m_rows, 0.0f);
+		m_c_row.assign(m_cols * m_cols, 0.0f);
+		m_a_col.assign(m_rows, 0.0f);
+		m_a_row.assign(m_cols, 0.0f);
+
+		const float pi = 3.14159265358979323846f;
+
+		// alpha scaling
+		const float inv_m = 1.0f / static_cast<float>(m_rows);
+		m_a_col[0] = sqrtf(inv_m);
+		for (uint32_t u = 1; u < m_rows; ++u)
+			m_a_col[u] = sqrtf(2.0f * inv_m);
+
+		const float inv_n = 1.0f / static_cast<float>(m_cols);
+		m_a_row[0] = sqrtf(inv_n);
+		for (uint32_t v = 1; v < m_cols; ++v)
+			m_a_row[v] = sqrtf(2.0f * inv_n);
+
+		// cos tables
+		for (uint32_t u = 0; u < m_rows; ++u)
+		{
+			for (uint32_t x = 0; x < m_rows; ++x)
+			{
+				float angle = (pi * static_cast<float>((2 * x + 1) * u)) / (2.0f * static_cast<float>(m_rows));
+				m_c_col[u * m_rows + x] = cosf(angle);
+			}
+		}
+
+		for (uint32_t v = 0; v < m_cols; ++v)
+		{
+			for (uint32_t y = 0; y < m_cols; ++y)
+			{
+				float angle = (pi * static_cast<float>((2 * y + 1) * v)) / (2.0f * static_cast<float>(m_cols));
+				m_c_row[v * m_cols + y] = cosf(angle);
+			}
+		}
+
+		return true;
+	}
+				
+	void dct2f::forward(const float* pSrc, float* pDst, fvec& work) const
+	{
+		forward(pSrc, m_cols, pDst, m_cols, work);
+	}
+
+	void dct2f::inverse(const float* pSrc, float* pDst, fvec& work) const
+	{
+		inverse(pSrc, m_cols, pDst, m_cols, work);
+	}
+
+	void dct2f::inverse_check(const float* pSrc, float* pDst, fvec& work) const
+	{
+		inverse_check(pSrc, m_cols, pDst, m_cols, work);
+	}
+
+	void dct2f::forward(const float* pSrc, uint32_t src_stride,
+		float* pDst, uint32_t dst_stride, fvec& work) const
+	{
+		assert(m_rows && m_cols);
+		work.resize(m_rows * m_cols);
+
+		const uint32_t m = m_rows, n = m_cols;
+
+		float* pWork = &work[0];
+
+		// horizontal
+		for (uint32_t x = 0; x < m; ++x)
+		{
+			const float* pRowIn = pSrc + x * src_stride;
+			float* pRowT = pWork + x * n;
+			for (uint32_t v = 0; v < n; ++v)
+			{
+				const float* pCv = &m_c_row[v * n];
+				float s = 0.0f;
+				for (uint32_t y = 0; y < n; ++y)
+				{
+					s += pRowIn[y] * pCv[y];
+				}
+				pRowT[v] = s * m_a_row[v];
+			}
+		}
+
+		// vertical
+		for (uint32_t v = 0; v < n; ++v)
+		{
+			for (uint32_t u = 0; u < m; ++u)
+			{
+				const float* pCu = &m_c_col[u * m];
+				float s = 0.0f;
+				for (uint32_t x = 0; x < m; ++x)
+				{
+					s += pWork[x * n + v] * pCu[x];
+				}
+				pDst[u * dst_stride + v] = s * m_a_col[u];
+			}
+		}
+	}
+
+	// src_stride/dst_stride must be m_cols
+	void dct2f::inverse(const float* pSrc, uint32_t src_stride,
+		float* pDst, uint32_t dst_stride, fvec& work) const
+	{
+		BASISU_NOTE_UNUSED(src_stride);
+		BASISU_NOTE_UNUSED(dst_stride);
+
+#if 0
+		assert(m_rows && m_cols);
+		work.resize(m_rows * m_cols);
+
+		const uint32_t m = m_rows, n = m_cols;
+		float* pWork = &work[0];
+
+		// vertical
+		for (uint32_t v = 0; v < n; ++v) // cols
+		{
+			float sums[cMaxSize] = { 0 };
+
+			for (uint32_t u = 0; u < m; ++u) // rows
+			{
+				if (((const uint32_t*)pSrc)[u * src_stride + v] == 0)
+					continue;
+
+				float yU = pSrc[u * src_stride + v]; // most coeffs will be 0
+				//if (yU == 0.0f)
+				//	continue;
+
+				yU *= m_a_col[u];
+
+				for (uint32_t x = 0; x < m; ++x)
+				{
+					const float cU = m_c_col[u * m + x];
+					sums[x] += yU * cU;
+				} // x
+
+			} // u
+
+			for (uint32_t x = 0; x < m; ++x)
+				pWork[x * n + v] = sums[x];
+
+		} // v
+
+		// horizontal
+		for (uint32_t x = 0; x < m; ++x)  // rows 
+		{
+			const float* pRowT = pWork + x * n;
+			float* pRowOut = pDst + x * dst_stride;
+
+			for (uint32_t y = 0; y < n; ++y) // cols
+			{
+				float s = 0.0f;
+				for (uint32_t v = 0; v < n; ++v)  // cols
+				{
+					const float cV = m_c_row[v * n + y];
+					s += (pRowT[v] * m_a_row[v]) * cV;
+				}
+				pRowOut[y] = s;
+			}
+		}
+#else
+		BASISU_NOTE_UNUSED(work);
+		assert(src_stride == m_cols);
+		assert(dst_stride == m_cols);
+		idct_2d(pSrc, pDst, m_rows, m_cols);
+#endif
+	}
+
+	void dct2f::inverse_check(const float* pSrc, uint32_t src_stride,
+		float* pDst, uint32_t dst_stride, fvec& work) const
+	{
+		assert(m_rows && m_cols);
+		work.resize(m_rows * m_cols);
+
+		const uint32_t m = m_rows, n = m_cols;
+		float* pWork = &work[0];
+
+		// vertical
+		for (uint32_t v = 0; v < n; ++v)
+		{
+			for (uint32_t x = 0; x < m; ++x)
+			{
+				float s = 0.0f;
+				for (uint32_t u = 0; u < m; ++u)
+				{
+					const float yU = pSrc[u * src_stride + v];
+					const float cU = m_c_col[u * m + x];
+					s += (yU * m_a_col[u]) * cU;
+				}
+				pWork[x * n + v] = s;
+			}
+		}
+
+		// horizontal
+		for (uint32_t x = 0; x < m; ++x)  // rows 
+		{
+			const float* pRowT = pWork + x * n;
+			float* pRowOut = pDst + x * dst_stride;
+
+			for (uint32_t y = 0; y < n; ++y) // cols
+			{
+				float s = 0.0f;
+				for (uint32_t v = 0; v < n; ++v)  // cols
+				{
+					const float cV = m_c_row[v * n + y];
+					s += (pRowT[v] * m_a_row[v]) * cV;
+				}
+				pRowOut[y] = s;
+			}
+		}
+	}
+	
+	static int* generate_zigzag_order(int width, int height)
+	{
+		assert((width > 0) && (height > 0));
+
+		const int total = width * height;
+		int* pOrder = (int*)malloc(total * sizeof(int));
+		if (!pOrder)
+			return nullptr;
+
+		int idx = 0;
+		for (int s = 0; s < (width + height - 1); ++s)
+		{
+			// Start x at max(0, s - height + 1), end at min(s, width - 1)
+			const int x_start = (s < height) ? 0 : (s - height + 1);
+			const int x_end = (s < width) ? s : (width - 1);
+
+			// Diagonal size
+			const int diag_size = x_end - x_start + 1;
+			int* pDiag = (int*)malloc(diag_size * sizeof(int));
+			if (!pDiag)
+			{
+				free(pOrder);
+				return nullptr;
+			}
+
+			int j = 0;
+			for (int x = x_start; x <= x_end; ++x)
+			{
+				int y = s - x;
+				assert(j < diag_size);
+				pDiag[j++] = x + y * width;
+			}
+
+			// Reverse if s is odd (alternate direction)
+			if ((s & 1) == 1)
+			{
+				for (int k = diag_size - 1; k >= 0; --k) 
+				{
+					assert(idx < total);
+					pOrder[idx++] = pDiag[k];
+				}
+			}
+			else
+			{
+				for (int k = 0; k < diag_size; ++k) 
+				{
+					assert(idx < total);
+					pOrder[idx++] = pDiag[k];
+				}
+			}
+
+			free(pDiag);
+		}
+
+		return pOrder;
+	}
+
+	static const int g_baseline_jpeg_y[8][8] = 
+	{
+		// DC element modified so bilinear fetches near (0,0) grab a smaller quant table value, protecting most important LF coefficients
+		{  4, 11, 10, 16, 24, 40, 51, 61 },	
+		{ 12, 12, 14, 19, 26, 58, 60, 55 },
+		{ 14, 13, 16, 24, 40, 57, 69, 56 },
+		{ 14, 17, 22, 29, 51, 87, 80, 62 },
+		{ 18, 22, 37, 56, 68,109,103, 77 },
+		{ 24, 35, 55, 64, 81,104,113, 92 },
+		{ 49, 64, 78, 87,103,121,120,101 },
+		{ 72, 92, 95, 98,112,100,103, 99 }
+	};
+
+	// centers at (0,0)
+	static inline float sample_jpeg_quant(const int Q8[8][8], float i, float j)
+	{
+		i = basisu::minimum(basisu::maximum(i, 0.0f), 7.0f);
+		j = basisu::minimum(basisu::maximum(j, 0.0f), 7.0f);
+		int i0 = (int)floorf(i), j0 = (int)floorf(j);
+		int i1 = basisu::minimum(i0 + 1, 7), j1 = basisu::minimum(j0 + 1, 7);
+		float ti = i - i0, tj = j - j0;
+		float a = (1 - ti) * Q8[j0][i0] + ti * Q8[j0][i1];
+		float b = (1 - ti) * Q8[j1][i0] + ti * Q8[j1][i1];
+		return (1 - tj) * a + tj * b;
+	}
+				
+	void grid_weight_dct::init(uint32_t block_width, uint32_t block_height)
+	{
+		m_block_width = block_width;
+		m_block_height = block_height;
+
+		for (uint32_t grid_height = 2; grid_height <= block_height; grid_height++)
+		{
+			for (uint32_t grid_width = 2; grid_width <= block_width; grid_width++)
+			{
+				// Check if this is a valid ASTC weight grid dimension
+				if ((grid_width * grid_height) > astc_helpers::MAX_GRID_WEIGHTS)
+					continue;
+
+				auto ins_res = m_grid_dim_key_vals.insert(grid_dim_key(grid_width, grid_height), grid_dim_value());
+				auto& val = ins_res.first->second;
+
+				val.m_dct.init(grid_height, grid_width);
+
+				int* pZigZag = generate_zigzag_order(grid_width, grid_height);
+
+				basisu::int_vec v(grid_width * grid_height);
+				memcpy(v.data(), pZigZag, sizeof(int) * grid_width * grid_height);
+
+				free(pZigZag);
+
+				val.m_zigzag.swap(v);
+
+			} // w
+		} // h
+	}
+				
+	// This can used FP as it only impacts the final decoded weights (not future blocks)
+	bool grid_weight_dct::decode_block_weights(
+		float q, uint32_t plane_index, // plane of weights to decode and IDCT from stream
+		astc_helpers::log_astc_block& log_blk, // must be initialized except for the plane weights which are decoded
+		basist::bitwise_decoder* pDec,
+		const astc_block_grid_data* pGrid_data, // grid data for this grid size
+		block_stats* pS,
+		fvec& dct_work,
+		const dct_syms* pSyms) const
+	{
+		const uint32_t grid_width = log_blk.m_grid_width, grid_height = log_blk.m_grid_height;
+		const uint32_t total_grid_samples = grid_width * grid_height;
+		const uint32_t num_planes = log_blk.m_dual_plane ? 2 : 1;
+
+		//const auto& dequant_tab = astc_helpers::g_dequant_tables.get_weight_tab(log_blk.m_weight_ise_range).m_ISE_to_val;
+		const auto& quant_tab = astc_helpers::g_dequant_tables.get_weight_tab(log_blk.m_weight_ise_range).m_val_to_ise;
+
+		auto grid_dim_vals_iter = m_grid_dim_key_vals.find(grid_dim_key(grid_width, grid_height));
+		
+		if (grid_dim_vals_iter == m_grid_dim_key_vals.end())
+		{
+			// Invalid grid dimension for this block size
+			assert(0);
+			return false;
+		}
+
+		auto& grid_dim_vals = grid_dim_vals_iter->second;
+
+		const float span_len = get_max_span_len(log_blk, plane_index);
+
+		const float level_scale = compute_level_scale(q, span_len, pGrid_data->m_weight_gamma, grid_width, grid_height, log_blk.m_weight_ise_range);
+				
+		float scaled_weight_coding_scale = SCALED_WEIGHT_BASE_CODING_SCALE;
+		if (log_blk.m_weight_ise_range <= astc_helpers::BISE_8_LEVELS)
+			scaled_weight_coding_scale = 1.0f / 8.0f;
+
+		float mean_weight = 0;
+
+		if (pDec)
+			mean_weight = (float)pDec->decode_truncated_binary((uint32_t)(64.0f * scaled_weight_coding_scale) + 1) / (float)scaled_weight_coding_scale;
+		else if (pSyms)
+			mean_weight = (float)pSyms->m_dc_sym / (float)scaled_weight_coding_scale;
+		else
+		{
+			assert(0);
+			return false;
+		}
+
+		if (pS)
+		{
+			pS->m_mean_weight = mean_weight;
+			pS->m_total_coded_acs = 0;
+			pS->m_max_ac_coeff = 0;
+		}
+
+		float dct_weights[astc_helpers::MAX_BLOCK_PIXELS];
+
+		const auto& zigzag = grid_dim_vals.m_zigzag;
+
+		basisu::clear_obj(dct_weights);
+
+		sample_quant_table_state quant_state;
+		quant_state.init(q, m_block_width, m_block_height, level_scale);
+				
+		if (pDec)
+		{
+			for (uint32_t zig_idx = 1; zig_idx < total_grid_samples; zig_idx++)
+			{
+				uint32_t run_len = pDec->decode_rice(m_zero_run);
+
+				if ((run_len + zig_idx) > total_grid_samples)
+					return false;
+
+				zig_idx += run_len;
+
+				if (zig_idx >= total_grid_samples)
+					break;
+
+				int sign = pDec->get_bits(1);
+
+				int coeff = pDec->decode_rice(m_coeff);
+
+				if (sign)
+					coeff = -coeff;
+
+				int dct_idx = zigzag[zig_idx];
+
+				const uint32_t y = (uint32_t)dct_idx / grid_width;
+				const uint32_t x = (uint32_t)dct_idx % grid_width;
+				
+				//const int quant = dct_quant_tab[dct_idx];
+				const int quant = sample_quant_table(quant_state, x, y);
+				//assert(quant == sample_quant_table(quant_state, x, y));
+
+				dct_weights[dct_idx] = dequant_deadzone(coeff, quant, DEADZONE_ALPHA, x, y);
+
+				if (pS)
+				{
+					++pS->m_total_coded_acs;
+					pS->m_max_ac_coeff = basisu::maximum<uint32_t>(pS->m_max_ac_coeff, basisu::iabs(coeff));
+				}
+			}
+		}
+		else
+		{
+			uint32_t zig_idx = 1;
+			uint32_t coeff_ofs = 0;
+			while (coeff_ofs < pSyms->m_coeffs.size())
+			{
+				const uint32_t run_len = pSyms->m_coeffs[coeff_ofs].m_num_zeros;
+				const int coeff = pSyms->m_coeffs[coeff_ofs].m_coeff;
+				coeff_ofs++;
+
+				if ((run_len + zig_idx) > total_grid_samples)
+					return false;
+
+				zig_idx += run_len;
+
+				if (zig_idx >= total_grid_samples)
+					break;
+
+				assert(coeff != INT_MAX);
+
+				int dct_idx = zigzag[zig_idx];
+
+				const uint32_t y = (uint32_t)dct_idx / grid_width;
+				const uint32_t x = (uint32_t)dct_idx % grid_width;
+				
+				//const int quant = dct_quant_tab[dct_idx];
+				const int quant = sample_quant_table(quant_state, x, y);
+				//assert(quant == sample_quant_table(quant_state, x, y));
+				
+				dct_weights[dct_idx] = dequant_deadzone(coeff, quant, DEADZONE_ALPHA, x, y);
+
+				if (pS)
+				{
+					++pS->m_total_coded_acs;
+					pS->m_max_ac_coeff = basisu::maximum<uint32_t>(pS->m_max_ac_coeff, basisu::iabs(coeff));
+				}
+
+				zig_idx++;
+			}
+		}
+
+		float idct_weights[astc_helpers::MAX_BLOCK_PIXELS];
+				
+		grid_dim_vals.m_dct.inverse(dct_weights, idct_weights, dct_work);
+
+#if defined(_DEBUG) || defined(DEBUG)
+		// Sanity check IDCT vs. less optimized variant
+		// Also quant table sanity check vs. sample_quant_table().
+		{
+			float idct_weights_temp[astc_helpers::MAX_BLOCK_PIXELS];
+			grid_dim_vals.m_dct.inverse_check(dct_weights, idct_weights_temp, dct_work);
+						
+			int dct_quant_tab[astc_helpers::MAX_BLOCK_PIXELS];
+			compute_quant_table(q, grid_width, grid_height, level_scale, dct_quant_tab);
+
+			for (uint32_t i = 0; i < grid_width * grid_height; i++)
+			{
+				assert(basisu::equal_tol(idct_weights[i], idct_weights_temp[i], .00125f));
+
+				assert(!i || (dct_quant_tab[i] == sample_quant_table(quant_state, i % grid_width, i / grid_width)));
+			}
+		}
+#endif
+
+		// Compute final grid weights
+		for (uint32_t y = 0; y < grid_height; y++)
+			for (uint32_t x = 0; x < grid_width; x++)
+				log_blk.m_weights[(x + y * grid_width) * num_planes + plane_index] = quant_tab[basisu::clamp(fast_roundf_int(mean_weight + idct_weights[x + y * grid_width]), 0, 64)];
+
+		return true;
+	}
+
+	// results of calling scale_quant_steps() for each # of ASTC weight levels
+	static const float g_scale_quant_steps[12] = { 1.51333141f, 1.41198814f, 1.35588217f, 1.31743157f, 1.28835952f, 1.24573100f, 1.21481407f, 1.19067919f, 1.15431654f, 1.12734985f, 1.10601568f, 1.07348967f };
+
+	// Adaptive quantization
+	float grid_weight_dct::compute_level_scale(float q, float span_len, float weight_gamma, uint32_t grid_width, uint32_t grid_height, uint32_t weight_ise_range) const
+	{
+		BASISU_NOTE_UNUSED(weight_gamma);
+		BASISU_NOTE_UNUSED(grid_width);
+		BASISU_NOTE_UNUSED(grid_height);
+
+		assert((weight_ise_range >= astc_helpers::BISE_2_LEVELS) && (weight_ise_range <= astc_helpers::BISE_32_LEVELS));
+
+		// Standard JPEG quality factor calcs
+		// TODO: Precompute this once
+		float level_scale;
+		q = basisu::clamp(q, 1.0f, 100.0f);
+		if (q < 50.0f)
+			level_scale = 5000.0f / q;
+		else
+			level_scale = 200.0f - 2.0f * q;
+
+		level_scale *= (1.0f / 100.0f); // because JPEG's quant table is scaled by 100
+
+		//const float span_floor = 28.0f;
+		const float span_floor = 14.0f;
+		//const float adaptive_factor = 255.0f / maximum<float>(span_len, span_floor);
+		// 64.0 = dynamic range adjustment (JPEG uses 255)
+		// divide by span len to adjustment adaptive low/high values per-block (JPEG always uses effective span=0-255)
+		// actually (64/255) * 255/max(span_len, span_floor)
+		float adaptive_factor = 64.0f / basisu::maximum<float>(span_len, span_floor);
+
+		// input signal scalar quantization noise will be distributed between multiple AC coefficients - compensate by adaptively adjusting the quant step size
+		float weight_quant_adaptive_factor = g_scale_quant_steps[weight_ise_range];
+		adaptive_factor *= weight_quant_adaptive_factor;
+
+		// sanity
+		assert(fabs(weight_quant_adaptive_factor - scale_quant_steps(astc_helpers::get_ise_levels(weight_ise_range))) < .000125f);
+				
+		// Adjust for ASTC weight grid bilinear upsampling using precomputed constants depending on the weight grid dims (usually .5-1.0, smaller grids=lower weights)
+		// This compensates for weight quant error being smoothed out due to bilinear.
+		// It's unclear if this is actually useful, and looks worse on smaller weight grids.
+		//level_scale *= adaptive_factor / sqrtf(weight_gamma); // weight_gamma is power domain, not amplitude
+
+		// (Adaptive quant)
+		level_scale *= adaptive_factor;
+
+		// The higher the level_scale, the more quantized DCT coefficients will be and vice versa.
+
+		return level_scale;
+	}
+	
+	int grid_weight_dct::sample_quant_table(sample_quant_table_state& state, uint32_t x, uint32_t y) const
+	{
+		assert(x || y);
+		
+		if (state.m_q >= 100.0f)
+			return 1;
+
+		float ny = float(y);
+		float ry = ny * state.m_sy;
+
+		float nx = float(x);
+		float rx = nx * state.m_sx;
+				
+		assert(x || y);
+
+		// sample from the JPEG baseline luma 8x8 DCT quant matrix
+		// this is an approximation (we could do an actual desired radians per spatial sample search vs. each of the 8x8 basis vectors to find the best, most conservative mapping), 
+		// but for 4x4 and 6x6 block sizes it's reasonable enough and simple/fast
+		// at 4x4, the lowest frequencies are slightly more heavily quantized than we would want (but the quant table entries near DC are so similar it's doubtful it matters much if at all)
+		//float base = sample_jpeg_quant(g_baseline_jpeg_y, rx, ry);
+		
+		float base;
+		{
+			float i = rx, j = ry;
+			assert((i >= 0.0f) && (j >= 0.0f));
+			
+			i = basisu::minimum(i, 7.0f);
+			j = basisu::minimum(j, 7.0f);
+
+			int i0 = (int)(i), j0 = (int)(j);
+			int i1 = basisu::minimum(i0 + 1, 7), j1 = basisu::minimum(j0 + 1, 7);
+
+			float ti = i - i0, tj = j - j0;
+			float a = (1 - ti) * g_baseline_jpeg_y[j0][i0] + ti * g_baseline_jpeg_y[j0][i1];
+			float b = (1 - ti) * g_baseline_jpeg_y[j1][i0] + ti * g_baseline_jpeg_y[j1][i1];
+
+			base = (1 - tj) * a + tj * b;
+		}
+				
+		int quant_scale = (int)(base * state.m_level_scale + 0.5f);
+		
+		quant_scale = basisu::maximum<int>(1, quant_scale);
+
+		return quant_scale;
+	}
+
+	void grid_weight_dct::compute_quant_table(float q,
+		uint32_t grid_width, uint32_t grid_height,
+		float level_scale, int* dct_quant_tab) const
+	{
+		assert(q > 0.0f);
+
+		dct_quant_tab[0] = 1;
+
+		if (q >= 100.0f)
+		{
+			for (uint32_t y = 0; y < grid_height; y++)
+				for (uint32_t x = 0; x < grid_width; x++)
+					if (x || y)
+						dct_quant_tab[x + y * grid_width] = 1;
+			return;
+		}
+				
+		const int Bx = m_block_width, By = m_block_height;
+
+		const float sx = (float)8.0f / (float)Bx;
+		const float sy = (float)8.0f / (float)By;
+
+		for (uint32_t y = 0; y < grid_height; y++)
+		{
+			float ny = float(y);
+			float ry = ny * sy;
+
+			for (uint32_t x = y ? 0 : 1; x < grid_width; x++)
+			{
+				int quant_scale = 0;
+
+				assert(x || y);
+				
+				float nx = float(x);
+				float rx = nx * sx;
+
+				// sample from the JPEG baseline luma 8x8 DCT quant matrix
+				// this is an approximation (we could do an actual desired radians per spatial sample search vs. each of the 8x8 basis vectors to find the best, most conservative mapping), 
+				// but for 4x4 and 6x6 block sizes it's reasonable enough and simple/fast
+				// at 4x4, the lowest frequencies are slightly more heavily quantized than we would want (but the quant table entries near DC are so similar it's doubtful it matters much if at all)
+				float base = sample_jpeg_quant(g_baseline_jpeg_y, rx, ry);
+
+				//quant_scale = (int)std::floor(base * level_scale + 0.5f);
+				quant_scale = (int)(base * level_scale + 0.5f);
+				assert(quant_scale == (int)std::floor(base * level_scale + 0.5f));
+
+				quant_scale = basisu::maximum<int>(1, quant_scale);
+
+				dct_quant_tab[x + y * grid_width] = quant_scale;
+			} // x
+		} // y
+	}
+
+	// Needed by AQ
+	float grid_weight_dct::get_max_span_len(const astc_helpers::log_astc_block& log_blk, uint32_t plane_index) const
+	{
+		float span_len = 0.0f;
+
+		if (log_blk.m_dual_plane)
+		{
+			color32 l, h;
+			decode_endpoints(log_blk.m_color_endpoint_modes[0], log_blk.m_endpoints, log_blk.m_endpoint_ise_range, l, h);
+
+			for (uint32_t c = 0; c < 4; c++)
+			{
+				if (plane_index == 1)
+				{
+					if (c == log_blk.m_color_component_selector)
+					{
+						span_len += basisu::squaref((float)h[c] - (float)l[c]);
+					}
+				}
+				else
+				{
+					if (c != log_blk.m_color_component_selector)
+					{
+						span_len += basisu::squaref((float)h[c] - (float)l[c]);
+					}
+				}
+			}
+
+			span_len = sqrtf(span_len);
+		}
+		else
+		{
+			for (uint32_t i = 0; i < log_blk.m_num_partitions; i++)
+			{
+				color32 l, h;
+				decode_endpoints(log_blk.m_color_endpoint_modes[0], log_blk.m_endpoints + astc_helpers::get_num_cem_values(log_blk.m_color_endpoint_modes[0]) * i, log_blk.m_endpoint_ise_range, l, h);
+
+				float part_span_len = sqrtf(
+					basisu::squaref((float)h.r - (float)l.r) + basisu::squaref((float)h.g - (float)l.g) + basisu::squaref((float)h.b - (float)l.b) + basisu::squaref((float)h.a - (float)l.a)
+				);
+
+				span_len = basisu::maximum(part_span_len, span_len);
+			}
+		}
+
+		return span_len;
+	}
+		
+#include "basisu_astc_cfgs.inl"
+
+	void create_encoder_trial_modes_table(uint32_t block_width, uint32_t block_height,
+		basisu::vector<trial_mode>& encoder_trial_modes, grouped_trial_modes& grouped_encoder_trial_modes,
+		bool print_debug_info, bool print_modes)
+	{
+		//interval_timer itm;
+		//itm.start();
+
+		uint32_t mode_index = 0;
+		uint32_t max_grid_width = 0, max_grid_height = 0, max_grid_samples = 0;
+
+		//encoder_trial_modes.reserve(BU_TOTAL_ASTC_CFGS);
+		encoder_trial_modes.reserve(3072);
+		encoder_trial_modes.resize(0);
+
+		grouped_encoder_trial_modes.clear();
+
+		for (uint32_t cfg_index = 0; cfg_index < BU_TOTAL_ASTC_CFGS; cfg_index++)
+		{
+			assert((cfg_index * 3 + 2) < std::size(s_astc_cfg_table));
+			uint32_t packed_mode = s_astc_cfg_table[cfg_index * 3] | (s_astc_cfg_table[cfg_index * 3 + 1] << 8) | (s_astc_cfg_table[cfg_index * 3 + 2] << 16);
+
+			uint32_t endpoint_ise_range, weight_ise_range, ccs_index, num_subsets, unique_cem_index, grid_wh;
+
+#define BU_UNPACK_FIELD(val, bits) do { val = packed_mode & ((1u << (bits)) - 1u); packed_mode >>= (bits); } while(0)
+			BU_UNPACK_FIELD(endpoint_ise_range, CFG_PACK_EISE_BITS);
+			BU_UNPACK_FIELD(weight_ise_range, CFG_PACK_WISE_BITS);
+			BU_UNPACK_FIELD(ccs_index, CFG_PACK_CCS_BITS);
+			BU_UNPACK_FIELD(num_subsets, CFG_PACK_SUBSETS_BITS);
+			BU_UNPACK_FIELD(unique_cem_index, CFG_PACK_CEM_BITS);
+			BU_UNPACK_FIELD(grid_wh, CFG_PACK_GRID_BITS);
+#undef BU_UNPACK_FIELD
+
+			assert(!packed_mode);
+
+			const uint32_t grid_width = (grid_wh / 11) + 2;
+
+			// modes are sorted by grid widths, which is at/near the MSB of the packed values, rest must be >=
+			if (grid_width > block_width)
+				break;
+
+			const uint32_t grid_height = (grid_wh % 11) + 2;
+			if (grid_height > block_height)
+				continue;
+
+			const uint32_t cem_index = s_unique_ldr_index_to_astc_cem[unique_cem_index];
+
+#if defined(_DEBUG) || defined(DEBUG)
+			{
+				// Ensure configuration is actually valid.
+				astc_helpers::log_astc_block log_block;
+				log_block.clear();
+				log_block.m_grid_width = (uint8_t)grid_width;
+				log_block.m_grid_height = (uint8_t)grid_height;
+				log_block.m_num_partitions = (uint8_t)(num_subsets + 1);
+				log_block.m_dual_plane = (ccs_index != 0);
+				log_block.m_color_component_selector = (uint8_t)(ccs_index ? (ccs_index - 1) : 0);
+				log_block.m_num_partitions = (uint8_t)(num_subsets + 1);
+				log_block.m_endpoint_ise_range = (uint8_t)(endpoint_ise_range + astc_helpers::FIRST_VALID_ENDPOINT_ISE_RANGE);
+				log_block.m_weight_ise_range = (uint8_t)(weight_ise_range + astc_helpers::FIRST_VALID_WEIGHT_ISE_RANGE);
+
+				for (uint32_t i = 0; i < log_block.m_num_partitions; i++)
+					log_block.m_color_endpoint_modes[i] = (uint8_t)cem_index;
+
+				astc_helpers::astc_block phys_block;
+				bool pack_success = astc_helpers::pack_astc_block(phys_block, log_block, nullptr, nullptr, astc_helpers::cValidateSkipFinalEndpointWeightPacking);
+				assert(pack_success);
+			}
+#endif
+
+			const uint32_t tm_index = encoder_trial_modes.size_u32();
+
+			trial_mode& tm = *encoder_trial_modes.enlarge(1);
+
+			tm.m_ccs_index = (int)ccs_index - 1;
+			tm.m_cem = cem_index;
+			tm.m_endpoint_ise_range = endpoint_ise_range + astc_helpers::FIRST_VALID_ENDPOINT_ISE_RANGE;
+			tm.m_weight_ise_range = weight_ise_range;
+			tm.m_grid_width = grid_width;
+			tm.m_grid_height = grid_height;
+			tm.m_num_parts = num_subsets + 1;
+
+			grouped_encoder_trial_modes.add(block_width, block_height, tm, tm_index);
+
+			if (print_modes)
+			{
+				max_grid_width = basisu::maximum(max_grid_width, grid_width);
+				max_grid_height = basisu::maximum(max_grid_height, grid_height);
+				max_grid_samples = basisu::maximum(max_grid_samples, grid_width * grid_height);
+
+				basisu::debug_printf("%u: CEM: %u DP: %u, CCS: %i, SUBSETS: %u, GRID: %ux%u, ENDPOINTS: %u, WEIGHTS: %u\n",
+					mode_index,
+					tm.m_cem, tm.m_ccs_index >= 0, tm.m_ccs_index, tm.m_num_parts,
+					tm.m_grid_width, tm.m_grid_height,
+					astc_helpers::get_ise_levels(tm.m_endpoint_ise_range),
+					astc_helpers::get_ise_levels(tm.m_weight_ise_range));
+			}
+
+			mode_index++;
+		} // cfg_index
+
+		if (print_debug_info)
+		{
+			//fmt_debug_printf("create_encoder_trial_modes_table() time: {} secs\n", itm.get_elapsed_secs());
+			basisu::debug_printf("create_encoder_trial_modes_table() - ASTC %ux%u modes\n", block_width, block_height);
+			basisu::debug_printf("Total used trial mode groups: %u\n", grouped_encoder_trial_modes.count_used_groups());
+			basisu::debug_printf("Total ASTC configurations iterated: %u\n", mode_index);
+			if (print_modes)
+				basisu::fmt_debug_printf("Max grid dimensions: {}x{}, max grid samples: {}\n", max_grid_width, max_grid_height, max_grid_samples);
+		}
+	}
+
+	// Cached encoder trial modes for each block size, to avoid having to compute this for every texture/mipmap level.
+	basisu::vector<trial_mode> g_encoder_trial_modes[astc_helpers::cTOTAL_BLOCK_SIZES];
+	grouped_trial_modes g_grouped_encoder_trial_modes[astc_helpers::cTOTAL_BLOCK_SIZES];
+
+	grid_weight_dct g_grid_weight_dcts[astc_helpers::cTOTAL_BLOCK_SIZES];
+
+	// These tables could be initialized per transcoded texture, but that would result in per-texture overhead.
+	void init_transcoding_tables()
+	{
+		if (g_encoder_trial_modes[0].size())
+			return;
+
+		// We don't know what ASTC block sizes they're going to transcode, to prepare for all of them.
+		for (uint32_t i = 0; i < astc_helpers::cTOTAL_BLOCK_SIZES; i++)
+		{
+			const uint32_t block_width = astc_helpers::g_astc_block_sizes[i][0];
+			const uint32_t block_height = astc_helpers::g_astc_block_sizes[i][1];
+
+			auto& encoder_trial_modes = g_encoder_trial_modes[i];
+			auto& grouped_encoder_trial_modes = g_grouped_encoder_trial_modes[i];
+
+			encoder_trial_modes.reserve(3072);
+			create_encoder_trial_modes_table(block_width, block_height, encoder_trial_modes, grouped_encoder_trial_modes, false, false);
+
+			g_grid_weight_dcts[i].init(block_width, block_height);
+		} // i
+	}
+
+	const uint16_t g_total_unique_patterns[astc_helpers::NUM_ASTC_BLOCK_SIZES][2] =
+	{
+		{ 437, 329 }, { 559, 405 }, { 659, 486 }, { 720, 534 },
+		{ 521, 333 }, { 584, 377 }, { 640, 410 }, { 672, 436 },
+		{ 710, 468 }, { 701, 476 }, { 759, 528 }, { 799, 568 },
+		{ 818, 597 }, { 838, 626 }
+	};
+
+	inline uint32_t get_total_unique_patterns(uint32_t astc_block_size_index, uint32_t num_parts)
+	{
+		assert(astc_block_size_index < astc_helpers::NUM_ASTC_BLOCK_SIZES);
+		assert((num_parts >= 2) && (num_parts <= 3));
+	
+		return g_total_unique_patterns[astc_block_size_index][num_parts - 2];
+	}
+
+	const uint16_t g_unique_to_seed_4x4_p2[] = { 1,2,3,4,5,7,8,9,10,11,13,14,15,16,17,18,20,21,23,24,25,26,27,28,29,30,33,36,37,39,42,43,44,45,47,48,49,50,51,53,54,55,56,58,59,61,62,63,65,66,68,69,70,71,72,73,74,75,76,78,83,87,89,90,91,94,95,98,99,100,101,107,108,109,110,111,113,114,115,116,119,121,122,124,125,128,129,130,131,134,135,137,138,139,142,143,144,146,147,149,150,151,156,158,159,161,165,167,168,169,170,171,172,174,175,177,181,183,184,191,194,195,196,198,199,203,204,206,207,208,210,211,213,214,215,216,218,220,222,226,227,230,231,232,235,236,239,245,246,247,248,249,250,252,253,254,255,257,258,260,262,264,270,271,273,277,278,279,280,281,284,291,293,299,302,304,305,306,307,309,314,319,324,325,326,327,329,330,335,337,339,341,343,344,347,348,351,352,354,355,359,362,368,370,373,374,375,376,380,386,387,388,389,394,395,399,404,409,411,412,418,419,422,423,426,430,432,438,441,443,445,447,453,455,463,471,474,475,476,478,479,484,487,488,489,490,491,495,496,498,500,504,510,511,513,517,518,523,524,526,527,529,530,531,534,539,542,546,547,549,553,558,567,578,581,583,586,587,591,593,594,595,598,600,601,602,605,607,611,612,614,615,619,622,625,627,631,633,634,638,639,643,647,649,655,658,661,662,663,664,666,672,673,674,681,683,684,686,690,693,694,695,696,700,703,705,707,713,716,719,720,724,726,727,730,731,732,736,742,751,754,756,762,764,766,769,770,773,774,778,780,789,791,796,798,799,801,802,804,807,810,811,812,818,819,821,826,828,831,833,834,836,839,840,842,847,849,852,868,872,873,877,881,886,887,888,890,895,897,898,899,902,903,906,911,914,915,919,923,924,930,934,937,938,943,945,947,948,950,951,954,958,959,963,964,966,967,971,976,983,987,988,993,994,995,998,999,1006,1007,1009,1013,1014,1015,1016,1019,1022,1023 } ;
+	const uint16_t g_unique_to_seed_5x4_p2[] = { 1,2,3,4,5,7,8,9,10,11,13,14,15,16,17,18,20,21,23,24,25,26,27,28,29,30,31,33,36,37,39,42,43,44,45,47,48,49,50,51,53,54,55,56,58,59,61,62,63,65,66,67,68,69,70,71,72,73,74,75,76,78,83,87,88,89,90,91,94,95,97,98,99,100,101,107,108,109,110,111,113,114,115,116,119,121,122,124,125,128,129,130,131,132,134,135,137,138,139,142,143,144,145,146,147,149,150,151,153,154,156,157,158,159,161,165,167,168,169,170,171,172,174,175,177,181,183,184,185,188,190,191,194,195,196,198,199,200,203,204,206,207,208,210,211,213,214,215,216,217,218,220,222,225,226,227,229,230,231,232,235,236,239,245,246,247,248,249,250,252,253,254,255,257,258,260,261,262,264,265,267,270,271,273,275,277,278,279,280,281,282,284,287,291,293,295,296,299,300,302,304,305,306,307,309,314,317,319,323,324,325,326,327,329,330,332,335,337,339,341,342,343,344,347,348,349,350,351,352,354,355,359,361,362,365,368,370,373,374,375,376,380,381,386,387,388,389,391,394,395,399,404,405,407,409,410,411,412,418,419,420,422,423,426,430,432,438,439,441,443,445,447,449,453,454,455,462,463,465,471,473,474,475,476,478,479,482,484,486,487,488,489,490,491,495,496,498,500,501,503,504,505,508,510,511,513,516,517,518,519,521,523,524,526,527,529,530,531,533,534,538,539,542,546,547,549,550,551,553,554,558,563,567,569,572,575,578,579,581,583,586,587,591,593,594,595,598,600,601,602,605,606,607,608,611,612,614,615,616,619,622,623,625,627,631,633,634,636,638,639,643,645,647,649,652,655,658,661,662,663,664,665,666,668,672,673,674,675,681,683,684,686,687,690,692,693,694,695,696,697,700,702,703,705,707,709,711,713,716,719,720,724,725,726,727,730,731,732,736,739,742,748,751,754,756,758,762,763,764,766,768,769,770,772,773,774,776,778,780,782,786,789,791,792,796,798,799,801,802,804,807,810,811,812,814,818,819,821,823,826,828,830,831,833,834,835,836,839,840,842,845,847,849,852,858,861,866,868,870,871,872,873,876,877,878,881,886,887,888,890,891,895,897,898,899,901,902,903,906,909,911,914,915,919,923,924,927,929,930,933,934,935,936,937,938,941,942,943,945,947,948,950,951,954,955,958,959,963,964,966,967,970,971,975,976,980,983,986,987,988,993,994,995,997,998,999,1001,1006,1007,1009,1010,1013,1014,1015,1016,1019,1020,1022,1023 };
+	const uint16_t g_unique_to_seed_5x5_p2[] = { 1,2,3,4,5,7,8,9,10,11,13,14,15,16,17,18,20,21,23,24,25,26,27,28,29,30,31,33,34,36,37,39,42,43,44,45,47,48,49,50,51,53,54,55,56,58,59,60,61,62,63,65,66,67,68,69,70,71,72,73,74,75,76,77,78,81,82,83,87,88,89,90,91,92,94,95,97,98,99,100,101,105,107,108,109,110,111,113,114,115,116,119,120,121,122,124,125,128,129,130,131,132,134,135,137,138,139,142,143,144,145,146,147,148,149,150,151,153,154,155,156,157,158,159,161,165,167,168,169,170,171,172,174,175,176,177,181,182,183,184,185,188,190,191,193,194,195,196,198,199,200,203,204,206,207,208,209,210,211,213,214,215,216,217,218,220,222,224,225,226,227,229,230,231,232,235,236,239,240,242,245,246,247,248,249,250,252,253,254,255,256,257,258,260,261,262,264,265,267,270,271,273,275,276,277,278,279,280,281,282,283,284,286,287,289,291,293,294,295,296,298,299,300,302,303,304,305,306,307,309,313,314,317,318,319,323,324,325,326,327,329,330,331,332,335,337,338,339,341,342,343,344,347,348,349,350,351,352,354,355,356,359,361,362,365,368,370,373,374,375,376,377,378,380,381,386,387,388,389,390,391,392,393,394,395,399,403,404,405,407,409,410,411,412,415,418,419,420,421,422,423,424,426,430,432,433,437,438,439,440,441,443,444,445,446,447,449,453,454,455,458,462,463,465,466,469,470,471,473,474,475,476,478,479,481,482,484,486,487,488,489,490,491,492,495,496,498,500,501,502,503,504,505,506,508,509,510,511,513,516,517,518,519,521,523,524,526,527,529,530,531,533,534,538,539,542,546,547,548,549,550,551,553,554,558,559,561,562,563,567,569,572,575,578,579,580,581,583,585,586,587,590,591,593,594,595,596,598,599,600,601,602,605,606,607,608,609,610,611,612,614,615,616,617,619,620,621,622,623,625,627,631,633,634,636,638,639,643,645,646,647,648,649,652,654,655,658,661,662,663,664,665,666,668,672,673,674,675,681,683,684,686,687,688,690,692,693,694,695,696,697,699,700,701,702,703,705,707,709,711,713,714,716,719,720,722,724,725,726,727,730,731,732,736,738,739,742,748,751,753,754,756,758,760,762,763,764,766,768,769,770,772,773,774,776,778,780,782,783,786,789,791,792,796,798,799,801,802,804,806,807,808,810,811,812,813,814,818,819,821,823,826,828,830,831,833,834,835,836,839,840,841,842,845,847,849,851,852,858,861,866,868,869,870,871,872,873,874,876,877,878,879,881,886,887,888,890,891,893,894,895,897,898,899,901,902,903,906,909,910,911,912,914,915,917,919,920,921,923,924,927,929,930,933,934,935,936,937,938,941,942,943,945,947,948,950,951,954,955,958,959,961,962,963,964,966,967,968,970,971,975,976,977,980,983,986,987,988,993,994,995,996,997,998,999,1001,1006,1007,1009,1010,1013,1014,1015,1016,1018,1019,1020,1022,1023 };
+	const uint16_t g_unique_to_seed_6x5_p2[] = { 1,2,3,4,5,7,8,9,10,11,13,14,15,16,17,18,20,21,23,24,25,26,27,28,29,30,31,33,34,36,37,39,42,43,44,45,47,48,49,50,51,52,53,54,55,56,58,59,60,61,62,63,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,86,87,88,89,90,91,92,94,95,97,98,99,100,101,105,107,108,109,110,111,112,113,114,115,116,117,119,120,121,122,123,124,125,128,129,130,131,132,134,135,136,137,138,139,142,143,144,145,146,147,148,149,150,151,153,154,155,156,157,158,159,161,165,167,168,169,170,171,172,174,175,176,177,178,181,182,183,184,185,188,190,191,193,194,195,196,198,199,200,201,203,204,206,207,208,209,210,211,212,213,214,215,216,217,218,220,222,223,224,225,226,227,229,230,231,232,235,236,239,240,242,243,245,246,247,248,249,250,252,253,254,255,256,257,258,260,261,262,264,265,266,267,270,271,273,275,276,277,278,279,280,281,282,283,284,286,287,289,291,293,294,295,296,298,299,300,302,303,304,305,306,307,309,310,313,314,317,318,319,323,324,325,326,327,329,330,331,332,335,337,338,339,341,342,343,344,347,348,349,350,351,352,354,355,356,357,359,360,361,362,363,365,367,368,370,371,373,374,375,376,377,378,380,381,383,386,387,388,389,390,391,392,393,394,395,399,402,403,404,405,407,409,410,411,412,415,418,419,420,421,422,423,424,426,430,432,433,436,437,438,439,440,441,443,444,445,446,447,449,453,454,455,458,461,462,463,465,466,469,470,471,473,474,475,476,478,479,481,482,484,486,487,488,489,490,491,492,493,495,496,498,499,500,501,502,503,504,505,506,508,509,510,511,513,516,517,518,519,521,523,524,526,527,529,530,531,532,533,534,536,538,539,542,543,545,546,547,548,549,550,551,553,554,558,559,561,562,563,564,567,569,570,572,575,578,579,580,581,583,584,585,586,587,590,591,593,594,595,596,597,598,599,600,601,602,605,606,607,608,609,610,611,612,614,615,616,617,619,620,621,622,623,624,625,627,628,629,631,633,634,636,638,639,643,645,646,647,648,649,651,652,654,655,657,658,661,662,663,664,665,666,668,672,673,674,675,681,683,684,686,687,688,690,692,693,694,695,696,697,699,700,701,702,703,705,706,707,709,711,713,714,716,719,720,722,723,724,725,726,727,730,731,732,736,738,739,742,745,747,748,751,753,754,756,758,760,762,763,764,766,768,769,770,772,773,774,776,778,780,782,783,784,786,788,789,791,792,795,796,798,799,801,802,804,806,807,808,810,811,812,813,814,818,819,820,821,823,826,828,830,831,833,834,835,836,839,840,841,842,845,847,849,851,852,856,858,861,866,868,869,870,871,872,873,874,875,876,877,878,879,881,883,886,887,888,890,891,893,894,895,896,897,898,899,901,902,903,906,908,909,910,911,912,914,915,917,919,920,921,923,924,927,929,930,932,933,934,935,936,937,938,941,942,943,945,947,948,950,951,954,955,956,958,959,960,961,962,963,964,966,967,968,970,971,972,975,976,977,979,980,982,983,986,987,988,993,994,995,996,997,998,999,1001,1004,1006,1007,1009,1010,1013,1014,1015,1016,1017,1018,1019,1020,1022,1023 };
+	const uint16_t g_unique_to_seed_6x6_p2[] = { 1,2,3,4,5,7,8,9,10,11,14,15,16,17,18,19,21,23,24,25,26,27,28,29,31,33,36,37,39,42,43,44,45,46,47,48,49,50,51,53,54,55,56,58,59,60,61,62,63,65,66,67,68,69,70,71,73,74,75,76,77,78,79,83,86,87,88,89,90,91,94,95,98,99,100,101,103,107,108,109,110,112,114,115,116,119,121,122,125,128,129,130,131,132,134,135,136,137,138,139,142,144,146,147,148,149,151,153,154,156,158,159,167,168,169,170,171,172,174,175,177,178,181,183,190,191,193,194,195,196,198,199,203,206,207,210,211,213,214,215,216,217,218,220,222,223,225,226,227,229,230,231,232,235,236,237,240,247,249,250,252,254,255,257,258,260,262,264,266,267,270,271,272,273,277,278,279,281,283,284,286,289,291,292,293,295,298,299,302,303,305,306,307,309,314,316,318,319,323,324,326,327,329,335,339,341,343,347,348,351,352,353,354,355,361,362,363,366,367,368,370,373,374,376,380,386,387,388,389,390,392,393,394,395,402,403,404,407,409,411,414,415,418,419,422,423,426,430,432,433,436,437,438,439,440,441,445,447,450,452,453,455,458,461,463,470,471,474,475,476,478,480,482,486,487,488,490,495,496,498,499,500,504,506,508,510,513,517,518,519,521,523,524,526,527,529,530,531,533,534,538,539,543,545,546,547,549,550,551,553,554,558,562,567,569,572,578,581,583,585,586,587,591,593,594,595,596,598,600,601,602,606,607,608,610,611,612,614,615,616,619,621,622,623,625,627,631,633,634,638,639,643,645,646,647,648,649,652,655,658,661,662,663,664,665,670,672,673,674,675,681,683,684,685,686,687,688,690,691,693,694,695,696,697,700,702,703,705,713,714,716,719,720,722,724,726,727,730,731,732,736,740,742,751,753,754,756,758,760,762,763,764,766,769,770,774,778,780,786,789,791,794,797,798,799,801,802,804,805,807,808,810,811,812,817,819,821,822,826,828,831,834,835,836,839,842,847,852,854,858,862,868,869,870,872,874,876,877,878,886,887,890,891,893,895,897,898,899,902,903,906,909,910,911,912,914,919,929,930,934,936,937,938,942,943,945,947,948,950,951,954,955,958,959,963,964,966,967,968,976,980,983,987,988,993,994,995,998,999,1001,1006,1007,1008,1009,1013,1014,1015,1016,1019,1022,1023 };
+	const uint16_t g_unique_to_seed_8x5_p2[] = { 1,2,3,4,5,7,8,9,10,11,14,15,16,17,18,19,20,21,23,24,25,26,27,28,29,30,31,32,33,36,37,39,42,43,45,46,47,48,49,50,51,53,54,55,56,58,59,61,62,63,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,83,86,87,88,89,90,91,94,95,98,99,100,101,103,107,108,109,110,112,114,115,116,119,121,122,123,125,128,129,130,131,132,134,135,136,137,138,139,142,143,144,146,147,148,149,150,151,154,156,158,159,165,167,168,169,170,171,172,174,175,177,178,181,183,184,191,193,194,195,196,198,199,203,204,206,207,209,210,211,213,214,215,216,217,218,220,222,225,226,227,229,230,231,232,235,236,237,240,247,248,249,250,252,253,254,255,257,258,260,261,262,264,266,267,270,271,272,273,277,278,279,281,284,286,287,289,291,292,293,295,296,298,299,300,302,303,304,305,306,307,309,314,316,317,318,319,323,324,325,326,327,329,330,335,337,339,341,342,343,344,347,348,351,352,353,354,355,359,361,362,363,366,367,368,370,371,374,375,376,380,381,386,387,388,389,390,391,392,393,394,395,399,402,403,404,405,407,409,410,411,412,415,418,419,422,423,424,426,430,432,433,436,437,438,439,440,441,444,445,446,447,450,451,452,453,454,455,458,461,462,463,465,470,471,473,474,475,476,478,479,482,484,486,487,488,490,491,495,496,498,499,500,501,502,504,505,506,508,510,511,513,517,518,519,521,523,524,526,527,530,531,533,534,535,538,539,543,545,546,547,550,551,554,558,559,562,567,569,572,578,579,581,583,585,586,587,591,593,594,595,598,600,601,602,606,607,608,610,611,612,614,615,618,619,621,622,623,625,627,631,633,636,638,639,643,645,646,647,648,649,650,651,652,655,658,659,661,662,663,664,665,666,668,672,673,674,675,683,684,685,686,687,688,690,691,692,693,694,695,696,697,700,701,702,703,705,707,711,713,716,719,720,722,724,725,726,727,730,731,732,736,739,740,742,748,751,753,754,756,758,760,762,763,764,766,768,770,774,775,778,780,786,789,791,794,796,798,799,801,802,804,805,807,808,810,811,812,813,817,819,821,825,826,831,834,836,839,841,842,845,847,849,851,852,854,856,862,868,869,870,871,872,874,876,877,879,881,886,887,890,891,893,895,897,898,899,902,903,906,909,910,911,914,915,918,919,921,923,924,927,929,930,934,936,937,938,942,943,945,947,948,951,954,955,958,959,962,963,964,966,967,968,970,971,976,977,979,983,987,988,989,993,994,995,997,998,999,1001,1006,1007,1008,1009,1013,1015,1016,1018,1019,1022,1023 };
+	const uint16_t g_unique_to_seed_8x6_p2[] = { 1,2,3,4,5,7,8,9,10,11,13,14,15,16,17,18,19,20,21,23,24,25,26,27,28,29,30,31,32,33,36,37,39,42,43,44,45,46,47,48,49,50,51,53,54,55,56,58,59,60,61,62,63,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,83,86,87,88,89,90,91,94,95,98,99,100,101,103,107,108,109,110,112,113,114,115,116,119,121,122,123,125,128,129,130,131,132,134,135,136,137,138,139,142,143,144,146,147,148,149,150,151,153,154,156,158,159,165,167,168,169,170,171,172,174,175,177,178,181,183,184,190,191,193,194,195,196,198,199,200,203,204,206,207,208,209,210,211,213,214,215,216,217,218,220,222,223,225,226,227,229,230,231,232,235,236,237,240,245,246,247,248,249,250,252,253,254,255,257,258,260,261,262,264,266,267,270,271,272,273,277,278,279,281,283,284,286,287,289,291,292,293,294,295,296,298,299,300,302,303,304,305,306,307,309,314,316,317,318,319,323,324,325,326,327,329,330,335,337,339,341,342,343,344,347,348,349,350,351,352,353,354,355,359,361,362,363,365,366,367,368,370,371,373,374,375,376,380,381,386,387,388,389,390,391,392,393,394,395,399,402,403,404,405,407,409,410,411,412,414,415,418,419,422,423,424,426,430,432,433,436,437,438,439,440,441,443,444,445,446,447,450,451,452,453,454,455,458,461,462,463,465,470,471,473,474,475,476,478,479,480,482,484,486,487,488,489,490,491,495,496,498,499,500,501,502,504,505,506,508,510,511,513,517,518,519,521,523,524,526,527,529,530,531,533,534,535,538,539,543,545,546,547,549,550,551,553,554,558,559,562,567,569,572,575,578,579,581,583,585,586,587,591,593,594,595,596,598,600,601,602,606,607,608,610,611,612,614,615,616,618,619,621,622,623,625,627,631,633,634,636,638,639,643,645,646,647,648,649,650,651,652,655,658,659,661,662,663,664,665,666,668,670,672,673,674,675,681,683,684,685,686,687,688,690,691,692,693,694,695,696,697,700,701,702,703,705,707,711,713,714,716,719,720,722,724,725,726,727,730,731,732,736,739,740,742,748,751,753,754,756,758,760,762,763,764,766,768,769,770,773,774,775,776,778,780,786,789,791,792,794,796,797,798,799,801,802,804,805,807,808,810,811,812,813,817,818,819,821,822,825,826,828,830,831,833,834,835,836,839,841,842,845,847,849,851,852,854,856,858,861,862,868,869,870,871,872,873,874,876,877,878,879,881,886,887,888,890,891,893,895,897,898,899,902,903,906,909,910,911,912,914,915,918,919,921,923,924,927,929,930,933,934,935,936,937,938,940,942,943,945,947,948,950,951,954,955,958,959,962,963,964,966,967,968,970,971,976,977,979,980,983,986,987,988,989,993,994,995,997,998,999,1001,1006,1007,1008,1009,1013,1014,1015,1016,1018,1019,1021,1022,1023 };
+	const uint16_t g_unique_to_seed_10x5_p2[] = { 1,2,3,4,5,7,8,9,10,11,13,14,15,16,17,18,19,20,21,23,24,25,26,27,28,29,30,31,32,33,36,37,39,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,58,59,61,62,63,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,83,84,85,86,87,88,89,90,91,94,95,97,98,99,100,101,103,107,108,109,110,112,113,114,115,116,119,121,122,123,125,128,129,130,131,132,134,135,136,137,138,139,142,143,144,145,146,147,148,149,150,151,153,154,155,156,157,158,159,165,167,168,169,170,171,172,174,175,177,178,181,183,184,185,188,191,193,194,195,196,198,199,200,203,204,206,207,208,209,210,211,213,214,215,216,217,218,219,220,222,223,225,226,227,229,230,231,232,235,236,237,238,239,240,247,248,249,250,252,253,254,255,257,258,260,261,262,263,264,265,266,267,270,271,272,273,275,277,278,279,281,282,283,284,286,287,289,291,292,293,294,295,296,298,299,300,302,303,304,305,306,307,309,314,316,317,318,319,323,324,325,326,327,329,330,332,335,337,339,341,342,343,344,347,348,349,350,351,352,353,354,355,358,359,361,362,363,365,366,367,368,370,371,374,375,376,380,381,386,387,388,389,390,391,392,393,394,395,399,402,403,404,405,407,409,410,411,412,415,418,419,422,423,424,426,429,430,432,433,436,437,438,439,440,441,443,444,445,446,447,449,450,451,452,453,454,455,458,461,462,463,465,470,471,473,474,475,476,478,479,481,482,484,486,487,488,489,490,491,492,495,496,498,499,500,501,502,503,504,505,506,508,510,511,513,517,518,519,521,523,524,526,527,529,530,531,533,534,535,538,539,542,543,545,546,547,548,550,551,554,558,559,562,567,569,570,571,572,575,578,579,580,581,583,585,586,587,591,593,594,595,597,598,600,601,602,606,607,608,609,610,611,612,614,615,616,617,618,619,621,622,623,624,625,627,631,633,634,636,638,639,643,645,646,647,648,649,650,651,652,655,657,658,659,661,662,663,664,665,666,668,672,673,674,675,681,683,684,685,686,687,688,690,691,692,693,694,695,696,697,699,700,701,702,703,705,706,707,711,713,716,719,720,722,723,724,725,726,727,730,731,732,736,739,740,742,748,751,753,754,755,756,757,758,760,762,763,764,766,768,770,773,774,775,776,778,780,786,789,791,794,795,796,798,799,801,802,804,805,807,808,810,811,812,813,814,817,818,819,821,822,823,825,826,828,830,831,834,835,836,839,841,842,845,847,849,851,852,854,856,862,868,869,870,871,872,873,874,876,877,878,879,881,883,886,887,888,890,891,893,895,897,898,899,901,902,903,906,909,910,911,914,915,918,919,920,921,923,924,927,929,930,932,933,934,935,936,937,938,941,942,943,945,947,948,950,951,954,955,956,958,959,961,962,963,964,966,967,968,969,970,971,975,976,977,979,980,983,986,987,988,989,993,994,995,996,997,998,999,1001,1006,1007,1008,1009,1013,1014,1015,1016,1017,1018,1019,1020,1022,1023 };
+	const uint16_t g_unique_to_seed_10x6_p2[] = { 1,2,3,4,5,7,8,9,10,11,13,14,15,16,17,18,19,20,21,23,24,25,26,27,28,29,30,31,32,33,36,37,39,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,58,59,60,61,62,63,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,83,84,85,86,87,88,89,90,91,94,95,97,98,99,100,101,103,107,108,109,110,112,113,114,115,116,119,121,122,123,124,125,128,129,130,131,132,134,135,136,137,138,139,142,143,144,145,146,147,148,149,150,151,153,154,155,156,157,158,159,165,167,168,169,170,171,172,174,175,177,178,181,183,184,185,188,190,191,193,194,195,196,198,199,200,203,204,206,207,208,209,210,211,212,213,214,215,216,217,218,219,220,221,222,223,225,226,227,229,230,231,232,235,236,237,238,239,240,245,246,247,248,249,250,252,253,254,255,257,258,260,261,262,263,264,265,266,267,270,271,272,273,274,275,277,278,279,281,282,283,284,286,287,289,291,292,293,294,295,296,298,299,300,302,303,304,305,306,307,309,310,314,316,317,318,319,323,324,325,326,327,329,330,332,335,337,338,339,341,342,343,344,347,348,349,350,351,352,353,354,355,358,359,361,362,363,365,366,367,368,370,371,373,374,375,376,380,381,386,387,388,389,390,391,392,393,394,395,399,402,403,404,405,407,409,410,411,412,414,415,418,419,422,423,424,426,429,430,432,433,436,437,438,439,440,441,443,444,445,446,447,449,450,451,452,453,454,455,458,461,462,463,465,470,471,473,474,475,476,478,479,480,481,482,484,486,487,488,489,490,491,492,495,496,498,499,500,501,502,503,504,505,506,508,509,510,511,513,516,517,518,519,521,523,524,526,527,529,530,531,533,534,535,538,539,542,543,545,546,547,548,549,550,551,553,554,558,559,562,567,569,570,571,572,575,578,579,580,581,583,585,586,587,590,591,593,594,595,596,597,598,600,601,602,606,607,608,609,610,611,612,614,615,616,617,618,619,621,622,623,624,625,627,631,633,634,636,638,639,643,645,646,647,648,649,650,651,652,655,657,658,659,661,662,663,664,665,666,668,670,672,673,674,675,681,683,684,685,686,687,688,690,691,692,693,694,695,696,697,699,700,701,702,703,705,706,707,709,711,713,714,716,719,720,722,723,724,725,726,727,730,731,732,736,739,740,742,748,751,753,754,755,756,757,758,760,762,763,764,766,768,769,770,772,773,774,775,776,778,780,782,783,786,788,789,791,792,794,795,796,797,798,799,801,802,804,805,807,808,810,811,812,813,814,817,818,819,821,822,823,825,826,828,830,831,833,834,835,836,839,841,842,845,847,849,851,852,854,856,858,861,862,868,869,870,871,872,873,874,876,877,878,879,881,883,886,887,888,890,891,893,895,897,898,899,901,902,903,906,908,909,910,911,912,914,915,918,919,920,921,923,924,927,929,930,932,933,934,935,936,937,938,940,941,942,943,945,947,948,949,950,951,954,955,956,958,959,961,962,963,964,966,967,968,969,970,971,975,976,977,979,980,983,986,987,988,989,993,994,995,996,997,998,999,1001,1004,1006,1007,1008,1009,1013,1014,1015,1016,1017,1018,1019,1020,1021,1022,1023 };
+	const uint16_t g_unique_to_seed_8x8_p2[] = { 1,2,3,4,5,7,8,9,10,11,13,14,15,16,17,18,19,20,21,23,24,25,26,27,28,29,30,31,32,33,36,37,39,42,43,44,45,46,47,48,49,50,51,53,54,55,56,58,59,60,61,62,63,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,83,86,87,88,89,90,91,94,95,97,98,99,100,101,102,103,107,108,109,110,111,112,113,114,115,116,118,119,120,121,122,123,124,125,128,129,130,131,132,134,135,136,137,138,139,142,143,144,146,147,148,149,150,151,152,153,154,155,156,158,159,161,165,167,168,169,170,171,172,174,175,177,178,181,182,183,184,188,190,191,193,194,195,196,198,199,200,201,203,204,206,207,208,209,210,211,213,214,215,216,217,218,220,222,223,224,225,226,227,229,230,231,232,235,236,237,239,240,242,245,246,247,248,249,250,252,253,254,255,257,258,260,261,262,264,265,266,267,270,271,272,273,276,277,278,279,280,281,282,283,284,286,287,289,291,292,293,294,295,296,298,299,300,302,303,304,305,306,307,309,314,316,317,318,319,323,324,325,326,327,329,330,331,332,333,335,337,338,339,341,342,343,344,347,348,349,350,351,352,353,354,355,359,361,362,363,365,366,367,368,370,371,373,374,375,376,380,381,386,387,388,389,390,391,392,393,394,395,399,400,402,403,404,405,407,409,410,411,412,414,415,418,419,420,422,423,424,426,430,432,433,436,437,438,439,440,441,443,444,445,446,447,450,451,452,453,454,455,458,461,462,463,465,466,470,471,473,474,475,476,478,479,480,481,482,484,486,487,488,489,490,491,495,496,498,499,500,501,502,503,504,505,506,508,510,511,513,516,517,518,519,521,523,524,526,527,529,530,531,533,534,535,538,539,542,543,545,546,547,548,549,550,551,553,554,558,559,562,563,567,569,572,575,578,579,580,581,583,585,586,587,590,591,593,594,595,596,598,599,600,601,602,605,606,607,608,609,610,611,612,614,615,616,618,619,620,621,622,623,625,627,631,633,634,636,638,639,643,645,646,647,648,649,650,651,652,655,658,659,661,662,663,664,665,666,668,670,672,673,674,675,681,683,684,685,686,687,688,690,691,692,693,694,695,696,697,700,701,702,703,705,707,709,711,713,714,716,719,720,722,724,725,726,727,730,731,732,736,739,740,742,743,748,751,753,754,755,756,757,758,760,762,763,764,766,768,769,770,772,773,774,775,776,778,780,782,783,786,789,791,792,793,794,796,797,798,799,801,802,804,805,806,807,808,810,811,812,813,814,817,818,819,821,822,825,826,828,830,831,833,834,835,836,839,840,841,842,845,847,849,851,852,854,856,858,861,862,866,868,869,870,871,872,873,874,876,877,878,879,881,886,887,888,890,891,893,894,895,897,898,899,901,902,903,906,908,909,910,911,912,914,915,916,917,918,919,921,923,924,927,929,930,933,934,935,936,937,938,940,942,943,945,947,948,949,950,951,954,955,956,958,959,962,963,964,966,967,968,969,970,971,975,976,977,979,980,983,986,987,988,989,993,994,995,997,998,999,1001,1006,1007,1008,1009,1010,1013,1014,1015,1016,1018,1019,1020,1021,1022,1023 };
+	const uint16_t g_unique_to_seed_10x8_p2[] = { 1,2,3,4,5,7,8,9,10,11,13,14,15,16,17,18,19,20,21,23,24,25,26,27,28,29,30,31,32,33,34,36,37,39,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,58,59,60,61,62,63,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,83,84,85,86,87,88,89,90,91,92,94,95,97,98,99,100,101,102,103,105,107,108,109,110,111,112,113,114,115,116,118,119,120,121,122,123,124,125,128,129,130,131,132,134,135,136,137,138,139,142,143,144,145,146,147,148,149,150,151,152,153,154,155,156,157,158,159,161,165,167,168,169,170,171,172,174,175,177,178,179,180,181,182,183,184,185,188,190,191,193,194,195,196,198,199,200,201,203,204,206,207,208,209,210,211,212,213,214,215,216,217,218,219,220,221,222,223,224,225,226,227,229,230,231,232,235,236,237,238,239,240,242,245,246,247,248,249,250,252,253,254,255,257,258,260,261,262,263,264,265,266,267,270,271,272,273,274,275,276,277,278,279,280,281,282,283,284,286,287,289,291,292,293,294,295,296,298,299,300,302,303,304,305,306,307,309,310,314,316,317,318,319,321,323,324,325,326,327,329,330,331,332,333,335,337,338,339,341,342,343,344,347,348,349,350,351,352,353,354,355,358,359,361,362,363,365,366,367,368,370,371,373,374,375,376,378,380,381,385,386,387,388,389,390,391,392,393,394,395,399,400,402,403,404,405,407,409,410,411,412,414,415,418,419,420,422,423,424,426,429,430,432,433,436,437,438,439,440,441,443,444,445,446,447,449,450,451,452,453,454,455,458,461,462,463,465,466,469,470,471,473,474,475,476,478,479,480,481,482,484,486,487,488,489,490,491,492,495,496,498,499,500,501,502,503,504,505,506,508,509,510,511,513,516,517,518,519,520,521,523,524,526,527,529,530,531,533,534,535,538,539,542,543,545,546,547,548,549,550,551,553,554,558,559,562,563,567,569,570,571,572,575,578,579,580,581,583,584,585,586,587,590,591,593,594,595,596,597,598,599,600,601,602,605,606,607,608,609,610,611,612,614,615,616,617,618,619,620,621,622,623,624,625,627,628,629,631,633,634,636,638,639,643,645,646,647,648,649,650,651,652,655,657,658,659,661,662,663,664,665,666,668,670,672,673,674,675,681,683,684,685,686,687,688,690,691,692,693,694,695,696,697,699,700,701,702,703,705,706,707,709,711,713,714,716,719,720,722,723,724,725,726,727,730,731,732,736,739,740,742,743,745,747,748,751,753,754,755,756,757,758,760,762,763,764,766,768,769,770,772,773,774,775,776,778,780,781,782,783,786,788,789,791,792,793,794,795,796,797,798,799,801,802,804,805,806,807,808,810,811,812,813,814,817,818,819,821,822,823,825,826,828,830,831,833,834,835,836,839,840,841,842,845,847,849,851,852,854,856,858,861,862,866,868,869,870,871,872,873,874,876,877,878,879,880,881,883,886,887,888,890,891,893,894,895,897,898,899,901,902,903,906,908,909,910,911,912,914,915,916,917,918,919,920,921,923,924,927,929,930,932,933,934,935,936,937,938,940,941,942,943,945,947,948,949,950,951,954,955,956,958,959,960,961,962,963,964,966,967,968,969,970,971,975,976,977,979,980,982,983,986,987,988,989,993,994,995,996,997,998,999,1001,1004,1006,1007,1008,1009,1010,1013,1014,1015,1016,1017,1018,1019,1020,1021,1022,1023 };
+	const uint16_t g_unique_to_seed_10x10_p2[] = { 1,2,3,4,5,7,8,9,10,11,13,14,15,16,17,18,19,20,21,23,24,25,26,27,28,29,30,31,32,33,34,36,37,39,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,58,59,60,61,62,63,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,81,82,83,84,85,86,87,88,89,90,91,92,94,95,97,98,99,100,101,102,103,105,107,108,109,110,111,112,113,114,115,116,118,119,120,121,122,123,124,125,128,129,130,131,132,134,135,136,137,138,139,142,143,144,145,146,147,148,149,150,151,152,153,154,155,156,157,158,159,161,165,167,168,169,170,171,172,174,175,176,177,178,179,180,181,182,183,184,185,188,190,191,193,194,195,196,198,199,200,201,202,203,204,206,207,208,209,210,211,212,213,214,215,216,217,218,219,220,221,222,223,224,225,226,227,229,230,231,232,235,236,237,238,239,240,242,245,246,247,248,249,250,252,253,254,255,256,257,258,260,261,262,263,264,265,266,267,270,271,272,273,274,275,276,277,278,279,280,281,282,283,284,286,287,289,291,292,293,294,295,296,298,299,300,302,303,304,305,306,307,309,310,313,314,316,317,318,319,321,323,324,325,326,327,329,330,331,332,333,335,337,338,339,341,342,343,344,347,348,349,350,351,352,353,354,355,356,357,358,359,360,361,362,363,365,366,367,368,370,371,373,374,375,376,377,378,380,381,385,386,387,388,389,390,391,392,393,394,395,399,400,402,403,404,405,407,409,410,411,412,414,415,417,418,419,420,421,422,423,424,425,426,427,428,429,430,432,433,436,437,438,439,440,441,443,444,445,446,447,449,450,451,452,453,454,455,458,459,461,462,463,465,466,469,470,471,473,474,475,476,478,479,480,481,482,484,486,487,488,489,490,491,492,493,494,495,496,498,499,500,501,502,503,504,505,506,508,509,510,511,513,514,516,517,518,519,520,521,522,523,524,526,527,528,529,530,531,532,533,534,535,536,538,539,542,543,545,546,547,548,549,550,551,553,554,558,559,561,562,563,566,567,569,570,571,572,575,578,579,580,581,583,584,585,586,587,590,591,593,594,595,596,597,598,599,600,601,602,605,606,607,608,609,610,611,612,614,615,616,617,618,619,620,621,622,623,624,625,627,628,629,631,633,634,636,638,639,643,645,646,647,648,649,650,651,652,654,655,657,658,659,661,662,663,664,665,666,667,668,670,672,673,674,675,681,683,684,685,686,687,688,690,691,692,693,694,695,696,697,699,700,701,702,703,705,706,707,709,711,713,714,716,719,720,722,723,724,725,726,727,730,731,732,736,738,739,740,742,743,745,747,748,751,753,754,755,756,757,758,760,762,763,764,766,768,769,770,771,772,773,774,775,776,778,780,781,782,783,784,786,788,789,791,792,793,794,795,796,797,798,799,801,802,803,804,805,806,807,808,810,811,812,813,814,817,818,819,820,821,822,823,825,826,828,829,830,831,833,834,835,836,839,840,841,842,845,846,847,848,849,851,852,854,855,856,858,861,862,866,867,868,869,870,871,872,873,874,876,877,878,879,880,881,883,886,887,888,890,891,893,894,895,896,897,898,899,901,902,903,904,906,908,909,910,911,912,914,915,916,917,918,919,920,921,923,924,927,929,930,932,933,934,935,936,937,938,940,941,942,943,945,947,948,949,950,951,954,955,956,958,959,960,961,962,963,964,966,967,968,969,970,971,972,975,976,977,979,980,982,983,986,987,988,989,993,994,995,996,997,998,999,1001,1004,1006,1007,1008,1009,1010,1013,1014,1015,1016,1017,1018,1019,1020,1021,1022,1023 };
+	const uint16_t g_unique_to_seed_12x10_p2[] = { 1,2,3,4,5,7,8,9,10,11,13,14,15,16,17,18,19,20,21,23,24,25,26,27,28,29,30,31,32,33,34,36,37,39,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,94,95,97,98,99,100,101,102,103,104,105,107,108,109,110,111,112,113,114,115,116,117,118,119,120,121,122,123,124,125,126,128,129,130,131,132,134,135,136,137,138,139,142,143,144,145,146,147,148,149,150,151,152,153,154,155,156,157,158,159,161,165,167,168,169,170,171,172,174,175,176,177,178,179,180,181,182,183,184,185,188,190,191,193,194,195,196,198,199,200,201,202,203,204,206,207,208,209,210,211,212,213,214,215,216,217,218,219,220,221,222,223,224,225,226,227,229,230,231,232,235,236,237,238,239,240,242,243,244,245,246,247,248,249,250,252,253,254,255,256,257,258,260,261,262,263,264,265,266,267,270,271,272,273,274,275,276,277,278,279,280,281,282,283,284,286,287,289,291,292,293,294,295,296,298,299,300,302,303,304,305,306,307,309,310,313,314,316,317,318,319,321,323,324,325,326,327,329,330,331,332,333,335,337,338,339,341,342,343,344,347,348,349,350,351,352,353,354,355,356,357,358,359,360,361,362,363,365,366,367,368,370,371,373,374,375,376,377,378,380,381,383,385,386,387,388,389,390,391,392,393,394,395,399,400,402,403,404,405,407,409,410,411,412,414,415,417,418,419,420,421,422,423,424,425,426,427,428,429,430,432,433,436,437,438,439,440,441,443,444,445,446,447,449,450,451,452,453,454,455,458,459,461,462,463,465,466,469,470,471,473,474,475,476,478,479,480,481,482,484,486,487,488,489,490,491,492,493,494,495,496,498,499,500,501,502,503,504,505,506,508,509,510,511,513,514,515,516,517,518,519,520,521,522,523,524,526,527,528,529,530,531,532,533,534,535,536,537,538,539,542,543,545,546,547,548,549,550,551,553,554,558,559,561,562,563,564,566,567,569,570,571,572,575,578,579,580,581,583,584,585,586,587,589,590,591,593,594,595,596,597,598,599,600,601,602,605,606,607,608,609,610,611,612,614,615,616,617,618,619,620,621,622,623,624,625,627,628,629,631,633,634,636,638,639,643,645,646,647,648,649,650,651,652,654,655,657,658,659,661,662,663,664,665,666,667,668,670,671,672,673,674,675,681,683,684,685,686,687,688,690,691,692,693,694,695,696,697,699,700,701,702,703,705,706,707,709,711,713,714,716,719,720,722,723,724,725,726,727,730,731,732,736,738,739,740,742,743,745,747,748,751,753,754,755,756,757,758,760,762,763,764,766,768,769,770,771,772,773,774,775,776,778,780,781,782,783,784,785,786,787,788,789,791,792,793,794,795,796,797,798,799,801,802,803,804,805,806,807,808,810,811,812,813,814,817,818,819,820,821,822,823,825,826,828,829,830,831,833,834,835,836,839,840,841,842,845,846,847,848,849,851,852,854,855,856,857,858,861,862,866,867,868,869,870,871,872,873,874,875,876,877,878,879,880,881,883,886,887,888,890,891,893,894,895,896,897,898,899,901,902,903,904,906,908,909,910,911,912,913,914,915,916,917,918,919,920,921,923,924,927,929,930,932,933,934,935,936,937,938,940,941,942,943,944,945,947,948,949,950,951,954,955,956,958,959,960,961,962,963,964,966,967,968,969,970,971,972,975,976,977,979,980,982,983,986,987,988,989,993,994,995,996,997,998,999,1001,1004,1006,1007,1008,1009,1010,1013,1014,1015,1016,1017,1018,1019,1020,1021,1022,1023 };
+	const uint16_t g_unique_to_seed_12x12_p2[] = { 1,2,3,4,5,7,8,9,10,11,13,14,15,16,17,18,19,20,21,23,24,25,26,27,28,29,30,31,32,33,34,36,37,39,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,94,95,97,98,99,100,101,102,103,104,105,107,108,109,110,111,112,113,114,115,116,117,118,119,120,121,122,123,124,125,126,128,129,130,131,132,134,135,136,137,138,139,142,143,144,145,146,147,148,149,150,151,152,153,154,155,156,157,158,159,161,165,167,168,169,170,171,172,174,175,176,177,178,179,180,181,182,183,184,185,186,188,190,191,193,194,195,196,198,199,200,201,202,203,204,206,207,208,209,210,211,212,213,214,215,216,217,218,219,220,221,222,223,224,225,226,227,229,230,231,232,235,236,237,238,239,240,242,243,244,245,246,247,248,249,250,252,253,254,255,256,257,258,260,261,262,263,264,265,266,267,269,270,271,272,273,274,275,276,277,278,279,280,281,282,283,284,286,287,289,290,291,292,293,294,295,296,298,299,300,302,303,304,305,306,307,309,310,313,314,316,317,318,319,321,323,324,325,326,327,329,330,331,332,333,335,337,338,339,340,341,342,343,344,347,348,349,350,351,352,353,354,355,356,357,358,359,360,361,362,363,365,366,367,368,370,371,373,374,375,376,377,378,380,381,382,383,384,385,386,387,388,389,390,391,392,393,394,395,396,399,400,402,403,404,405,407,409,410,411,412,414,415,417,418,419,420,421,422,423,424,425,426,427,428,429,430,432,433,436,437,438,439,440,441,443,444,445,446,447,449,450,451,452,453,454,455,456,458,459,461,462,463,465,466,469,470,471,473,474,475,476,478,479,480,481,482,484,486,487,488,489,490,491,492,493,494,495,496,498,499,500,501,502,503,504,505,506,508,509,510,511,513,514,515,516,517,518,519,520,521,522,523,524,526,527,528,529,530,531,532,533,534,535,536,537,538,539,542,543,545,546,547,548,549,550,551,553,554,557,558,559,561,562,563,564,566,567,569,570,571,572,575,576,578,579,580,581,583,584,585,586,587,589,590,591,593,594,595,596,597,598,599,600,601,602,605,606,607,608,609,610,611,612,614,615,616,617,618,619,620,621,622,623,624,625,627,628,629,631,633,634,636,638,639,640,643,644,645,646,647,648,649,650,651,652,654,655,657,658,659,660,661,662,663,664,665,666,667,668,670,671,672,673,674,675,681,683,684,685,686,687,688,690,691,692,693,694,695,696,697,699,700,701,702,703,705,706,707,709,711,713,714,716,717,719,720,721,722,723,724,725,726,727,730,731,732,736,738,739,740,742,743,745,747,748,751,753,754,755,756,757,758,760,762,763,764,766,768,769,770,771,772,773,774,775,776,778,780,781,782,783,784,785,786,787,788,789,791,792,793,794,795,796,797,798,799,800,801,802,803,804,805,806,807,808,810,811,812,813,814,815,817,818,819,820,821,822,823,825,826,828,829,830,831,833,834,835,836,837,839,840,841,842,844,845,846,847,848,849,851,852,854,855,856,857,858,861,862,863,866,867,868,869,870,871,872,873,874,875,876,877,878,879,880,881,883,886,887,888,890,891,893,894,895,896,897,898,899,901,902,903,904,906,908,909,910,911,912,913,914,915,916,917,918,919,920,921,923,924,927,929,930,932,933,934,935,936,937,938,940,941,942,943,944,945,947,948,949,950,951,954,955,956,958,959,960,961,962,963,964,966,967,968,969,970,971,972,975,976,977,979,980,982,983,986,987,988,989,993,994,995,996,997,998,999,1001,1004,1006,1007,1008,1009,1010,1013,1014,1015,1016,1017,1018,1019,1020,1021,1022,1023 };
+
+	const uint16_t g_unique_to_seed_4x4_p3[] = { 0,3,8,11,14,15,17,26,29,30,31,32,33,36,38,43,44,47,49,51,55,56,57,59,67,70,74,76,79,81,82,88,89,90,100,104,108,110,111,117,122,126,127,132,133,134,135,139,147,150,151,152,156,157,163,166,167,168,171,175,176,179,181,182,183,186,189,192,199,203,205,207,210,214,216,230,236,247,249,250,252,254,260,262,263,266,272,273,276,291,292,294,297,302,309,310,313,314,318,319,324,327,328,330,331,335,337,346,355,356,357,358,363,365,368,378,381,384,386,388,390,391,392,397,398,401,410,411,417,419,427,431,437,439,440,446,451,455,457,458,459,460,462,464,467,468,471,472,474,475,477,479,483,487,488,493,495,496,497,502,503,504,511,512,516,518,519,523,525,530,532,538,543,544,546,547,549,550,551,553,554,562,567,568,570,571,578,579,581,582,588,589,590,593,594,600,601,606,611,613,623,624,625,630,637,638,645,646,648,650,651,658,659,662,666,669,670,678,683,686,688,691,694,696,699,700,701,703,704,707,713,715,717,719,722,724,725,727,730,731,735,738,739,745,750,751,758,759,760,766,775,776,779,783,784,785,786,787,788,798,799,802,804,805,807,808,809,812,821,822,823,825,827,831,835,837,838,842,844,845,846,848,853,854,858,859,860,866,884,888,892,894,898,902,906,907,915,918,922,923,925,927,931,932,937,938,940,943,945,953,955,958,959,963,971,974,977,979,989,990,998,1005,1006,1007,1011,1012,1015,1020,1023 };
+	const uint16_t g_unique_to_seed_5x4_p3[] = { 0,3,7,8,11,12,14,15,17,18,26,29,30,31,32,33,34,36,38,39,43,44,47,49,51,55,56,57,59,62,63,67,70,74,76,79,81,82,88,89,90,91,100,103,104,108,110,111,117,122,123,126,127,132,133,134,135,136,139,144,147,150,151,152,156,157,158,163,166,167,168,171,173,175,176,179,181,182,183,186,189,192,199,203,205,207,210,214,216,222,230,236,246,247,249,250,252,254,259,260,262,263,266,269,272,273,274,275,276,291,292,293,294,297,302,306,309,310,311,313,314,315,318,319,324,327,328,330,331,335,337,346,355,356,357,358,359,363,365,368,377,378,381,384,386,388,390,391,392,394,397,398,401,407,410,411,417,419,427,430,431,437,439,440,446,451,455,457,458,459,460,462,464,467,468,470,471,472,474,475,477,478,479,483,485,487,488,493,495,496,497,501,502,503,504,506,508,510,511,512,515,516,518,519,521,523,524,525,530,532,538,541,543,544,546,547,549,550,551,552,553,554,562,567,568,570,571,577,578,579,581,582,588,589,590,593,594,595,600,601,603,606,609,611,613,623,624,625,630,632,637,638,639,645,646,648,650,651,654,658,659,662,666,669,670,678,679,683,685,686,688,691,694,696,699,700,701,703,704,707,713,715,717,719,722,724,725,727,730,731,732,735,738,739,742,745,746,749,750,751,758,759,760,766,769,773,775,776,779,783,784,785,786,787,788,791,793,798,799,802,804,805,806,807,808,809,812,813,821,822,823,825,827,831,835,837,838,839,842,844,845,846,848,853,854,858,859,860,866,873,876,877,884,887,888,892,894,898,902,906,907,914,915,918,919,922,923,925,927,931,932,937,938,940,943,944,945,951,953,955,958,959,963,971,972,974,977,979,982,983,989,990,991,998,999,1005,1006,1007,1010,1011,1012,1015,1020,1022,1023 };
+	const uint16_t g_unique_to_seed_5x5_p3[] = { 0,3,7,8,10,11,12,14,15,17,18,26,27,29,30,31,32,33,34,36,38,39,43,44,47,48,49,50,51,55,56,57,59,60,61,62,63,67,70,72,74,76,79,81,82,88,89,90,91,94,100,103,104,106,108,110,111,115,117,122,123,126,127,128,130,132,133,134,135,136,139,144,147,150,151,152,156,157,158,162,163,166,167,168,169,171,173,175,176,179,181,182,183,186,189,192,199,203,205,207,209,210,214,216,220,222,227,230,235,236,246,247,249,250,252,254,257,259,260,262,263,266,269,272,273,274,275,276,279,282,291,292,293,294,295,297,302,306,309,310,311,313,314,315,318,319,324,326,327,328,330,331,335,337,342,345,346,353,355,356,357,358,359,363,364,365,368,371,374,377,378,381,384,386,387,388,390,391,392,394,397,398,399,401,407,410,411,417,419,427,430,431,437,438,439,440,443,446,451,455,456,457,458,459,460,462,463,464,466,467,468,470,471,472,474,475,477,478,479,480,482,483,485,487,488,493,495,496,497,501,502,503,504,506,508,510,511,512,515,516,518,519,521,522,523,524,525,530,532,538,539,541,543,544,546,547,549,550,551,552,553,554,555,562,567,568,570,571,577,578,579,581,582,586,588,589,590,593,594,595,600,601,602,603,606,609,610,611,613,618,623,624,625,626,630,632,637,638,639,645,646,648,650,651,654,658,659,662,666,667,668,669,670,671,678,679,683,685,686,687,688,691,694,696,698,699,700,701,703,704,707,708,713,715,717,719,722,724,725,727,730,731,732,734,735,738,739,742,745,746,747,748,749,750,751,753,758,759,760,764,766,767,769,771,773,775,776,779,780,781,783,784,785,786,787,788,791,793,794,798,799,800,802,804,805,806,807,808,809,811,812,813,821,822,823,825,827,831,835,837,838,839,840,842,843,844,845,846,847,848,850,852,853,854,858,859,860,866,869,873,874,876,877,881,884,886,887,888,892,894,897,898,902,905,906,907,914,915,918,919,920,922,923,925,927,931,932,937,938,940,943,944,945,951,953,954,955,958,959,963,971,972,973,974,977,978,979,982,983,989,990,991,992,998,999,1004,1005,1006,1007,1010,1011,1012,1015,1020,1022,1023 };
+	const uint16_t g_unique_to_seed_6x5_p3[] = { 0,3,7,8,10,11,12,14,15,17,18,21,23,26,27,29,30,31,32,33,34,35,36,38,39,42,43,44,47,48,49,50,51,55,56,57,59,60,61,62,63,67,70,72,74,76,79,81,82,88,89,90,91,94,100,102,103,104,106,108,110,111,114,115,117,120,122,123,126,127,128,130,132,133,134,135,136,139,140,144,147,150,151,152,153,156,157,158,162,163,166,167,168,169,171,173,175,176,179,181,182,183,186,189,192,198,199,200,203,205,207,209,210,214,216,220,222,227,230,231,235,236,245,246,247,249,250,252,254,257,259,260,262,263,266,269,272,273,274,275,276,279,281,282,288,291,292,293,294,295,297,300,302,306,309,310,311,313,314,315,318,319,324,326,327,328,330,331,335,337,342,345,346,348,353,355,356,357,358,359,363,364,365,368,371,372,374,377,378,379,381,384,386,387,388,390,391,392,394,395,397,398,399,401,407,410,411,412,413,417,419,427,430,431,437,438,439,440,443,446,450,451,455,456,457,458,459,460,461,462,463,464,465,466,467,468,470,471,472,474,475,477,478,479,480,482,483,485,487,488,493,495,496,497,500,501,502,503,504,505,506,508,510,511,512,513,515,516,518,519,521,522,523,524,525,527,530,532,538,539,541,543,544,546,547,549,550,551,552,553,554,555,557,558,562,566,567,568,570,571,577,578,579,580,581,582,584,586,588,589,590,593,594,595,600,601,602,603,606,609,610,611,613,614,618,623,624,625,626,630,632,637,638,639,644,645,646,648,650,651,654,658,659,662,666,667,668,669,670,671,678,679,683,685,686,687,688,689,691,694,696,698,699,700,701,703,704,707,708,711,713,715,717,719,722,724,725,727,730,731,732,734,735,738,739,742,743,745,746,747,748,749,750,751,753,758,759,760,764,766,767,769,771,773,775,776,779,780,781,783,784,785,786,787,788,791,793,794,798,799,800,802,804,805,806,807,808,809,810,811,812,813,821,822,823,824,825,827,831,835,836,837,838,839,840,841,842,843,844,845,846,847,848,850,852,853,854,858,859,860,866,869,873,874,876,877,881,884,886,887,888,892,894,897,898,900,902,905,906,907,914,915,918,919,920,922,923,925,927,931,932,937,938,940,943,944,945,951,953,954,955,957,958,959,963,967,971,972,973,974,977,978,979,982,983,986,989,990,991,992,998,999,1003,1004,1005,1006,1007,1010,1011,1012,1015,1020,1022,1023 };
+
+	const uint16_t g_unique_to_seed_6x6_p3[] = { 0,8,11,14,15,17,18,19,26,31,34,35,36,38,44,47,48,49,51,56,59,61,70,74,76,82,88,90,96,100,103,104,108,110,111,117,122,123,126,127,132,133,135,139,147,150,151,152,156,157,163,166,168,171,175,176,179,181,182,183,186,189,192,199,203,205,207,210,214,216,222,247,249,250,252,254,260,261,262,263,266,272,273,275,276,288,291,292,293,294,297,302,309,310,313,314,318,327,328,331,335,337,346,356,357,358,363,365,368,378,381,384,386,390,391,392,396,397,398,399,401,410,411,419,427,430,431,437,439,440,451,455,457,458,459,460,462,468,470,471,472,474,475,477,479,482,483,488,493,495,496,502,503,504,507,510,511,512,515,516,518,519,522,523,525,526,527,538,543,544,546,547,549,550,552,553,554,562,570,578,579,581,582,588,589,590,593,595,600,606,611,613,618,623,625,632,637,638,645,646,650,651,658,659,662,666,667,669,670,678,679,685,686,687,688,691,694,696,698,699,700,701,703,704,707,713,714,715,717,719,722,724,727,730,731,734,738,739,743,747,748,750,751,753,758,760,764,766,769,775,776,783,784,785,787,791,793,798,799,802,804,805,806,807,808,809,810,813,822,823,825,831,835,837,838,839,840,842,845,846,848,853,854,858,859,860,866,874,882,884,887,888,892,894,898,902,907,914,915,918,919,922,923,925,927,931,932,937,938,940,943,944,945,953,955,958,959,963,966,971,974,979,990,991,998,999,1007,1010,1011,1012,1015,1020,1023 };
+	const uint16_t g_unique_to_seed_8x5_p3[] = { 0,3,8,11,14,15,17,18,19,23,26,27,29,31,33,34,35,36,38,43,44,47,48,49,51,55,56,59,61,67,70,76,79,81,82,88,89,90,96,100,103,104,108,110,111,117,122,123,126,127,132,133,134,135,139,147,150,151,152,156,157,163,166,167,168,171,173,175,176,179,181,182,183,186,189,192,199,203,205,207,210,214,216,227,230,247,249,250,254,260,261,262,263,266,272,273,275,276,279,288,291,292,293,294,297,302,307,309,310,313,314,315,318,319,327,328,331,335,337,346,355,356,357,358,359,363,365,377,378,381,384,386,390,391,392,394,396,397,398,399,401,407,410,411,419,424,427,430,431,437,439,440,450,451,455,457,458,459,460,462,464,467,468,470,471,472,474,475,477,478,479,482,483,487,488,493,495,496,502,503,504,507,508,511,512,515,516,518,519,522,523,524,526,527,538,543,544,547,549,550,552,553,554,557,562,568,570,578,579,581,582,588,589,590,593,595,600,602,603,606,609,611,613,614,624,625,632,637,638,639,645,646,650,651,658,659,662,666,667,669,670,678,679,685,686,687,688,689,691,694,696,699,700,701,703,704,707,712,713,715,717,719,722,724,727,730,731,734,738,739,743,745,747,750,751,758,759,760,763,764,766,769,771,775,776,779,781,783,784,785,787,791,793,798,799,802,804,805,806,807,809,810,812,813,822,823,825,831,835,837,838,840,842,844,845,846,848,853,854,858,859,860,866,873,876,882,884,887,888,892,894,895,898,902,906,907,914,915,918,919,922,923,925,927,931,932,937,938,940,943,944,945,947,951,953,955,958,959,963,966,971,974,977,979,983,989,990,991,998,999,1005,1007,1010,1011,1012,1015,1023 };
+	const uint16_t g_unique_to_seed_8x6_p3[] = { 0,3,8,11,14,15,17,18,19,23,26,27,29,31,33,34,35,36,38,43,44,47,48,49,51,55,56,59,61,67,70,74,76,79,81,82,88,89,90,96,100,103,104,108,110,111,117,122,123,126,127,131,132,133,134,135,139,147,150,151,152,156,157,163,166,167,168,171,173,175,176,179,181,182,183,186,189,192,199,203,205,207,210,214,216,222,227,230,236,247,249,250,252,254,260,261,262,263,266,272,273,275,276,279,288,291,292,293,294,297,302,307,309,310,313,314,315,318,319,324,327,328,331,335,337,338,346,355,356,357,358,359,363,365,368,377,378,381,384,386,390,391,392,394,396,397,398,399,401,407,410,411,419,424,427,430,431,437,439,440,450,451,455,457,458,459,460,462,464,467,468,470,471,472,474,475,477,478,479,482,483,485,487,488,493,495,496,502,503,504,507,508,510,511,512,515,516,518,519,522,523,524,525,526,527,538,541,543,544,546,547,549,550,552,553,554,557,562,566,567,568,570,578,579,581,582,588,589,590,593,595,600,601,602,603,606,609,611,613,614,618,623,624,625,632,637,638,639,645,646,650,651,658,659,662,666,667,669,670,678,679,685,686,687,688,689,691,694,696,698,699,700,701,703,704,707,708,712,713,714,715,717,719,722,724,725,727,730,731,732,734,738,739,743,745,747,748,750,751,753,758,759,760,763,764,766,769,771,775,776,779,781,783,784,785,786,787,791,793,798,799,802,804,805,806,807,808,809,810,812,813,822,823,825,831,835,837,838,839,840,842,844,845,846,848,850,853,854,858,859,860,866,873,874,876,882,884,887,888,892,894,895,898,900,902,906,907,914,915,918,919,922,923,925,927,931,932,937,938,940,943,944,945,947,951,953,955,958,959,963,966,971,974,977,979,983,989,990,991,998,999,1005,1007,1010,1011,1012,1015,1020,1022,1023 };
+	const uint16_t g_unique_to_seed_10x5_p3[] = { 0,3,7,8,11,14,15,17,18,19,23,26,27,29,31,33,34,35,36,38,43,44,47,48,49,51,55,56,59,61,62,67,70,72,76,79,81,82,88,89,90,91,95,96,100,103,104,108,110,111,114,117,122,123,126,127,131,132,133,134,135,139,140,147,150,151,152,156,157,158,163,166,167,168,171,173,175,176,179,181,182,183,186,189,192,199,203,205,207,210,213,214,216,227,230,245,247,249,250,254,259,260,261,262,263,266,269,272,273,274,275,276,279,281,288,291,292,293,294,295,297,302,307,309,310,313,314,315,318,319,327,328,331,335,337,346,355,356,357,358,359,363,365,377,378,381,384,386,390,391,392,394,396,397,398,399,401,407,410,411,412,413,419,424,427,430,431,437,439,440,450,451,455,457,458,459,460,462,464,467,468,470,471,472,474,475,477,478,479,482,483,487,488,493,495,496,500,501,502,503,504,506,507,508,510,511,512,515,516,518,519,521,522,523,524,526,527,530,538,541,543,544,547,549,550,552,553,554,555,557,562,565,568,570,577,578,579,581,582,588,589,590,593,595,600,601,602,603,606,609,611,613,614,618,624,625,632,637,638,639,645,646,650,651,654,658,659,662,666,667,669,670,678,679,685,686,687,688,689,691,694,695,696,698,699,700,701,703,704,707,712,713,715,717,719,722,724,725,727,730,731,732,734,738,739,742,743,745,747,749,750,751,758,759,760,763,764,765,766,769,771,773,775,776,779,781,783,784,785,786,787,791,793,798,799,802,804,805,806,807,809,810,812,813,821,822,823,825,827,831,835,836,837,838,839,840,841,842,844,845,846,848,853,854,858,859,860,866,869,873,876,877,882,884,887,888,891,892,894,895,898,900,902,905,906,907,909,914,915,918,919,922,923,925,927,931,932,937,938,939,940,943,944,945,947,951,953,954,955,957,958,959,961,963,966,967,971,974,975,977,978,979,983,989,990,991,993,998,999,1005,1007,1010,1011,1012,1015,1023 };
+	
+	const uint16_t g_unique_to_seed_10x6_p3[] = { 0,3,7,8,11,12,14,15,17,18,19,23,26,27,29,31,33,34,35,36,38,43,44,47,48,49,51,55,56,59,61,62,67,70,72,74,76,79,81,82,88,89,90,91,95,96,100,103,104,108,110,111,114,117,122,123,126,127,131,132,133,134,135,139,140,147,150,151,152,156,157,158,163,166,167,168,171,173,175,176,179,181,182,183,186,189,192,199,203,205,207,210,213,214,216,222,227,230,236,245,246,247,249,250,252,254,259,260,261,262,263,266,269,272,273,274,275,276,279,281,288,291,292,293,294,295,297,302,306,307,309,310,311,313,314,315,318,319,324,327,328,330,331,335,337,338,346,355,356,357,358,359,363,364,365,368,377,378,381,384,386,390,391,392,394,396,397,398,399,401,407,410,411,412,413,419,424,427,430,431,437,439,440,450,451,455,457,458,459,460,462,464,467,468,470,471,472,474,475,477,478,479,482,483,485,487,488,493,495,496,500,501,502,503,504,506,507,508,510,511,512,515,516,518,519,521,522,523,524,525,526,527,530,538,539,541,543,544,546,547,549,550,552,553,554,555,557,562,565,566,567,568,570,577,578,579,581,582,588,589,590,593,595,600,601,602,603,606,609,611,613,614,618,623,624,625,632,637,638,639,645,646,648,650,651,654,658,659,662,666,667,669,670,678,679,685,686,687,688,689,691,694,695,696,698,699,700,701,703,704,707,708,712,713,714,715,717,719,722,724,725,727,730,731,732,734,735,738,739,742,743,745,747,748,749,750,751,753,758,759,760,763,764,765,766,769,771,773,775,776,779,781,783,784,785,786,787,791,793,798,799,802,804,805,806,807,808,809,810,812,813,821,822,823,825,827,831,835,836,837,838,839,840,841,842,844,845,846,848,850,853,854,858,859,860,866,869,873,874,876,877,882,884,887,888,891,892,894,895,898,900,902,905,906,907,909,914,915,918,919,922,923,925,927,931,932,937,938,939,940,943,944,945,947,951,953,954,955,957,958,959,961,963,966,967,971,974,975,977,978,979,982,983,989,990,991,993,998,999,1005,1007,1010,1011,1012,1015,1020,1022,1023 };
+	const uint16_t g_unique_to_seed_8x8_p3[] = { 0,3,7,8,11,12,14,15,17,18,19,23,26,27,29,30,31,32,33,34,35,36,38,39,43,44,47,48,49,50,51,55,56,57,59,60,61,63,67,70,72,74,76,79,81,82,88,89,90,96,100,103,104,106,108,110,111,117,122,123,126,127,131,132,133,134,135,136,139,144,147,150,151,152,156,157,158,163,166,167,168,171,173,175,176,178,179,181,182,183,186,189,192,199,203,205,207,210,214,216,222,227,230,235,236,246,247,249,250,252,254,260,261,262,263,266,269,272,273,275,276,279,288,291,292,293,294,295,297,302,306,307,309,310,311,313,314,315,318,319,324,327,328,330,331,335,337,338,342,345,346,355,356,357,358,359,363,365,368,371,377,378,381,384,386,388,390,391,392,394,396,397,398,399,401,407,410,411,417,419,424,427,430,431,437,439,440,446,450,451,455,457,458,459,460,462,464,466,467,468,470,471,472,474,475,477,478,479,480,482,483,485,487,488,493,495,496,497,502,503,504,507,508,510,511,512,515,516,518,519,521,522,523,524,525,526,527,530,532,538,539,541,543,544,546,547,549,550,551,552,553,554,557,562,566,567,568,570,571,577,578,579,581,582,586,588,589,590,592,593,594,595,600,601,602,603,606,609,610,611,613,614,618,623,624,625,630,632,637,638,639,645,646,648,650,651,658,659,662,666,667,669,670,671,678,679,683,685,686,687,688,689,691,694,696,698,699,700,701,703,704,707,708,712,713,714,715,717,719,722,724,725,727,730,731,732,734,735,738,739,743,745,746,747,748,750,751,753,758,759,760,763,764,766,767,769,771,773,775,776,779,780,781,783,784,785,786,787,788,791,793,794,798,799,802,804,805,806,807,808,809,810,811,812,813,821,822,823,825,827,831,835,837,838,839,840,842,844,845,846,847,848,850,852,853,854,858,859,860,866,873,874,876,877,882,884,886,887,888,892,894,895,897,898,900,902,906,907,914,915,918,919,920,922,923,925,927,931,932,937,938,940,943,944,945,947,951,953,954,955,958,959,963,966,971,972,974,977,979,982,983,989,990,991,998,999,1005,1006,1007,1010,1011,1012,1015,1020,1022,1023 };
+	const uint16_t g_unique_to_seed_10x8_p3[] = { 0,3,7,8,11,12,14,15,17,18,19,23,26,27,29,30,31,32,33,34,35,36,38,39,43,44,47,48,49,50,51,55,56,57,59,60,61,62,63,67,70,72,74,76,79,81,82,88,89,90,91,94,95,96,100,103,104,106,108,110,111,114,115,117,122,123,126,127,131,132,133,134,135,136,139,140,144,147,150,151,152,153,156,157,158,163,166,167,168,171,173,175,176,178,179,181,182,183,186,189,192,198,199,203,205,207,210,213,214,216,220,222,227,230,235,236,245,246,247,249,250,252,254,259,260,261,262,263,266,269,272,273,274,275,276,279,281,288,291,292,293,294,295,297,302,306,307,309,310,311,313,314,315,318,319,324,327,328,330,331,335,337,338,342,345,346,355,356,357,358,359,363,364,365,368,371,374,377,378,379,381,384,386,387,388,390,391,392,394,395,396,397,398,399,401,407,410,411,412,413,417,419,424,427,430,431,437,438,439,440,443,446,450,451,455,457,458,459,460,462,464,466,467,468,470,471,472,474,475,477,478,479,480,482,483,485,487,488,493,495,496,497,500,501,502,503,504,505,506,507,508,510,511,512,515,516,518,519,521,522,523,524,525,526,527,530,532,538,539,541,543,544,546,547,549,550,551,552,553,554,555,557,562,565,566,567,568,570,571,577,578,579,581,582,586,588,589,590,592,593,594,595,600,601,602,603,606,609,610,611,613,614,618,623,624,625,630,632,637,638,639,644,645,646,648,650,651,654,658,659,662,666,667,669,670,671,678,679,683,685,686,687,688,689,691,694,695,696,698,699,700,701,703,704,707,708,712,713,714,715,717,719,722,724,725,727,730,731,732,734,735,738,739,742,743,745,746,747,748,749,750,751,753,758,759,760,763,764,765,766,767,769,771,773,775,776,779,780,781,783,784,785,786,787,788,791,793,794,798,799,800,802,804,805,806,807,808,809,810,811,812,813,821,822,823,825,827,831,835,836,837,838,839,840,841,842,844,845,846,847,848,850,852,853,854,858,859,860,866,869,873,874,876,877,882,884,886,887,888,891,892,894,895,897,898,900,902,905,906,907,909,914,915,918,919,920,922,923,925,927,931,932,937,938,939,940,943,944,945,947,951,953,954,955,957,958,959,961,963,966,967,971,972,973,974,975,977,978,979,982,983,986,989,990,991,993,998,999,1005,1006,1007,1010,1011,1012,1015,1020,1022,1023};
+	const uint16_t g_unique_to_seed_10x10_p3[] = { 0,3,7,8,10,11,12,14,15,17,18,19,23,26,27,29,30,31,32,33,34,35,36,38,39,40,43,44,47,48,49,50,51,55,56,57,59,60,61,62,63,67,70,72,74,75,76,79,81,82,88,89,90,91,94,95,96,100,103,104,106,108,110,111,114,115,117,120,122,123,126,127,128,130,131,132,133,134,135,136,139,140,144,147,150,151,152,153,156,157,158,162,163,166,167,168,169,171,173,175,176,178,179,181,182,183,186,189,192,198,199,200,203,205,207,209,210,213,214,216,218,220,222,227,230,235,236,238,242,245,246,247,249,250,252,254,257,259,260,261,262,263,266,269,272,273,274,275,276,279,281,282,288,291,292,293,294,295,297,302,306,307,308,309,310,311,313,314,315,318,319,324,326,327,328,330,331,335,337,338,342,345,346,347,350,353,355,356,357,358,359,363,364,365,368,371,372,374,377,378,379,381,384,386,387,388,390,391,392,394,395,396,397,398,399,401,407,408,410,411,412,413,417,419,424,427,430,431,435,437,438,439,440,443,446,450,451,455,456,457,458,459,460,462,463,464,466,467,468,470,471,472,474,475,477,478,479,480,482,483,485,487,488,493,495,496,497,500,501,502,503,504,505,506,507,508,510,511,512,513,515,516,518,519,521,522,523,524,525,526,527,530,532,538,539,541,543,544,546,547,549,550,551,552,553,554,555,557,562,565,566,567,568,570,571,577,578,579,580,581,582,586,588,589,590,592,593,594,595,600,601,602,603,606,609,610,611,613,614,618,623,624,625,626,630,632,634,637,638,639,644,645,646,648,650,651,654,658,659,662,666,667,668,669,670,671,678,679,683,685,686,687,688,689,691,694,695,696,698,699,700,701,703,704,707,708,712,713,714,715,717,719,722,724,725,727,730,731,732,734,735,738,739,742,743,745,746,747,748,749,750,751,753,758,759,760,763,764,765,766,767,769,771,773,775,776,779,780,781,783,784,785,786,787,788,789,790,791,793,794,798,799,800,802,804,805,806,807,808,809,810,811,812,813,821,822,823,825,827,831,835,836,837,838,839,840,841,842,843,844,845,846,847,848,850,852,853,854,858,859,860,866,869,873,874,876,877,881,882,884,886,887,888,891,892,894,895,897,898,900,902,905,906,907,909,914,915,918,919,920,922,923,925,927,931,932,937,938,939,940,943,944,945,947,951,952,953,954,955,957,958,959,961,963,966,967,971,972,973,974,975,977,978,979,980,982,983,986,989,990,991,992,993,998,999,1003,1004,1005,1006,1007,1010,1011,1012,1014,1015,1020,1022,1023 };
+	
+	const uint16_t g_unique_to_seed_12x10_p3[] = { 0,3,7,8,10,11,12,14,15,16,17,18,19,21,23,26,27,29,30,31,32,33,34,35,36,38,39,40,42,43,44,45,47,48,49,50,51,55,56,57,59,60,61,62,63,67,70,72,74,75,76,79,81,82,88,89,90,91,94,95,96,100,102,103,104,106,108,110,111,114,115,117,120,122,123,126,127,128,129,130,131,132,133,134,135,136,139,140,144,147,150,151,152,153,156,157,158,161,162,163,166,167,168,169,171,173,175,176,178,179,181,182,183,185,186,189,192,195,198,199,200,203,205,207,209,210,213,214,216,218,220,222,227,230,231,235,236,238,242,245,246,247,249,250,251,252,254,257,259,260,261,262,263,266,269,272,273,274,275,276,279,281,282,283,288,291,292,293,294,295,297,300,302,306,307,308,309,310,311,313,314,315,318,319,324,326,327,328,330,331,335,337,338,342,345,346,347,348,350,353,355,356,357,358,359,363,364,365,368,371,372,374,377,378,379,381,384,386,387,388,390,391,392,394,395,396,397,398,399,401,407,408,410,411,412,413,415,417,419,424,427,430,431,435,437,438,439,440,443,446,450,451,455,456,457,458,459,460,461,462,463,464,465,466,467,468,470,471,472,474,475,477,478,479,480,482,483,485,487,488,493,495,496,497,500,501,502,503,504,505,506,507,508,510,511,512,513,515,516,518,519,521,522,523,524,525,526,527,530,532,538,539,541,543,544,546,547,549,550,551,552,553,554,555,557,558,562,563,565,566,567,568,570,571,577,578,579,580,581,582,584,586,588,589,590,592,593,594,595,600,601,602,603,604,606,609,610,611,613,614,618,623,624,625,626,630,632,634,637,638,639,643,644,645,646,648,650,651,654,658,659,662,666,667,668,669,670,671,673,678,679,683,685,686,687,688,689,691,694,695,696,698,699,700,701,703,704,707,708,711,712,713,714,715,717,719,722,724,725,727,730,731,732,734,735,738,739,742,743,745,746,747,748,749,750,751,753,758,759,760,763,764,765,766,767,769,771,773,775,776,779,780,781,783,784,785,786,787,788,789,790,791,793,794,798,799,800,802,804,805,806,807,808,809,810,811,812,813,821,822,823,824,825,827,828,831,835,836,837,838,839,840,841,842,843,844,845,846,847,848,850,852,853,854,858,859,860,866,869,873,874,876,877,881,882,884,886,887,888,891,892,894,895,897,898,900,902,905,906,907,909,914,915,918,919,920,922,923,925,927,931,932,937,938,939,940,943,944,945,947,951,952,953,954,955,957,958,959,961,963,966,967,971,972,973,974,975,977,978,979,980,982,983,986,989,990,991,992,993,995,998,999,1002,1003,1004,1005,1006,1007,1010,1011,1012,1014,1015,1020,1021,1022,1023 };
+	const uint16_t g_unique_to_seed_12x12_p3[] = { 0,3,4,7,8,10,11,12,14,15,16,17,18,19,21,23,26,27,29,30,31,32,33,34,35,36,38,39,40,42,43,44,45,47,48,49,50,51,53,55,56,57,58,59,60,61,62,63,67,70,72,74,75,76,79,81,82,83,88,89,90,91,94,95,96,100,102,103,104,106,108,110,111,114,115,117,120,122,123,126,127,128,129,130,131,132,133,134,135,136,138,139,140,144,147,150,151,152,153,156,157,158,159,160,161,162,163,166,167,168,169,171,173,175,176,177,178,179,181,182,183,185,186,189,192,195,196,198,199,200,203,205,207,208,209,210,213,214,216,218,220,222,227,230,231,235,236,238,242,245,246,247,249,250,251,252,254,257,259,260,261,262,263,266,269,272,273,274,275,276,279,281,282,283,288,291,292,293,294,295,297,300,302,306,307,308,309,310,311,313,314,315,318,319,324,326,327,328,330,331,335,337,338,342,345,346,347,348,350,353,355,356,357,358,359,363,364,365,368,371,372,374,377,378,379,381,384,386,387,388,390,391,392,394,395,396,397,398,399,401,407,408,410,411,412,413,415,417,419,424,426,427,430,431,432,435,437,438,439,440,443,444,446,450,451,455,456,457,458,459,460,461,462,463,464,465,466,467,468,470,471,472,474,475,477,478,479,480,482,483,485,487,488,493,495,496,497,500,501,502,503,504,505,506,507,508,510,511,512,513,515,516,518,519,521,522,523,524,525,526,527,530,532,535,538,539,540,541,543,544,546,547,549,550,551,552,553,554,555,557,558,562,563,565,566,567,568,569,570,571,577,578,579,580,581,582,584,586,588,589,590,592,593,594,595,600,601,602,603,604,606,609,610,611,613,614,618,623,624,625,626,628,630,631,632,634,636,637,638,639,640,643,644,645,646,648,650,651,654,658,659,662,666,667,668,669,670,671,673,678,679,683,685,686,687,688,689,691,694,695,696,698,699,700,701,703,704,707,708,711,712,713,714,715,717,719,722,724,725,727,730,731,732,734,735,738,739,742,743,745,746,747,748,749,750,751,753,758,759,760,763,764,765,766,767,768,769,771,773,774,775,776,778,779,780,781,783,784,785,786,787,788,789,790,791,793,794,798,799,800,802,804,805,806,807,808,809,810,811,812,813,821,822,823,824,825,827,828,831,835,836,837,838,839,840,841,842,843,844,845,846,847,848,850,852,853,854,858,859,860,863,866,869,873,874,876,877,881,882,884,886,887,888,891,892,894,895,897,898,900,902,905,906,907,909,911,912,914,915,918,919,920,922,923,925,927,929,930,931,932,937,938,939,940,943,944,945,947,951,952,953,954,955,957,958,959,961,963,966,967,971,972,973,974,975,977,978,979,980,982,983,986,989,990,991,992,993,995,998,999,1000,1002,1003,1004,1005,1006,1007,1010,1011,1012,1014,1015,1020,1021,1022,1023 };
+
+	static const uint16_t* g_unique_index_to_astc_part_seed[2][astc_helpers::NUM_ASTC_BLOCK_SIZES] = // [num_parts][astc_block_size_index]
+	{
+		{
+			g_unique_to_seed_4x4_p2, g_unique_to_seed_5x4_p2, g_unique_to_seed_5x5_p2, g_unique_to_seed_6x5_p2,
+			g_unique_to_seed_6x6_p2, g_unique_to_seed_8x5_p2, g_unique_to_seed_8x6_p2, g_unique_to_seed_10x5_p2,
+			g_unique_to_seed_10x6_p2, g_unique_to_seed_8x8_p2, g_unique_to_seed_10x8_p2, g_unique_to_seed_10x10_p2,
+			g_unique_to_seed_12x10_p2, g_unique_to_seed_12x12_p2
+		},
+		{
+			g_unique_to_seed_4x4_p3, g_unique_to_seed_5x4_p3, g_unique_to_seed_5x5_p3, g_unique_to_seed_6x5_p3,
+			g_unique_to_seed_6x6_p3, g_unique_to_seed_8x5_p3, g_unique_to_seed_8x6_p3, g_unique_to_seed_10x5_p3,
+			g_unique_to_seed_10x6_p3, g_unique_to_seed_8x8_p3, g_unique_to_seed_10x8_p3, g_unique_to_seed_10x10_p3,
+			g_unique_to_seed_12x10_p3, g_unique_to_seed_12x12_p3
+		}
+	};
+
+	static inline uint16_t unique_pat_index_to_part_seed(uint32_t astc_block_size_index, uint32_t num_parts, uint32_t unique_pat_index)
+	{
+		assert(astc_block_size_index < astc_helpers::NUM_ASTC_BLOCK_SIZES);
+		assert((num_parts >= 2) && (num_parts <= 3));
+		assert(unique_pat_index < get_total_unique_patterns(astc_block_size_index, num_parts));
+				
+		return g_unique_index_to_astc_part_seed[num_parts - 2][astc_block_size_index][unique_pat_index];
+	}
+
+	static bool zstd_decompress(const void *pComp_data, size_t comp_size, basisu::uint8_vec &uncomp_data)
+	{
+		if (!comp_size)
+		{
+			uncomp_data.resize(0);
+			return true;
+		}
+
+#if BASISD_SUPPORT_KTX2_ZSTD
+		const uint64_t decomp_size = ZSTD_getFrameContentSize(pComp_data, comp_size);
+
+		if ((decomp_size == ZSTD_CONTENTSIZE_UNKNOWN) || (decomp_size == ZSTD_CONTENTSIZE_ERROR))
+		{
+			BASISU_DEVEL_ERROR("zstd_decompress: ZSTD_getFrameContentSize failed\n");
+			return false;
+		}
+
+		// sanity check, not UINT32_MAX purposely, even INT_MAX is too high
+		if (decomp_size > (uint64_t)INT32_MAX)
+		{
+			BASISU_DEVEL_ERROR("zstd_decompress: decompressed size too large\n");
+			return false;
+		}
+
+		if (!uncomp_data.try_resize((size_t)decomp_size))
+		{
+			BASISU_DEVEL_ERROR("zstd_decompress: Out of memory\n");
+			return false;
+		}
+
+		if (!decomp_size)
+			return true;
+
+		const size_t actual_uncomp_size = ZSTD_decompress(uncomp_data.data(), uncomp_data.size(), pComp_data, comp_size);
+		if (ZSTD_isError(actual_uncomp_size))
+		{
+			BASISU_DEVEL_ERROR("zstd_decompress: Zstd decompression failed, file is invalid or corrupted\n");
+			return false;
+		}
+
+		assert(actual_uncomp_size == decomp_size);
+		uncomp_data.resize(actual_uncomp_size);
+
+		return true;
+#else
+		BASISU_NOTE_UNUSED(pComp_data);
+		BASISU_DEVEL_ERROR("zstd_decompress: file uses ZStd compression, but ZStd support disabled (see BASISD_SUPPORT_KTX2_ZSTD) \n");
+		return false;
+#endif
+	}
+
+	static bool zstd_decompress_and_advance(const uint8_t* &pComp_data, size_t comp_size, basisu::uint8_vec& uncomp_data, simplified_bitwise_decoder& dec)
+	{
+		if (!zstd_decompress(pComp_data, comp_size, uncomp_data))
+			return false;
+		pComp_data += comp_size;
+		dec.init(uncomp_data.data(), uncomp_data.size());
+		return true;
+	}
+
+	bool xuastc_ldr_decompress_image_full_zstd(
+		const uint8_t* pComp_data_all, size_t comp_data_size_all,
+		uint32_t& astc_block_width, uint32_t& astc_block_height,
+		uint32_t& actual_width, uint32_t& actual_height, bool& has_alpha, bool& uses_srgb_astc_decode_mode,
+		bool debug_output,
+		xuastc_decomp_image_init_callback_ptr pInit_callback, void* pInit_callback_data,
+		xuastc_decomp_image_block_callback_ptr pBlock_callback, void* pBlock_callback_data)
+	{
+		if (comp_data_size_all < sizeof(xuastc_ldr_full_zstd_header))
+		{
+			BASISU_DEVEL_ERROR("Compressed file is too small\n");
+			return false;
+		}
+
+		const xuastc_ldr_full_zstd_header* pHdr = (const xuastc_ldr_full_zstd_header*)pComp_data_all;
+
+		if ((!pHdr->m_raw_bits_len) || (!pHdr->m_mode_bytes_len))
+		{
+			BASISU_DEVEL_ERROR("Compressed file is too small\n");
+			return false;
+		}
+
+		const uint64_t total_comp_size = (uint64_t)((uint32_t)pHdr->m_raw_bits_len) +
+			pHdr->m_mode_bytes_len + pHdr->m_solid_dpcm_bytes_len + pHdr->m_endpoint_dpcm_reuse_indices_len + pHdr->m_use_bc_bits_len + 
+			pHdr->m_endpoint_dpcm_3bit_len + pHdr->m_endpoint_dpcm_4bit_len + pHdr->m_endpoint_dpcm_5bit_len + pHdr->m_endpoint_dpcm_6bit_len + pHdr->m_endpoint_dpcm_7bit_len + pHdr->m_endpoint_dpcm_8bit_len +
+			pHdr->m_mean0_bits_len + pHdr->m_mean1_bytes_len +
+			pHdr->m_run_bytes_len + pHdr->m_coeff_bytes_len + pHdr->m_sign_bits_len +
+			pHdr->m_weight2_bits_len + pHdr->m_weight3_bits_len + pHdr->m_weight4_bits_len + pHdr->m_weight8_bytes_len;
+
+		if (comp_data_size_all < (sizeof(xuastc_ldr_full_zstd_header) + total_comp_size))
+		{
+			BASISU_DEVEL_ERROR("Compressed file is too small\n");
+			return false;
+		}
+
+		bitwise_decoder raw_bits;
+		simplified_bitwise_decoder comp_mode_dec, solid_dpcm_dec, endpoint_dpcm_reuse_indices_dec, use_bc_bits_dec;
+		simplified_bitwise_decoder endpoint_dpcm_3bit_dec, endpoint_dpcm_4bit_dec, endpoint_dpcm_5bit_dec, endpoint_dpcm_6bit_dec, endpoint_dpcm_7bit_dec, endpoint_dpcm_8bit_dec;
+
+		basisu::uint8_vec uncomp_mode_bytes, uncomp_solid_dpcm_bytes, uncomp_endpoint_dpcm_reuse_indices, uncomp_use_bc_bits;
+		basisu::uint8_vec uncomp_endpoint_dpcm_3bit, uncomp_endpoint_dpcm_4bit, uncomp_endpoint_dpcm_5bit, uncomp_endpoint_dpcm_6bit, uncomp_endpoint_dpcm_7bit, uncomp_endpoint_dpcm_8bit;
+
+		basisu::uint8_vec uncomp_mean0_bits, uncomp_mean1_bytes, uncomp_run_bytes, uncomp_coeff_bytes, uncomp_weight2_bytes, uncomp_weight3_bytes, uncomp_weight4_bytes, uncomp_weight8_bytes;
+		simplified_bitwise_decoder mean0_bits, mean1_bytes, run_bytes, coeff_bytes, sign_bits, weight2_bits, weight3_bits, weight4_bits, weight8_bytes;
+
+		const uint8_t* pCur_buf = pComp_data_all + sizeof(xuastc_ldr_full_zstd_header);
+
+		// raw bits
+		{
+			raw_bits.init(pCur_buf, pHdr->m_raw_bits_len);
+			pCur_buf += pHdr->m_raw_bits_len;
+		}
+
+		if (!zstd_decompress_and_advance(pCur_buf, pHdr->m_mode_bytes_len, uncomp_mode_bytes, comp_mode_dec)) 
+			return false;
+		if (!zstd_decompress_and_advance(pCur_buf, pHdr->m_solid_dpcm_bytes_len, uncomp_solid_dpcm_bytes, solid_dpcm_dec)) 
+			return false;
+		if (!zstd_decompress_and_advance(pCur_buf, pHdr->m_endpoint_dpcm_reuse_indices_len, uncomp_endpoint_dpcm_reuse_indices, endpoint_dpcm_reuse_indices_dec)) 
+			return false;
+		if (!zstd_decompress_and_advance(pCur_buf, pHdr->m_use_bc_bits_len, uncomp_use_bc_bits, use_bc_bits_dec)) 
+			return false;
+		if (!zstd_decompress_and_advance(pCur_buf, pHdr->m_endpoint_dpcm_3bit_len, uncomp_endpoint_dpcm_3bit, endpoint_dpcm_3bit_dec)) 
+			return false;
+		if (!zstd_decompress_and_advance(pCur_buf, pHdr->m_endpoint_dpcm_4bit_len, uncomp_endpoint_dpcm_4bit, endpoint_dpcm_4bit_dec)) 
+			return false;
+		if (!zstd_decompress_and_advance(pCur_buf, pHdr->m_endpoint_dpcm_5bit_len, uncomp_endpoint_dpcm_5bit, endpoint_dpcm_5bit_dec)) 
+			return false;
+		if (!zstd_decompress_and_advance(pCur_buf, pHdr->m_endpoint_dpcm_6bit_len, uncomp_endpoint_dpcm_6bit, endpoint_dpcm_6bit_dec)) 
+			return false;
+		if (!zstd_decompress_and_advance(pCur_buf, pHdr->m_endpoint_dpcm_7bit_len, uncomp_endpoint_dpcm_7bit, endpoint_dpcm_7bit_dec)) 
+			return false;
+		if (!zstd_decompress_and_advance(pCur_buf, pHdr->m_endpoint_dpcm_8bit_len, uncomp_endpoint_dpcm_8bit, endpoint_dpcm_8bit_dec)) 
+			return false;
+		
+		if (!zstd_decompress_and_advance(pCur_buf, pHdr->m_mean0_bits_len, uncomp_mean0_bits, mean0_bits)) 
+			return false;
+		if (!zstd_decompress_and_advance(pCur_buf, pHdr->m_mean1_bytes_len, uncomp_mean1_bytes, mean1_bytes)) 
+			return false;
+		if (!zstd_decompress_and_advance(pCur_buf, pHdr->m_run_bytes_len, uncomp_run_bytes, run_bytes)) 
+			return false;
+		if (!zstd_decompress_and_advance(pCur_buf, pHdr->m_coeff_bytes_len, uncomp_coeff_bytes, coeff_bytes)) 
+			return false;
+
+		// sign
+		{
+			sign_bits.init(pCur_buf, pHdr->m_sign_bits_len);
+			pCur_buf += pHdr->m_sign_bits_len;
+		}
+
+		if (!zstd_decompress_and_advance(pCur_buf, pHdr->m_weight2_bits_len, uncomp_weight2_bytes, weight2_bits)) 
+			return false;
+		if (!zstd_decompress_and_advance(pCur_buf, pHdr->m_weight3_bits_len, uncomp_weight3_bytes, weight3_bits)) 
+			return false;
+		if (!zstd_decompress_and_advance(pCur_buf, pHdr->m_weight4_bits_len, uncomp_weight4_bytes, weight4_bits)) 
+			return false;
+		if (!zstd_decompress_and_advance(pCur_buf, pHdr->m_weight8_bytes_len, uncomp_weight8_bytes, weight8_bytes)) 
+			return false;
+
+		// sanity check
+		const uint64_t total_read_size = pCur_buf - pComp_data_all;
+		if (total_read_size > comp_data_size_all)
+		{
+			BASISU_DEVEL_ERROR("Compressed file is too small\n");
+			return false;
+		}
+		
+		const uint32_t header_val = raw_bits.get_bits(FULL_ZSTD_HEADER_MARKER_BITS);
+		if (header_val != FULL_ZSTD_HEADER_MARKER)
+		{
+			BASISU_DEVEL_ERROR("Invalid marker\n");
+			return false;
+		}
+
+		const uint32_t astc_block_size_index = raw_bits.get_bits(4);
+		if (astc_block_size_index >= astc_helpers::NUM_ASTC_BLOCK_SIZES)
+		{
+			BASISU_DEVEL_ERROR("Invalid block dimension index\n");
+			return false;
+		}
+
+		astc_block_width = astc_helpers::g_astc_block_sizes[astc_block_size_index][0];
+		astc_block_height = astc_helpers::g_astc_block_sizes[astc_block_size_index][1];
+
+		uses_srgb_astc_decode_mode = raw_bits.get_bits(1);
+
+		actual_width = raw_bits.get_bits(16);
+		actual_height = raw_bits.get_bits(16);
+		has_alpha = raw_bits.get_bits(1);
+
+		const bool use_dct = (raw_bits.get_bits(1) != 0);
+
+		int int_q = 0;
+		if (use_dct)
+			int_q = raw_bits.get_bits(8);
+
+		const float dct_q = (float)int_q / 2.0f;
+		if ((use_dct) && ((dct_q <= 0.0f) || (dct_q > 100.0f)))
+		{
+			BASISU_DEVEL_ERROR("astc_ldr_t::xuastc_ldr_decompress_image_full_zstd::Invalid DCT global quality factor\n");
+			return false;
+		}
+
+		if (debug_output)
+		{
+			basisu::fmt_debug_printf("astc_ldr_t::xuastc_ldr_decompress_image_full_zstd: block dim: {}x{}, image dim: {}x{}, sRGB decode profile: {}, has_alpha: {}, dct: {} dct_q: {}\n",
+				astc_block_width, astc_block_height,
+				actual_width, actual_height,
+				uses_srgb_astc_decode_mode, has_alpha,
+				use_dct, dct_q);
+		}
+
+		const uint32_t num_blocks_x = (actual_width + astc_block_width - 1) / astc_block_width;
+		const uint32_t num_blocks_y = (actual_height + astc_block_height - 1) / astc_block_height;
+
+		if (pInit_callback)
+		{
+			if (!(*pInit_callback)(num_blocks_x, num_blocks_y, astc_block_width, astc_block_height, uses_srgb_astc_decode_mode, dct_q, has_alpha, pInit_callback_data))
+				return false;
+		}
+
+		fvec dct_work;
+
+		assert((size_t)astc_block_size_index < std::size(g_encoder_trial_modes));
+		const auto& encoder_trial_modes = g_encoder_trial_modes[astc_block_size_index];
+
+		const grid_weight_dct& grid_dct = g_grid_weight_dcts[astc_block_size_index];
+
+		basisu::vector2D<astc_helpers::log_astc_block> log_blocks;
+		if (!log_blocks.try_resize(num_blocks_x, 8))
+		{
+			BASISU_DEVEL_ERROR("astc_ldr_t::xuastc_ldr_decompress_image_full_zstd: out of memory\n");
+			return false;
+		}
+
+		memset(log_blocks.get_ptr(), 0, log_blocks.size_in_bytes());
+		
+		basisu::vector2D<prev_block_state_full_zstd> prev_block_states;
+		if (!prev_block_states.try_resize(num_blocks_x, 2))
+		{
+			BASISU_DEVEL_ERROR("astc_ldr_t::xuastc_ldr_decompress_image_full_zstd: out of memory\n");
+			return false;
+		}
+
+		uint32_t cur_run_len = 0;
+
+		int part2_hash[PART_HASH_SIZE];
+		std::fill(part2_hash, part2_hash + PART_HASH_SIZE, -1);
+
+		int part3_hash[PART_HASH_SIZE];
+		std::fill(part3_hash, part3_hash + PART_HASH_SIZE, -1);
+
+		int tm_hash[TM_HASH_SIZE];
+		std::fill(tm_hash, tm_hash + TM_HASH_SIZE, -1);
+
+		dct_syms syms;
+
+		for (uint32_t by = 0; by < num_blocks_y; by++)
+		{
+			for (uint32_t bx = 0; bx < num_blocks_x; bx++)
+			{
+				prev_block_state_full_zstd& new_prev_state = prev_block_states(bx, by & 1);
+
+				const prev_block_state_full_zstd* pLeft_state = bx ? &prev_block_states(bx - 1, by & 1) : nullptr;
+				const prev_block_state_full_zstd* pUpper_state = by ? &prev_block_states(bx, (by - 1) & 1) : nullptr;
+
+				astc_helpers::log_astc_block& log_blk = log_blocks(bx, by & 7);
+
+				if (cur_run_len)
+				{
+					const prev_block_state_full_zstd* pPrev_block_state = pLeft_state ? pLeft_state : pUpper_state;
+					const astc_helpers::log_astc_block& prev_log_blk = bx ? log_blocks(bx - 1, by & 7) : log_blocks(bx, (by - 1) & 7);
+
+					memcpy((void*)&log_blk, (const void*)&prev_log_blk, sizeof(log_blk));
+
+					if (pBlock_callback)
+					{
+						if (!(*pBlock_callback)(bx, by, prev_log_blk, pBlock_callback_data))
+							return false;
+					}
+										
+					new_prev_state.m_tm_index = pPrev_block_state->m_tm_index;
+					//new_prev_state.m_base_cem_index = pPrev_block_state->m_base_cem_index;
+
+					cur_run_len--;
+					continue;
+				}
+								
+				const prev_block_state_full_zstd* pDiag_state = (bx && by) ? &prev_block_states(bx - 1, (by - 1) & 1) : nullptr;
+								
+				// TODO: End check
+				const uint32_t mode_byte = comp_mode_dec.get_bits8();
+
+				if ((mode_byte & 3) == (uint32_t)xuastc_zstd_mode::cMODE_RUN)
+				{
+					// run
+					cur_run_len = 1 + (mode_byte >> 2);
+
+					if (!bx && !by)
+					{
+						BASISU_DEVEL_ERROR("astc_ldr_t::xuastc_ldr_decompress_image_full_zstd::Invalid run command\n");
+						return false;
+					}
+
+					const uint32_t max_possible_run_len = num_blocks_x - bx;
+					if (cur_run_len > max_possible_run_len)
+					{
+						BASISU_DEVEL_ERROR("astc_ldr_t::xuastc_ldr_decompress_image_full_zstd::Invalid run len\n");
+						return false;
+					}
+
+					const prev_block_state_full_zstd* pPrev_block_state = pLeft_state ? pLeft_state : pUpper_state;
+					const astc_helpers::log_astc_block& prev_log_blk = bx ? log_blocks(bx - 1, by & 7) : log_blocks(bx, (by - 1) & 7);
+
+					memcpy((void*)&log_blk, (const void*)&prev_log_blk, sizeof(log_blk));
+
+					if (pBlock_callback)
+					{
+						if (!(*pBlock_callback)(bx, by, prev_log_blk, pBlock_callback_data))
+							return false;
+					}
+										
+					new_prev_state.m_tm_index = pPrev_block_state->m_tm_index;
+										
+					cur_run_len--;
+
+					continue;
+				}
+				else if ((mode_byte & 15) == (uint32_t)xuastc_zstd_mode::cMODE_SOLID)
+				{
+					// solid
+					const astc_helpers::log_astc_block* pPrev_log_blk = bx ? &log_blocks(bx - 1, by & 7) : (by ? &log_blocks(bx, (by - 1) & 7) : nullptr);
+
+					uint32_t prev_solid_color[4] = { 0 };
+
+					if (pPrev_log_blk)
+					{
+						if (pPrev_log_blk->m_solid_color_flag_ldr)
+						{
+							prev_solid_color[0] = pPrev_log_blk->m_solid_color[0] >> 8;
+							prev_solid_color[1] = pPrev_log_blk->m_solid_color[1] >> 8;
+							prev_solid_color[2] = pPrev_log_blk->m_solid_color[2] >> 8;
+							prev_solid_color[3] = pPrev_log_blk->m_solid_color[3] >> 8;
+						}
+						else
+						{
+							// Decode previous block's first CEM, use the halfway point as the predictor.
+							color_rgba prev_l, prev_h;
+							decode_endpoints(pPrev_log_blk->m_color_endpoint_modes[0], pPrev_log_blk->m_endpoints, pPrev_log_blk->m_endpoint_ise_range, prev_l, prev_h);
+
+							prev_solid_color[0] = (prev_l[0] + prev_h[0] + 1) >> 1;
+							prev_solid_color[1] = (prev_l[1] + prev_h[1] + 1) >> 1;
+							prev_solid_color[2] = (prev_l[2] + prev_h[2] + 1) >> 1;
+							prev_solid_color[3] = (prev_l[3] + prev_h[3] + 1) >> 1;
+						}
+					}
+
+					uint32_t delta_r = solid_dpcm_dec.get_bits8();
+					uint32_t delta_g = solid_dpcm_dec.get_bits8();
+					uint32_t delta_b = solid_dpcm_dec.get_bits8();
+					uint32_t delta_a = has_alpha ? solid_dpcm_dec.get_bits8() : 0;
+
+					uint32_t r = (prev_solid_color[0] + delta_r) & 0xFF;
+					uint32_t g = (prev_solid_color[1] + delta_g) & 0xFF;
+					uint32_t b = (prev_solid_color[2] + delta_b) & 0xFF;
+					uint32_t a = 255;
+					if (has_alpha)
+						a = (prev_solid_color[3] + delta_a) & 0xFF;
+					
+					log_blk.clear();
+					log_blk.m_solid_color_flag_ldr = true;
+					log_blk.m_solid_color[0] = (uint16_t)(r | (r << 8));
+					log_blk.m_solid_color[1] = (uint16_t)(g | (g << 8));
+					log_blk.m_solid_color[2] = (uint16_t)(b | (b << 8));
+					log_blk.m_solid_color[3] = (uint16_t)(a | (a << 8));
+
+					if (pBlock_callback)
+					{
+						if (!(*pBlock_callback)(bx, by, log_blk, pBlock_callback_data))
+							return false;
+					}
+										
+					new_prev_state.m_tm_index = -1;
+										
+					continue;
+				}
+
+				new_prev_state.clear();
+				
+				//log_blk.clear();
+				memset((void*)&log_blk, 0, offsetof(astc_helpers::log_astc_block, m_weights));
+				
+				uint32_t tm_index = 0;
+				uint32_t actual_cem = 0;
+
+				if ((mode_byte & 1) == 0)
+				{
+					// raw
+					uint32_t config_reuse_index = (mode_byte >> 1) & 3;
+
+					if (config_reuse_index < 3)
+					{
+						// 0 = left, 1 = upper, 2 = left-upper
+						int cfg_dx = 0, cfg_dy = 0;
+						const prev_block_state_full_zstd* pCfg_state = nullptr;
+
+						switch (config_reuse_index)
+						{
+						case 0: cfg_dx = -1; pCfg_state = pLeft_state; break;
+						case 1: cfg_dx = 0; cfg_dy = -1; pCfg_state = pUpper_state; break;
+						case 2: cfg_dx = -1; cfg_dy = -1; pCfg_state = pDiag_state; break;
+						default: assert(0); break;
+						}
+
+						if ((((cfg_dx + (int)bx) < 0) ||
+							((cfg_dy + (int)by) < 0)) ||
+							(!pCfg_state))
+						{
+							BASISU_DEVEL_ERROR("astc_ldr_t::xuastc_ldr_decompress_image_full_zstd::Invalid config reuse\n");
+							return false;
+						}
+
+						astc_helpers::log_astc_block& cfg_log_blk = log_blocks((int)bx + cfg_dx, ((int)by + cfg_dy) & 7);
+
+						tm_index = pCfg_state->m_tm_index;
+						
+						if (pCfg_state->m_tm_index < 0)
+						{
+							BASISU_DEVEL_ERROR("astc_ldr_t::xuastc_ldr_decompress_image_full_zstd::Invalid config reuse\n");
+							return false;
+						}
+
+						log_blk.m_partition_id = cfg_log_blk.m_partition_id;
+						actual_cem = cfg_log_blk.m_color_endpoint_modes[0];
+
+						new_prev_state.m_tm_index = tm_index;
+						//new_prev_state.m_base_cem_index = pCfg_state->m_base_cem_index; // base cem not including base+ofs, not actual
+					}
+					else
+					{
+						if (mode_byte & XUASTC_LDR_MODE_BYTE_TM_HASH_HIT_FLAG)
+						{
+							uint32_t tm_hash_index = raw_bits.get_bits(TM_HASH_BITS);
+							tm_index = tm_hash[tm_hash_index];
+						}
+						else
+						{
+							tm_index = raw_bits.decode_truncated_binary(encoder_trial_modes.size_u32());
+							
+							tm_hash[tm_hash_index(tm_index)] = tm_index;
+						}
+
+						if (tm_index >= encoder_trial_modes.size())
+						{
+							BASISU_DEVEL_ERROR("astc_ldr_t::xuastc_ldr_decompress_image_full_zstd::Invalid tm_index\n");
+							return false;
+						}
+
+						new_prev_state.m_tm_index = tm_index;
+
+						const trial_mode& tm = encoder_trial_modes[tm_index];
+
+						actual_cem = tm.m_cem;
+
+						if ((tm.m_cem == astc_helpers::CEM_LDR_RGB_DIRECT) || (tm.m_cem == astc_helpers::CEM_LDR_RGBA_DIRECT))
+						{
+							// Decode is_base_ofs bit
+							bool is_base_ofs = (mode_byte & XUASTC_LDR_MODE_BYTE_IS_BASE_OFS_FLAG) != 0;
+
+							if (is_base_ofs)
+							{
+								if (actual_cem == astc_helpers::CEM_LDR_RGB_DIRECT)
+									actual_cem = astc_helpers::CEM_LDR_RGB_BASE_PLUS_OFFSET;
+								else if (actual_cem == astc_helpers::CEM_LDR_RGBA_DIRECT)
+									actual_cem = astc_helpers::CEM_LDR_RGBA_BASE_PLUS_OFFSET;
+							}
+						}
+
+						if (tm.m_num_parts > 1)
+						{
+							const uint32_t total_unique_indices = get_total_unique_patterns(astc_block_size_index, tm.m_num_parts);
+							int* pPart_hash = (tm.m_num_parts == 2) ? part2_hash : part3_hash;
+
+							const bool hash_hit_flag = (mode_byte & XUASTC_LDR_MODE_BYTE_PART_HASH_HIT) != 0;
+							
+							uint32_t unique_pat_index;
+							if (hash_hit_flag)
+							{
+								uint32_t h = raw_bits.get_bits(basist::astc_ldr_t::PART_HASH_BITS);
+								
+								unique_pat_index = pPart_hash[h];
+							}
+							else
+							{
+								unique_pat_index = raw_bits.decode_truncated_binary(total_unique_indices);
+																
+								pPart_hash[basist::astc_ldr_t::part_hash_index(unique_pat_index)] = unique_pat_index;
+							}
+
+							if (unique_pat_index >= get_total_unique_patterns(astc_block_size_index, tm.m_num_parts))
+							{
+								BASISU_DEVEL_ERROR("astc_ldr_t::xuastc_ldr_decompress_image_full_zstd: invalid unique_pat_index, decompression failed (file corrupt)\n");
+								return false;
+							}
+
+							log_blk.m_partition_id = unique_pat_index_to_part_seed(astc_block_size_index, tm.m_num_parts, unique_pat_index);
+						}
+
+
+					} // if (config_reuse_index < 3)
+
+					if (tm_index >= encoder_trial_modes.size())
+					{
+						BASISU_DEVEL_ERROR("astc_ldr_t::xuastc_ldr_decompress_image_full_zstd: invalid tm_index, decompression failed (file corrupt)\n");
+						return false;
+					}
+
+					const trial_mode& tm = encoder_trial_modes[tm_index];
+
+					const bool actual_cem_supports_bc = astc_helpers::cem_supports_bc(actual_cem);
+
+					const uint32_t total_endpoint_vals = astc_helpers::get_num_cem_values(actual_cem);
+
+					for (uint32_t part_iter = 0; part_iter < tm.m_num_parts; part_iter++)
+						log_blk.m_color_endpoint_modes[part_iter] = (uint8_t)actual_cem;
+
+					log_blk.m_num_partitions = (uint8_t)tm.m_num_parts;
+					log_blk.m_dual_plane = (tm.m_ccs_index >= 0);
+					if (log_blk.m_dual_plane)
+						log_blk.m_color_component_selector = (uint8_t)tm.m_ccs_index;
+
+					log_blk.m_weight_ise_range = (uint8_t)tm.m_weight_ise_range;
+					log_blk.m_endpoint_ise_range = (uint8_t)tm.m_endpoint_ise_range;
+					log_blk.m_grid_width = (uint8_t)tm.m_grid_width;
+					log_blk.m_grid_height = (uint8_t)tm.m_grid_height;
+
+					const bool used_dpcm_endpoints_flag = (mode_byte & XUASTC_LDR_MODE_BYTE_DPCM_ENDPOINTS_FLAG) != 0;
+
+					if (used_dpcm_endpoints_flag)
+					{
+						const int num_endpoint_levels = astc_helpers::get_ise_levels(log_blk.m_endpoint_ise_range);
+						const auto& endpoint_rank_to_ise = astc_helpers::g_dequant_tables.get_endpoint_tab(log_blk.m_endpoint_ise_range).m_rank_to_ISE;
+						const auto& endpoint_ise_to_rank = astc_helpers::g_dequant_tables.get_endpoint_tab(log_blk.m_endpoint_ise_range).m_ISE_to_rank;
+
+						uint32_t reuse_delta_index = endpoint_dpcm_reuse_indices_dec.get_bits8();
+						if (reuse_delta_index >= NUM_REUSE_XY_DELTAS)
+						{
+							BASISU_DEVEL_ERROR("astc_ldr_t::xuastc_ldr_decompress_image_full_zstd::Invalid reuse delta\n");
+							return false;
+						}
+
+						const int reuse_bx = (int)bx + basist::astc_6x6_hdr::g_reuse_xy_deltas[reuse_delta_index].m_x;
+						const int reuse_by = (int)by + basist::astc_6x6_hdr::g_reuse_xy_deltas[reuse_delta_index].m_y;
+
+						if ((reuse_bx < 0) || (reuse_by < 0) || (reuse_bx >= (int)num_blocks_x) || (reuse_by >= (int)num_blocks_y))
+						{
+							BASISU_DEVEL_ERROR("astc_ldr_t::xuastc_ldr_decompress_image_full_zstd::Invalid reuse delta\n");
+							return false;
+						}
+
+						const astc_helpers::log_astc_block* pEndpoint_pred_log_blk = &log_blocks(reuse_bx, reuse_by & 7);
+						if (pEndpoint_pred_log_blk->m_solid_color_flag_ldr)
+						{
+							BASISU_DEVEL_ERROR("astc_ldr_t::xuastc_ldr_decompress_image_full_zstd::Invalid reuse delta\n");
+							return false;
+						}
+
+						bool endpoints_use_bc[astc_helpers::MAX_PARTITIONS] = { };
+
+						if (actual_cem_supports_bc)
+						{
+							for (uint32_t part_iter = 0; part_iter < log_blk.m_num_partitions; part_iter++)
+								endpoints_use_bc[part_iter] = (use_bc_bits_dec.get_bits1() != 0);
+						}
+
+						uint8_t predicted_endpoints[astc_helpers::MAX_PARTITIONS][astc_helpers::MAX_CEM_ENDPOINT_VALS] = { };
+
+						for (uint32_t part_iter = 0; part_iter < log_blk.m_num_partitions; part_iter++)
+						{
+							const bool always_repack_flag = false;
+							bool blue_contraction_clamped_flag = false, base_ofs_clamped_flag = false;
+
+							// Mini-CEM encoder, to cross CEM domains.
+							bool conv_status = convert_endpoints_across_cems(
+								pEndpoint_pred_log_blk->m_color_endpoint_modes[0], pEndpoint_pred_log_blk->m_endpoint_ise_range, pEndpoint_pred_log_blk->m_endpoints,
+								log_blk.m_color_endpoint_modes[0], log_blk.m_endpoint_ise_range, predicted_endpoints[part_iter],
+								always_repack_flag,
+								endpoints_use_bc[part_iter], false,
+								blue_contraction_clamped_flag, base_ofs_clamped_flag);
+
+							if (!conv_status)
+							{
+								BASISU_DEVEL_ERROR("astc_ldr_t::xuastc_ldr_decompress_image_full_zstd::Failed predicting endpoints\n");
+								return false;
+							}
+						}
+
+						if (num_endpoint_levels <= 8)
+						{
+							for (uint32_t part_iter = 0; part_iter < tm.m_num_parts; part_iter++)
+							{
+								for (uint32_t val_iter = 0; val_iter < total_endpoint_vals; val_iter++)
+								{
+									const uint32_t endpoint_idx = part_iter * total_endpoint_vals + val_iter;
+									
+									int delta = endpoint_dpcm_3bit_dec.get_bits4();
+																		
+									int e_val = (delta + endpoint_ise_to_rank[predicted_endpoints[part_iter][val_iter]]) % num_endpoint_levels;
+									log_blk.m_endpoints[endpoint_idx] = endpoint_rank_to_ise[e_val];
+								}
+							}
+						}
+						else if (num_endpoint_levels <= 16)
+						{
+							for (uint32_t part_iter = 0; part_iter < tm.m_num_parts; part_iter++)
+							{
+								for (uint32_t val_iter = 0; val_iter < total_endpoint_vals; val_iter++)
+								{
+									const uint32_t endpoint_idx = part_iter * total_endpoint_vals + val_iter;
+
+									int delta = endpoint_dpcm_4bit_dec.get_bits4();
+																		
+									int e_val = (delta + endpoint_ise_to_rank[predicted_endpoints[part_iter][val_iter]]) % num_endpoint_levels;
+									log_blk.m_endpoints[endpoint_idx] = endpoint_rank_to_ise[e_val];
+								}
+							}
+						}
+						else if (num_endpoint_levels <= 32)
+						{
+							for (uint32_t part_iter = 0; part_iter < tm.m_num_parts; part_iter++)
+							{
+								for (uint32_t val_iter = 0; val_iter < total_endpoint_vals; val_iter++)
+								{
+									const uint32_t endpoint_idx = part_iter * total_endpoint_vals + val_iter;
+
+									int delta = endpoint_dpcm_5bit_dec.get_bits8();
+																		
+									int e_val = (delta + endpoint_ise_to_rank[predicted_endpoints[part_iter][val_iter]]) % num_endpoint_levels;
+									log_blk.m_endpoints[endpoint_idx] = endpoint_rank_to_ise[e_val];
+								}
+							}
+						}
+						else if (num_endpoint_levels <= 64)
+						{
+							for (uint32_t part_iter = 0; part_iter < tm.m_num_parts; part_iter++)
+							{
+								for (uint32_t val_iter = 0; val_iter < total_endpoint_vals; val_iter++)
+								{
+									const uint32_t endpoint_idx = part_iter * total_endpoint_vals + val_iter;
+
+									int delta = endpoint_dpcm_6bit_dec.get_bits8();
+																		
+									int e_val = (delta + endpoint_ise_to_rank[predicted_endpoints[part_iter][val_iter]]) % num_endpoint_levels;
+									log_blk.m_endpoints[endpoint_idx] = endpoint_rank_to_ise[e_val];
+								}
+							}
+						}
+						else if (num_endpoint_levels <= 128)
+						{
+							for (uint32_t part_iter = 0; part_iter < tm.m_num_parts; part_iter++)
+							{
+								for (uint32_t val_iter = 0; val_iter < total_endpoint_vals; val_iter++)
+								{
+									const uint32_t endpoint_idx = part_iter * total_endpoint_vals + val_iter;
+
+									int delta = endpoint_dpcm_7bit_dec.get_bits8();
+																		
+									int e_val = (delta + endpoint_ise_to_rank[predicted_endpoints[part_iter][val_iter]]) % num_endpoint_levels;
+									log_blk.m_endpoints[endpoint_idx] = endpoint_rank_to_ise[e_val];
+								}
+							}
+						}
+						else
+						{
+							for (uint32_t part_iter = 0; part_iter < tm.m_num_parts; part_iter++)
+							{
+								for (uint32_t val_iter = 0; val_iter < total_endpoint_vals; val_iter++)
+								{
+									const uint32_t endpoint_idx = part_iter * total_endpoint_vals + val_iter;
+
+									int delta = endpoint_dpcm_8bit_dec.get_bits8();
+																		
+									int e_val = (delta + endpoint_ise_to_rank[predicted_endpoints[part_iter][val_iter]]) % num_endpoint_levels;
+									log_blk.m_endpoints[endpoint_idx] = endpoint_rank_to_ise[e_val];
+								}
+							}
+						}
+					}
+					else
+					{
+						if (!decode_values(raw_bits, tm.m_num_parts * total_endpoint_vals, log_blk.m_endpoint_ise_range, log_blk.m_endpoints))
+						{
+							BASISU_DEVEL_ERROR("astc_ldr_t::xuastc_ldr_decompress_image_full_zstd: decode_values() failed\n");
+							return false;
+						}
+					}
+				}
+				else if ((mode_byte & 15) >= (uint32_t)xuastc_zstd_mode::cMODE_REUSE_CFG_ENDPOINTS_LEFT)
+				{
+					// reuse full cfg+endpoints+part id
+					const uint32_t reuse_index = ((mode_byte >> 2) & 3) - 1;
+
+					int cfg_dx = 0, cfg_dy = 0;
+					const prev_block_state_full_zstd* pCfg_state = nullptr;
+
+					switch (reuse_index)
+					{
+					case 0: cfg_dx = -1; pCfg_state = pLeft_state;  break;
+					case 1: cfg_dx = 0; cfg_dy = -1; pCfg_state = pUpper_state;  break;
+					case 2: cfg_dx = -1; cfg_dy = -1; pCfg_state = pDiag_state;  break;
+					default: assert(0);  break;
+					}
+
+					if ((((cfg_dx + (int)bx) < 0) ||
+						((cfg_dy + (int)by) < 0)) ||
+						(!pCfg_state))
+					{
+						BASISU_DEVEL_ERROR("astc_ldr_t::xuastc_ldr_decompress_image_full_zstd::Invalid config reuse\n");
+						return false;
+					}
+
+					const astc_helpers::log_astc_block& cfg_log_blk = log_blocks((int)bx + cfg_dx, ((int)by + cfg_dy) & 7);
+
+					if (pCfg_state->m_tm_index < 0)
+					{
+						BASISU_DEVEL_ERROR("astc_ldr_t::xuastc_ldr_decompress_image_full_zstd::Invalid config reuse\n");
+						return false;
+					}
+
+					tm_index = pCfg_state->m_tm_index;
+					actual_cem = cfg_log_blk.m_color_endpoint_modes[0];
+										
+					for (uint32_t i = 0; i < cfg_log_blk.m_num_partitions; i++)
+						log_blk.m_color_endpoint_modes[i] = (uint8_t)actual_cem;
+
+					log_blk.m_dual_plane = cfg_log_blk.m_dual_plane;
+					log_blk.m_color_component_selector = cfg_log_blk.m_color_component_selector;
+					log_blk.m_num_partitions = cfg_log_blk.m_num_partitions;
+					log_blk.m_partition_id = cfg_log_blk.m_partition_id;
+					log_blk.m_endpoint_ise_range = cfg_log_blk.m_endpoint_ise_range;
+					log_blk.m_weight_ise_range = cfg_log_blk.m_weight_ise_range;
+					log_blk.m_grid_width = cfg_log_blk.m_grid_width;
+					log_blk.m_grid_height = cfg_log_blk.m_grid_height;
+
+					const uint32_t total_endpoint_vals = astc_helpers::get_num_cem_values(actual_cem) * log_blk.m_num_partitions;
+					memcpy(log_blk.m_endpoints, cfg_log_blk.m_endpoints, total_endpoint_vals);
+
+					new_prev_state.m_tm_index = tm_index;
+				}
+				else
+				{
+					// shouldn't actually get here
+					BASISU_DEVEL_ERROR("astc_ldr_t::xuastc_ldr_decompress_image_full_zstd: decompression failed\n");
+					return false;
+				}
+
+				// Decode weights
+
+				if (tm_index >= encoder_trial_modes.size())
+				{
+					BASISU_DEVEL_ERROR("astc_ldr_t::xuastc_ldr_decompress_image_full_zstd: invalid tm_index, decompression failed (file corrupt)\n");
+					return false;
+				}
+
+				const trial_mode& tm = encoder_trial_modes[tm_index];
+
+				const uint32_t total_planes = (tm.m_ccs_index >= 0) ? 2 : 1;
+				const uint32_t total_weights = tm.m_grid_width * tm.m_grid_height;
+
+				bool block_used_dct = false;
+				if (use_dct)
+					block_used_dct = ((mode_byte & XUASTC_LDR_MODE_BYTE_USE_DCT) != 0);
+
+				if (block_used_dct)
+				{
+					const astc_block_grid_data* pGrid_data = find_astc_block_grid_data(astc_block_width, astc_block_height, log_blk.m_grid_width, log_blk.m_grid_height);
+
+					const uint32_t num_dc_levels = grid_weight_dct::get_num_weight_dc_levels(log_blk.m_weight_ise_range);
+					syms.m_num_dc_levels = num_dc_levels;
+
+					for (uint32_t plane_iter = 0; plane_iter < total_planes; plane_iter++)
+					{
+						syms.m_coeffs.resize(0);
+
+						if (num_dc_levels == DCT_MEAN_LEVELS1)
+							syms.m_dc_sym = mean1_bytes.get_bits8();
+						else
+							syms.m_dc_sym = mean0_bits.get_bits4();
+
+						uint32_t cur_zig_ofs = 1;
+
+						while (cur_zig_ofs < total_weights)
+						{
+							uint32_t run_len = run_bytes.get_bits8();
+							if (run_len == DCT_RUN_LEN_EOB_SYM_INDEX)
+								break;
+
+							cur_zig_ofs += run_len;
+
+							if (cur_zig_ofs >= total_weights)
+							{
+								BASISU_DEVEL_ERROR("astc_ldr_t::xuastc_ldr_decompress_image_full_zstd::DCT decode error\n");
+								return false;
+							}
+
+							int sign = sign_bits.get_bits1();
+							int coeff = coeff_bytes.get_bits8() + 1;
+
+							if (sign)
+								coeff = -coeff;
+
+							syms.m_coeffs.push_back(dct_syms::coeff(basisu::safe_cast_uint16(run_len), basisu::safe_cast_int16(coeff)));
+							cur_zig_ofs++;
+						}
+
+						// weight grid IDCT
+						if (!grid_dct.decode_block_weights(dct_q, plane_iter, log_blk, nullptr, pGrid_data, nullptr, dct_work, &syms))
+						{
+							BASISU_DEVEL_ERROR("astc_ldr_t::xuastc_ldr_decompress_image_full_zstd::DCT decode failed\n");
+							return false;
+						}
+
+					} // plane_iter
+				}
+				else
+				{
+					// Weight grid DPCM (no dependency on other blocks, or between planes, for determinism even when IDCT is used)
+					const uint32_t num_weight_levels = astc_helpers::get_ise_levels(log_blk.m_weight_ise_range);
+					const auto& weight_rank_to_ise = astc_helpers::g_dequant_tables.get_weight_tab(log_blk.m_weight_ise_range).m_rank_to_ISE;
+
+					for (uint32_t plane_iter = 0; plane_iter < total_planes; plane_iter++)
+					{
+						int prev_w = num_weight_levels / 2;
+
+						if (num_weight_levels < 4)
+						{
+							for (uint32_t weight_iter = 0; weight_iter < total_weights; weight_iter++)
+							{
+								uint32_t r = weight2_bits.get_bits2();
+
+								uint32_t w = (prev_w + r) % num_weight_levels;
+
+								prev_w = w;
+
+								log_blk.m_weights[plane_iter + weight_iter * total_planes] = (uint8_t)weight_rank_to_ise[w];
+
+							} // weight_iter
+						}
+						else if (num_weight_levels == 4)
+						{
+							for (uint32_t weight_iter = 0; weight_iter < total_weights; weight_iter++)
+							{
+								uint32_t r = weight2_bits.get_bits2();
+
+								uint32_t w = (prev_w + r) & 3;
+
+								prev_w = w;
+
+								log_blk.m_weights[plane_iter + weight_iter * total_planes] = (uint8_t)weight_rank_to_ise[w];
+
+							} // weight_iter
+						}
+						else if (num_weight_levels < 8)
+						{
+							for (uint32_t weight_iter = 0; weight_iter < total_weights; weight_iter++)
+							{
+								uint32_t r = weight3_bits.get_bits4();
+
+								uint32_t w = (prev_w + r) % num_weight_levels;
+
+								prev_w = w;
+
+								log_blk.m_weights[plane_iter + weight_iter * total_planes] = (uint8_t)weight_rank_to_ise[w];
+
+							} // weight_iter
+						}
+						else if (num_weight_levels == 8)
+						{
+							for (uint32_t weight_iter = 0; weight_iter < total_weights; weight_iter++)
+							{
+								uint32_t r = weight3_bits.get_bits4();
+
+								uint32_t w = (prev_w + r) & 7;
+
+								prev_w = w;
+
+								log_blk.m_weights[plane_iter + weight_iter * total_planes] = (uint8_t)weight_rank_to_ise[w];
+
+							} // weight_iter
+						}
+						else if (num_weight_levels < 16)
+						{
+							for (uint32_t weight_iter = 0; weight_iter < total_weights; weight_iter++)
+							{
+								uint32_t r = weight4_bits.get_bits4();
+
+								uint32_t w = (prev_w + r) % num_weight_levels;
+
+								prev_w = w;
+
+								log_blk.m_weights[plane_iter + weight_iter * total_planes] = (uint8_t)weight_rank_to_ise[w];
+
+							} // weight_iter
+						}
+						else if (num_weight_levels == 16)
+						{
+							for (uint32_t weight_iter = 0; weight_iter < total_weights; weight_iter++)
+							{
+								uint32_t r = weight4_bits.get_bits4();
+
+								uint32_t w = (prev_w + r) & 15;
+
+								prev_w = w;
+
+								log_blk.m_weights[plane_iter + weight_iter * total_planes] = (uint8_t)weight_rank_to_ise[w];
+
+							} // weight_iter
+						}
+						else
+						{
+							for (uint32_t weight_iter = 0; weight_iter < total_weights; weight_iter++)
+							{
+								uint32_t r = weight8_bytes.get_bits8();
+
+								uint32_t w = (prev_w + r) % num_weight_levels;
+
+								prev_w = w;
+
+								log_blk.m_weights[plane_iter + weight_iter * total_planes] = (uint8_t)weight_rank_to_ise[w];
+
+							} // weight_iter
+						}
+
+					} // plane_iter
+
+				} // if (block_used_dct)
+
+				if (pBlock_callback)
+				{
+					if (!(*pBlock_callback)(bx, by, log_blk, pBlock_callback_data))
+						return false;
+				}
+			
+			} // bx 
+
+		} // by
+
+		assert(!cur_run_len);
+
+		const uint32_t final_sync_marker = raw_bits.get_bits(FINAL_SYNC_MARKER_BITS);
+		if (final_sync_marker != FINAL_SYNC_MARKER)
+		{
+			BASISU_DEVEL_ERROR("astc_ldr_t::xuastc_ldr_decompress_image_full_zstd::Final sync check failed (1)\n");
+			return false;
+		}
+
+		if (comp_mode_dec.m_pBuf != comp_mode_dec.m_pBuf_end)
+		{
+			BASISU_DEVEL_ERROR("astc_ldr_t::xuastc_ldr_decompress_image_full_zstd::Final sync check failed (2)\n");
+			return false;
+		}
+
+		return true;
+	}
+		
+	bool xuastc_ldr_decompress_image(
+		const uint8_t* pComp_data_all, size_t comp_data_size_all,
+		uint32_t& astc_block_width, uint32_t& astc_block_height,
+		uint32_t& actual_width, uint32_t& actual_height, bool& has_alpha, bool& uses_srgb_astc_decode_mode,
+		bool debug_output,
+		xuastc_decomp_image_init_callback_ptr pInit_callback, void* pInit_callback_data,
+		xuastc_decomp_image_block_callback_ptr pBlock_callback, void* pBlock_callback_data)
+	{
+		if (debug_output)
+			basisu::debug_printf("\n------------------- astc_ldr_t::decompress_image\n");
+
+		assert(g_initialized);
+
+		astc_block_width = 0;
+		astc_block_height = 0;
+		actual_width = 0;
+		actual_height = 0;
+		has_alpha = false;
+		uses_srgb_astc_decode_mode = false;
+
+		if (!g_initialized)
+		{
+			BASISU_DEVEL_ERROR("Not initialized");
+			//dec_blocks.clear();
+			return false;
+		}
+
+		if (comp_data_size_all < 1)
+		{
+			BASISU_DEVEL_ERROR("Compressed file is too small\n");
+			return false;
+		}
+
+		const uint8_t first_comp_byte = pComp_data_all[0];
+
+		if (first_comp_byte == (uint8_t)xuastc_ldr_syntax::cFullZStd)
+		{
+			return xuastc_ldr_decompress_image_full_zstd(
+				pComp_data_all, comp_data_size_all,
+				astc_block_width, astc_block_height,
+				actual_width, actual_height, has_alpha, uses_srgb_astc_decode_mode,
+				debug_output,
+				pInit_callback, pInit_callback_data,
+				pBlock_callback, pBlock_callback_data);
+		}
+
+		// Either full arith or hybrid arith+zstd now
+				
+		const xuastc_ldr_arith_header* pHdr = nullptr;
+
+		const uint8_t* pComp_data = pComp_data_all + 1;
+		size_t comp_data_size = comp_data_size_all - 1;
+				
+		basisu::uint8_vec uncomp_mean0_bits, uncomp_mean1_bytes, uncomp_run_bytes, uncomp_coeff_bytes, uncomp_weight2_bytes, uncomp_weight3_bytes, uncomp_weight4_bytes, uncomp_weight8_bytes;
+		simplified_bitwise_decoder mean0_bits, mean1_bytes, run_bytes, coeff_bytes, sign_bits, weight2_bits, weight3_bits, weight4_bits, weight8_bytes;
+		bool use_fast_decoding = false;
+								
+		if (first_comp_byte == (uint8_t)xuastc_ldr_syntax::cHybridArithZStd)
+		{
+			if (comp_data_size_all < sizeof(xuastc_ldr_arith_header))
+			{
+				BASISU_DEVEL_ERROR("Compressed file is too small\n");
+				return false;
+			}
+
+			pHdr = (const xuastc_ldr_arith_header*)pComp_data_all;
+
+			if (pHdr->m_arith_bytes_len < arith::ArithMinExpectedDataBufSize)
+			{
+				BASISU_DEVEL_ERROR("Invalid header\n");
+				return false;
+			}
+
+			const uint64_t total_comp_size = (uint64_t)((uint32_t)pHdr->m_arith_bytes_len) + 
+				pHdr->m_mean0_bits_len + pHdr->m_mean1_bytes_len +
+				pHdr->m_run_bytes_len + pHdr->m_coeff_bytes_len + pHdr->m_sign_bits_len + 
+				pHdr->m_weight2_bits_len + pHdr->m_weight3_bits_len + pHdr->m_weight4_bits_len + pHdr->m_weight8_bytes_len;
+
+			if ((sizeof(xuastc_ldr_arith_header) + total_comp_size) > comp_data_size_all)
+			{
+				BASISU_DEVEL_ERROR("Compressed file is too small\n");
+				return false;
+			}
+			
+			pComp_data = pComp_data_all + sizeof(xuastc_ldr_arith_header);
+			comp_data_size = pHdr->m_arith_bytes_len;
+
+			const uint8_t* pCur_buf = (const uint8_t*)pComp_data + comp_data_size;
+
+			// mean0
+			{
+				bool status = zstd_decompress(pCur_buf, pHdr->m_mean0_bits_len, uncomp_mean0_bits);
+				if (!status)
+					return false;
+				pCur_buf += pHdr->m_mean0_bits_len;
+				mean0_bits.init(uncomp_mean0_bits);
+			}
+
+			// mean1
+			{
+				bool status = zstd_decompress(pCur_buf, pHdr->m_mean1_bytes_len, uncomp_mean1_bytes);
+				if (!status)
+					return false;
+				pCur_buf += pHdr->m_mean1_bytes_len;
+				mean1_bytes.init(uncomp_mean1_bytes);
+			}
+
+			// run
+			{
+				bool status = zstd_decompress(pCur_buf, pHdr->m_run_bytes_len, uncomp_run_bytes);
+				if (!status)
+					return false;
+				pCur_buf += pHdr->m_run_bytes_len;
+				run_bytes.init(uncomp_run_bytes);
+			}
+
+			// coeff
+			{
+				bool status = zstd_decompress(pCur_buf, pHdr->m_coeff_bytes_len, uncomp_coeff_bytes);
+				if (!status)
+					return false;
+				pCur_buf += pHdr->m_coeff_bytes_len;
+				coeff_bytes.init(uncomp_coeff_bytes);
+			}
+
+			// sign
+			{
+				sign_bits.init(pCur_buf, pHdr->m_sign_bits_len);
+				pCur_buf += pHdr->m_sign_bits_len;
+			}
+
+			// weight2 
+			{
+				bool status = zstd_decompress(pCur_buf, pHdr->m_weight2_bits_len, uncomp_weight2_bytes);
+				if (!status)
+					return false;
+				pCur_buf += pHdr->m_weight2_bits_len;
+				weight2_bits.init(uncomp_weight2_bytes);
+			}
+
+			// weight3
+			{
+				bool status = zstd_decompress(pCur_buf, pHdr->m_weight3_bits_len, uncomp_weight3_bytes);
+				if (!status)
+					return false;
+				pCur_buf += pHdr->m_weight3_bits_len;
+				weight3_bits.init(uncomp_weight3_bytes);
+			}
+
+			// weight4
+			{
+				bool status = zstd_decompress(pCur_buf, pHdr->m_weight4_bits_len, uncomp_weight4_bytes);
+				if (!status)
+					return false;
+				pCur_buf += pHdr->m_weight4_bits_len;
+				weight4_bits.init(uncomp_weight4_bytes);
+			}
+
+			// weight8
+			{
+				bool status = zstd_decompress(pCur_buf, pHdr->m_weight8_bytes_len, uncomp_weight8_bytes);
+				if (!status)
+					return false;
+				pCur_buf += pHdr->m_weight8_bytes_len;
+				weight8_bytes.init(uncomp_weight8_bytes);
+			}
+
+			// sanity check
+			const uint64_t total_read_size = pCur_buf - pComp_data_all;
+			if (total_read_size > comp_data_size_all)
+			{
+				BASISU_DEVEL_ERROR("Compressed file is too small\n");
+				return false;
+			}
+
+			use_fast_decoding = true;
+		}
+
+		if (comp_data_size < arith::ArithMinExpectedDataBufSize)
+		{
+			BASISU_DEVEL_ERROR("Compressed file is too small\n");
+			return false;
+		}
+		
+		//interval_timer itm;
+		//itm.start();
+
+		arith::arith_dec dec;
+		if (!dec.init(pComp_data, comp_data_size))
+		{
+			BASISU_DEVEL_ERROR("astc_ldr_t::decompress_image::Invalid compressed data\n");
+			return false;
+		}
+
+		const uint32_t header_val = dec.get_bits(ARITH_HEADER_MARKER_BITS);
+		if (header_val != ARITH_HEADER_MARKER)
+		{
+			BASISU_DEVEL_ERROR("astc_ldr_t::decompress_image::Unexpected header marker\n");
+			return false;
+		}
+
+		const uint32_t astc_block_size_index = dec.get_bits(4);
+		if (astc_block_size_index >= astc_helpers::NUM_ASTC_BLOCK_SIZES)
+		{
+			BASISU_DEVEL_ERROR("Invalid block dimension index\n");
+			return false;
+		}
+
+		const uint32_t block_width = astc_helpers::g_astc_block_sizes[astc_block_size_index][0];
+		const uint32_t block_height = astc_helpers::g_astc_block_sizes[astc_block_size_index][1];
+
+		// sanity checks
+		assert((int)astc_block_size_index == astc_helpers::find_astc_block_size_index(block_width, block_height));
+		assert(astc_helpers::is_valid_block_size(block_width, block_height));
+
+		astc_block_width = block_width;
+		astc_block_height = block_height;
+
+		//const uint32_t total_block_pixels = block_width * block_height;
+
+		uses_srgb_astc_decode_mode = dec.get_bit();
+
+		//const astc_helpers::decode_mode dec_mode = uses_srgb_astc_decode_mode ? astc_helpers::cDecodeModeSRGB8 : astc_helpers::cDecodeModeLDR8;
+
+		const uint32_t width = dec.get_bits(16);
+		const uint32_t height = dec.get_bits(16);
+
+		if ((width < 1) || (height < 1))
+		{
+			BASISU_DEVEL_ERROR("astc_ldr_t::decompress_image::Invalid image dimension\n");
+			return false;
+		}
+
+		actual_width = width;
+		actual_height = height;
+
+		has_alpha = dec.get_bit();
+
+		const bool use_dct = (dec.get_bits(1) != 0);
+
+		int int_q = 0;
+		if (use_dct)
+			int_q = dec.get_bits(8);
+
+		const float dct_q = (float)int_q / 2.0f;
+		if ((use_dct) && ((dct_q <= 0.0f) || (dct_q > 100.0f)))
+		{
+			BASISU_DEVEL_ERROR("astc_ldr_t::decompress_image::Invalid DCT global quality factor\n");
+			return false;
+		}
+
+		if (debug_output)
+		{
+			basisu::fmt_debug_printf("astc_ldr_t::decompress_image: block dim: {}x{}, image dim: {}x{}, sRGB decode profile: {}, has_alpha: {}, dct: {} dct_q: {}\n",
+				block_width, block_height,
+				width, height,
+				uses_srgb_astc_decode_mode, has_alpha, 
+				use_dct, dct_q);
+		}
+
+		const uint32_t num_blocks_x = (width + block_width - 1) / block_width;
+		const uint32_t num_blocks_y = (height + block_height - 1) / block_height;
+
+		if (pInit_callback)
+		{
+			if (!(*pInit_callback)(num_blocks_x, num_blocks_y, block_width, block_height, uses_srgb_astc_decode_mode, dct_q, has_alpha, pInit_callback_data))
+				return false;
+		}
+
+		assert((size_t)astc_block_size_index < std::size(g_encoder_trial_modes));
+		const auto& encoder_trial_modes = g_encoder_trial_modes[astc_block_size_index];
+		
+		assert((size_t)astc_block_size_index < std::size(g_grouped_encoder_trial_modes));
+		const auto& grouped_encoder_trial_modes = g_grouped_encoder_trial_modes[astc_block_size_index];
+
+		arith::arith_data_model mode_model((uint32_t)xuastc_mode::cMODE_TOTAL);
+
+		arith::arith_data_model solid_color_dpcm_model[4];
+		for (uint32_t i = 0; i < 4; i++)
+			solid_color_dpcm_model[i].init(256, true);
+
+		arith::arith_data_model raw_endpoint_models[astc_helpers::TOTAL_ENDPOINT_ISE_RANGES];
+		for (uint32_t i = 0; i < astc_helpers::TOTAL_ENDPOINT_ISE_RANGES; i++)
+			raw_endpoint_models[i].init(astc_helpers::get_ise_levels(astc_helpers::FIRST_VALID_ENDPOINT_ISE_RANGE + i));
+
+		arith::arith_data_model dpcm_endpoint_models[astc_helpers::TOTAL_ENDPOINT_ISE_RANGES];
+		for (uint32_t i = 0; i < astc_helpers::TOTAL_ENDPOINT_ISE_RANGES; i++)
+			dpcm_endpoint_models[i].init(astc_helpers::get_ise_levels(astc_helpers::FIRST_VALID_ENDPOINT_ISE_RANGE + i));
+				
+		arith::arith_bit_model is_base_ofs_model;
+		arith::arith_bit_model use_dct_model[4];
+		arith::arith_bit_model use_dpcm_endpoints_model;
+
+		arith::arith_data_model cem_index_model[8];
+		for (uint32_t i = 0; i < 8; i++)
+			cem_index_model[i].init(OTM_NUM_CEMS);
+
+		arith::arith_data_model subset_index_model[OTM_NUM_SUBSETS];
+		for (uint32_t i = 0; i < OTM_NUM_SUBSETS; i++)
+			subset_index_model[i].init(OTM_NUM_SUBSETS);
+
+		arith::arith_data_model ccs_index_model[OTM_NUM_CCS];
+		for (uint32_t i = 0; i < OTM_NUM_CCS; i++)
+			ccs_index_model[i].init(OTM_NUM_CCS);
+
+		arith::arith_data_model grid_size_model[OTM_NUM_GRID_SIZES];
+		for (uint32_t i = 0; i < OTM_NUM_GRID_SIZES; i++)
+			grid_size_model[i].init(OTM_NUM_GRID_SIZES);
+
+		arith::arith_data_model grid_aniso_model[OTM_NUM_GRID_ANISOS];
+		for (uint32_t i = 0; i < OTM_NUM_GRID_ANISOS; i++)
+			grid_aniso_model[i].init(OTM_NUM_GRID_ANISOS);
+
+		arith::arith_data_model dct_run_len_model; // [0,63] or 64=EOB
+		arith::arith_data_model dct_coeff_mag; // [1,255] (blocks with larger mags go DPCM)
+		arith::arith_data_model weight_mean_models[2];
+		arith::arith_data_model raw_weight_models[astc_helpers::TOTAL_WEIGHT_ISE_RANGES];
+
+		if (!use_fast_decoding)
+		{
+			// Models used for weight decompression in pure arithmetic mode.
+			dct_run_len_model.init(65);
+			dct_coeff_mag.init(255);
+
+			weight_mean_models[0].init(DCT_MEAN_LEVELS0);
+			weight_mean_models[1].init(DCT_MEAN_LEVELS1);
+			
+			for (uint32_t i = 0; i < astc_helpers::TOTAL_WEIGHT_ISE_RANGES; i++)
+				raw_weight_models[i].init(astc_helpers::get_ise_levels(astc_helpers::FIRST_VALID_WEIGHT_ISE_RANGE + i));
+		}
+		
+		const grid_weight_dct& grid_dct = g_grid_weight_dcts[astc_block_size_index];
+				
+		basisu::vector2D<astc_helpers::log_astc_block> log_blocks;
+		if (!log_blocks.try_resize(num_blocks_x, 8))
+		{
+			BASISU_DEVEL_ERROR("astc_ldr_t::decompress_image: out of memory\n");
+			return false;
+		}
+
+		memset(log_blocks.get_ptr(), 0, log_blocks.size_in_bytes());
+				
+		basisu::vector2D<prev_block_state> prev_block_states;
+		if (!prev_block_states.try_resize(num_blocks_x, 2))
+		{
+			BASISU_DEVEL_ERROR("astc_ldr_t::decompress_image: out of memory\n");
+			return false;
+		}
+
+		arith::arith_data_model submode_models[OTM_NUM_CEMS][OTM_NUM_SUBSETS][OTM_NUM_CCS][OTM_NUM_GRID_SIZES][OTM_NUM_GRID_ANISOS];
+
+		arith::arith_bit_model endpoints_use_bc_models[4];
+
+		arith::arith_data_model endpoint_reuse_delta_model(basist::astc_6x6_hdr::NUM_REUSE_XY_DELTAS);
+				
+		arith::arith_data_model config_reuse_model[4];
+		for (uint32_t i = 0; i < 4; i++)
+			config_reuse_model[i].init(4);
+
+		arith::arith_gamma_contexts m_run_len_contexts;
+		uint32_t cur_run_len = 0;
+
+		int part2_hash[PART_HASH_SIZE];
+		std::fill(part2_hash, part2_hash + PART_HASH_SIZE, -1);
+
+		int part3_hash[PART_HASH_SIZE];
+		std::fill(part3_hash, part3_hash + PART_HASH_SIZE, -1);
+
+		arith::arith_bit_model use_part_hash_model[4];
+		arith::arith_data_model part2_hash_index_model(PART_HASH_SIZE, true);
+		arith::arith_data_model part3_hash_index_model(PART_HASH_SIZE, true);
+
+		//if (debug_output)
+		//	debug_printf("Decompressor init time finish: {} secs\n", itm.get_elapsed_secs());
+
+		//itm.start();
+
+		dct_syms syms;
+
+		fvec dct_work;
+						
+		for (uint32_t by = 0; by < num_blocks_y; by++)
+		{
+			for (uint32_t bx = 0; bx < num_blocks_x; bx++)
+			{
+				prev_block_state& new_prev_state = prev_block_states(bx, by & 1);
+				new_prev_state.clear();
+
+				const prev_block_state* pLeft_state = bx ? &prev_block_states(bx - 1, by & 1) : nullptr;
+				const prev_block_state* pUpper_state = by ? &prev_block_states(bx, (by - 1) & 1) : nullptr;
+				const prev_block_state* pDiag_state = (bx && by) ? &prev_block_states(bx - 1, (by - 1) & 1) : nullptr;
+				const prev_block_state* pPred_state = pLeft_state ? pLeft_state : pUpper_state; // left or upper, or nullptr on first block
+
+				astc_helpers::log_astc_block& log_blk = log_blocks(bx, by & 7);
+
+				if (cur_run_len)
+				{
+					const prev_block_state* pPrev_block_state = pLeft_state ? pLeft_state : pUpper_state;
+					const astc_helpers::log_astc_block& prev_log_blk = bx ? log_blocks(bx - 1, by & 7) : log_blocks(bx, (by - 1) & 7);
+
+					log_blk = prev_log_blk;
+
+					if (pBlock_callback)
+					{
+						if (!(*pBlock_callback)(bx, by, prev_log_blk, pBlock_callback_data))
+							return false;
+					}
+
+					new_prev_state.m_was_solid_color = pPrev_block_state->m_was_solid_color;
+					new_prev_state.m_used_weight_dct = pPrev_block_state->m_used_weight_dct;
+					new_prev_state.m_first_endpoint_uses_bc = pPrev_block_state->m_first_endpoint_uses_bc;
+					new_prev_state.m_reused_full_cfg = true;
+					new_prev_state.m_tm_index = pPrev_block_state->m_tm_index;
+					new_prev_state.m_base_cem_index = pPrev_block_state->m_base_cem_index;
+					new_prev_state.m_subset_index = pPrev_block_state->m_subset_index;
+					new_prev_state.m_ccs_index = pPrev_block_state->m_ccs_index;
+					new_prev_state.m_grid_size = pPrev_block_state->m_grid_size;
+					new_prev_state.m_grid_aniso = pPrev_block_state->m_grid_aniso;
+					new_prev_state.m_used_part_hash = pPrev_block_state->m_used_part_hash;
+
+					cur_run_len--;
+					continue;
+				}
+
+				log_blk.clear();
+
+				uint32_t mode_index = dec.decode_sym(mode_model);
+
+				switch (mode_index)
+				{
+				case (uint32_t)xuastc_mode::cMODE_SOLID:
+				{
+					const astc_helpers::log_astc_block* pPrev_log_blk = bx ? &log_blocks(bx - 1, by & 7) : (by ? &log_blocks(bx, (by - 1) & 7) : nullptr);
+
+					uint32_t prev_solid_color[4] = { 0 };
+
+					if (pPrev_log_blk)
+					{
+						if (pPrev_log_blk->m_solid_color_flag_ldr)
+						{
+							prev_solid_color[0] = pPrev_log_blk->m_solid_color[0] >> 8;
+							prev_solid_color[1] = pPrev_log_blk->m_solid_color[1] >> 8;
+							prev_solid_color[2] = pPrev_log_blk->m_solid_color[2] >> 8;
+							prev_solid_color[3] = pPrev_log_blk->m_solid_color[3] >> 8;
+						}
+						else
+						{
+							// Decode previous block's first CEM, use the halfway point as the predictor.
+							color_rgba prev_l, prev_h;
+							decode_endpoints(pPrev_log_blk->m_color_endpoint_modes[0], pPrev_log_blk->m_endpoints, pPrev_log_blk->m_endpoint_ise_range, prev_l, prev_h);
+
+							prev_solid_color[0] = (prev_l[0] + prev_h[0] + 1) >> 1;
+							prev_solid_color[1] = (prev_l[1] + prev_h[1] + 1) >> 1;
+							prev_solid_color[2] = (prev_l[2] + prev_h[2] + 1) >> 1;
+							prev_solid_color[3] = (prev_l[3] + prev_h[3] + 1) >> 1;
+						}
+					}
+
+					uint32_t r = (prev_solid_color[0] + dec.decode_sym(solid_color_dpcm_model[0])) & 0xFF;
+					uint32_t g = (prev_solid_color[1] + dec.decode_sym(solid_color_dpcm_model[1])) & 0xFF;
+					uint32_t b = (prev_solid_color[2] + dec.decode_sym(solid_color_dpcm_model[2])) & 0xFF;
+
+					uint32_t a = 255;
+					if (has_alpha)
+						a = (prev_solid_color[3] + dec.decode_sym(solid_color_dpcm_model[3])) & 0xFF;
+
+					log_blk.m_solid_color_flag_ldr = true;
+					log_blk.m_solid_color[0] = (uint16_t)(r | (r << 8));
+					log_blk.m_solid_color[1] = (uint16_t)(g | (g << 8));
+					log_blk.m_solid_color[2] = (uint16_t)(b | (b << 8));
+					log_blk.m_solid_color[3] = (uint16_t)(a | (a << 8));
+
+					if (pBlock_callback)
+					{
+						if (!(*pBlock_callback)(bx, by, log_blk, pBlock_callback_data))
+							return false;
+					}
+
+					// Bias the statistics towards using DCT (most common case).
+					if (use_dct)
+						new_prev_state.m_used_weight_dct = true;
+
+					new_prev_state.m_first_endpoint_uses_bc = true;
+					new_prev_state.m_was_solid_color = true;
+					new_prev_state.m_tm_index = -1;
+					new_prev_state.m_base_cem_index = astc_helpers::CEM_LDR_RGB_DIRECT;
+					new_prev_state.m_subset_index = 0;
+					new_prev_state.m_ccs_index = 0;
+					new_prev_state.m_grid_size = 0;
+					new_prev_state.m_grid_aniso = 0;
+					new_prev_state.m_reused_full_cfg = false;
+					new_prev_state.m_used_part_hash = true; // bias to true
+
+					break;
+				}
+				case (uint32_t)xuastc_mode::cMODE_RUN:
+				{
+					if (!bx && !by)
+					{
+						BASISU_DEVEL_ERROR("astc_ldr_t::decompress_image::Invalid run command\n");
+						return false;
+					}
+
+					cur_run_len = dec.decode_gamma(m_run_len_contexts);
+					if (!cur_run_len)
+					{
+						BASISU_DEVEL_ERROR("astc_ldr_t::decompress_image::Invalid run len\n");
+						return false;
+					}
+
+					const uint32_t max_possible_run_len = num_blocks_x - bx;
+					if (cur_run_len > max_possible_run_len)
+					{
+						BASISU_DEVEL_ERROR("astc_ldr_t::decompress_image::Invalid run len\n");
+						return false;
+					}
+
+					const prev_block_state* pPrev_block_state = pLeft_state ? pLeft_state : pUpper_state;
+					const astc_helpers::log_astc_block& prev_log_blk = bx ? log_blocks(bx - 1, by & 7) : log_blocks(bx, (by - 1) & 7);
+
+					log_blk = prev_log_blk;
+
+					if (pBlock_callback)
+					{
+						if (!(*pBlock_callback)(bx, by, prev_log_blk, pBlock_callback_data))
+							return false;
+					}
+
+					new_prev_state.m_was_solid_color = pPrev_block_state->m_was_solid_color;
+					new_prev_state.m_used_weight_dct = pPrev_block_state->m_used_weight_dct;
+					new_prev_state.m_first_endpoint_uses_bc = pPrev_block_state->m_first_endpoint_uses_bc;
+					new_prev_state.m_reused_full_cfg = true;
+					new_prev_state.m_tm_index = pPrev_block_state->m_tm_index;
+					new_prev_state.m_base_cem_index = pPrev_block_state->m_base_cem_index;
+					new_prev_state.m_subset_index = pPrev_block_state->m_subset_index;
+					new_prev_state.m_ccs_index = pPrev_block_state->m_ccs_index;
+					new_prev_state.m_grid_size = pPrev_block_state->m_grid_size;
+					new_prev_state.m_grid_aniso = pPrev_block_state->m_grid_aniso;
+					new_prev_state.m_used_part_hash = pPrev_block_state->m_used_part_hash;
+
+					cur_run_len--;
+
+					break;
+				}
+				case (uint32_t)xuastc_mode::cMODE_RAW:
+				case (uint32_t)xuastc_mode::cMODE_REUSE_CFG_ENDPOINTS_LEFT:
+				case (uint32_t)xuastc_mode::cMODE_REUSE_CFG_ENDPOINTS_UP:
+				case (uint32_t)xuastc_mode::cMODE_REUSE_CFG_ENDPOINTS_DIAG:
+				{
+					uint32_t tm_index = 0;
+					uint32_t actual_cem = 0;
+
+					if (mode_index != (uint32_t)xuastc_mode::cMODE_RAW)
+					{
+						// Full config+part ID+endpoint reuse from an immediate neighbor
+						// 
+						// 0 = left, 1 = upper, 2 = left-upper
+						int cfg_dx = 0, cfg_dy = 0;
+						const prev_block_state* pCfg_state = nullptr;
+
+						switch (mode_index)
+						{
+						case (uint32_t)xuastc_mode::cMODE_REUSE_CFG_ENDPOINTS_LEFT: cfg_dx = -1; pCfg_state = pLeft_state;  break;
+						case (uint32_t)xuastc_mode::cMODE_REUSE_CFG_ENDPOINTS_UP: cfg_dx = 0; cfg_dy = -1; pCfg_state = pUpper_state;  break;
+						case (uint32_t)xuastc_mode::cMODE_REUSE_CFG_ENDPOINTS_DIAG: cfg_dx = -1; cfg_dy = -1; pCfg_state = pDiag_state;  break;
+						default: assert(0);  break;
+						}
+
+						if ((((cfg_dx + (int)bx) < 0) ||
+							((cfg_dy + (int)by) < 0)) ||
+							(!pCfg_state))
+						{
+							BASISU_DEVEL_ERROR("astc_ldr_t::decompress_image::Invalid config reuse\n");
+							return false;
+						}
+
+						if (pCfg_state->m_tm_index < 0)
+						{
+							BASISU_DEVEL_ERROR("astc_ldr_t::xuastc_ldr_decompress_image::Invalid config reuse\n");
+							return false;
+						}
+
+						const astc_helpers::log_astc_block& cfg_log_blk = log_blocks((int)bx + cfg_dx, ((int)by + cfg_dy) & 7);
+
+						tm_index = pCfg_state->m_tm_index;
+						actual_cem = cfg_log_blk.m_color_endpoint_modes[0];
+
+						for (uint32_t i = 0; i < cfg_log_blk.m_num_partitions; i++)
+							log_blk.m_color_endpoint_modes[i] = (uint8_t)actual_cem;
+						log_blk.m_dual_plane = cfg_log_blk.m_dual_plane;
+						log_blk.m_color_component_selector = cfg_log_blk.m_color_component_selector;
+						log_blk.m_num_partitions = cfg_log_blk.m_num_partitions;
+						log_blk.m_partition_id = cfg_log_blk.m_partition_id;
+						log_blk.m_endpoint_ise_range = cfg_log_blk.m_endpoint_ise_range;
+						log_blk.m_weight_ise_range = cfg_log_blk.m_weight_ise_range;
+						log_blk.m_grid_width = cfg_log_blk.m_grid_width;
+						log_blk.m_grid_height = cfg_log_blk.m_grid_height;
+
+						const uint32_t total_endpoint_vals = astc_helpers::get_num_cem_values(actual_cem) * log_blk.m_num_partitions;
+						memcpy(log_blk.m_endpoints, cfg_log_blk.m_endpoints, total_endpoint_vals);
+												
+						new_prev_state.m_tm_index = pCfg_state->m_tm_index;
+						new_prev_state.m_base_cem_index = pCfg_state->m_base_cem_index; // base cem not including base+ofs, not actual
+						new_prev_state.m_subset_index = pCfg_state->m_subset_index;
+						new_prev_state.m_ccs_index = pCfg_state->m_ccs_index;
+						new_prev_state.m_grid_size = pCfg_state->m_grid_size;
+						new_prev_state.m_grid_aniso = pCfg_state->m_grid_aniso;
+						new_prev_state.m_used_part_hash = pCfg_state->m_used_part_hash;
+						new_prev_state.m_reused_full_cfg = true;
+
+						const bool actual_cem_supports_bc = astc_helpers::cem_supports_bc(actual_cem);
+						if (actual_cem_supports_bc)
+						{
+							new_prev_state.m_first_endpoint_uses_bc = astc_helpers::used_blue_contraction(actual_cem, log_blk.m_endpoints, log_blk.m_endpoint_ise_range);
+							assert(new_prev_state.m_first_endpoint_uses_bc == pCfg_state->m_first_endpoint_uses_bc);
+						}
+					}
+					else
+					{
+						uint32_t reused_full_cfg_model_index = 0;
+						if (pLeft_state)
+							reused_full_cfg_model_index = pLeft_state->m_reused_full_cfg;
+						else
+							reused_full_cfg_model_index = 1;
+
+						if (pUpper_state)
+							reused_full_cfg_model_index |= pUpper_state->m_reused_full_cfg ? 2 : 0;
+						else
+							reused_full_cfg_model_index |= 2;
+
+						const uint32_t config_reuse_index = dec.decode_sym(config_reuse_model[reused_full_cfg_model_index]);
+
+						// TODO: Shared with encoder, make global constant
+						
+						//if (config_reuse_index < ldr_astc_block_encode_image_output::cMaxConfigReuseNeighbors)
+						if (config_reuse_index < cMaxConfigReuseNeighbors)
+						{
+							// 0 = left, 1 = upper, 2 = left-upper
+							int cfg_dx = 0, cfg_dy = 0;
+							const prev_block_state* pCfg_state = nullptr;
+
+							switch (config_reuse_index)
+							{
+							case 0: cfg_dx = -1; pCfg_state = pLeft_state; break;
+							case 1: cfg_dx = 0; cfg_dy = -1; pCfg_state = pUpper_state; break;
+							case 2: cfg_dx = -1; cfg_dy = -1; pCfg_state = pDiag_state; break;
+							default: assert(0); break;
+							}
+
+							if ((((cfg_dx + (int)bx) < 0) ||
+								((cfg_dy + (int)by) < 0)) ||
+								(!pCfg_state))
+							{
+								BASISU_DEVEL_ERROR("astc_ldr_t::decompress_image::Invalid config reuse\n");
+								return false;
+							}
+
+							if (pCfg_state->m_tm_index < 0)
+							{
+								BASISU_DEVEL_ERROR("astc_ldr_t::decompress_image::Invalid config reuse\n");
+								return false;
+							}
+
+							astc_helpers::log_astc_block& cfg_log_blk = log_blocks((int)bx + cfg_dx, ((int)by + cfg_dy) & 7);
+
+							tm_index = pCfg_state->m_tm_index;
+							log_blk.m_partition_id = cfg_log_blk.m_partition_id;
+							actual_cem = cfg_log_blk.m_color_endpoint_modes[0];
+
+							new_prev_state.m_tm_index = pCfg_state->m_tm_index;
+							new_prev_state.m_base_cem_index = pCfg_state->m_base_cem_index; // base cem not including base+ofs, not actual
+							new_prev_state.m_subset_index = pCfg_state->m_subset_index;
+							new_prev_state.m_ccs_index = pCfg_state->m_ccs_index;
+							new_prev_state.m_grid_size = pCfg_state->m_grid_size;
+							new_prev_state.m_grid_aniso = pCfg_state->m_grid_aniso;
+							new_prev_state.m_used_part_hash = pCfg_state->m_used_part_hash;
+							new_prev_state.m_reused_full_cfg = true;
+						}
+						else
+						{
+							// -------------------- Decode full ASTC config
+							{
+								uint32_t prev_cem_index = astc_helpers::CEM_LDR_RGB_DIRECT;
+								uint32_t prev_subset_index = 0, prev_ccs_index = 0, prev_grid_size = 0, prev_grid_aniso = 0;
+
+								if (pPred_state)
+								{
+									prev_cem_index = pPred_state->m_base_cem_index;
+									prev_subset_index = pPred_state->m_subset_index;
+									prev_ccs_index = pPred_state->m_ccs_index;
+									prev_grid_size = pPred_state->m_grid_size;
+									prev_grid_aniso = pPred_state->m_grid_aniso;
+								}
+
+								const uint32_t ldrcem_index = cem_to_ldrcem_index(prev_cem_index);
+
+								uint32_t cem_index = dec.decode_sym(cem_index_model[ldrcem_index]);
+								uint32_t subset_index = dec.decode_sym(subset_index_model[prev_subset_index]);
+								uint32_t ccs_index = dec.decode_sym(ccs_index_model[prev_ccs_index]);
+								uint32_t grid_size_index = dec.decode_sym(grid_size_model[prev_grid_size]);
+								uint32_t grid_aniso_index = dec.decode_sym(grid_aniso_model[prev_grid_aniso]);
+
+								const basisu::uint_vec& modes = get_tm_candidates(grouped_encoder_trial_modes, cem_index, subset_index, ccs_index, grid_size_index, grid_aniso_index);
+								uint32_t submode_index = 0;
+
+								if (modes.size() > 1)
+								{
+									arith::arith_data_model& submode_model = submode_models[cem_index][subset_index][ccs_index][grid_size_index][grid_aniso_index];
+									if (!submode_model.get_num_data_syms())
+										submode_model.init(modes.size_u32(), true);
+
+									submode_index = dec.decode_sym(submode_model);
+								}
+
+								if (submode_index >= modes.size())
+								{
+									BASISU_DEVEL_ERROR("astc_ldr_t::decompress_image::Invalid mode index\n");
+									return false;
+								}
+
+								tm_index = modes[submode_index];
+
+								new_prev_state.m_tm_index = tm_index;
+								new_prev_state.m_base_cem_index = cem_index;
+								new_prev_state.m_subset_index = subset_index;
+								new_prev_state.m_ccs_index = ccs_index;
+								new_prev_state.m_grid_size = grid_size_index;
+								new_prev_state.m_grid_aniso = grid_aniso_index;
+								new_prev_state.m_reused_full_cfg = false;
+							}
+
+							if (tm_index >= encoder_trial_modes.size())
+							{
+								BASISU_DEVEL_ERROR("astc_ldr_t::decompress_image: invalid tm_index, decompression failed (file corrupt)\n");
+								return false;
+							}
+
+							const trial_mode& tm = encoder_trial_modes[tm_index];
+
+							actual_cem = tm.m_cem;
+							if ((tm.m_cem == astc_helpers::CEM_LDR_RGB_DIRECT) || (tm.m_cem == astc_helpers::CEM_LDR_RGBA_DIRECT))
+							{
+								// Decode is_base_ofs bit
+								bool is_base_ofs = dec.decode_bit(is_base_ofs_model);
+								if (is_base_ofs)
+								{
+									if (actual_cem == astc_helpers::CEM_LDR_RGB_DIRECT)
+										actual_cem = astc_helpers::CEM_LDR_RGB_BASE_PLUS_OFFSET;
+									else if (actual_cem == astc_helpers::CEM_LDR_RGBA_DIRECT)
+										actual_cem = astc_helpers::CEM_LDR_RGBA_BASE_PLUS_OFFSET;
+								}
+							}
+
+							if (tm.m_num_parts > 1)
+							{
+								const uint32_t total_unique_indices = get_total_unique_patterns(astc_block_size_index, tm.m_num_parts);
+
+								uint32_t use_part_model_index = 0;
+								if (pLeft_state)
+									use_part_model_index = pLeft_state->m_used_part_hash;
+								else
+									use_part_model_index = 1;
+								if (pUpper_state)
+									use_part_model_index |= pUpper_state->m_used_part_hash ? 2 : 0;
+								else
+									use_part_model_index |= 2;
+
+								int* pPart_hash = (tm.m_num_parts == 2) ? part2_hash : part3_hash;
+
+								bool use_part_hash_flag = dec.decode_bit(use_part_hash_model[use_part_model_index]);
+
+								uint32_t unique_pat_index;
+								if (!use_part_hash_flag)
+								{
+									unique_pat_index = dec.decode_truncated_binary(total_unique_indices);
+									pPart_hash[part_hash_index(unique_pat_index)] = unique_pat_index;
+
+									new_prev_state.m_used_part_hash = false;
+								}
+								else
+								{
+									uint32_t hash_index = dec.decode_sym((tm.m_num_parts == 2) ? part2_hash_index_model : part3_hash_index_model);
+									unique_pat_index = pPart_hash[hash_index];
+
+									if ((int)unique_pat_index < 0)
+									{
+										BASISU_DEVEL_ERROR("astc_ldr_t::decompress_image: invalid hash_index, decompression failed (file corrupt)\n");
+										return false;
+									}
+
+									new_prev_state.m_used_part_hash = true;
+								}
+
+								if (unique_pat_index >= get_total_unique_patterns(astc_block_size_index, tm.m_num_parts))
+								{
+									BASISU_DEVEL_ERROR("astc_ldr_t::decompress_image: invalid unique_pat_index, decompression failed (file corrupt)\n");
+									return false;
+								}
+
+								log_blk.m_partition_id = unique_pat_index_to_part_seed(astc_block_size_index, tm.m_num_parts, unique_pat_index);
+							}
+							else
+							{
+								new_prev_state.m_used_part_hash = true; // bias to true
+							}
+
+						} // if (config_reuse_index < ldr_astc_block_encode_image_output::cMaxConfigReuseNeighbors)
+
+						if (tm_index >= encoder_trial_modes.size())
+						{
+							BASISU_DEVEL_ERROR("astc_ldr_t::decompress_image: invalid tm_index, decompression failed (file corrupt)\n");
+							return false;
+						}
+
+						const trial_mode& tm = encoder_trial_modes[tm_index];
+
+						const bool actual_cem_supports_bc = astc_helpers::cem_supports_bc(actual_cem);
+
+						const uint32_t total_endpoint_vals = astc_helpers::get_num_cem_values(actual_cem);
+
+						for (uint32_t part_iter = 0; part_iter < tm.m_num_parts; part_iter++)
+							log_blk.m_color_endpoint_modes[part_iter] = (uint8_t)actual_cem;
+
+						log_blk.m_num_partitions = (uint8_t)tm.m_num_parts;
+						log_blk.m_dual_plane = (tm.m_ccs_index >= 0);
+						if (log_blk.m_dual_plane)
+							log_blk.m_color_component_selector = (uint8_t)tm.m_ccs_index;
+
+						log_blk.m_weight_ise_range = (uint8_t)tm.m_weight_ise_range;
+						log_blk.m_endpoint_ise_range = (uint8_t)tm.m_endpoint_ise_range;
+						log_blk.m_grid_width = (uint8_t)tm.m_grid_width;
+						log_blk.m_grid_height = (uint8_t)tm.m_grid_height;
+
+						// --------------------------------- Decode endpoints
+						const bool used_dpcm_endpoints_flag = dec.decode_bit(use_dpcm_endpoints_model);
+
+						if (!used_dpcm_endpoints_flag)
+						{
+							auto& raw_model = raw_endpoint_models[log_blk.m_endpoint_ise_range - astc_helpers::FIRST_VALID_ENDPOINT_ISE_RANGE];
+
+							for (uint32_t part_iter = 0; part_iter < tm.m_num_parts; part_iter++)
+							{
+								for (uint32_t val_iter = 0; val_iter < total_endpoint_vals; val_iter++)
+								{
+									log_blk.m_endpoints[part_iter * total_endpoint_vals + val_iter] = (uint8_t)dec.decode_sym(raw_model);
+								} // val_iter
+
+							} // part_iter
+						}
+						else
+						{
+							// Endpoint DPCM
+							const int num_endpoint_levels = astc_helpers::get_ise_levels(log_blk.m_endpoint_ise_range);
+							const auto& endpoint_rank_to_ise = astc_helpers::g_dequant_tables.get_endpoint_tab(log_blk.m_endpoint_ise_range).m_rank_to_ISE;
+							const auto& endpoint_ise_to_rank = astc_helpers::g_dequant_tables.get_endpoint_tab(log_blk.m_endpoint_ise_range).m_ISE_to_rank;
+
+							const uint32_t reuse_delta_index = dec.decode_sym(endpoint_reuse_delta_model);
+							const int reuse_bx = (int)bx + basist::astc_6x6_hdr::g_reuse_xy_deltas[reuse_delta_index].m_x;
+							const int reuse_by = (int)by + basist::astc_6x6_hdr::g_reuse_xy_deltas[reuse_delta_index].m_y;
+
+							if ((reuse_bx < 0) || (reuse_by < 0) || (reuse_bx >= (int)num_blocks_x) || (reuse_by >= (int)num_blocks_y))
+							{
+								BASISU_DEVEL_ERROR("astc_ldr_t::decompress_image::Invalid reuse delta\n");
+								return false;
+							}
+
+							const astc_helpers::log_astc_block* pEndpoint_pred_log_blk = &log_blocks(reuse_bx, reuse_by & 7);
+							if (pEndpoint_pred_log_blk->m_solid_color_flag_ldr)
+							{
+								BASISU_DEVEL_ERROR("astc_ldr_t::decompress_image::Invalid reuse delta\n");
+								return false;
+							}
+
+							uint32_t bc_model_index = 0;
+							if (pLeft_state)
+								bc_model_index = pLeft_state->m_first_endpoint_uses_bc;
+							else
+								bc_model_index = 1;
+
+							if (pUpper_state)
+								bc_model_index |= pUpper_state->m_first_endpoint_uses_bc ? 2 : 0;
+							else
+								bc_model_index |= 2;
+
+							if (!pEndpoint_pred_log_blk)
+							{
+								BASISU_DEVEL_ERROR("astc_ldr_t::decompress_image::Can't use endpoint DPCM here\n");
+								return false;
+							}
+
+							bool endpoints_use_bc[astc_helpers::MAX_PARTITIONS] = { false };
+
+							if (actual_cem_supports_bc)
+							{
+								for (uint32_t part_iter = 0; part_iter < log_blk.m_num_partitions; part_iter++)
+								{
+									endpoints_use_bc[part_iter] = dec.decode_bit(endpoints_use_bc_models[bc_model_index]);
+								}
+							}
+
+							uint8_t predicted_endpoints[astc_helpers::MAX_PARTITIONS][astc_helpers::MAX_CEM_ENDPOINT_VALS] = { };
+
+							for (uint32_t part_iter = 0; part_iter < log_blk.m_num_partitions; part_iter++)
+							{
+								const bool always_repack_flag = false;
+								bool blue_contraction_clamped_flag = false, base_ofs_clamped_flag = false;
+
+								// Mini-CEM encoder, to cross CEM domains.
+								bool conv_status = convert_endpoints_across_cems(
+									pEndpoint_pred_log_blk->m_color_endpoint_modes[0], pEndpoint_pred_log_blk->m_endpoint_ise_range, pEndpoint_pred_log_blk->m_endpoints,
+									log_blk.m_color_endpoint_modes[0], log_blk.m_endpoint_ise_range, predicted_endpoints[part_iter],
+									always_repack_flag,
+									endpoints_use_bc[part_iter], false,
+									blue_contraction_clamped_flag, base_ofs_clamped_flag);
+
+								if (!conv_status)
+								{
+									BASISU_DEVEL_ERROR("astc_ldr_t::decompress_image::Failed predicting endpoints\n");
+									return false;
+								}
+							}
+
+							auto& dpcm_model = dpcm_endpoint_models[log_blk.m_endpoint_ise_range - astc_helpers::FIRST_VALID_ENDPOINT_ISE_RANGE];
+
+							for (uint32_t part_iter = 0; part_iter < tm.m_num_parts; part_iter++)
+							{
+								for (uint32_t val_iter = 0; val_iter < total_endpoint_vals; val_iter++)
+								{
+									const uint32_t endpoint_idx = part_iter * total_endpoint_vals + val_iter;
+
+									int delta = (uint8_t)dec.decode_sym(dpcm_model);
+									int e_val = basisu::imod(delta + endpoint_ise_to_rank[predicted_endpoints[part_iter][val_iter]], num_endpoint_levels);
+
+									log_blk.m_endpoints[endpoint_idx] = endpoint_rank_to_ise[e_val];
+
+								} // val_iter
+
+							} // part_iter
+
+						} // if (!used_dpcm_endpoints_flag)
+
+						if (actual_cem_supports_bc)
+						{
+							new_prev_state.m_first_endpoint_uses_bc = astc_helpers::used_blue_contraction(actual_cem, log_blk.m_endpoints, log_blk.m_endpoint_ise_range);
+						}
+
+					} // if (mode_index != cMODE_RAW)
+
+					// ----------------------------------- Decode weights
+					if (tm_index >= encoder_trial_modes.size())
+					{
+						BASISU_DEVEL_ERROR("astc_ldr_t::decompress_image: invalid tm_index, decompression failed (file corrupt)\n");
+						return false;
+					}
+
+					const trial_mode& tm = encoder_trial_modes[tm_index];
+
+					const uint32_t total_planes = (tm.m_ccs_index >= 0) ? 2 : 1;
+					const uint32_t total_weights = tm.m_grid_width * tm.m_grid_height;
+
+					uint32_t use_dct_model_index = 0;
+					if (use_dct)
+					{
+						if (pLeft_state)
+							use_dct_model_index = pLeft_state->m_used_weight_dct;
+						else
+							use_dct_model_index = 1;
+
+						if (pUpper_state)
+							use_dct_model_index |= pUpper_state->m_used_weight_dct ? 2 : 0;
+						else
+							use_dct_model_index |= 2;
+					}
+
+					bool block_used_dct = false;
+					if (use_dct)
+						block_used_dct = dec.decode_bit(use_dct_model[use_dct_model_index]);
+
+					if (use_fast_decoding)
+					{
+						if (block_used_dct)
+						{
+							new_prev_state.m_used_weight_dct = true;
+
+							const astc_block_grid_data* pGrid_data = find_astc_block_grid_data(block_width, block_height, log_blk.m_grid_width, log_blk.m_grid_height);
+
+							const uint32_t num_dc_levels = grid_weight_dct::get_num_weight_dc_levels(log_blk.m_weight_ise_range);
+							syms.m_num_dc_levels = num_dc_levels;
+
+							for (uint32_t plane_iter = 0; plane_iter < total_planes; plane_iter++)
+							{
+								syms.m_coeffs.resize(0);
+																
+								if (num_dc_levels == DCT_MEAN_LEVELS1)
+									syms.m_dc_sym = mean1_bytes.get_bits8();
+								else
+									syms.m_dc_sym = mean0_bits.get_bits4();
+
+								uint32_t cur_zig_ofs = 1;
+
+								while (cur_zig_ofs < total_weights)
+								{
+									uint32_t run_len = run_bytes.get_bits8();
+									if (run_len == DCT_RUN_LEN_EOB_SYM_INDEX)
+										break;
+
+									cur_zig_ofs += run_len;
+
+									if (cur_zig_ofs >= total_weights)
+									{
+										BASISU_DEVEL_ERROR("astc_ldr_t::decompress_image::DCT decode error\n");
+										return false;
+									}
+
+									int sign = sign_bits.get_bits1();
+									int coeff = coeff_bytes.get_bits8() + 1;
+
+									if (sign)
+										coeff = -coeff;
+
+									syms.m_coeffs.push_back(dct_syms::coeff(basisu::safe_cast_uint16(run_len), basisu::safe_cast_int16(coeff)));
+									cur_zig_ofs++;
+								}
+
+								// weight grid IDCT
+								if (!grid_dct.decode_block_weights(dct_q, plane_iter, log_blk, nullptr, pGrid_data, nullptr, dct_work, &syms))
+								{
+									BASISU_DEVEL_ERROR("astc_ldr_t::decompress_image::DCT decode failed\n");
+									return false;
+								}
+
+							} // plane_iter
+						}
+						else
+						{
+							// Weight grid DPCM (no dependency on other blocks, or between planes, for determinism even when IDCT is used)
+							const uint32_t num_weight_levels = astc_helpers::get_ise_levels(log_blk.m_weight_ise_range);
+							const auto& weight_rank_to_ise = astc_helpers::g_dequant_tables.get_weight_tab(log_blk.m_weight_ise_range).m_rank_to_ISE;
+
+							for (uint32_t plane_iter = 0; plane_iter < total_planes; plane_iter++)
+							{
+								int prev_w = num_weight_levels / 2;
+
+								if (num_weight_levels <= 4)
+								{
+									for (uint32_t weight_iter = 0; weight_iter < total_weights; weight_iter++)
+									{
+										uint32_t r = weight2_bits.get_bits2();
+
+										uint32_t w = r;
+										w = basisu::imod(prev_w + r, num_weight_levels);
+
+										prev_w = w;
+
+										log_blk.m_weights[plane_iter + weight_iter * total_planes] = (uint8_t)weight_rank_to_ise[w];
+
+									} // weight_iter
+								}
+								else if (num_weight_levels <= 8)
+								{
+									for (uint32_t weight_iter = 0; weight_iter < total_weights; weight_iter++)
+									{
+										uint32_t r = weight3_bits.get_bits4();
+
+										uint32_t w = r;
+										w = basisu::imod(prev_w + r, num_weight_levels);
+
+										prev_w = w;
+
+										log_blk.m_weights[plane_iter + weight_iter * total_planes] = (uint8_t)weight_rank_to_ise[w];
+
+									} // weight_iter
+								}
+								else if (num_weight_levels <= 16)
+								{
+									for (uint32_t weight_iter = 0; weight_iter < total_weights; weight_iter++)
+									{
+										uint32_t r = weight4_bits.get_bits4();
+
+										uint32_t w = r;
+										w = basisu::imod(prev_w + r, num_weight_levels);
+
+										prev_w = w;
+
+										log_blk.m_weights[plane_iter + weight_iter * total_planes] = (uint8_t)weight_rank_to_ise[w];
+
+									} // weight_iter
+								}
+								else
+								{
+									for (uint32_t weight_iter = 0; weight_iter < total_weights; weight_iter++)
+									{
+										uint32_t r = weight8_bytes.get_bits8();
+
+										uint32_t w = r;
+										w = basisu::imod(prev_w + r, num_weight_levels);
+
+										prev_w = w;
+
+										log_blk.m_weights[plane_iter + weight_iter * total_planes] = (uint8_t)weight_rank_to_ise[w];
+
+									} // weight_iter
+								}
+
+							} // plane_iter
+
+						} // if (block_used_dct)
+					}
+					else
+					{
+						if (block_used_dct)
+						{
+							new_prev_state.m_used_weight_dct = true;
+
+							const astc_block_grid_data* pGrid_data = find_astc_block_grid_data(block_width, block_height, log_blk.m_grid_width, log_blk.m_grid_height);
+
+							const uint32_t num_dc_levels = grid_weight_dct::get_num_weight_dc_levels(log_blk.m_weight_ise_range);
+							syms.m_num_dc_levels = num_dc_levels;
+
+							for (uint32_t plane_iter = 0; plane_iter < total_planes; plane_iter++)
+							{
+								syms.m_coeffs.resize(0);
+
+								syms.m_dc_sym = dec.decode_sym(weight_mean_models[(num_dc_levels == DCT_MEAN_LEVELS1) ? 1 : 0]);
+
+								uint32_t cur_zig_ofs = 1;
+
+								while (cur_zig_ofs < total_weights)
+								{
+									uint32_t run_len = dec.decode_sym(dct_run_len_model);
+									if (run_len == DCT_RUN_LEN_EOB_SYM_INDEX)
+										break;
+
+									cur_zig_ofs += run_len;
+
+									if (cur_zig_ofs >= total_weights)
+									{
+										BASISU_DEVEL_ERROR("astc_ldr_t::decompress_image::DCT decode error\n");
+										return false;
+									}
+
+									int sign = dec.get_bit();
+									int coeff = dec.decode_sym(dct_coeff_mag) + 1;
+
+									if (sign)
+										coeff = -coeff;
+
+									syms.m_coeffs.push_back(dct_syms::coeff(basisu::safe_cast_uint16(run_len), basisu::safe_cast_int16(coeff)));
+									cur_zig_ofs++;
+								}
+
+								// weight grid IDCT
+								if (!grid_dct.decode_block_weights(dct_q, plane_iter, log_blk, nullptr, pGrid_data, nullptr, dct_work, &syms))
+								{
+									BASISU_DEVEL_ERROR("astc_ldr_t::decompress_image::DCT decode failed\n");
+									return false;
+								}
+
+							} // plane_iter
+						}
+						else
+						{
+							// Weight grid DPCM (no dependency on other blocks, or between planes, for determinism even when IDCT is used)
+							const uint32_t num_weight_levels = astc_helpers::get_ise_levels(log_blk.m_weight_ise_range);
+							const auto& weight_rank_to_ise = astc_helpers::g_dequant_tables.get_weight_tab(log_blk.m_weight_ise_range).m_rank_to_ISE;
+
+							for (uint32_t plane_iter = 0; plane_iter < total_planes; plane_iter++)
+							{
+								int prev_w = num_weight_levels / 2;
+
+								for (uint32_t weight_iter = 0; weight_iter < total_weights; weight_iter++)
+								{
+									uint32_t r = dec.decode_sym(raw_weight_models[log_blk.m_weight_ise_range - astc_helpers::FIRST_VALID_WEIGHT_ISE_RANGE]);
+
+									uint32_t w = r;
+									w = basisu::imod(prev_w + r, num_weight_levels);
+
+									prev_w = w;
+
+									log_blk.m_weights[plane_iter + weight_iter * total_planes] = (uint8_t)weight_rank_to_ise[w];
+
+								} // weight_iter
+
+							} // plane_iter
+						}
+
+					} // use_fast_decoding
+
+					if (pBlock_callback)
+					{
+						if (!(*pBlock_callback)(bx, by, log_blk, pBlock_callback_data))
+							return false;
+					}
+
+					break;
+				}
+				default:
+				{
+					BASISU_DEVEL_ERROR("astc_ldr_t::decompress_image::Invalid mode\n");
+					return false;
+				}
+				}
+
+			} // bx
+
+			assert(!cur_run_len);
+
+		} // by
+
+		//if (debug_output)
+		//	debug_printf("Decomp time: {3.3}ms\n", itm.get_elapsed_ms());
+
+		const uint32_t final_sync_marker = dec.get_bits(FINAL_SYNC_MARKER_BITS);
+		if (final_sync_marker != FINAL_SYNC_MARKER)
+		{
+			BASISU_DEVEL_ERROR("astc_ldr_t::decompress_image::Final sync failed\n");
+			return false;
+		}
+
+		if (debug_output)
+			basisu::debug_printf("astc_ldr_t::decompress_image: Decode sync OK\n");
+
+		return true;
+	}
+
+} // namespace astc_ldr_t
+
+#endif // #if BASISD_SUPPORT_XUASTC
+
+#if BASISD_SUPPORT_XUASTC
+
+namespace bc7u
+{
+	//------------------------------------------------------------------------------------------------
+	// BC7 mode 0-7 decompression.
+	// Instead of one monster routine to unpack all the BC7 modes, we're lumping the 3 subset, 2 subset, 1 subset, and dual plane modes together into simple shared routines.
+
+	static inline uint32_t bc7_dequant(uint32_t val, uint32_t pbit, uint32_t val_bits) { assert(val < (1U << val_bits)); assert(pbit < 2); assert(val_bits >= 4 && val_bits <= 8); const uint32_t total_bits = val_bits + 1; val = (val << 1) | pbit; val <<= (8 - total_bits); val |= (val >> total_bits); assert(val <= 255); return val; }
+	static inline uint32_t bc7_dequant(uint32_t val, uint32_t val_bits) { assert(val < (1U << val_bits)); assert(val_bits >= 4 && val_bits <= 8); val <<= (8 - val_bits); val |= (val >> val_bits); assert(val <= 255); return val; }
+
+	static inline uint32_t bc7_interp2(uint32_t l, uint32_t h, uint32_t w) { assert(w < 4); return (l * (64 - basist::g_bc7_weights2[w]) + h * basist::g_bc7_weights2[w] + 32) >> 6; }
+	static inline uint32_t bc7_interp3(uint32_t l, uint32_t h, uint32_t w) { assert(w < 8); return (l * (64 - basist::g_bc7_weights3[w]) + h * basist::g_bc7_weights3[w] + 32) >> 6; }
+	static inline uint32_t bc7_interp4(uint32_t l, uint32_t h, uint32_t w) { assert(w < 16); return (l * (64 - basist::g_bc7_weights4[w]) + h * basist::g_bc7_weights4[w] + 32) >> 6; }
+	static inline uint32_t bc7_interp(uint32_t l, uint32_t h, uint32_t w, uint32_t bits)
+	{
+		assert(l <= 255 && h <= 255);
+		switch (bits)
+		{
+		case 2: return bc7_interp2(l, h, w);
+		case 3: return bc7_interp3(l, h, w);
+		case 4: return bc7_interp4(l, h, w);
+		default:
+			break;
+		}
+		return 0;
+	}
+
+	inline uint32_t read_bits32(const uint8_t* pBuf, uint32_t& bit_offset, uint32_t codesize)
+	{
+		assert(codesize <= 32);
+		uint32_t bits = 0;
+		uint32_t total_bits = 0;
+
+		while (total_bits < codesize)
+		{
+			uint32_t byte_bit_offset = bit_offset & 7;
+			uint32_t bits_to_read = basisu::minimum<int>(codesize - total_bits, 8 - byte_bit_offset);
+
+			uint32_t byte_bits = pBuf[bit_offset >> 3] >> byte_bit_offset;
+			byte_bits &= ((1 << bits_to_read) - 1);
+
+			bits |= (byte_bits << total_bits);
+
+			total_bits += bits_to_read;
+			bit_offset += bits_to_read;
+		}
+
+		return bits;
+	}
+
+	bool unpack_bc7_mode0_2(uint32_t mode, const void* pBlock_bits, color_rgba* pPixels)
+	{
+		//const uint32_t SUBSETS = 3;
+		const uint32_t ENDPOINTS = 6;
+		const uint32_t COMPS = 3;
+		const uint32_t WEIGHT_BITS = (mode == 0) ? 3 : 2;
+		const uint32_t ENDPOINT_BITS = (mode == 0) ? 4 : 5;
+		const uint32_t PBITS = (mode == 0) ? 6 : 0;
+		const uint32_t WEIGHT_VALS = 1 << WEIGHT_BITS;
+
+		uint32_t bit_offset = 0;
+		const uint8_t* pBuf = static_cast<const uint8_t*>(pBlock_bits);
+
+		if (read_bits32(pBuf, bit_offset, mode + 1) != (1U << mode)) return false;
+
+		const uint32_t part = read_bits32(pBuf, bit_offset, (mode == 0) ? 4 : 6);
+
+		color_rgba endpoints[ENDPOINTS];
+		for (uint32_t c = 0; c < COMPS; c++)
+			for (uint32_t e = 0; e < ENDPOINTS; e++)
+				endpoints[e][c] = (uint8_t)read_bits32(pBuf, bit_offset, ENDPOINT_BITS);
+
+		uint32_t pbits[6];
+		for (uint32_t p = 0; p < PBITS; p++)
+			pbits[p] = read_bits32(pBuf, bit_offset, 1);
+
+		uint32_t weights[16];
+		for (uint32_t i = 0; i < 16; i++)
+			weights[i] = read_bits32(pBuf, bit_offset, ((!i) || (i == basist::g_bc7_table_anchor_index_third_subset_1[part]) || (i == basist::g_bc7_table_anchor_index_third_subset_2[part])) ? (WEIGHT_BITS - 1) : WEIGHT_BITS);
+
+		assert(bit_offset == 128);
+
+		for (uint32_t e = 0; e < ENDPOINTS; e++)
+			for (uint32_t c = 0; c < 4; c++)
+				endpoints[e][c] = (uint8_t)((c == 3) ? 255 : (PBITS ? bc7_dequant(endpoints[e][c], pbits[e], ENDPOINT_BITS) : bc7_dequant(endpoints[e][c], ENDPOINT_BITS)));
+
+		color_rgba block_colors[3][8];
+		for (uint32_t s = 0; s < 3; s++)
+			for (uint32_t i = 0; i < WEIGHT_VALS; i++)
+			{
+				for (uint32_t c = 0; c < 3; c++)
+					block_colors[s][i][c] = (uint8_t)bc7_interp(endpoints[s * 2 + 0][c], endpoints[s * 2 + 1][c], i, WEIGHT_BITS);
+				block_colors[s][i][3] = 255;
+			}
+
+		for (uint32_t i = 0; i < 16; i++)
+			pPixels[i] = block_colors[basist::g_bc7_partition3[part * 16 + i]][weights[i]];
+
+		return true;
+	}
+
+	bool unpack_bc7_mode1_3_7(uint32_t mode, const void* pBlock_bits, color_rgba* pPixels)
+	{
+		//const uint32_t SUBSETS = 2;
+		const uint32_t ENDPOINTS = 4;
+		const uint32_t COMPS = (mode == 7) ? 4 : 3;
+		const uint32_t WEIGHT_BITS = (mode == 1) ? 3 : 2;
+		const uint32_t ENDPOINT_BITS = (mode == 7) ? 5 : ((mode == 1) ? 6 : 7);
+		const uint32_t PBITS = (mode == 1) ? 2 : 4;
+		const uint32_t SHARED_PBITS = (mode == 1) ? true : false;
+		const uint32_t WEIGHT_VALS = 1 << WEIGHT_BITS;
+
+		uint32_t bit_offset = 0;
+		const uint8_t* pBuf = static_cast<const uint8_t*>(pBlock_bits);
+
+		if (read_bits32(pBuf, bit_offset, mode + 1) != (1U << mode)) return false;
+
+		const uint32_t part = read_bits32(pBuf, bit_offset, 6);
+
+		color_rgba endpoints[ENDPOINTS];
+		for (uint32_t c = 0; c < COMPS; c++)
+			for (uint32_t e = 0; e < ENDPOINTS; e++)
+				endpoints[e][c] = (uint8_t)read_bits32(pBuf, bit_offset, ENDPOINT_BITS);
+
+		uint32_t pbits[4];
+		for (uint32_t p = 0; p < PBITS; p++)
+			pbits[p] = read_bits32(pBuf, bit_offset, 1);
+
+		uint32_t weights[16];
+		for (uint32_t i = 0; i < 16; i++)
+			weights[i] = read_bits32(pBuf, bit_offset, ((!i) || (i == basist::g_bc7_table_anchor_index_second_subset[part])) ? (WEIGHT_BITS - 1) : WEIGHT_BITS);
+
+		assert(bit_offset == 128);
+
+		for (uint32_t e = 0; e < ENDPOINTS; e++)
+			for (uint32_t c = 0; c < 4; c++)
+				endpoints[e][c] = (uint8_t)((c == ((mode == 7U) ? 4U : 3U)) ? 255 : bc7_dequant(endpoints[e][c], pbits[SHARED_PBITS ? (e >> 1) : e], ENDPOINT_BITS));
+
+		color_rgba block_colors[2][8];
+		for (uint32_t s = 0; s < 2; s++)
+			for (uint32_t i = 0; i < WEIGHT_VALS; i++)
+			{
+				for (uint32_t c = 0; c < COMPS; c++)
+					block_colors[s][i][c] = (uint8_t)bc7_interp(endpoints[s * 2 + 0][c], endpoints[s * 2 + 1][c], i, WEIGHT_BITS);
+				block_colors[s][i][3] = (COMPS == 3) ? 255 : block_colors[s][i][3];
+			}
+
+		for (uint32_t i = 0; i < 16; i++)
+			pPixels[i] = block_colors[basist::g_bc7_partition2[part * 16 + i]][weights[i]];
+
+		return true;
+	}
+		
+	bool unpack_bc7_mode4_5(uint32_t mode, const void* pBlock_bits, color_rgba* pPixels)
+	{
+		const uint32_t ENDPOINTS = 2;
+		const uint32_t COMPS = 4;
+		const uint32_t WEIGHT_BITS = 2;
+		const uint32_t A_WEIGHT_BITS = (mode == 4) ? 3 : 2;
+		const uint32_t ENDPOINT_BITS = (mode == 4) ? 5 : 7;
+		const uint32_t A_ENDPOINT_BITS = (mode == 4) ? 6 : 8;
+		//const uint32_t WEIGHT_VALS = 1 << WEIGHT_BITS;
+		//const uint32_t A_WEIGHT_VALS = 1 << A_WEIGHT_BITS;
+
+		uint32_t bit_offset = 0;
+		const uint8_t* pBuf = static_cast<const uint8_t*>(pBlock_bits);
+
+		if (read_bits32(pBuf, bit_offset, mode + 1) != (1U << mode)) return false;
+
+		const uint32_t comp_rot = read_bits32(pBuf, bit_offset, 2);
+		const uint32_t index_mode = (mode == 4) ? read_bits32(pBuf, bit_offset, 1) : 0;
+
+		color_rgba endpoints[ENDPOINTS];
+		for (uint32_t c = 0; c < COMPS; c++)
+			for (uint32_t e = 0; e < ENDPOINTS; e++)
+				endpoints[e][c] = (uint8_t)read_bits32(pBuf, bit_offset, (c == 3) ? A_ENDPOINT_BITS : ENDPOINT_BITS);
+
+		const uint32_t weight_bits[2] = { index_mode ? A_WEIGHT_BITS : WEIGHT_BITS,  index_mode ? WEIGHT_BITS : A_WEIGHT_BITS };
+
+		uint32_t weights[16], a_weights[16];
+
+		for (uint32_t i = 0; i < 16; i++)
+			(index_mode ? a_weights : weights)[i] = read_bits32(pBuf, bit_offset, weight_bits[index_mode] - ((!i) ? 1 : 0));
+
+		for (uint32_t i = 0; i < 16; i++)
+			(index_mode ? weights : a_weights)[i] = read_bits32(pBuf, bit_offset, weight_bits[1 - index_mode] - ((!i) ? 1 : 0));
+
+		assert(bit_offset == 128);
+
+		for (uint32_t e = 0; e < ENDPOINTS; e++)
+			for (uint32_t c = 0; c < 4; c++)
+				endpoints[e][c] = (uint8_t)bc7_dequant(endpoints[e][c], (c == 3) ? A_ENDPOINT_BITS : ENDPOINT_BITS);
+
+		color_rgba block_colors[8];
+		for (uint32_t i = 0; i < (1U << weight_bits[0]); i++)
+			for (uint32_t c = 0; c < 3; c++)
+				block_colors[i][c] = (uint8_t)bc7_interp(endpoints[0][c], endpoints[1][c], i, weight_bits[0]);
+
+		for (uint32_t i = 0; i < (1U << weight_bits[1]); i++)
+			block_colors[i][3] = (uint8_t)bc7_interp(endpoints[0][3], endpoints[1][3], i, weight_bits[1]);
+
+		for (uint32_t i = 0; i < 16; i++)
+		{
+			pPixels[i] = block_colors[weights[i]];
+			pPixels[i].a = block_colors[a_weights[i]].a;
+			if (comp_rot >= 1)
+				std::swap(pPixels[i].a, pPixels[i].m_comps[comp_rot - 1]);
+		}
+
+		return true;
+	}
+
+	struct bc7_mode_6
+	{
+		struct
+		{
+			uint64_t m_mode : 7;
+			uint64_t m_r0 : 7;
+			uint64_t m_r1 : 7;
+			uint64_t m_g0 : 7;
+			uint64_t m_g1 : 7;
+			uint64_t m_b0 : 7;
+			uint64_t m_b1 : 7;
+			uint64_t m_a0 : 7;
+			uint64_t m_a1 : 7;
+			uint64_t m_p0 : 1;
+		} m_lo;
+
+		union
+		{
+			struct
+			{
+				uint64_t m_p1 : 1;
+				uint64_t m_s00 : 3;
+				uint64_t m_s10 : 4;
+				uint64_t m_s20 : 4;
+				uint64_t m_s30 : 4;
+
+				uint64_t m_s01 : 4;
+				uint64_t m_s11 : 4;
+				uint64_t m_s21 : 4;
+				uint64_t m_s31 : 4;
+
+				uint64_t m_s02 : 4;
+				uint64_t m_s12 : 4;
+				uint64_t m_s22 : 4;
+				uint64_t m_s32 : 4;
+
+				uint64_t m_s03 : 4;
+				uint64_t m_s13 : 4;
+				uint64_t m_s23 : 4;
+				uint64_t m_s33 : 4;
+
+			} m_hi;
+
+			uint64_t m_hi_bits;
+		};
+	};
+
+	bool unpack_bc7_mode6(const void* pBlock_bits, color_rgba* pPixels)
+	{
+		static_assert(sizeof(bc7_mode_6) == 16, "sizeof(bc7_mode_6) == 16");
+
+		const bc7_mode_6& block = *static_cast<const bc7_mode_6*>(pBlock_bits);
+
+		if (block.m_lo.m_mode != (1 << 6))
+			return false;
+
+		const uint32_t r0 = (uint32_t)((block.m_lo.m_r0 << 1) | block.m_lo.m_p0);
+		const uint32_t g0 = (uint32_t)((block.m_lo.m_g0 << 1) | block.m_lo.m_p0);
+		const uint32_t b0 = (uint32_t)((block.m_lo.m_b0 << 1) | block.m_lo.m_p0);
+		const uint32_t a0 = (uint32_t)((block.m_lo.m_a0 << 1) | block.m_lo.m_p0);
+		const uint32_t r1 = (uint32_t)((block.m_lo.m_r1 << 1) | block.m_hi.m_p1);
+		const uint32_t g1 = (uint32_t)((block.m_lo.m_g1 << 1) | block.m_hi.m_p1);
+		const uint32_t b1 = (uint32_t)((block.m_lo.m_b1 << 1) | block.m_hi.m_p1);
+		const uint32_t a1 = (uint32_t)((block.m_lo.m_a1 << 1) | block.m_hi.m_p1);
+
+		color_rgba vals[16];
+		for (uint32_t i = 0; i < 16; i++)
+		{
+			const uint32_t w = basist::g_bc7_weights4[i];
+			const uint32_t iw = 64 - w;
+			vals[i].set_noclamp_rgba(
+				(r0 * iw + r1 * w + 32) >> 6,
+				(g0 * iw + g1 * w + 32) >> 6,
+				(b0 * iw + b1 * w + 32) >> 6,
+				(a0 * iw + a1 * w + 32) >> 6);
+		}
+
+		pPixels[0] = vals[block.m_hi.m_s00];
+		pPixels[1] = vals[block.m_hi.m_s10];
+		pPixels[2] = vals[block.m_hi.m_s20];
+		pPixels[3] = vals[block.m_hi.m_s30];
+
+		pPixels[4] = vals[block.m_hi.m_s01];
+		pPixels[5] = vals[block.m_hi.m_s11];
+		pPixels[6] = vals[block.m_hi.m_s21];
+		pPixels[7] = vals[block.m_hi.m_s31];
+
+		pPixels[8] = vals[block.m_hi.m_s02];
+		pPixels[9] = vals[block.m_hi.m_s12];
+		pPixels[10] = vals[block.m_hi.m_s22];
+		pPixels[11] = vals[block.m_hi.m_s32];
+
+		pPixels[12] = vals[block.m_hi.m_s03];
+		pPixels[13] = vals[block.m_hi.m_s13];
+		pPixels[14] = vals[block.m_hi.m_s23];
+		pPixels[15] = vals[block.m_hi.m_s33];
+
+		return true;
+	}
+
+	int determine_bc7_mode(const void* pBlock)
+	{
+		const uint32_t first_byte = static_cast<const uint8_t*>(pBlock)[0];
+
+		for (uint32_t mode = 0; mode <= 7; mode++)
+		{
+			if (first_byte & (1U << mode))
+				return mode;
+		}
+
+		return -1;
+	}
+
+	int determine_bc7_mode_4_index_mode(const void* pBlock)
+	{
+		const uint32_t first_byte = static_cast<const uint8_t*>(pBlock)[0];
+
+		// check for mode 4
+		if ((first_byte & 31) != 0b10000)
+			return -1;
+
+		return (first_byte >> 7);
+	}
+
+	int determine_bc7_mode_4_or_5_rotation(const void* pBlock)
+	{
+		const uint32_t first_byte = static_cast<const uint8_t*>(pBlock)[0];
+		if ((first_byte & 31) == 0b10000)
+		{
+			// mode 4
+			return (first_byte >> 5) & 3;
+		}
+
+		if ((first_byte & 63) == 0b100000)
+		{
+			// mode 5
+			return first_byte >> 6;
+		}
+
+		return -1;
+	}
+
+	bool unpack_bc7(const void* pBlock, color_rgba* pPixels)
+	{
+		const uint32_t first_byte = static_cast<const uint8_t*>(pBlock)[0];
+
+		for (uint32_t mode = 0; mode <= 7; mode++)
+		{
+			if (first_byte & (1U << mode))
+			{
+				switch (mode)
+				{
+				case 0:
+				case 2:
+					return unpack_bc7_mode0_2(mode, pBlock, pPixels);
+				case 1:
+				case 3:
+				case 7:
+					return unpack_bc7_mode1_3_7(mode, pBlock, pPixels);
+				case 4:
+				case 5:
+					return unpack_bc7_mode4_5(mode, pBlock, pPixels);
+				case 6:
+					return unpack_bc7_mode6(pBlock, pPixels);
+				default:
+					break;
+				}
+			}
+		}
+
+		return false;
+	}
+}
+
+// BASISU_BC7F_USE_SSE41 - only very minimally tested. Needs more testing and more variants. Only improves transcoding perf by ~10% in native so far.
+#define BASISU_BC7F_USE_SSE41 (0)
+#define BASISU_BC7F_PERF_STATS (0)
+
+namespace bc7f
+{
+	const uint32_t MAX_PATTERNS2_TO_CHECK = 64;
+	const uint32_t MAX_PATTERNS3_TO_CHECK = 64;
+
+	const float UNIQUE_PBIT_DISCOUNT = .85f;
+	const float SHARED_PBIT_DISCOUNT = .95f;
+
+	//static inline uint8_t mul_8(uint32_t v, uint32_t q) { v = v * q + 128; return (uint8_t)((v + (v >> 8)) >> 8); }
+	//static inline int mul_8bit(int a, int b) { int t = a * b + 128; return (t + (t >> 8)) >> 8; }
+	//static inline int lerp_8bit(int a, int b, int s) { assert(a >= 0 && a <= 255); assert(b >= 0 && b <= 255); assert(s >= 0 && s <= 255); return a + mul_8bit(b - a, s); }
+
+	static int popcount32(uint32_t x)
+	{
+#if defined(__EMSCRIPTEN__) || defined(__clang__) || defined(__GNUC__)
+		return __builtin_popcount(x);
+#elif defined(_MSC_VER)
+		return __popcnt(x);
+#else
+		int count = 0;
+		while (x)
+		{
+			x &= (x - 1);
+			++count;
+		}
+		return count;
+#endif
+	}
+
+#if BASISU_BC7F_PERF_STATS
+	// not thread safe (no need/for dev)
+	uint32_t g_total_rgb_calls;
+	uint32_t g_total_rgba_calls;
+	uint32_t g_total_solid_blocks;
+
+	uint32_t g_total_trivial_mode6_blocks;
+
+	uint32_t g_total_dp_valid_chans_rgb;
+	uint32_t g_total_dp_valid_chans_a;
+	uint32_t g_total_high_ortho_energy;
+
+	uint32_t g_total_mode02_evals;
+	uint32_t g_total_mode02_bailouts;
+
+	uint32_t g_total_mode13_evals;
+	uint32_t g_total_mode13_bailouts;
+
+	uint32_t g_total_mode45_evals;
+	uint32_t g_total_mode45_bailouts;
+
+	uint32_t g_total_mode7_evals;
+	uint32_t g_total_mode7_bailouts;
+#endif
+
+	inline int fast_roundf_pos_int(float x)
+	{
+		assert(x >= 0.0f);
+		return (int)(x + 0.5f);
+	}
+
+	inline int fast_roundf_int(float x)
+	{
+		return (x >= 0.0f) ? (int)(x + 0.5f) : (int)(x - 0.5f);
+	}
+
+	inline int fast_floorf_int(float x)
+	{
+		int xi = (int)x;  // Truncate towards zero
+		return ((x < 0.0f) && (x != (float)xi)) ? (xi - 1) : xi;
+	}
+
+	static inline uint32_t from_7(uint32_t v)
+	{
+		assert(v < 128);
+		return (v << 1) | (v >> 6);
+	}
+
+	static inline uint32_t from_7(uint32_t v, uint32_t p)
+	{
+		assert((v < 128) && (p <= 1));
+		return (v << 1) | p;
+	}
+
+	static inline int to_7(int c8, int pbit)
+	{
+		assert((c8 >= 0) && (c8 <= 255) && (pbit >= 0) && (pbit <= 1));
+		uint32_t e = (uint32_t(c8) + uint32_t(pbit ^ 1)) >> 1;
+		return basisu::minimum<uint32_t>(127, e);
+	}
+
+	static inline int to_7(int c8)
+	{
+		assert((c8 >= 0) && (c8 <= 255));
+		return (c8 * 127 + 127) / 255;
+	}
+
+	static inline int to_7(float c, int pbit)
+	{
+		assert((c >= 0) && (c <= 255.0f));
+		return to_7(fast_roundf_pos_int(c), pbit);
+	}
+
+	static inline int to_7_clamp(float c, int pbit)
+	{
+		return to_7(basisu::clamp<int>(fast_roundf_int(c), 0, 255), pbit);
+	}
+
+	static inline int to_5(int c8)
+	{
+		assert((c8 >= 0) && (c8 <= 255));
+		return (c8 * 31 + 127) / 255;
+	}
+
+	static inline int to_5_clamp(float c)
+	{
+		return basisu::clamp<int>(fast_roundf_int(c * (31.0f / 255.0f)), 0, 31);
+	}
+
+	static inline int to_6(int c8)
+	{
+		assert((c8 >= 0) && (c8 <= 255));
+		return (c8 * 63 + 127) / 255;
+	}
+
+	static inline int to_6(int c8, int pbit)
+	{
+		assert((c8 >= 0) && (c8 <= 255));
+		assert((pbit == 0) || (pbit == 1));
+
+		int q7 = (c8 * 127 + 127) / 255;
+
+		if ((q7 & 1) != pbit)
+		{
+			const int lhs = c8 * 127;
+			const int rhs = 255 * q7;
+
+			if (lhs >= rhs)
+			{
+				q7 = (q7 < 127) ? (q7 + 1) : (q7 - 1);
+			}
+			else
+			{
+				q7 = (q7 > 0) ? (q7 - 1) : (q7 + 1);
+			}
+		}
+
+		return q7 >> 1;
+	}
+
+	static inline int to_6_clamp(float c, int pbit)
+	{
+		return to_6(basisu::clamp<int>(fast_roundf_int(c), 0, 255), pbit);
+	}
+
+	static inline uint32_t from_6(uint32_t v, uint32_t p)
+	{
+		assert((v < 64) && (p <= 1));
+		v = (v << 1) | p;
+		v = (v << 1) | (v >> 6);
+		return v;
+	}
+
+	static inline uint32_t from_4(uint32_t v, uint32_t p)
+	{
+		assert((v < 16) && (p <= 1));
+		v = (v << 1) | p;
+		v = (v << 3) | (v >> 2);
+		return v;
+	}
+
+	static inline uint32_t from_5(uint32_t v)
+	{
+		assert(v < 32);
+		v = (v << 3) | (v >> 2);
+		return v;
+	}
+
+	static inline uint32_t from_5(uint32_t v, uint32_t p)
+	{
+		assert((v < 32) && (p <= 1));
+		v = (v << 1) | p;
+		v = (v << 2) | (v >> 4);
+		return v;
+	}
+
+	static inline uint32_t from_6(uint32_t v)
+	{
+		assert(v < 64);
+		v = (v << 2) | (v >> 4);
+		return v;
+	}
+
+	static inline int to_5(int c8, int pbit)
+	{
+		assert((c8 >= 0) && (c8 <= 255));
+		assert((pbit == 0) || (pbit == 1));
+
+		int q6 = (c8 * 63 + 127) / 255;
+
+		if ((q6 & 1) != pbit)
+		{
+			const int lhs = c8 * 63;
+			const int rhs = 255 * q6;
+
+			if (lhs >= rhs)
+			{
+				q6 = (q6 < 63) ? (q6 + 1) : (q6 - 1);
+			}
+			else
+			{
+				q6 = (q6 > 0) ? (q6 - 1) : (q6 + 1);
+			}
+		}
+
+		return q6 >> 1;
+	}
+
+#if 0
+	static inline int to_5(float c, int pbit)
+	{
+		assert((c >= 0.0f) && (c <= 255.0f));
+		return to_5((int)fast_roundf_pos_int(c), pbit);
+	}
+#endif
+
+	static inline int to_5_clamp(float c, uint32_t pbit)
+	{
+		return to_5(basisu::clamp<int>(fast_roundf_int(c), 0, 255), pbit);
+	}
+
+	//static inline uint32_t bc7_interp(uint32_t l, uint32_t h, uint32_t w) { assert(w <= 64); return (l * (64 - w) + h * w + 32) >> 6; }
+	//static inline uint32_t bc7_interp2(uint32_t l, uint32_t h, uint32_t w) { assert(w <= 64); int d = h - l; return (int)l + ((d * (int)w + 32) >> 6); }
+	//static inline uint32_t bc7_interp3(int l, int d, uint32_t w) { assert(w <= 64); return l + ((d * (int)w + 32) >> 6); }
+
+	static vec4F g_bc7_2bit_ls_tab[4];
+	static vec4F g_bc7_3bit_ls_tab[8];
+	static vec4F g_bc7_4bit_ls_tab[16];
+	static uint16_t g_bc7_part2_bitmasks[64];
+	static uint32_t g_part3_bitmasks[64];
+
+	void init()
+	{
+		for (uint32_t i = 0; i < 4; i++)
+		{
+			float w = (float)basist::g_bc7_weights2[i] * (1.0f / 64.0f);
+			g_bc7_2bit_ls_tab[i].set(w * w, (1.0f - w) * w, (1.0f - w) * (1.0f - w), w);
+		}
+
+		for (uint32_t i = 0; i < 8; i++)
+		{
+			float w = (float)basist::g_bc7_weights3[i] * (1.0f / 64.0f);
+			g_bc7_3bit_ls_tab[i].set(w * w, (1.0f - w) * w, (1.0f - w) * (1.0f - w), w);
+		}
+
+		for (uint32_t i = 0; i < 16; i++)
+		{
+			float w = (float)basist::g_bc7_weights4[i] * (1.0f / 64.0f);
+			g_bc7_4bit_ls_tab[i].set(w * w, (1.0f - w) * w, (1.0f - w) * (1.0f - w), w);
+		}
+
+		for (uint32_t i = 0; i < 64; i++)
+		{
+			uint16_t y = 0;
+
+			for (uint32_t x = 0; x < 16; x++)
+				y |= (g_bc7_partition2[i * 16 + x] << x);
+
+			g_bc7_part2_bitmasks[i] = y;
+		}
+
+		for (uint32_t i = 0; i < 64; i++)
+		{
+			const uint8_t* pPat = &g_bc7_partition3[i * 16];
+
+			for (uint32_t j = 0; j < 16; j++)
+			{
+				const uint32_t s = pPat[j];
+
+				if (s == 0)
+					g_part3_bitmasks[i] |= (1 << j);
+				else if (s == 1)
+					g_part3_bitmasks[i] |= (0x10000 << j);
+			}
+		}
+	}
+
+	void encode_mode0_rgb_block(uint8_t* pBlock, uint32_t part_id, // 3 subsets, 4-bits part ID
+		uint32_t lr[3], uint32_t lg[3], uint32_t lb[3], // 4 bit endpoints
+		uint32_t hr[3], uint32_t hg[3], uint32_t hb[3],
+		uint32_t p[6],
+		const uint8_t* pWeights) // 3-bit weights
+	{
+		assert(part_id < 16);
+		assert((lr[0] | lr[1] | lr[2] | lg[0] | lg[1] | lg[2] | lb[0] | lb[1] | lb[2]) <= 15);
+		assert((hr[0] | hr[1] | hr[2] | hg[0] | hg[1] | hg[2] | hb[0] | hb[1] | hb[2]) <= 15);
+		assert((p[0] | p[1] | p[2] | p[3] | p[4] | p[5]) <= 1);
+
+		const uint8_t* pPart_map = &g_bc7_partition3[part_id * 16];
+		const uint32_t anchor_index0 = g_bc7_table_anchor_index_third_subset_1[part_id];
+		const uint32_t anchor_index1 = g_bc7_table_anchor_index_third_subset_2[part_id];
+
+		uint32_t weight_inv[3] = { 0, 0, 0 };
+
+		if (pWeights[0] & 4)
+		{
+			std::swap(lr[0], hr[0]);
+			std::swap(lg[0], hg[0]);
+			std::swap(lb[0], hb[0]);
+			std::swap(p[0], p[1]);
+			weight_inv[0] = 7;
+		}
+
+		if (pWeights[anchor_index0] & 4)
+		{
+			std::swap(lr[1], hr[1]);
+			std::swap(lg[1], hg[1]);
+			std::swap(lb[1], hb[1]);
+			std::swap(p[2], p[3]);
+			weight_inv[1] = 7;
+		}
+
+		if (pWeights[anchor_index1] & 4)
+		{
+			std::swap(lr[2], hr[2]);
+			std::swap(lg[2], hg[2]);
+			std::swap(lb[2], hb[2]);
+			std::swap(p[4], p[5]);
+			weight_inv[2] = 7;
+		}
+
+		uint64_t low = 1ULL | ((part_id) << 1) |
+			((lr[0]) << 5) | ((hr[0]) << 9) |
+			((lr[1]) << 13) | ((hr[1]) << 17) |
+			((lr[2]) << 21) | ((hr[2]) << 25) |
+			(uint64_t(lg[0]) << 29) | (uint64_t(hg[0]) << 33) |
+			(uint64_t(lg[1]) << 37) | (uint64_t(hg[1]) << 41) |
+			(uint64_t(lg[2]) << 45) | (uint64_t(hg[2]) << 49) |
+			(uint64_t(lb[0]) << 53) | (uint64_t(hb[0]) << 57) |
+			(uint64_t(lb[1]) << 61);
+
+		pBlock[0] = (uint8_t)low;
+		pBlock[1] = (uint8_t)(low >> 8);
+		pBlock[2] = (uint8_t)(low >> 16);
+		pBlock[3] = (uint8_t)(low >> 24);
+		pBlock[4] = (uint8_t)(low >> 32);
+		pBlock[5] = (uint8_t)(low >> 40);
+		pBlock[6] = (uint8_t)(low >> 48);
+		pBlock[7] = (uint8_t)(low >> 56);
+
+		uint64_t high = (lb[1] >> 3) | ((hb[1]) << 1) | ((lb[2]) << 5) | ((hb[2]) << 9) |
+			((p[0]) << 13) | ((p[1]) << 14) | ((p[2]) << 15) | ((p[3]) << 16) | ((p[4]) << 17) | ((p[5]) << 18);
+
+		uint32_t ofs = 19;
+		for (uint32_t i = 0; i < 16; i++)
+		{
+			const uint32_t subset_index = pPart_map[i];
+			uint64_t w = pWeights[i] ^ weight_inv[subset_index];
+
+#ifdef _DEBUG
+			assert(w <= 7);
+			if ((i == 0) || (i == anchor_index0) || (i == anchor_index1))
+			{
+				assert((w & 4) == 0);
+			}
+#endif
+
+			high |= (w << ofs);
+			ofs += (3 - ((i == 0) || (i == anchor_index0) || (i == anchor_index1)));
+		}
+		assert(64 == ofs);
+
+		pBlock[8] = (uint8_t)high;
+		pBlock[9] = (uint8_t)(high >> 8);
+		pBlock[10] = (uint8_t)(high >> 16);
+		pBlock[11] = (uint8_t)(high >> 24);
+		pBlock[12] = (uint8_t)(high >> 32);
+		pBlock[13] = (uint8_t)(high >> 40);
+		pBlock[14] = (uint8_t)(high >> 48);
+		pBlock[15] = (uint8_t)(high >> 56);
+	}
+
+	void encode_mode1_rgb_block(uint8_t* pBlock, uint32_t part_id, // 2 subsets, 6-bits part ID
+		uint32_t lr[2], uint32_t lg[2], uint32_t lb[2], // 6-bit endpoints, 2 shared pbits
+		uint32_t hr[2], uint32_t hg[2], uint32_t hb[2],
+		uint32_t p0, uint32_t p1,
+		const uint8_t* pWeights) // 3-bit weights
+	{
+		assert(part_id < 64);
+		assert((lr[0] | lr[1] | lg[0] | lg[1] | lb[0] | lb[1]) <= 63);
+		assert((hr[0] | hr[1] | hg[0] | hg[1] | hb[0] | hb[1]) <= 63);
+		assert((p0 | p1) <= 1);
+
+		const uint8_t* pPart_map = &g_bc7_partition2[part_id * 16];
+		const uint32_t anchor_index = g_bc7_table_anchor_index_second_subset[part_id];
+
+		uint32_t weight_inv[2] = { 0, 0 };
+		if (pWeights[0] & 4)
+		{
+			std::swap(lr[0], hr[0]);
+			std::swap(lg[0], hg[0]);
+			std::swap(lb[0], hb[0]);
+			weight_inv[0] = 7;
+		}
+
+		if (pWeights[anchor_index] & 4)
+		{
+			std::swap(lr[1], hr[1]);
+			std::swap(lg[1], hg[1]);
+			std::swap(lb[1], hb[1]);
+			weight_inv[1] = 7;
+		}
+
+		pBlock[0] = (uint8_t)(0b10 | (part_id << 2));
+
+		uint64_t x = lr[0] | (hr[0] << (6 * 1));
+		x |= (lr[1] << (6 * 2)) | (hr[1] << (6 * 3));
+
+		x |= (lg[0] << (6 * 4)) | (uint64_t(hg[0]) << (6 * 5));
+		x |= (uint64_t(lg[1]) << (6 * 6)) | (uint64_t(hg[1]) << (6 * 7));
+
+		x |= (uint64_t(lb[0]) << (6 * 8)) | (uint64_t(hb[0]) << (6 * 9));
+		x |= (uint64_t(lb[1]) << (6 * 10));
+
+		// 11*6=66 bits total, write first 64
+
+		pBlock[1] = (uint8_t)x;
+		pBlock[2] = (uint8_t)(x >> 8);
+		pBlock[3] = (uint8_t)(x >> 16);
+		pBlock[4] = (uint8_t)(x >> 24);
+
+		pBlock[5] = (uint8_t)(x >> 32);
+		pBlock[6] = (uint8_t)(x >> 40);
+		pBlock[7] = (uint8_t)(x >> 48);
+		pBlock[8] = (uint8_t)(x >> 56);
+
+		pBlock[9] = (uint8_t)((lb[1] >> 4) | (hb[1] << 2));
+
+		uint64_t y = p0 | (p1 << 1);
+		uint32_t ofs = 2;
+
+		for (uint32_t i = 0; i < 16; i++)
+		{
+			const uint32_t subset_index = pPart_map[i];
+
+			uint64_t w = pWeights[i] ^ weight_inv[subset_index];
+
+#ifdef _DEBUG
+			assert(w <= 7);
+			if ((i == 0) || (i == anchor_index))
+			{
+				assert((w & 4) == 0);
+			}
+#endif
+			y |= (w << ofs);
+
+			ofs += (3 - ((i == 0) || (i == anchor_index)));
+		}
+		assert(48 == ofs);
+
+		pBlock[10] = (uint8_t)y;
+		pBlock[11] = (uint8_t)(y >> 8);
+		pBlock[12] = (uint8_t)(y >> 16);
+		pBlock[13] = (uint8_t)(y >> 24);
+		pBlock[14] = (uint8_t)(y >> 32);
+		pBlock[15] = (uint8_t)(y >> 40);
+	}
+
+	void encode_mode2_rgb_block(uint8_t* pBlock, uint32_t part_id, // 3 subsets, 6-bits part ID
+		uint32_t lr[3], uint32_t lg[3], uint32_t lb[3], // 5 bit endpoints, no pbits
+		uint32_t hr[3], uint32_t hg[3], uint32_t hb[3],
+		const uint8_t* pWeights) // 2-bit weights
+	{
+		assert(part_id < 64);
+		assert((lr[0] | lr[1] | lr[2] | lg[0] | lg[1] | lg[2] | lb[0] | lb[1] | lb[2]) <= 31);
+		assert((hr[0] | hr[1] | hr[2] | hg[0] | hg[1] | hg[2] | hb[0] | hb[1] | hb[2]) <= 31);
+
+		const uint8_t* pPart_map = &g_bc7_partition3[part_id * 16];
+
+		uint32_t weight_inv[3] = { 0 };
+		if (pWeights[0] & 2)
+		{
+			std::swap(lr[0], hr[0]);
+			std::swap(lg[0], hg[0]);
+			std::swap(lb[0], hb[0]);
+			weight_inv[0] = 3;
+		}
+
+		const uint32_t anchor_index0 = g_bc7_table_anchor_index_third_subset_1[part_id];
+		if (pWeights[anchor_index0] & 2)
+		{
+			std::swap(lr[1], hr[1]);
+			std::swap(lg[1], hg[1]);
+			std::swap(lb[1], hb[1]);
+			weight_inv[1] = 3;
+		}
+
+		const uint32_t anchor_index1 = g_bc7_table_anchor_index_third_subset_2[part_id];
+		if (pWeights[anchor_index1] & 2)
+		{
+			std::swap(lr[2], hr[2]);
+			std::swap(lg[2], hg[2]);
+			std::swap(lb[2], hb[2]);
+			weight_inv[2] = 3;
+		}
+
+		uint64_t v = 0b100 | (part_id << 3);
+		v |= (lr[0] << 9) | (hr[0] << (9 + 5 * 1));
+		v |= (lr[1] << (9 + 5 * 2)) | (hr[1] << (9 + 5 * 3));
+		v |= (uint64_t(lr[2]) << (9 + 5 * 4)) | (uint64_t(hr[2]) << (9 + 5 * 5));
+
+		v |= (uint64_t(lg[0]) << (9 + 5 * 6)) | (uint64_t(hg[0]) << (9 + 5 * 7));
+		v |= (uint64_t(lg[1]) << (9 + 5 * 8)) | (uint64_t(hg[1]) << (9 + 5 * 9));
+		v |= (uint64_t(lg[2]) << (9 + 5 * 10));
+
+		pBlock[0] = (uint8_t)v;
+		pBlock[1] = (uint8_t)(v >> 8);
+		pBlock[2] = (uint8_t)(v >> 16);
+		pBlock[3] = (uint8_t)(v >> 24);
+		pBlock[4] = (uint8_t)(v >> 32);
+		pBlock[5] = (uint8_t)(v >> 40);
+		pBlock[6] = (uint8_t)(v >> 48);
+		pBlock[7] = (uint8_t)(v >> 56);
+
+		uint64_t v1 = hg[2];
+		v1 |= (lb[0] << (5 * 1)) | (hb[0] << (5 * 2));
+		v1 |= (lb[1] << (5 * 3)) | (hb[1] << (5 * 4));
+		v1 |= (lb[2] << (5 * 5)) | (uint64_t(hb[2]) << (5 * 6));
+
+		pBlock[8] = (uint8_t)(v1);
+		pBlock[9] = (uint8_t)(v1 >> 8);
+		pBlock[10] = (uint8_t)(v1 >> 16);
+		pBlock[11] = (uint8_t)(v1 >> 24);
+
+		v1 >>= 32;
+
+		// 3 bits left over
+		uint32_t ofs = 3;
+
+		for (uint32_t i = 0; i < 16; i++)
+		{
+			const uint32_t subset_index = pPart_map[i];
+
+			uint64_t w = pWeights[i] ^ weight_inv[subset_index];
+
+#ifdef _DEBUG
+			assert(w <= 3);
+			if ((i == 0) || (i == anchor_index0) || (i == anchor_index1))
+			{
+				assert((w & 2) == 0);
+			}
+#endif
+			v1 |= (w << ofs);
+
+			ofs += (2 - ((i == 0) || (i == anchor_index0) || (i == anchor_index1)));
+		}
+		assert(32 == ofs);
+
+		pBlock[12] = (uint8_t)v1;
+		pBlock[13] = (uint8_t)(v1 >> 8);
+		pBlock[14] = (uint8_t)(v1 >> 16);
+		pBlock[15] = (uint8_t)(v1 >> 24);
+	}
+
+	void encode_mode3_rgb_block(uint8_t* pBlock, uint32_t part_id, // 2 subsets, 6-bits part ID
+		uint32_t lr[2], uint32_t lg[2], uint32_t lb[2], // 7-bit endpoints, 4 unique pbits
+		uint32_t hr[2], uint32_t hg[2], uint32_t hb[2],
+		uint32_t p[4],
+		const uint8_t* pWeights) // 2-bit weights
+	{
+		assert(part_id < 64);
+		assert((lr[0] | lr[1] | lg[0] | lg[1] | lb[0] | lb[1]) <= 127);
+		assert((hr[0] | hr[1] | hg[0] | hg[1] | hb[0] | hb[1]) <= 127);
+		assert((p[0] | p[1] | p[2] | p[3]) <= 1);
+
+		const uint8_t* pPart_map = &g_bc7_partition2[part_id * 16];
+		const uint32_t anchor_index = g_bc7_table_anchor_index_second_subset[part_id];
+
+		uint32_t weight_inv[2] = { 0, 0 };
+		if (pWeights[0] & 2)
+		{
+			std::swap(lr[0], hr[0]);
+			std::swap(lg[0], hg[0]);
+			std::swap(lb[0], hb[0]);
+			std::swap(p[0], p[1]);
+			weight_inv[0] = 3;
+		}
+
+		if (pWeights[anchor_index] & 2)
+		{
+			std::swap(lr[1], hr[1]);
+			std::swap(lg[1], hg[1]);
+			std::swap(lb[1], hb[1]);
+			std::swap(p[2], p[3]);
+			weight_inv[1] = 3;
+		}
+
+		uint64_t x = 0b1000 | (part_id << 4) |
+			(lr[0] << 10) | (hr[0] << 17) |
+			(lr[1] << 24) | (uint64_t(hr[1]) << 31) |
+			(uint64_t(lg[0]) << 38) | (uint64_t(hg[0]) << 45) |
+			(uint64_t(lg[1]) << 52) | (uint64_t(hg[1]) << 59);
+
+		pBlock[0] = (uint8_t)x;
+		pBlock[1] = (uint8_t)(x >> 8);
+		pBlock[2] = (uint8_t)(x >> 16);
+		pBlock[3] = (uint8_t)(x >> 24);
+		pBlock[4] = (uint8_t)(x >> 32);
+		pBlock[5] = (uint8_t)(x >> 40);
+		pBlock[6] = (uint8_t)(x >> 48);
+		pBlock[7] = (uint8_t)(x >> 56);
+
+		// 2 bits of hg[1] remaining to pack
+
+		uint64_t y = (hg[1] >> 5) | (lb[0] << 2) | (hb[0] << 9) |
+			(lb[1] << (9 + 7 * 1)) | (hb[1] << (9 + 7 * 2)) |
+			(uint64_t(p[0]) << (9 + 7 * 3)) | (uint64_t(p[1]) << (9 + 7 * 3 + 1)) |
+			(uint64_t(p[2]) << (9 + 7 * 3 + 2)) | (uint64_t(p[3]) << (9 + 7 * 3 + 3));
+
+		// now 34 total bits
+
+		uint32_t ofs = 34;
+		for (uint32_t i = 0; i < 16; i++)
+		{
+			const uint32_t subset_index = pPart_map[i];
+			uint64_t w = pWeights[i] ^ weight_inv[subset_index];
+
+#ifdef _DEBUG
+			assert(w <= 3);
+			if ((i == 0) || (i == anchor_index))
+			{
+				assert((w & 2) == 0);
+			}
+#endif
+
+			y |= (w << ofs);
+			ofs += (2 - ((i == 0) || (i == anchor_index)));
+		}
+		assert(64 == ofs);
+
+		pBlock[8] = (uint8_t)y;
+		pBlock[9] = (uint8_t)(y >> 8);
+		pBlock[10] = (uint8_t)(y >> 16);
+		pBlock[11] = (uint8_t)(y >> 24);
+		pBlock[12] = (uint8_t)(y >> 32);
+		pBlock[13] = (uint8_t)(y >> 40);
+		pBlock[14] = (uint8_t)(y >> 48);
+		pBlock[15] = (uint8_t)(y >> 56);
+	}
+
+	void encode_mode4_rgba_block(uint8_t* pBlock,
+		uint32_t lr, uint32_t lg, uint32_t lb, uint32_t la, // 5-bit RGB endpoints, 6-bit A endpoints, no p-bits
+		uint32_t hr, uint32_t hg, uint32_t hb, uint32_t ha,
+		const uint8_t* pWeights0, const uint8_t* pWeights1, // weights0 are 3-bits (RGB), weights1 are 2-bits (alpha)
+		uint32_t rot_index, uint32_t index_flag) // rot_index=0 no rotation, if index_flag is 1, the 3-bit indices are for RGB
+	{
+		assert((lr | lg | lb | hr | hg | hb) <= 31);
+		assert((la | ha) <= 63);
+		assert(rot_index <= 3);
+		assert(index_flag <= 1);
+
+		// defaults: 2nd plane=always alpha, RGB=3-bit indices, A=2-bits (favoring RGB)
+		//const uint32_t rot_index = 0, index_flag = 1;
+
+		uint32_t weights_inv[2] = { };
+
+		const uint8_t* p2BitWeights = index_flag ? pWeights1 : pWeights0;
+		const uint8_t* p3BitWeights = index_flag ? pWeights0 : pWeights1;
+
+		// 3-bits
+		if (p3BitWeights[0] & 4)
+		{
+			weights_inv[0] = 7;
+			if (index_flag)
+			{
+				std::swap(lr, hr);
+				std::swap(lg, hg);
+				std::swap(lb, hb);
+			}
+			else
+			{
+				std::swap(la, ha);
+			}
+		}
+
+		// 2-bits
+		if (p2BitWeights[0] & 2)
+		{
+			weights_inv[1] = 3;
+			if (index_flag)
+			{
+				std::swap(la, ha);
+			}
+			else
+			{
+				std::swap(lr, hr);
+				std::swap(lg, hg);
+				std::swap(lb, hb);
+			}
+		}
+
+		pBlock[0] = (uint8_t)(0b10000 | (rot_index << 5) | (index_flag << 7));
+
+		// 6*5+6*2=42 bits
+		uint64_t x = lr | (hr << (5 * 1));
+		x |= (lg << (5 * 2)) | (hg << (5 * 3));
+		x |= (lb << (5 * 4)) | (hb << (5 * 5));
+		x |= (uint64_t(la) << (5 * 6)) | (uint64_t(ha) << (5 * 6 + 6));
+
+		pBlock[1] = (uint8_t)x;
+		pBlock[2] = (uint8_t)(x >> 8);
+		pBlock[3] = (uint8_t)(x >> 16);
+		pBlock[4] = (uint8_t)(x >> 24);
+
+		pBlock[5] = (uint8_t)(x >> 32);
+
+		// 2 leftover bits
+		x >>= 40;
+		uint32_t ofs0 = 2;
+
+		// alpha indices (2-bits)
+		for (uint32_t i = 0; i < 16; i++)
+		{
+			assert(p2BitWeights[i] <= 3);
+			uint64_t w = p2BitWeights[i] ^ weights_inv[1];
+
+			assert(i || ((w & 2) == 0));
+
+			x |= (w << ofs0);
+
+			ofs0 += 2 - (i == 0);
+		}
+
+		// x = 31+2=33 bits
+
+		pBlock[6] = (uint8_t)x;
+		pBlock[7] = (uint8_t)(x >> 8);
+		pBlock[8] = (uint8_t)(x >> 16);
+		pBlock[9] = (uint8_t)(x >> 24);
+
+		x >>= 32;
+
+		// x = 1 bits
+		uint32_t ofs1 = 1;
+
+		// rgb indices (3-bits)
+		for (uint32_t i = 0; i < 16; i++)
+		{
+			assert(p3BitWeights[i] <= 7);
+			uint64_t w = p3BitWeights[i] ^ weights_inv[0];
+
+			assert(i || ((w & 4) == 0));
+
+			x |= (w << ofs1);
+
+			ofs1 += 3 - (i == 0);
+		}
+
+		assert(ofs1 == 48);
+
+		// x=48 bits
+		pBlock[10] = (uint8_t)x;
+		pBlock[11] = (uint8_t)(x >> 8);
+		pBlock[12] = (uint8_t)(x >> 16);
+		pBlock[13] = (uint8_t)(x >> 24);
+		pBlock[14] = (uint8_t)(x >> 32);
+		pBlock[15] = (uint8_t)(x >> 40);
+	}
+
+	// lossless in RGBA
+	void pack_mode5_solid(uint8_t* pBlock, const color_rgba& c)
+	{
+		pBlock[0] = 0b00100000;
+
+		uint32_t lr = basist::g_bc7_mode_5_optimal_endpoints[c[0]].m_lo;
+		uint32_t hr = basist::g_bc7_mode_5_optimal_endpoints[c[0]].m_hi;
+
+		uint32_t lg = basist::g_bc7_mode_5_optimal_endpoints[c[1]].m_lo;
+		uint32_t hg = basist::g_bc7_mode_5_optimal_endpoints[c[1]].m_hi;
+
+		uint32_t lb = basist::g_bc7_mode_5_optimal_endpoints[c[2]].m_lo;
+		uint32_t hb = basist::g_bc7_mode_5_optimal_endpoints[c[2]].m_hi;
+
+		// 8 endpoints are 8-bits, nothing fancy needed
+		uint32_t a = c[3];
+
+		// 58 total bits
+		uint64_t x = lr | (hr << (7 * 1));
+		x |= (lg << (7 * 2)) | (hg << (7 * 3));
+		x |= (((uint64_t)lb) << (7 * 4)) | (((uint64_t)hb) << (7 * 5));
+		x |= (((uint64_t)a) << (7 * 6)) | (((uint64_t)a) << (7 * 6 + 8));
+
+		// write 56 bits, leaving 2 left over
+		pBlock[1] = (uint8_t)(x);
+		pBlock[2] = (uint8_t)(x >> 8);
+		pBlock[3] = (uint8_t)(x >> 16);
+		pBlock[4] = (uint8_t)(x >> 24);
+		pBlock[5] = (uint8_t)(x >> 32);
+		pBlock[6] = (uint8_t)(x >> 40);
+		pBlock[7] = (uint8_t)(x >> 48);
+
+		x >>= 56;
+		assert(x <= 3);
+
+#if 0
+		x |= (0b0101010101010101010101010101011ull << 2);
+
+		pBlock[8] = (uint8_t)(x);
+		pBlock[9] = (uint8_t)(x >> 8);
+		pBlock[10] = (uint8_t)(x >> 16);
+		pBlock[11] = (uint8_t)(x >> 24);
+		pBlock[12] = (uint8_t)(x >> 32);
+		pBlock[13] = 0;
+		pBlock[14] = 0;
+		pBlock[15] = 0;
+#elif 0
+		// 0xaaaaaaac | x
+		pBlock[8] = (uint8_t)(x) | 0xAC;
+
+		static const uint8_t s_tail_bytes[7] = { 0xaa, 0xaa, 0xaa, 0, 0, 0, 0 };
+		memcpy(pBlock + 9, s_tail_bytes, 7);
+#elif 1
+		static const uint8_t s_tail_bytes[8] = { 0xac, 0xaa, 0xaa, 0xaa, 0, 0, 0, 0 };
+		memcpy(pBlock + 8, s_tail_bytes, 8);
+		pBlock[8] |= (uint8_t)x;
+#endif
+	}
+
+	void encode_mode5_rgba_block(uint8_t* pBlock,
+		uint32_t lr, uint32_t lg, uint32_t lb, uint32_t la, // 7-bit RGB endpoints, 8-bit alpha endpoints
+		uint32_t hr, uint32_t hg, uint32_t hb, uint32_t ha,
+		const uint8_t* pColorWeights, const uint8_t* pAlphaWeights, // both 2-bit weights
+		uint32_t rot_index = 0) // rot_index=0 no rotation
+	{
+		assert((lr | lg | lb | hr | hg | hb) <= 127);
+		assert((la | ha) <= 255);
+		assert(rot_index <= 3);
+
+		uint32_t color_inv = 0, alpha_inv = 0;
+
+		if (pColorWeights[0] & 2)
+		{
+			std::swap(lr, hr);
+			std::swap(lg, hg);
+			std::swap(lb, hb);
+			color_inv = 3;
+		}
+
+		if (pAlphaWeights[0] & 2)
+		{
+			std::swap(la, ha);
+			alpha_inv = 3;
+		}
+
+		uint64_t low = (1ULL << 5) | (rot_index << 6) |
+			(lr << 8) | (hr << 15) |
+			(lg << 22) | (uint64_t(hg) << 29) |
+			(uint64_t(lb) << 36) | (uint64_t(hb) << 43) |
+			(uint64_t(la) << 50) | (uint64_t(ha) << 58);
+
+		pBlock[0] = (uint8_t)low;
+		pBlock[1] = (uint8_t)(low >> 8);
+		pBlock[2] = (uint8_t)(low >> 16);
+		pBlock[3] = (uint8_t)(low >> 24);
+		pBlock[4] = (uint8_t)(low >> 32);
+		pBlock[5] = (uint8_t)(low >> 40);
+		pBlock[6] = (uint8_t)(low >> 48);
+		pBlock[7] = (uint8_t)(low >> 56);
+
+		uint64_t high = (ha >> 6) & 3;
+
+		uint32_t ofs = 2;
+
+		for (uint32_t i = 0; i < 16; i++)
+		{
+			uint64_t w = pColorWeights[i] ^ color_inv;
+#ifdef _DEBUG
+			assert(w <= 3);
+			if (i == 0)
+			{
+				assert((w & 2) == 0);
+			}
+#endif    
+			high |= (w << ofs);
+			ofs += (2 - (i == 0));
+		}
+
+		assert(33 == ofs);
+
+		for (uint32_t i = 0; i < 16; i++)
+		{
+			uint64_t w = pAlphaWeights[i] ^ alpha_inv;
+#ifdef _DEBUG
+			assert(w <= 3);
+			if (i == 0)
+			{
+				assert((w & 2) == 0);
+			}
+#endif    
+			high |= (w << ofs);
+			ofs += (2 - (i == 0));
+		}
+
+		assert(64 == ofs);
+
+		pBlock[8] = (uint8_t)high;
+		pBlock[9] = (uint8_t)(high >> 8);
+		pBlock[10] = (uint8_t)(high >> 16);
+		pBlock[11] = (uint8_t)(high >> 24);
+		pBlock[12] = (uint8_t)(high >> 32);
+		pBlock[13] = (uint8_t)(high >> 40);
+		pBlock[14] = (uint8_t)(high >> 48);
+		pBlock[15] = (uint8_t)(high >> 56);
+	}
+
+	void encode_mode6_rgba_block(uint8_t* pBlock,
+		uint32_t lr, uint32_t lg, uint32_t lb, uint32_t la, uint32_t p0, // 7-bit endpoints, 2 shared p-bits
+		uint32_t hr, uint32_t hg, uint32_t hb, uint32_t ha, uint32_t p1,
+		const uint8_t* pWeights) // 4-bit weights
+	{
+		assert((lr | lg | lb | la | hr | hg | hb | ha) <= 127);
+		assert((p0 | p1) <= 1);
+
+		uint32_t weight_inv = 0;
+		if (pWeights[0] & 8)
+		{
+			std::swap(lr, hr);
+			std::swap(lg, hg);
+			std::swap(lb, hb);
+			std::swap(la, ha);
+			std::swap(p0, p1);
+			weight_inv = 15;
+		}
+
+		// 9*7=63 bits
+		uint64_t x = 0b1000000 | (lr << (7 * 1)) | (hr << (7 * 2));
+		x |= (lg << (7 * 3)) | (uint64_t(hg) << (7 * 4));
+		x |= (uint64_t(lb) << (7 * 5)) | (uint64_t(hb) << (7 * 6));
+		x |= (uint64_t(la) << (7 * 7)) | (uint64_t(ha) << (7 * 8));
+
+		pBlock[0] = (uint8_t)x;
+		pBlock[1] = (uint8_t)(x >> 8);
+		pBlock[2] = (uint8_t)(x >> 16);
+		pBlock[3] = (uint8_t)(x >> 24);
+
+		pBlock[4] = (uint8_t)(x >> 32);
+		pBlock[5] = (uint8_t)(x >> 40);
+		pBlock[6] = (uint8_t)(x >> 48);
+		x >>= 56;
+
+		// x=7 bits
+		x |= (p0 << 7);
+		pBlock[7] = (uint8_t)x;
+
+		uint64_t y = p1;
+		uint32_t ofs = 1;
+		// TODO: Unroll/optimize
+		for (uint32_t i = 0; i < 16; i++)
+		{
+			uint64_t w = pWeights[i] ^ weight_inv;
+			assert(w <= 15);
+			assert(i || ((w & 8) == 0));
+			y |= (w << ofs);
+			ofs += 3 + (i > 0);
+		}
+		assert(64 == ofs);
+
+		pBlock[8] = (uint8_t)y;
+		pBlock[9] = (uint8_t)(y >> 8);
+		pBlock[10] = (uint8_t)(y >> 16);
+		pBlock[11] = (uint8_t)(y >> 24);
+		pBlock[12] = (uint8_t)(y >> 32);
+		pBlock[13] = (uint8_t)(y >> 40);
+		pBlock[14] = (uint8_t)(y >> 48);
+		pBlock[15] = (uint8_t)(y >> 56);
+	}
+
+	void encode_mode7_rgba_block(uint8_t* pBlock, uint32_t part_id, // 2 subsets, 6-bits part ID
+		uint32_t lr[2], uint32_t lg[2], uint32_t lb[2], uint32_t la[2], // 5-bit endpoints, unique pbits
+		uint32_t hr[2], uint32_t hg[2], uint32_t hb[2], uint32_t ha[2],
+		uint32_t p[4],
+		const uint8_t* pWeights) // 2-bit weights
+	{
+		assert(part_id < 64);
+		assert((lr[0] | lr[1] | lg[0] | lg[1] | lb[0] | lb[1] | la[0] | la[1]) <= 31);
+		assert((hr[0] | hr[1] | hg[0] | hg[1] | hb[0] | hb[1] | ha[0] | ha[1]) <= 31);
+		assert((p[0] | p[1] | p[2] | p[3]) <= 1);
+
+		const uint8_t* pPart_map = &g_bc7_partition2[part_id * 16];
+		const uint32_t anchor_index = g_bc7_table_anchor_index_second_subset[part_id];
+
+		uint32_t weight_inv[2] = { 0, 0 };
+		if (pWeights[0] & 2)
+		{
+			std::swap(lr[0], hr[0]); std::swap(lg[0], hg[0]); std::swap(lb[0], hb[0]); std::swap(la[0], ha[0]);
+			std::swap(p[0], p[1]);
+			weight_inv[0] = 3;
+		}
+
+		if (pWeights[anchor_index] & 2)
+		{
+			std::swap(lr[1], hr[1]); std::swap(lg[1], hg[1]); std::swap(lb[1], hb[1]); std::swap(la[1], ha[1]);
+			std::swap(p[2], p[3]);
+			weight_inv[1] = 3;
+		}
+
+		uint64_t x = 0x80ULL | (part_id << 8) |
+			(lr[0] << 14) | (hr[0] << 19) | (lr[1] << 24) | (uint64_t(hr[1]) << 29) |
+			(uint64_t(lg[0]) << 34) | (uint64_t(hg[0]) << 39) | (uint64_t(lg[1]) << 44) | (uint64_t(hg[1]) << 49) |
+			(uint64_t(lb[0]) << 54) | (uint64_t(hb[0]) << 59);
+
+		pBlock[0] = (uint8_t)x;
+		pBlock[1] = (uint8_t)(x >> 8);
+		pBlock[2] = (uint8_t)(x >> 16);
+		pBlock[3] = (uint8_t)(x >> 24);
+
+		pBlock[4] = (uint8_t)(x >> 32);
+		pBlock[5] = (uint8_t)(x >> 40);
+		pBlock[6] = (uint8_t)(x >> 48);
+		pBlock[7] = (uint8_t)(x >> 56);
+
+		uint64_t y = (lb[1] << 0) | (hb[1] << 5) |
+			(la[0] << 10) | (ha[0] << 15) | (la[1] << 20) | (ha[1] << 25) |
+			(uint64_t(p[0]) << 30) | (uint64_t(p[1]) << 31) | (uint64_t(p[2]) << 32) | (uint64_t(p[3]) << 33);
+
+		uint32_t ofs = 34;
+		for (uint32_t i = 0; i < 16; i++)
+		{
+			const uint32_t subset_index = pPart_map[i];
+			uint64_t w = pWeights[i] ^ weight_inv[subset_index];
+
+#ifdef _DEBUG
+			assert(w <= 3);
+			if ((i == 0) || (i == anchor_index))
+			{
+				assert((w & 2) == 0);
+			}
+#endif
+
+			y |= (w << ofs);
+			ofs += (2 - ((i == 0) || (i == anchor_index)));
+		}
+		assert(64 == ofs);
+
+		pBlock[8] = (uint8_t)y;
+		pBlock[9] = (uint8_t)(y >> 8);
+		pBlock[10] = (uint8_t)(y >> 16);
+		pBlock[11] = (uint8_t)(y >> 24);
+
+		pBlock[12] = (uint8_t)(y >> 32);
+		pBlock[13] = (uint8_t)(y >> 40);
+		pBlock[14] = (uint8_t)(y >> 48);
+		pBlock[15] = (uint8_t)(y >> 56);
+	}
+		
+	static bool compute_least_squares_endpoints_1D(
+		uint32_t N, const uint8_t* pWeights, uint32_t num_weights,
+		const vec4F* pSelector_weights,
+		float& xl, float& xh,
+		const color_rgba* pColors, uint32_t comp_index,
+		float t_r)
+	{
+		BASISU_NOTE_UNUSED(num_weights);
+
+		float z00 = 0.0f, z10 = 0.0f, z11 = 0.0f;
+		float q00_r = 0.0f;
+
+		for (uint32_t i = 0; i < N; i++)
+		{
+			const uint32_t sel = pWeights[i];
+			assert(sel < num_weights);
+
+			z00 += pSelector_weights[sel][0];
+			z10 += pSelector_weights[sel][1];
+			z11 += pSelector_weights[sel][2];
+
+			const float w = pSelector_weights[sel][3];
+
+			q00_r += w * (float)pColors[i][comp_index];
+		}
+
+		float q10_r = t_r - q00_r;
+
+		float z01 = z10;
+
+		float det = z00 * z11 - z01 * z10;
+		if (fabs(det) < 1e-8f)
+			return false;
+
+		det = 1.0f / det;
+
+		float iz00, iz01, iz10, iz11;
+		iz00 = z11 * det;
+		iz01 = -z01 * det;
+		iz10 = -z10 * det;
+		iz11 = z00 * det;
+
+		xh = basisu::clamp(iz00 * q00_r + iz01 * q10_r, 0.0f, 255.0f);
+		xl = basisu::clamp(iz10 * q00_r + iz11 * q10_r, 0.0f, 255.0f);
+
+		return true;
+	}
+
+	static bool compute_least_squares_endpoints_3D(
+		uint32_t N, const uint8_t* pWeights, uint32_t num_weights,
+		const vec4F* pSelector_weights,
+		vec4F& xl, vec4F& xh,
+		const color_rgba* pColors,
+		float t_r, float t_g, float t_b)
+	{
+		BASISU_NOTE_UNUSED(num_weights);
+
+		float z00 = 0.0f, z10 = 0.0f, z11 = 0.0f;
+		float q00_r = 0.0f, q00_g = 0.0f, q00_b = 0.0f;
+
+		for (uint32_t i = 0; i < N; i++)
+		{
+			const uint32_t sel = pWeights[i];
+			assert(sel < num_weights);
+
+			z00 += pSelector_weights[sel][0];
+			z10 += pSelector_weights[sel][1];
+			z11 += pSelector_weights[sel][2];
+
+			const float w = pSelector_weights[sel][3];
+
+			q00_r += w * (float)pColors[i][0];
+			q00_g += w * (float)pColors[i][1];
+			q00_b += w * (float)pColors[i][2];
+		}
+
+		float q10_r = t_r - q00_r;
+		float q10_g = t_g - q00_g;
+		float q10_b = t_b - q00_b;
+
+		float z01 = z10;
+
+		float det = z00 * z11 - z01 * z10;
+		if (fabs(det) < 1e-8f)
+			return false;
+
+		det = 1.0f / det;
+
+		float iz00, iz01, iz10, iz11;
+		iz00 = z11 * det;
+		iz01 = -z01 * det;
+		iz10 = -z10 * det;
+		iz11 = z00 * det;
+
+		xh[0] = basisu::clamp(iz00 * q00_r + iz01 * q10_r, 0.0f, 255.0f);
+		xl[0] = basisu::clamp(iz10 * q00_r + iz11 * q10_r, 0.0f, 255.0f);
+
+		xh[1] = basisu::clamp(iz00 * q00_g + iz01 * q10_g, 0.0f, 255.0f);
+		xl[1] = basisu::clamp(iz10 * q00_g + iz11 * q10_g, 0.0f, 255.0f);
+
+		xh[2] = basisu::clamp(iz00 * q00_b + iz01 * q10_b, 0.0f, 255.0f);
+		xl[2] = basisu::clamp(iz10 * q00_b + iz11 * q10_b, 0.0f, 255.0f);
+
+		xh[3] = 0;
+		xl[3] = 0;
+
+		return true;
+	}
+
+	static bool compute_least_squares_endpoints_4D(
+		uint32_t N, const uint8_t* pWeights, uint32_t num_weights,
+		const vec4F* pSelector_weights,
+		vec4F& xl, vec4F& xh,
+		const color_rgba* pColors,
+		float t_r, float t_g, float t_b, float t_a)
+	{
+		BASISU_NOTE_UNUSED(num_weights);
+
+		float z00 = 0.0f, z10 = 0.0f, z11 = 0.0f;
+		float q00_r = 0.0f, q00_g = 0.0f, q00_b = 0.0f, q00_a = 0.0f;
+
+		for (uint32_t i = 0; i < N; i++)
+		{
+			const uint32_t sel = pWeights[i];
+			assert(sel < num_weights);
+
+			z00 += pSelector_weights[sel][0];
+			z10 += pSelector_weights[sel][1];
+			z11 += pSelector_weights[sel][2];
+
+			const float w = pSelector_weights[sel][3];
+
+			q00_r += w * (float)pColors[i][0];
+			q00_g += w * (float)pColors[i][1];
+			q00_b += w * (float)pColors[i][2];
+			q00_a += w * (float)pColors[i][3];
+		}
+
+		float q10_r = t_r - q00_r;
+		float q10_g = t_g - q00_g;
+		float q10_b = t_b - q00_b;
+		float q10_a = t_a - q00_a;
+
+		float z01 = z10;
+
+		float det = z00 * z11 - z01 * z10;
+		if (fabs(det) < 1e-8f)
+			return false;
+
+		det = 1.0f / det;
+
+		float iz00, iz01, iz10, iz11;
+		iz00 = z11 * det;
+		iz01 = -z01 * det;
+		iz10 = -z10 * det;
+		iz11 = z00 * det;
+
+		xh[0] = basisu::clamp(iz00 * q00_r + iz01 * q10_r, 0.0f, 255.0f);
+		xl[0] = basisu::clamp(iz10 * q00_r + iz11 * q10_r, 0.0f, 255.0f);
+
+		xh[1] = basisu::clamp(iz00 * q00_g + iz01 * q10_g, 0.0f, 255.0f);
+		xl[1] = basisu::clamp(iz10 * q00_g + iz11 * q10_g, 0.0f, 255.0f);
+
+		xh[2] = basisu::clamp(iz00 * q00_b + iz01 * q10_b, 0.0f, 255.0f);
+		xl[2] = basisu::clamp(iz10 * q00_b + iz11 * q10_b, 0.0f, 255.0f);
+
+		xh[3] = basisu::clamp(iz00 * q00_a + iz01 * q10_a, 0.0f, 255.0f);
+		xl[3] = basisu::clamp(iz10 * q00_a + iz11 * q10_a, 0.0f, 255.0f);
+
+		return true;
+	}
+
+#if BASISU_BC7F_USE_SSE41
+	void bc7_proj_minmax_indices_sse41(const color_rgba* __restrict pPixels, int saxis_r, int saxis_g, int saxis_b, int* out_min_idx, int* out_max_idx)
+	{
+		__m128i coef32 = _mm_setr_epi32(saxis_r, saxis_g, saxis_b, 0);     // 32-bit lanes
+		coef32 = _mm_srai_epi32(coef32, 4);                                // arithmetic >>4 in 32-bit
+		__m128i COEF = _mm_packs_epi32(coef32, coef32);
+
+		const __m128i ZERO = _mm_setzero_si128();
+
+		__m128i vmin, vmax;
+		{
+			const __m128i px = _mm_loadu_si128((const __m128i*) & pPixels[0]);
+			const __m128i lo16 = _mm_unpacklo_epi8(px, ZERO);  // [r0 g0 b0 a0 r1 g1 b1 a1]
+			const __m128i hi16 = _mm_unpackhi_epi8(px, ZERO);  // [r2 g2 b2 a2 r3 g3 b3 a3]
+
+			const __m128i lo32p = _mm_madd_epi16(lo16, COEF);
+			const __m128i hi32p = _mm_madd_epi16(hi16, COEF);
+
+			const __m128i lo_sum = _mm_add_epi32(lo32p, _mm_shuffle_epi32(lo32p, _MM_SHUFFLE(2, 3, 0, 1)));
+			const __m128i hi_sum = _mm_add_epi32(hi32p, _mm_shuffle_epi32(hi32p, _MM_SHUFFLE(2, 3, 0, 1)));
+
+			const __m128i pair01 = _mm_shuffle_epi32(lo_sum, _MM_SHUFFLE(2, 0, 2, 0));
+			const __m128i pair23 = _mm_shuffle_epi32(hi_sum, _MM_SHUFFLE(2, 0, 2, 0));
+
+			const __m128i p32p = _mm_unpacklo_epi64(pair01, pair23);
+
+			const __m128i p32 = _mm_slli_epi32(p32p, 4);
+
+			const __m128i keyed = _mm_add_epi32(p32, _mm_set_epi32(3, 2, 1, 0));
+
+			vmin = keyed;
+			vmax = keyed;
+		}
+
+		{
+			const __m128i px = _mm_loadu_si128((const __m128i*) & pPixels[4]);
+			const __m128i lo16 = _mm_unpacklo_epi8(px, ZERO);  // [r0 g0 b0 a0 r1 g1 b1 a1]
+			const __m128i hi16 = _mm_unpackhi_epi8(px, ZERO);  // [r2 g2 b2 a2 r3 g3 b3 a3]
+
+			const __m128i lo32p = _mm_madd_epi16(lo16, COEF);
+			const __m128i hi32p = _mm_madd_epi16(hi16, COEF);
+
+			const __m128i lo_sum = _mm_add_epi32(lo32p, _mm_shuffle_epi32(lo32p, _MM_SHUFFLE(2, 3, 0, 1)));
+			const __m128i hi_sum = _mm_add_epi32(hi32p, _mm_shuffle_epi32(hi32p, _MM_SHUFFLE(2, 3, 0, 1)));
+
+			const __m128i pair01 = _mm_shuffle_epi32(lo_sum, _MM_SHUFFLE(2, 0, 2, 0));
+			const __m128i pair23 = _mm_shuffle_epi32(hi_sum, _MM_SHUFFLE(2, 0, 2, 0));
+
+			const __m128i p32p = _mm_unpacklo_epi64(pair01, pair23);
+
+			const __m128i p32 = _mm_slli_epi32(p32p, 4);
+
+			const __m128i keyed = _mm_add_epi32(p32, _mm_set_epi32(7, 6, 5, 4));
+
+			vmin = _mm_min_epi32(vmin, keyed);
+			vmax = _mm_max_epi32(vmax, keyed);
+		}
+
+		{
+			const __m128i px = _mm_loadu_si128((const __m128i*) & pPixels[8]);
+			const __m128i lo16 = _mm_unpacklo_epi8(px, ZERO);  // [r0 g0 b0 a0 r1 g1 b1 a1]
+			const __m128i hi16 = _mm_unpackhi_epi8(px, ZERO);  // [r2 g2 b2 a2 r3 g3 b3 a3]
+
+			const __m128i lo32p = _mm_madd_epi16(lo16, COEF);
+			const __m128i hi32p = _mm_madd_epi16(hi16, COEF);
+
+			const __m128i lo_sum = _mm_add_epi32(lo32p, _mm_shuffle_epi32(lo32p, _MM_SHUFFLE(2, 3, 0, 1)));
+			const __m128i hi_sum = _mm_add_epi32(hi32p, _mm_shuffle_epi32(hi32p, _MM_SHUFFLE(2, 3, 0, 1)));
+
+			const __m128i pair01 = _mm_shuffle_epi32(lo_sum, _MM_SHUFFLE(2, 0, 2, 0));
+			const __m128i pair23 = _mm_shuffle_epi32(hi_sum, _MM_SHUFFLE(2, 0, 2, 0));
+
+			const __m128i p32p = _mm_unpacklo_epi64(pair01, pair23);
+
+			const __m128i p32 = _mm_slli_epi32(p32p, 4);
+
+			const __m128i keyed = _mm_add_epi32(p32, _mm_set_epi32(11, 10, 9, 8));
+
+			vmin = _mm_min_epi32(vmin, keyed);
+			vmax = _mm_max_epi32(vmax, keyed);
+		}
+
+		{
+			const __m128i px = _mm_loadu_si128((const __m128i*) & pPixels[12]);
+			const __m128i lo16 = _mm_unpacklo_epi8(px, ZERO);  // [r0 g0 b0 a0 r1 g1 b1 a1]
+			const __m128i hi16 = _mm_unpackhi_epi8(px, ZERO);  // [r2 g2 b2 a2 r3 g3 b3 a3]
+
+			const __m128i lo32p = _mm_madd_epi16(lo16, COEF);
+			const __m128i hi32p = _mm_madd_epi16(hi16, COEF);
+
+			const __m128i lo_sum = _mm_add_epi32(lo32p, _mm_shuffle_epi32(lo32p, _MM_SHUFFLE(2, 3, 0, 1)));
+			const __m128i hi_sum = _mm_add_epi32(hi32p, _mm_shuffle_epi32(hi32p, _MM_SHUFFLE(2, 3, 0, 1)));
+
+			const __m128i pair01 = _mm_shuffle_epi32(lo_sum, _MM_SHUFFLE(2, 0, 2, 0));
+			const __m128i pair23 = _mm_shuffle_epi32(hi_sum, _MM_SHUFFLE(2, 0, 2, 0));
+
+			const __m128i p32p = _mm_unpacklo_epi64(pair01, pair23);
+
+			const __m128i p32 = _mm_slli_epi32(p32p, 4);
+
+			const __m128i keyed = _mm_add_epi32(p32, _mm_set_epi32(15, 14, 13, 12));
+
+			vmin = _mm_min_epi32(vmin, keyed);
+			vmax = _mm_max_epi32(vmax, keyed);
+		}
+
+		__m128i t = _mm_shuffle_epi32(vmin, _MM_SHUFFLE(2, 3, 0, 1));
+		vmin = _mm_min_epi32(vmin, t);
+		t = _mm_shuffle_epi32(vmin, _MM_SHUFFLE(1, 0, 3, 2));
+		vmin = _mm_min_epi32(vmin, t);
+		const int min_keyed = _mm_cvtsi128_si32(vmin);
+
+		t = _mm_shuffle_epi32(vmax, _MM_SHUFFLE(2, 3, 0, 1));
+		vmax = _mm_max_epi32(vmax, t);
+		t = _mm_shuffle_epi32(vmax, _MM_SHUFFLE(1, 0, 3, 2));
+		vmax = _mm_max_epi32(vmax, t);
+		const int max_keyed = _mm_cvtsi128_si32(vmax);
+
+		*out_min_idx = (min_keyed & 0xF);
+		*out_max_idx = (max_keyed & 0xF);
+	}
+
+	void eval_weights_mode6_rgb_sse41(
+		const color_rgba* __restrict pPixels, uint8_t* __restrict pWeights,
+		int lr, int lg, int lb,
+		int hr, int hg, int hb,
+		uint32_t p0, uint32_t p1)
+	{
+		lr = from_7(lr, p0); lg = from_7(lg, p0); lb = from_7(lb, p0);
+		hr = from_7(hr, p1); hg = from_7(hg, p1); hb = from_7(hb, p1);
+
+		const int dr = hr - lr;
+		const int dg = hg - lg;
+		const int db = hb - lb;
+
+		const float denom = (float)(basisu::squarei(dr) + basisu::squarei(dg) + basisu::squarei(db)) + 0.00000125f;
+		const float f = 15.0f / denom;
+
+		const __m128i ZEROi = _mm_setzero_si128();
+		const __m128i FIFTEEN = _mm_set1_epi32(15);
+		const __m128  F = _mm_set1_ps(f);
+		const __m128  HALF = _mm_set1_ps(0.5f);
+
+		const __m128i EP16 = _mm_setr_epi16((short)lr, (short)lg, (short)lb, 0,
+			(short)lr, (short)lg, (short)lb, 0);
+		
+		const __m128i COEF = _mm_setr_epi16((short)dr, (short)dg, (short)db, 0,
+			(short)dr, (short)dg, (short)db, 0);
+
+		for (int i = 0; i < 16; i += 4)
+		{
+			const __m128i px = _mm_loadu_si128((const __m128i*) & pPixels[i]);
+						
+			const __m128i lo16 = _mm_unpacklo_epi8(px, ZEROi);
+			const __m128i hi16 = _mm_unpackhi_epi8(px, ZEROi);
+						
+			const __m128i lo_adj = _mm_sub_epi16(lo16, EP16);
+			const __m128i hi_adj = _mm_sub_epi16(hi16, EP16);
+						
+			const __m128i lo32p = _mm_madd_epi16(lo_adj, COEF);
+			const __m128i hi32p = _mm_madd_epi16(hi_adj, COEF);
+						
+			const __m128i lo_sum = _mm_add_epi32(lo32p, _mm_shuffle_epi32(lo32p, _MM_SHUFFLE(2, 3, 0, 1)));
+			const __m128i hi_sum = _mm_add_epi32(hi32p, _mm_shuffle_epi32(hi32p, _MM_SHUFFLE(2, 3, 0, 1)));
+			
+			const __m128i pair01 = _mm_shuffle_epi32(lo_sum, _MM_SHUFFLE(2, 0, 2, 0));
+			const __m128i pair23 = _mm_shuffle_epi32(hi_sum, _MM_SHUFFLE(2, 0, 2, 0));
+			const __m128i dot32 = _mm_unpacklo_epi64(pair01, pair23);          
+						
+			__m128  y = _mm_add_ps(_mm_mul_ps(_mm_cvtepi32_ps(dot32), F), HALF);
+			__m128i sel32 = _mm_cvttps_epi32(y);                                 
+						
+			sel32 = _mm_min_epi32(_mm_max_epi32(sel32, ZEROi), FIFTEEN);
+						
+			__m128i sel16 = _mm_packs_epi32(sel32, ZEROi);                     
+			__m128i sel8 = _mm_packus_epi16(sel16, ZEROi);                     
+			*(uint32_t*)&pWeights[i] = (uint32_t)_mm_cvtsi128_si32(sel8);
+		}
+	}
+#endif
+
+	BASISU_FORCE_INLINE uint32_t bc7_sse(
+		int pr,
+		int lr,
+		int dr,
+		int w)
+	{
+		assert((w >= 0) && (w <= 64));
+		int re = pr - (lr + ((dr * (int)w + 32) >> 6));
+		return (re * re);
+	}
+
+	BASISU_FORCE_INLINE uint32_t bc7_sse(
+		int pr, int pg, int pb,
+		int lr, int lg, int lb,
+		int dr, int dg, int db,
+		int w)
+	{
+		assert((w >= 0) && (w <= 64));
+		int re = pr - (lr + ((dr * (int)w + 32) >> 6));
+		int ge = pg - (lg + ((dg * (int)w + 32) >> 6));
+		int be = pb - (lb + ((db * (int)w + 32) >> 6));
+		return (re * re) + (ge * ge) + (be * be);
+	}
+
+	BASISU_FORCE_INLINE uint32_t bc7_sse(
+		int pr, int pg, int pb, int pa,
+		int lr, int lg, int lb, int la,
+		int dr, int dg, int db, int da,
+		int w)
+	{
+		assert((w >= 0) && (w <= 64));
+		int re = pr - (lr + ((dr * (int)w + 32) >> 6));
+		int ge = pg - (lg + ((dg * (int)w + 32) >> 6));
+		int be = pb - (lb + ((db * (int)w + 32) >> 6));
+		int ae = pa - (la + ((da * (int)w + 32) >> 6));
+		return (re * re) + (ge * ge) + (be * be) + (ae * ae);
+	}
+
+	void eval_weights_mode6_rgb(const color_rgba* pPixels, uint8_t* pWeights, // 4-bits
+		int lr, int lg, int lb,
+		int hr, int hg, int hb,
+		uint32_t p0, uint32_t p1)
+	{
+		lr = from_7(lr, p0); lg = from_7(lg, p0); lb = from_7(lb, p0);
+		hr = from_7(hr, p1); hg = from_7(hg, p1); hb = from_7(hb, p1);
+
+		int dr = hr - lr;
+		int dg = hg - lg;
+		int db = hb - lb;
+
+		const float f = 15.0f / (float)(basisu::squarei(dr) + basisu::squarei(dg) + basisu::squarei(db) + .00000125f);
+
+		const int sofs = -(lr * dr + lg * dg + lb * db);
+
+		for (uint32_t i = 0; i < 16; i += 4)
+		{
+			int sel0 = (int)(float(pPixels[i + 0][0] * dr + pPixels[i + 0][1] * dg + pPixels[i + 0][2] * db + sofs) * f + .5f);
+			int sel1 = (int)(float(pPixels[i + 1][0] * dr + pPixels[i + 1][1] * dg + pPixels[i + 1][2] * db + sofs) * f + .5f);
+			int sel2 = (int)(float(pPixels[i + 2][0] * dr + pPixels[i + 2][1] * dg + pPixels[i + 2][2] * db + sofs) * f + .5f);
+			int sel3 = (int)(float(pPixels[i + 3][0] * dr + pPixels[i + 3][1] * dg + pPixels[i + 3][2] * db + sofs) * f + .5f);
+
+			if ((uint32_t)sel0 > 15) sel0 = (~sel0 >> 31) & 15;
+			if ((uint32_t)sel1 > 15) sel1 = (~sel1 >> 31) & 15;
+			if ((uint32_t)sel2 > 15) sel2 = (~sel2 >> 31) & 15;
+			if ((uint32_t)sel3 > 15) sel3 = (~sel3 >> 31) & 15;
+
+			pWeights[i + 0] = (uint8_t)sel0;
+			pWeights[i + 1] = (uint8_t)sel1;
+			pWeights[i + 2] = (uint8_t)sel2;
+			pWeights[i + 3] = (uint8_t)sel3;
+		}
+	}
+
+	uint32_t eval_weights_mode6_rgb_sse(const color_rgba* pPixels, uint8_t* pWeights, // 4-bits
+		int lr, int lg, int lb,
+		int hr, int hg, int hb,
+		uint32_t p0, uint32_t p1)
+	{
+		lr = from_7(lr, p0); lg = from_7(lg, p0); lb = from_7(lb, p0);
+		hr = from_7(hr, p1); hg = from_7(hg, p1); hb = from_7(hb, p1);
+
+		// assumes packed a's are always 127
+		const int la = from_7(127, p0);
+		const int ha = from_7(127, p1);
+		const int da = ha - la;
+
+		int dr = hr - lr;
+		int dg = hg - lg;
+		int db = hb - lb;
+
+		const float f = 15.0f / (float)(basisu::squarei(dr) + basisu::squarei(dg) + basisu::squarei(db) + .00000125f);
+
+		const int sofs = -(lr * dr + lg * dg + lb * db);
+
+		uint32_t sse = 0;
+
+		for (uint32_t i = 0; i < 16; i += 4)
+		{
+			int sel0 = (int)(float(pPixels[i + 0][0] * dr + pPixels[i + 0][1] * dg + pPixels[i + 0][2] * db + sofs) * f + .5f);
+			int sel1 = (int)(float(pPixels[i + 1][0] * dr + pPixels[i + 1][1] * dg + pPixels[i + 1][2] * db + sofs) * f + .5f);
+			int sel2 = (int)(float(pPixels[i + 2][0] * dr + pPixels[i + 2][1] * dg + pPixels[i + 2][2] * db + sofs) * f + .5f);
+			int sel3 = (int)(float(pPixels[i + 3][0] * dr + pPixels[i + 3][1] * dg + pPixels[i + 3][2] * db + sofs) * f + .5f);
+
+			if ((uint32_t)sel0 > 15) sel0 = (~sel0 >> 31) & 15;
+			if ((uint32_t)sel1 > 15) sel1 = (~sel1 >> 31) & 15;
+			if ((uint32_t)sel2 > 15) sel2 = (~sel2 >> 31) & 15;
+			if ((uint32_t)sel3 > 15) sel3 = (~sel3 >> 31) & 15;
+
+			pWeights[i + 0] = (uint8_t)sel0;
+			pWeights[i + 1] = (uint8_t)sel1;
+			pWeights[i + 2] = (uint8_t)sel2;
+			pWeights[i + 3] = (uint8_t)sel3;
+
+			sse += bc7_sse(pPixels[i + 0][0], pPixels[i + 0][1], pPixels[i + 0][2], pPixels[i + 0][3], lr, lg, lb, la, dr, dg, db, da, basist::g_bc7_weights4[sel0]);
+			sse += bc7_sse(pPixels[i + 1][0], pPixels[i + 1][1], pPixels[i + 1][2], pPixels[i + 1][3], lr, lg, lb, la, dr, dg, db, da, basist::g_bc7_weights4[sel1]);
+			sse += bc7_sse(pPixels[i + 2][0], pPixels[i + 2][1], pPixels[i + 2][2], pPixels[i + 2][3], lr, lg, lb, la, dr, dg, db, da, basist::g_bc7_weights4[sel2]);
+			sse += bc7_sse(pPixels[i + 3][0], pPixels[i + 3][1], pPixels[i + 3][2], pPixels[i + 3][3], lr, lg, lb, la, dr, dg, db, da, basist::g_bc7_weights4[sel3]);
+		}
+
+		return sse;
+	}
+
+	void eval_weights_mode6_rgba(const color_rgba* pPixels, uint8_t* pWeights, // 4-bits
+		int lr, int lg, int lb, int la, int p0,
+		int hr, int hg, int hb, int ha, int p1)
+	{
+		lr = from_7(lr, p0); lg = from_7(lg, p0); lb = from_7(lb, p0); la = from_7(la, p0);
+		hr = from_7(hr, p1); hg = from_7(hg, p1); hb = from_7(hb, p1); ha = from_7(ha, p1);
+
+		int dr = hr - lr;
+		int dg = hg - lg;
+		int db = hb - lb;
+		int da = ha - la;
+
+		const float f = 15.0f / (float)(basisu::squarei(dr) + basisu::squarei(dg) + basisu::squarei(db) + basisu::squarei(da) + .00000125f);
+
+		const int sofs = -(lr * dr + lg * dg + lb * db + la * da);
+
+		for (uint32_t i = 0; i < 16; i += 4)
+		{
+			int sel0 = (int)(float(pPixels[i + 0][0] * dr + pPixels[i + 0][1] * dg + pPixels[i + 0][2] * db + pPixels[i + 0][3] * da + sofs) * f + .5f);
+			int sel1 = (int)(float(pPixels[i + 1][0] * dr + pPixels[i + 1][1] * dg + pPixels[i + 1][2] * db + pPixels[i + 1][3] * da + sofs) * f + .5f);
+			int sel2 = (int)(float(pPixels[i + 2][0] * dr + pPixels[i + 2][1] * dg + pPixels[i + 2][2] * db + pPixels[i + 2][3] * da + sofs) * f + .5f);
+			int sel3 = (int)(float(pPixels[i + 3][0] * dr + pPixels[i + 3][1] * dg + pPixels[i + 3][2] * db + pPixels[i + 3][3] * da + sofs) * f + .5f);
+
+			if ((uint32_t)sel0 > 15) sel0 = (~sel0 >> 31) & 15;
+			if ((uint32_t)sel1 > 15) sel1 = (~sel1 >> 31) & 15;
+			if ((uint32_t)sel2 > 15) sel2 = (~sel2 >> 31) & 15;
+			if ((uint32_t)sel3 > 15) sel3 = (~sel3 >> 31) & 15;
+
+			pWeights[i + 0] = (uint8_t)sel0;
+			pWeights[i + 1] = (uint8_t)sel1;
+			pWeights[i + 2] = (uint8_t)sel2;
+			pWeights[i + 3] = (uint8_t)sel3;
+		}
+	}
+
+	uint32_t eval_weights_mode6_rgba_sse(const color_rgba* pPixels, uint8_t* pWeights, // 4-bits
+		int lr, int lg, int lb, int la, int p0,
+		int hr, int hg, int hb, int ha, int p1)
+	{
+		lr = from_7(lr, p0); lg = from_7(lg, p0); lb = from_7(lb, p0); la = from_7(la, p0);
+		hr = from_7(hr, p1); hg = from_7(hg, p1); hb = from_7(hb, p1); ha = from_7(ha, p1);
+
+		int dr = hr - lr;
+		int dg = hg - lg;
+		int db = hb - lb;
+		int da = ha - la;
+
+		const float f = 15.0f / (float)(basisu::squarei(dr) + basisu::squarei(dg) + basisu::squarei(db) + basisu::squarei(da) + .00000125f);
+
+		const int sofs = -(lr * dr + lg * dg + lb * db + la * da);
+
+		uint32_t sse = 0;
+
+		for (uint32_t i = 0; i < 16; i += 4)
+		{
+			int sel0 = (int)(float(pPixels[i + 0][0] * dr + pPixels[i + 0][1] * dg + pPixels[i + 0][2] * db + pPixels[i + 0][3] * da + sofs) * f + .5f);
+			int sel1 = (int)(float(pPixels[i + 1][0] * dr + pPixels[i + 1][1] * dg + pPixels[i + 1][2] * db + pPixels[i + 1][3] * da + sofs) * f + .5f);
+			int sel2 = (int)(float(pPixels[i + 2][0] * dr + pPixels[i + 2][1] * dg + pPixels[i + 2][2] * db + pPixels[i + 2][3] * da + sofs) * f + .5f);
+			int sel3 = (int)(float(pPixels[i + 3][0] * dr + pPixels[i + 3][1] * dg + pPixels[i + 3][2] * db + pPixels[i + 3][3] * da + sofs) * f + .5f);
+
+			if ((uint32_t)sel0 > 15) sel0 = (~sel0 >> 31) & 15;
+			if ((uint32_t)sel1 > 15) sel1 = (~sel1 >> 31) & 15;
+			if ((uint32_t)sel2 > 15) sel2 = (~sel2 >> 31) & 15;
+			if ((uint32_t)sel3 > 15) sel3 = (~sel3 >> 31) & 15;
+
+			pWeights[i + 0] = (uint8_t)sel0;
+			pWeights[i + 1] = (uint8_t)sel1;
+			pWeights[i + 2] = (uint8_t)sel2;
+			pWeights[i + 3] = (uint8_t)sel3;
+
+			sse += bc7_sse(pPixels[i + 0][0], pPixels[i + 0][1], pPixels[i + 0][2], pPixels[i + 0][3], lr, lg, lb, la, dr, dg, db, da, basist::g_bc7_weights4[sel0]);
+			sse += bc7_sse(pPixels[i + 1][0], pPixels[i + 1][1], pPixels[i + 1][2], pPixels[i + 1][3], lr, lg, lb, la, dr, dg, db, da, basist::g_bc7_weights4[sel1]);
+			sse += bc7_sse(pPixels[i + 2][0], pPixels[i + 2][1], pPixels[i + 2][2], pPixels[i + 2][3], lr, lg, lb, la, dr, dg, db, da, basist::g_bc7_weights4[sel2]);
+			sse += bc7_sse(pPixels[i + 3][0], pPixels[i + 3][1], pPixels[i + 3][2], pPixels[i + 3][3], lr, lg, lb, la, dr, dg, db, da, basist::g_bc7_weights4[sel3]);
+		}
+
+		return sse;
+	}
+
+	void eval_weights_mode1_rgb(const color_rgba* pPixels, uint8_t* pWeights, // 3-bits
+		uint32_t blr[2], uint32_t blg[2], uint32_t blb[2], uint32_t bhr[2], uint32_t bhg[2], uint32_t bhb[2],
+		uint32_t pbits[2], uint32_t subset_bitmask)
+	{
+		int lr[2], lg[2], lb[2], hr[2], hg[2], hb[2], dr[2], dg[2], db[2];
+
+		for (uint32_t s = 0; s < 2; s++)
+		{
+			lr[s] = from_6(blr[s], pbits[s]);
+			lg[s] = from_6(blg[s], pbits[s]);
+			lb[s] = from_6(blb[s], pbits[s]);
+
+			hr[s] = from_6(bhr[s], pbits[s]);
+			hg[s] = from_6(bhg[s], pbits[s]);
+			hb[s] = from_6(bhb[s], pbits[s]);
+
+			dr[s] = hr[s] - lr[s];
+			dg[s] = hg[s] - lg[s];
+			db[s] = hb[s] - lb[s];
+		}
+
+		const float f[2] =
+		{
+			7.0f / (float)(basisu::squarei(dr[0]) + basisu::squarei(dg[0]) + basisu::squarei(db[0]) + .00000125f),
+			7.0f / (float)(basisu::squarei(dr[1]) + basisu::squarei(dg[1]) + basisu::squarei(db[1]) + .00000125f)
+		};
+
+		const int sofs[2] = {
+			lr[0] * dr[0] + lg[0] * dg[0] + lb[0] * db[0],
+			lr[1] * dr[1] + lg[1] * dg[1] + lb[1] * db[1] };
+
+		for (uint32_t i = 0; i < 16; i++)
+		{
+			const uint32_t subset_index = (subset_bitmask >> i) & 1;
+
+			int sel = (int)((float)(
+				((int)pPixels[i][0]) * dr[subset_index] + ((int)pPixels[i][1]) * dg[subset_index] + ((int)pPixels[i][2]) * db[subset_index] - sofs[subset_index]) * f[subset_index] + .5f);
+
+			if ((uint32_t)sel > 7)
+				sel = (~sel >> 31) & 7;
+
+			pWeights[i] = (uint8_t)sel;
+		}
+	}
+
+	uint32_t eval_weights_mode1_rgb_sse(const color_rgba* pPixels, uint8_t* pWeights, // 3-bits
+		uint32_t blr[2], uint32_t blg[2], uint32_t blb[2], uint32_t bhr[2], uint32_t bhg[2], uint32_t bhb[2],
+		uint32_t pbits[2], uint32_t subset_bitmask)
+	{
+		int lr[2], lg[2], lb[2], hr[2], hg[2], hb[2], dr[2], dg[2], db[2];
+
+		for (uint32_t s = 0; s < 2; s++)
+		{
+			lr[s] = from_6(blr[s], pbits[s]);
+			lg[s] = from_6(blg[s], pbits[s]);
+			lb[s] = from_6(blb[s], pbits[s]);
+
+			hr[s] = from_6(bhr[s], pbits[s]);
+			hg[s] = from_6(bhg[s], pbits[s]);
+			hb[s] = from_6(bhb[s], pbits[s]);
+
+			dr[s] = hr[s] - lr[s];
+			dg[s] = hg[s] - lg[s];
+			db[s] = hb[s] - lb[s];
+		}
+
+		const float f[2] =
+		{
+			7.0f / (float)(basisu::squarei(dr[0]) + basisu::squarei(dg[0]) + basisu::squarei(db[0]) + .00000125f),
+			7.0f / (float)(basisu::squarei(dr[1]) + basisu::squarei(dg[1]) + basisu::squarei(db[1]) + .00000125f)
+		};
+
+		const int sofs[2] = {
+			lr[0] * dr[0] + lg[0] * dg[0] + lb[0] * db[0],
+			lr[1] * dr[1] + lg[1] * dg[1] + lb[1] * db[1] };
+
+		uint32_t sse = 0;
+
+		for (uint32_t i = 0; i < 16; i++)
+		{
+			const uint32_t subset_index = (subset_bitmask >> i) & 1;
+
+			int sel = (int)((float)(
+				((int)pPixels[i][0]) * dr[subset_index] + ((int)pPixels[i][1]) * dg[subset_index] + ((int)pPixels[i][2]) * db[subset_index] - sofs[subset_index]) * f[subset_index] + .5f);
+
+			if ((uint32_t)sel > 7)
+				sel = (~sel >> 31) & 7;
+
+			pWeights[i] = (uint8_t)sel;
+
+			sse += bc7_sse(pPixels[i][0], pPixels[i][1], pPixels[i][2], lr[subset_index], lg[subset_index], lb[subset_index], dr[subset_index], dg[subset_index], db[subset_index], basist::g_bc7_weights3[sel]);
+		}
+
+		return sse;
+	}
+
+	void eval_weights_mode7_rgba(const color_rgba* pPixels, uint8_t* pWeights, // 2-bits
+		uint32_t blr[2], uint32_t blg[2], uint32_t blb[2], uint32_t bla[2],
+		uint32_t bhr[2], uint32_t bhg[2], uint32_t bhb[2], uint32_t bha[2],
+		uint32_t pbits[4], uint32_t subset_bitmask)
+	{
+		int lr[2], lg[2], lb[2], la[2];
+		int hr[2], hg[2], hb[2], ha[2];
+		int dr[2], dg[2], db[2], da[2];
+
+		for (uint32_t s = 0; s < 2; s++)
+		{
+			const uint32_t l_pbit = pbits[s * 2 + 0], h_pbit = pbits[s * 2 + 1];
+
+			lr[s] = from_5(blr[s], l_pbit);
+			lg[s] = from_5(blg[s], l_pbit);
+			lb[s] = from_5(blb[s], l_pbit);
+			la[s] = from_5(bla[s], l_pbit);
+
+			hr[s] = from_5(bhr[s], h_pbit);
+			hg[s] = from_5(bhg[s], h_pbit);
+			hb[s] = from_5(bhb[s], h_pbit);
+			ha[s] = from_5(bha[s], h_pbit);
+
+			dr[s] = hr[s] - lr[s];
+			dg[s] = hg[s] - lg[s];
+			db[s] = hb[s] - lb[s];
+			da[s] = ha[s] - la[s];
+		}
+
+		const float f[2] =
+		{
+			3.0f / (float)(basisu::squarei(dr[0]) + basisu::squarei(dg[0]) + basisu::squarei(db[0]) + basisu::squarei(da[0]) + .00000125f),
+			3.0f / (float)(basisu::squarei(dr[1]) + basisu::squarei(dg[1]) + basisu::squarei(db[1]) + basisu::squarei(da[1]) + .00000125f)
+		};
+
+		const int sofs[2] = {
+			lr[0] * dr[0] + lg[0] * dg[0] + lb[0] * db[0] + la[0] * da[0],
+			lr[1] * dr[1] + lg[1] * dg[1] + lb[1] * db[1] + la[1] * da[1] };
+
+		for (uint32_t i = 0; i < 16; i++)
+		{
+			const uint32_t subset_index = (subset_bitmask >> i) & 1;
+
+			int sel = (int)((float)(
+				((int)pPixels[i][0]) * dr[subset_index] + ((int)pPixels[i][1]) * dg[subset_index] + ((int)pPixels[i][2]) * db[subset_index] + ((int)pPixels[i][3]) * da[subset_index] - sofs[subset_index]) * f[subset_index] + .5f);
+
+			if ((uint32_t)sel > 3)
+				sel = (~sel >> 31) & 3;
+
+			pWeights[i] = (uint8_t)sel;
+		}
+	}
+
+	uint32_t eval_weights_mode7_rgba_sse(const color_rgba* pPixels, uint8_t* pWeights, // 2-bits
+		uint32_t blr[2], uint32_t blg[2], uint32_t blb[2], uint32_t bla[2],
+		uint32_t bhr[2], uint32_t bhg[2], uint32_t bhb[2], uint32_t bha[2],
+		uint32_t pbits[4], uint32_t subset_bitmask)
+	{
+		int lr[2], lg[2], lb[2], la[2];
+		int hr[2], hg[2], hb[2], ha[2];
+		int dr[2], dg[2], db[2], da[2];
+
+		for (uint32_t s = 0; s < 2; s++)
+		{
+			const uint32_t l_pbit = pbits[s * 2 + 0], h_pbit = pbits[s * 2 + 1];
+
+			lr[s] = from_5(blr[s], l_pbit);
+			lg[s] = from_5(blg[s], l_pbit);
+			lb[s] = from_5(blb[s], l_pbit);
+			la[s] = from_5(bla[s], l_pbit);
+
+			hr[s] = from_5(bhr[s], h_pbit);
+			hg[s] = from_5(bhg[s], h_pbit);
+			hb[s] = from_5(bhb[s], h_pbit);
+			ha[s] = from_5(bha[s], h_pbit);
+
+			dr[s] = hr[s] - lr[s];
+			dg[s] = hg[s] - lg[s];
+			db[s] = hb[s] - lb[s];
+			da[s] = ha[s] - la[s];
+		}
+
+		const float f[2] =
+		{
+			3.0f / (float)(basisu::squarei(dr[0]) + basisu::squarei(dg[0]) + basisu::squarei(db[0]) + basisu::squarei(da[0]) + .00000125f),
+			3.0f / (float)(basisu::squarei(dr[1]) + basisu::squarei(dg[1]) + basisu::squarei(db[1]) + basisu::squarei(da[1]) + .00000125f)
+		};
+
+		const int sofs[2] = {
+			lr[0] * dr[0] + lg[0] * dg[0] + lb[0] * db[0] + la[0] * da[0],
+			lr[1] * dr[1] + lg[1] * dg[1] + lb[1] * db[1] + la[1] * da[1] };
+
+		uint32_t sse = 0;
+
+		for (uint32_t i = 0; i < 16; i++)
+		{
+			const uint32_t subset_index = (subset_bitmask >> i) & 1;
+
+			int sel = (int)((float)(
+				((int)pPixels[i][0]) * dr[subset_index] + ((int)pPixels[i][1]) * dg[subset_index] + ((int)pPixels[i][2]) * db[subset_index] + ((int)pPixels[i][3]) * da[subset_index] - sofs[subset_index]) * f[subset_index] + .5f);
+
+			if ((uint32_t)sel > 3)
+				sel = (~sel >> 31) & 3;
+
+			pWeights[i] = (uint8_t)sel;
+
+			sse += bc7_sse(pPixels[i][0], pPixels[i][1], pPixels[i][2], pPixels[i][3],
+				lr[subset_index], lg[subset_index], lb[subset_index], la[subset_index],
+				dr[subset_index], dg[subset_index], db[subset_index], da[subset_index], basist::g_bc7_weights2[sel]);
+		}
+
+		return sse;
+	}
+
+	void eval_weights_mode3_rgb(const color_rgba* pPixels, uint8_t* pWeights, // 2-bits
+		uint32_t blr[2], uint32_t blg[2], uint32_t blb[2], uint32_t bhr[2], uint32_t bhg[2], uint32_t bhb[2],
+		uint32_t pbits[4], uint32_t subset_bitmask)
+	{
+		int lr[2], lg[2], lb[2], hr[2], hg[2], hb[2], dr[2], dg[2], db[2];
+
+		for (uint32_t s = 0; s < 2; s++)
+		{
+			lr[s] = from_7(blr[s], pbits[s * 2 + 0]);
+			lg[s] = from_7(blg[s], pbits[s * 2 + 0]);
+			lb[s] = from_7(blb[s], pbits[s * 2 + 0]);
+
+			hr[s] = from_7(bhr[s], pbits[s * 2 + 1]);
+			hg[s] = from_7(bhg[s], pbits[s * 2 + 1]);
+			hb[s] = from_7(bhb[s], pbits[s * 2 + 1]);
+
+			dr[s] = hr[s] - lr[s];
+			dg[s] = hg[s] - lg[s];
+			db[s] = hb[s] - lb[s];
+		}
+
+		const float f[2] =
+		{
+			3.0f / (float)(basisu::squarei(dr[0]) + basisu::squarei(dg[0]) + basisu::squarei(db[0]) + .00000125f),
+			3.0f / (float)(basisu::squarei(dr[1]) + basisu::squarei(dg[1]) + basisu::squarei(db[1]) + .00000125f)
+		};
+
+		const int sofs[2] = {
+			lr[0] * dr[0] + lg[0] * dg[0] + lb[0] * db[0],
+			lr[1] * dr[1] + lg[1] * dg[1] + lb[1] * db[1] };
+
+		for (uint32_t i = 0; i < 16; i++)
+		{
+			const uint32_t subset_index = (subset_bitmask >> i) & 1;
+
+			int sel = (int)((float)(
+				((int)pPixels[i][0]) * dr[subset_index] + ((int)pPixels[i][1]) * dg[subset_index] + ((int)pPixels[i][2]) * db[subset_index] - sofs[subset_index]) * f[subset_index] + .5f);
+
+			if ((uint32_t)sel > 3)
+				sel = (~sel >> 31) & 3;
+
+			pWeights[i] = (uint8_t)sel;
+		}
+	}
+
+	uint32_t eval_weights_mode3_rgb_sse(const color_rgba* pPixels, uint8_t* pWeights, // 2-bits
+		uint32_t blr[2], uint32_t blg[2], uint32_t blb[2], uint32_t bhr[2], uint32_t bhg[2], uint32_t bhb[2],
+		uint32_t pbits[4], uint32_t subset_bitmask)
+	{
+		int lr[2], lg[2], lb[2], hr[2], hg[2], hb[2], dr[2], dg[2], db[2];
+
+		for (uint32_t s = 0; s < 2; s++)
+		{
+			lr[s] = from_7(blr[s], pbits[s * 2 + 0]);
+			lg[s] = from_7(blg[s], pbits[s * 2 + 0]);
+			lb[s] = from_7(blb[s], pbits[s * 2 + 0]);
+
+			hr[s] = from_7(bhr[s], pbits[s * 2 + 1]);
+			hg[s] = from_7(bhg[s], pbits[s * 2 + 1]);
+			hb[s] = from_7(bhb[s], pbits[s * 2 + 1]);
+
+			dr[s] = hr[s] - lr[s];
+			dg[s] = hg[s] - lg[s];
+			db[s] = hb[s] - lb[s];
+		}
+
+		const float f[2] =
+		{
+			3.0f / (float)(basisu::squarei(dr[0]) + basisu::squarei(dg[0]) + basisu::squarei(db[0]) + .00000125f),
+			3.0f / (float)(basisu::squarei(dr[1]) + basisu::squarei(dg[1]) + basisu::squarei(db[1]) + .00000125f)
+		};
+
+		const int sofs[2] = {
+			lr[0] * dr[0] + lg[0] * dg[0] + lb[0] * db[0],
+			lr[1] * dr[1] + lg[1] * dg[1] + lb[1] * db[1] };
+
+		uint32_t sse = 0;
+
+		for (uint32_t i = 0; i < 16; i++)
+		{
+			const uint32_t subset_index = (subset_bitmask >> i) & 1;
+
+			int sel = (int)((float)(
+				((int)pPixels[i][0]) * dr[subset_index] + ((int)pPixels[i][1]) * dg[subset_index] + ((int)pPixels[i][2]) * db[subset_index] - sofs[subset_index]) * f[subset_index] + .5f);
+
+			if ((uint32_t)sel > 3)
+				sel = (~sel >> 31) & 3;
+
+			pWeights[i] = (uint8_t)sel;
+
+			sse += bc7_sse(pPixels[i][0], pPixels[i][1], pPixels[i][2], lr[subset_index], lg[subset_index], lb[subset_index], dr[subset_index], dg[subset_index], db[subset_index], basist::g_bc7_weights2[sel]);
+		}
+
+		return sse;
+	}
+
+	void eval_weights_mode0_rgb(const color_rgba* pPixels, uint8_t* pWeights, // 3-bits
+		uint32_t blr[3], uint32_t blg[3], uint32_t blb[3],
+		uint32_t bhr[3], uint32_t bhg[3], uint32_t bhb[3],
+		uint32_t pbits[6],
+		uint32_t pat_index)
+	{
+		assert(pat_index <= 15);
+		int lr[3], lg[3], lb[3], hr[3], hg[3], hb[3], dr[3], dg[3], db[3];
+
+		for (uint32_t s = 0; s < 3; s++)
+		{
+			lr[s] = from_4(blr[s], pbits[s * 2 + 0]);
+			lg[s] = from_4(blg[s], pbits[s * 2 + 0]);
+			lb[s] = from_4(blb[s], pbits[s * 2 + 0]);
+
+			hr[s] = from_4(bhr[s], pbits[s * 2 + 1]);
+			hg[s] = from_4(bhg[s], pbits[s * 2 + 1]);
+			hb[s] = from_4(bhb[s], pbits[s * 2 + 1]);
+
+			dr[s] = hr[s] - lr[s];
+			dg[s] = hg[s] - lg[s];
+			db[s] = hb[s] - lb[s];
+		}
+
+		const float f[3] =
+		{
+			7.0f / (float)(basisu::squarei(dr[0]) + basisu::squarei(dg[0]) + basisu::squarei(db[0]) + .00000125f),
+			7.0f / (float)(basisu::squarei(dr[1]) + basisu::squarei(dg[1]) + basisu::squarei(db[1]) + .00000125f),
+			7.0f / (float)(basisu::squarei(dr[2]) + basisu::squarei(dg[2]) + basisu::squarei(db[2]) + .00000125f)
+		};
+
+		const int sofs[3] = {
+			lr[0] * dr[0] + lg[0] * dg[0] + lb[0] * db[0],
+			lr[1] * dr[1] + lg[1] * dg[1] + lb[1] * db[1],
+			lr[2] * dr[2] + lg[2] * dg[2] + lb[2] * db[2] };
+
+		const uint8_t* pPart_map = &g_bc7_partition3[pat_index * 16];
+
+		for (uint32_t i = 0; i < 16; i++)
+		{
+			const uint32_t subset_index = pPart_map[i];
+
+			int sel = (int)((float)(
+				(int)pPixels[i][0] * dr[subset_index] + (int)pPixels[i][1] * dg[subset_index] + (int)pPixels[i][2] * db[subset_index] - sofs[subset_index]) * f[subset_index] + .5f);
+
+			if ((uint32_t)sel > 7)
+				sel = (~sel >> 31) & 7;
+
+			pWeights[i] = (uint8_t)sel;
+		}
+	}
+
+	uint32_t eval_weights_mode0_rgb_sse(const color_rgba* pPixels, uint8_t* pWeights, // 3-bits
+		uint32_t blr[3], uint32_t blg[3], uint32_t blb[3],
+		uint32_t bhr[3], uint32_t bhg[3], uint32_t bhb[3],
+		uint32_t pbits[6],
+		uint32_t pat_index)
+	{
+		assert(pat_index <= 15);
+		int lr[3], lg[3], lb[3], hr[3], hg[3], hb[3], dr[3], dg[3], db[3];
+
+		for (uint32_t s = 0; s < 3; s++)
+		{
+			lr[s] = from_4(blr[s], pbits[s * 2 + 0]);
+			lg[s] = from_4(blg[s], pbits[s * 2 + 0]);
+			lb[s] = from_4(blb[s], pbits[s * 2 + 0]);
+
+			hr[s] = from_4(bhr[s], pbits[s * 2 + 1]);
+			hg[s] = from_4(bhg[s], pbits[s * 2 + 1]);
+			hb[s] = from_4(bhb[s], pbits[s * 2 + 1]);
+
+			dr[s] = hr[s] - lr[s];
+			dg[s] = hg[s] - lg[s];
+			db[s] = hb[s] - lb[s];
+		}
+
+		const float f[3] =
+		{
+			7.0f / (float)(basisu::squarei(dr[0]) + basisu::squarei(dg[0]) + basisu::squarei(db[0]) + .00000125f),
+			7.0f / (float)(basisu::squarei(dr[1]) + basisu::squarei(dg[1]) + basisu::squarei(db[1]) + .00000125f),
+			7.0f / (float)(basisu::squarei(dr[2]) + basisu::squarei(dg[2]) + basisu::squarei(db[2]) + .00000125f)
+		};
+
+		const int sofs[3] = {
+			lr[0] * dr[0] + lg[0] * dg[0] + lb[0] * db[0],
+			lr[1] * dr[1] + lg[1] * dg[1] + lb[1] * db[1],
+			lr[2] * dr[2] + lg[2] * dg[2] + lb[2] * db[2] };
+
+		const uint8_t* pPart_map = &g_bc7_partition3[pat_index * 16];
+
+		uint32_t sse = 0;
+
+		for (uint32_t i = 0; i < 16; i++)
+		{
+			const uint32_t subset_index = pPart_map[i];
+
+			int sel = (int)((float)(
+				(int)pPixels[i][0] * dr[subset_index] + (int)pPixels[i][1] * dg[subset_index] + (int)pPixels[i][2] * db[subset_index] - sofs[subset_index]) * f[subset_index] + .5f);
+
+			if ((uint32_t)sel > 7)
+				sel = (~sel >> 31) & 7;
+
+			pWeights[i] = (uint8_t)sel;
+
+			sse += bc7_sse(pPixels[i][0], pPixels[i][1], pPixels[i][2],
+				lr[subset_index], lg[subset_index], lb[subset_index],
+				dr[subset_index], dg[subset_index], db[subset_index], basist::g_bc7_weights3[sel]);
+		}
+
+		return sse;
+	}
+
+	void eval_weights_mode2_rgb(const color_rgba* pPixels, uint8_t* pWeights, // 2-bits
+		uint32_t blr[3], uint32_t blg[3], uint32_t blb[3], uint32_t bhr[3], uint32_t bhg[3], uint32_t bhb[3],
+		uint32_t pat_index)
+	{
+		int lr[3], lg[3], lb[3], hr[3], hg[3], hb[3], dr[3], dg[3], db[3];
+
+		for (uint32_t s = 0; s < 3; s++)
+		{
+			lr[s] = from_5(blr[s]);
+			lg[s] = from_5(blg[s]);
+			lb[s] = from_5(blb[s]);
+
+			hr[s] = from_5(bhr[s]);
+			hg[s] = from_5(bhg[s]);
+			hb[s] = from_5(bhb[s]);
+
+			dr[s] = hr[s] - lr[s];
+			dg[s] = hg[s] - lg[s];
+			db[s] = hb[s] - lb[s];
+		}
+
+		const float f[3] =
+		{
+			3.0f / (float)(basisu::squarei(dr[0]) + basisu::squarei(dg[0]) + basisu::squarei(db[0]) + .00000125f),
+			3.0f / (float)(basisu::squarei(dr[1]) + basisu::squarei(dg[1]) + basisu::squarei(db[1]) + .00000125f),
+			3.0f / (float)(basisu::squarei(dr[2]) + basisu::squarei(dg[2]) + basisu::squarei(db[2]) + .00000125f)
+		};
+
+		const int sofs[3] = {
+			lr[0] * dr[0] + lg[0] * dg[0] + lb[0] * db[0],
+			lr[1] * dr[1] + lg[1] * dg[1] + lb[1] * db[1],
+			lr[2] * dr[2] + lg[2] * dg[2] + lb[2] * db[2] };
+
+		const uint8_t* pPart_map = &g_bc7_partition3[pat_index * 16];
+
+		for (uint32_t i = 0; i < 16; i++)
+		{
+			const uint32_t subset_index = pPart_map[i];
+
+			int sel = (int)((float)(
+				(int)pPixels[i][0] * dr[subset_index] + (int)pPixels[i][1] * dg[subset_index] + (int)pPixels[i][2] * db[subset_index] - sofs[subset_index]) * f[subset_index] + .5f);
+
+			if ((uint32_t)sel > 3)
+				sel = (~sel >> 31) & 3;
+
+			pWeights[i] = (uint8_t)sel;
+		}
+	}
+
+	uint32_t eval_weights_mode2_rgb_sse(const color_rgba* pPixels, uint8_t* pWeights, // 2-bits
+		uint32_t blr[3], uint32_t blg[3], uint32_t blb[3], uint32_t bhr[3], uint32_t bhg[3], uint32_t bhb[3],
+		uint32_t pat_index)
+	{
+		int lr[3], lg[3], lb[3], hr[3], hg[3], hb[3], dr[3], dg[3], db[3];
+
+		for (uint32_t s = 0; s < 3; s++)
+		{
+			lr[s] = from_5(blr[s]);
+			lg[s] = from_5(blg[s]);
+			lb[s] = from_5(blb[s]);
+
+			hr[s] = from_5(bhr[s]);
+			hg[s] = from_5(bhg[s]);
+			hb[s] = from_5(bhb[s]);
+
+			dr[s] = hr[s] - lr[s];
+			dg[s] = hg[s] - lg[s];
+			db[s] = hb[s] - lb[s];
+		}
+
+		const float f[3] =
+		{
+			3.0f / (float)(basisu::squarei(dr[0]) + basisu::squarei(dg[0]) + basisu::squarei(db[0]) + .00000125f),
+			3.0f / (float)(basisu::squarei(dr[1]) + basisu::squarei(dg[1]) + basisu::squarei(db[1]) + .00000125f),
+			3.0f / (float)(basisu::squarei(dr[2]) + basisu::squarei(dg[2]) + basisu::squarei(db[2]) + .00000125f)
+		};
+
+		const int sofs[3] = {
+			lr[0] * dr[0] + lg[0] * dg[0] + lb[0] * db[0],
+			lr[1] * dr[1] + lg[1] * dg[1] + lb[1] * db[1],
+			lr[2] * dr[2] + lg[2] * dg[2] + lb[2] * db[2] };
+
+		const uint8_t* pPart_map = &g_bc7_partition3[pat_index * 16];
+
+		uint32_t sse = 0;
+
+		for (uint32_t i = 0; i < 16; i++)
+		{
+			const uint32_t subset_index = pPart_map[i];
+
+			int sel = (int)((float)(
+				(int)pPixels[i][0] * dr[subset_index] + (int)pPixels[i][1] * dg[subset_index] + (int)pPixels[i][2] * db[subset_index] - sofs[subset_index]) * f[subset_index] + .5f);
+
+			if ((uint32_t)sel > 3)
+				sel = (~sel >> 31) & 3;
+
+			pWeights[i] = (uint8_t)sel;
+
+			sse += bc7_sse(pPixels[i][0], pPixels[i][1], pPixels[i][2],
+				lr[subset_index], lg[subset_index], lb[subset_index],
+				dr[subset_index], dg[subset_index], db[subset_index], basist::g_bc7_weights2[sel]);
+		}
+
+		return sse;
+	}
+
+	void eval_weights_mode4_3bit_rgb(const color_rgba* pPixels, uint8_t* pWeights0, // 3-bits
+		int lr, int lg, int lb,
+		int hr, int hg, int hb)
+	{
+		lr = from_5(lr); lg = from_5(lg); lb = from_5(lb);
+		hr = from_5(hr); hg = from_5(hg); hb = from_5(hb);
+
+		int dr = hr - lr;
+		int dg = hg - lg;
+		int db = hb - lb;
+
+		const float f = 7.0f / (float)(basisu::squarei(dr) + basisu::squarei(dg) + basisu::squarei(db) + .00000125f);
+
+		const int sofs = lr * dr + lg * dg + lb * db;
+
+		for (uint32_t i = 0; i < 16; i += 4)
+		{
+			int sel0 = (int)((float)((int)pPixels[i + 0][0] * dr + (int)pPixels[i + 0][1] * dg + (int)pPixels[i + 0][2] * db - sofs) * f + .5f);
+			int sel1 = (int)((float)((int)pPixels[i + 1][0] * dr + (int)pPixels[i + 1][1] * dg + (int)pPixels[i + 1][2] * db - sofs) * f + .5f);
+			int sel2 = (int)((float)((int)pPixels[i + 2][0] * dr + (int)pPixels[i + 2][1] * dg + (int)pPixels[i + 2][2] * db - sofs) * f + .5f);
+			int sel3 = (int)((float)((int)pPixels[i + 3][0] * dr + (int)pPixels[i + 3][1] * dg + (int)pPixels[i + 3][2] * db - sofs) * f + .5f);
+
+			if ((uint32_t)sel0 > 7) sel0 = (~sel0 >> 31) & 7;
+			if ((uint32_t)sel1 > 7) sel1 = (~sel1 >> 31) & 7;
+			if ((uint32_t)sel2 > 7) sel2 = (~sel2 >> 31) & 7;
+			if ((uint32_t)sel3 > 7) sel3 = (~sel3 >> 31) & 7;
+
+			pWeights0[i + 0] = (uint8_t)sel0;
+			pWeights0[i + 1] = (uint8_t)sel1;
+			pWeights0[i + 2] = (uint8_t)sel2;
+			pWeights0[i + 3] = (uint8_t)sel3;
+		}
+	}
+
+	uint32_t eval_weights_mode4_3bit_rgb_sse(const color_rgba* pPixels, uint8_t* pWeights0, // 3-bits
+		int lr, int lg, int lb,
+		int hr, int hg, int hb)
+	{
+		lr = from_5(lr); lg = from_5(lg); lb = from_5(lb);
+		hr = from_5(hr); hg = from_5(hg); hb = from_5(hb);
+
+		int dr = hr - lr;
+		int dg = hg - lg;
+		int db = hb - lb;
+
+		const float f = 7.0f / (float)(basisu::squarei(dr) + basisu::squarei(dg) + basisu::squarei(db) + .00000125f);
+
+		const int sofs = lr * dr + lg * dg + lb * db;
+
+		uint32_t sse = 0;
+
+		for (uint32_t i = 0; i < 16; i += 4)
+		{
+			int sel0 = (int)((float)((int)pPixels[i + 0][0] * dr + (int)pPixels[i + 0][1] * dg + (int)pPixels[i + 0][2] * db - sofs) * f + .5f);
+			int sel1 = (int)((float)((int)pPixels[i + 1][0] * dr + (int)pPixels[i + 1][1] * dg + (int)pPixels[i + 1][2] * db - sofs) * f + .5f);
+			int sel2 = (int)((float)((int)pPixels[i + 2][0] * dr + (int)pPixels[i + 2][1] * dg + (int)pPixels[i + 2][2] * db - sofs) * f + .5f);
+			int sel3 = (int)((float)((int)pPixels[i + 3][0] * dr + (int)pPixels[i + 3][1] * dg + (int)pPixels[i + 3][2] * db - sofs) * f + .5f);
+
+			if ((uint32_t)sel0 > 7) sel0 = (~sel0 >> 31) & 7;
+			if ((uint32_t)sel1 > 7) sel1 = (~sel1 >> 31) & 7;
+			if ((uint32_t)sel2 > 7) sel2 = (~sel2 >> 31) & 7;
+			if ((uint32_t)sel3 > 7) sel3 = (~sel3 >> 31) & 7;
+
+			pWeights0[i + 0] = (uint8_t)sel0;
+			pWeights0[i + 1] = (uint8_t)sel1;
+			pWeights0[i + 2] = (uint8_t)sel2;
+			pWeights0[i + 3] = (uint8_t)sel3;
+
+			sse += bc7_sse(pPixels[i + 0][0], pPixels[i + 0][1], pPixels[i + 0][2], lr, lg, lb, dr, dg, db, basist::g_bc7_weights3[sel0]);
+			sse += bc7_sse(pPixels[i + 1][0], pPixels[i + 1][1], pPixels[i + 1][2], lr, lg, lb, dr, dg, db, basist::g_bc7_weights3[sel1]);
+			sse += bc7_sse(pPixels[i + 2][0], pPixels[i + 2][1], pPixels[i + 2][2], lr, lg, lb, dr, dg, db, basist::g_bc7_weights3[sel2]);
+			sse += bc7_sse(pPixels[i + 3][0], pPixels[i + 3][1], pPixels[i + 3][2], lr, lg, lb, dr, dg, db, basist::g_bc7_weights3[sel3]);
+		}
+
+		return sse;
+	}
+
+	void eval_weights_mode4_2bit_rgb(const color_rgba* pPixels, uint8_t* pWeights0, // 2-bits
+		int lr, int lg, int lb,
+		int hr, int hg, int hb)
+	{
+		lr = from_5(lr); lg = from_5(lg); lb = from_5(lb);
+		hr = from_5(hr); hg = from_5(hg); hb = from_5(hb);
+
+		int dr = hr - lr;
+		int dg = hg - lg;
+		int db = hb - lb;
+
+		const float f = 3.0f / (float)(basisu::squarei(dr) + basisu::squarei(dg) + basisu::squarei(db) + .00000125f);
+
+		const int sofs = lr * dr + lg * dg + lb * db;
+
+		for (uint32_t i = 0; i < 16; i += 4)
+		{
+			int sel0 = (int)((float)((int)pPixels[i + 0][0] * dr + (int)pPixels[i + 0][1] * dg + (int)pPixels[i + 0][2] * db - sofs) * f + .5f);
+			int sel1 = (int)((float)((int)pPixels[i + 1][0] * dr + (int)pPixels[i + 1][1] * dg + (int)pPixels[i + 1][2] * db - sofs) * f + .5f);
+			int sel2 = (int)((float)((int)pPixels[i + 2][0] * dr + (int)pPixels[i + 2][1] * dg + (int)pPixels[i + 2][2] * db - sofs) * f + .5f);
+			int sel3 = (int)((float)((int)pPixels[i + 3][0] * dr + (int)pPixels[i + 3][1] * dg + (int)pPixels[i + 3][2] * db - sofs) * f + .5f);
+
+			if ((uint32_t)sel0 > 3) sel0 = (~sel0 >> 31) & 3;
+			if ((uint32_t)sel1 > 3) sel1 = (~sel1 >> 31) & 3;
+			if ((uint32_t)sel2 > 3) sel2 = (~sel2 >> 31) & 3;
+			if ((uint32_t)sel3 > 3) sel3 = (~sel3 >> 31) & 3;
+
+			pWeights0[i + 0] = (uint8_t)sel0;
+			pWeights0[i + 1] = (uint8_t)sel1;
+			pWeights0[i + 2] = (uint8_t)sel2;
+			pWeights0[i + 3] = (uint8_t)sel3;
+		}
+	}
+
+	uint32_t eval_weights_mode4_2bit_rgb_sse(const color_rgba* pPixels, uint8_t* pWeights0, // 2-bits
+		int lr, int lg, int lb,
+		int hr, int hg, int hb)
+	{
+		lr = from_5(lr); lg = from_5(lg); lb = from_5(lb);
+		hr = from_5(hr); hg = from_5(hg); hb = from_5(hb);
+
+		int dr = hr - lr;
+		int dg = hg - lg;
+		int db = hb - lb;
+
+		const float f = 3.0f / (float)(basisu::squarei(dr) + basisu::squarei(dg) + basisu::squarei(db) + .00000125f);
+
+		const int sofs = lr * dr + lg * dg + lb * db;
+
+		uint32_t sse = 0;
+
+		for (uint32_t i = 0; i < 16; i += 4)
+		{
+			int sel0 = (int)((float)((int)pPixels[i + 0][0] * dr + (int)pPixels[i + 0][1] * dg + (int)pPixels[i + 0][2] * db - sofs) * f + .5f);
+			int sel1 = (int)((float)((int)pPixels[i + 1][0] * dr + (int)pPixels[i + 1][1] * dg + (int)pPixels[i + 1][2] * db - sofs) * f + .5f);
+			int sel2 = (int)((float)((int)pPixels[i + 2][0] * dr + (int)pPixels[i + 2][1] * dg + (int)pPixels[i + 2][2] * db - sofs) * f + .5f);
+			int sel3 = (int)((float)((int)pPixels[i + 3][0] * dr + (int)pPixels[i + 3][1] * dg + (int)pPixels[i + 3][2] * db - sofs) * f + .5f);
+
+			if ((uint32_t)sel0 > 3) sel0 = (~sel0 >> 31) & 3;
+			if ((uint32_t)sel1 > 3) sel1 = (~sel1 >> 31) & 3;
+			if ((uint32_t)sel2 > 3) sel2 = (~sel2 >> 31) & 3;
+			if ((uint32_t)sel3 > 3) sel3 = (~sel3 >> 31) & 3;
+
+			pWeights0[i + 0] = (uint8_t)sel0;
+			pWeights0[i + 1] = (uint8_t)sel1;
+			pWeights0[i + 2] = (uint8_t)sel2;
+			pWeights0[i + 3] = (uint8_t)sel3;
+
+			sse += bc7_sse(pPixels[i + 0][0], pPixels[i + 0][1], pPixels[i + 0][2], lr, lg, lb, dr, dg, db, basist::g_bc7_weights2[sel0]);
+			sse += bc7_sse(pPixels[i + 1][0], pPixels[i + 1][1], pPixels[i + 1][2], lr, lg, lb, dr, dg, db, basist::g_bc7_weights2[sel1]);
+			sse += bc7_sse(pPixels[i + 2][0], pPixels[i + 2][1], pPixels[i + 2][2], lr, lg, lb, dr, dg, db, basist::g_bc7_weights2[sel2]);
+			sse += bc7_sse(pPixels[i + 3][0], pPixels[i + 3][1], pPixels[i + 3][2], lr, lg, lb, dr, dg, db, basist::g_bc7_weights2[sel3]);
+		}
+
+		return sse;
+	}
+
+	void eval_weights_mode4_2bit_a(const color_rgba* pPixels, uint8_t* pWeights1, // 2-bits
+		int la, int ha)
+	{
+		la = from_6(la);
+		ha = from_6(ha);
+
+		int da = ha - la;
+
+		const float f = 3.0f / (float)(da + .00000125f);
+
+		for (uint32_t i = 0; i < 16; i += 4)
+		{
+			int sel0 = (int)((float)(pPixels[i + 0][3] - la) * f + .5f);
+			int sel1 = (int)((float)(pPixels[i + 1][3] - la) * f + .5f);
+			int sel2 = (int)((float)(pPixels[i + 2][3] - la) * f + .5f);
+			int sel3 = (int)((float)(pPixels[i + 3][3] - la) * f + .5f);
+
+			if ((uint32_t)sel0 > 3) sel0 = (~sel0 >> 31) & 3;
+			if ((uint32_t)sel1 > 3) sel1 = (~sel1 >> 31) & 3;
+			if ((uint32_t)sel2 > 3) sel2 = (~sel2 >> 31) & 3;
+			if ((uint32_t)sel3 > 3) sel3 = (~sel3 >> 31) & 3;
+
+			pWeights1[i + 0] = (uint8_t)sel0;
+			pWeights1[i + 1] = (uint8_t)sel1;
+			pWeights1[i + 2] = (uint8_t)sel2;
+			pWeights1[i + 3] = (uint8_t)sel3;
+		}
+	}
+
+	uint32_t eval_weights_mode4_2bit_a_sse(const color_rgba* pPixels, uint8_t* pWeights1, // 2-bits
+		int la, int ha)
+	{
+		la = from_6(la);
+		ha = from_6(ha);
+
+		int da = ha - la;
+
+		const float f = 3.0f / (float)(da + .00000125f);
+
+		uint32_t sse = 0;
+
+		for (uint32_t i = 0; i < 16; i += 4)
+		{
+			int sel0 = (int)((float)(pPixels[i + 0][3] - la) * f + .5f);
+			int sel1 = (int)((float)(pPixels[i + 1][3] - la) * f + .5f);
+			int sel2 = (int)((float)(pPixels[i + 2][3] - la) * f + .5f);
+			int sel3 = (int)((float)(pPixels[i + 3][3] - la) * f + .5f);
+
+			if ((uint32_t)sel0 > 3) sel0 = (~sel0 >> 31) & 3;
+			if ((uint32_t)sel1 > 3) sel1 = (~sel1 >> 31) & 3;
+			if ((uint32_t)sel2 > 3) sel2 = (~sel2 >> 31) & 3;
+			if ((uint32_t)sel3 > 3) sel3 = (~sel3 >> 31) & 3;
+
+			pWeights1[i + 0] = (uint8_t)sel0;
+			pWeights1[i + 1] = (uint8_t)sel1;
+			pWeights1[i + 2] = (uint8_t)sel2;
+			pWeights1[i + 3] = (uint8_t)sel3;
+
+			sse += bc7_sse(pPixels[i + 0][3], la, da, basist::g_bc7_weights2[sel0]);
+			sse += bc7_sse(pPixels[i + 1][3], la, da, basist::g_bc7_weights2[sel1]);
+			sse += bc7_sse(pPixels[i + 2][3], la, da, basist::g_bc7_weights2[sel2]);
+			sse += bc7_sse(pPixels[i + 3][3], la, da, basist::g_bc7_weights2[sel3]);
+		}
+
+		return sse;
+	}
+
+	void eval_weights_mode4_3bit_a(const color_rgba* pPixels, uint8_t* pWeights1, // 3-bits
+		int la, int ha)
+	{
+		la = from_6(la);
+		ha = from_6(ha);
+
+		int da = ha - la;
+
+		const float f = 7.0f / (float)(da + .00000125f);
+
+		for (uint32_t i = 0; i < 16; i += 4)
+		{
+			int sel0 = (int)((float)(pPixels[i + 0][3] - la) * f + .5f);
+			int sel1 = (int)((float)(pPixels[i + 1][3] - la) * f + .5f);
+			int sel2 = (int)((float)(pPixels[i + 2][3] - la) * f + .5f);
+			int sel3 = (int)((float)(pPixels[i + 3][3] - la) * f + .5f);
+
+			if ((uint32_t)sel0 > 7) sel0 = (~sel0 >> 31) & 7;
+			if ((uint32_t)sel1 > 7) sel1 = (~sel1 >> 31) & 7;
+			if ((uint32_t)sel2 > 7) sel2 = (~sel2 >> 31) & 7;
+			if ((uint32_t)sel3 > 7) sel3 = (~sel3 >> 31) & 7;
+
+			pWeights1[i + 0] = (uint8_t)sel0;
+			pWeights1[i + 1] = (uint8_t)sel1;
+			pWeights1[i + 2] = (uint8_t)sel2;
+			pWeights1[i + 3] = (uint8_t)sel3;
+		}
+	}
+
+	uint32_t eval_weights_mode4_3bit_a_sse(const color_rgba* pPixels, uint8_t* pWeights1, // 3-bits
+		int la, int ha)
+	{
+		la = from_6(la);
+		ha = from_6(ha);
+
+		int da = ha - la;
+
+		const float f = 7.0f / (float)(da + .00000125f);
+
+		uint32_t sse = 0;
+
+		for (uint32_t i = 0; i < 16; i += 4)
+		{
+			int sel0 = (int)((float)(pPixels[i + 0][3] - la) * f + .5f);
+			int sel1 = (int)((float)(pPixels[i + 1][3] - la) * f + .5f);
+			int sel2 = (int)((float)(pPixels[i + 2][3] - la) * f + .5f);
+			int sel3 = (int)((float)(pPixels[i + 3][3] - la) * f + .5f);
+
+			if ((uint32_t)sel0 > 7) sel0 = (~sel0 >> 31) & 7;
+			if ((uint32_t)sel1 > 7) sel1 = (~sel1 >> 31) & 7;
+			if ((uint32_t)sel2 > 7) sel2 = (~sel2 >> 31) & 7;
+			if ((uint32_t)sel3 > 7) sel3 = (~sel3 >> 31) & 7;
+
+			pWeights1[i + 0] = (uint8_t)sel0;
+			pWeights1[i + 1] = (uint8_t)sel1;
+			pWeights1[i + 2] = (uint8_t)sel2;
+			pWeights1[i + 3] = (uint8_t)sel3;
+
+			sse += bc7_sse(pPixels[i + 0][3], la, da, basist::g_bc7_weights3[sel0]);
+			sse += bc7_sse(pPixels[i + 1][3], la, da, basist::g_bc7_weights3[sel1]);
+			sse += bc7_sse(pPixels[i + 2][3], la, da, basist::g_bc7_weights3[sel2]);
+			sse += bc7_sse(pPixels[i + 3][3], la, da, basist::g_bc7_weights3[sel3]);
+		}
+
+		return sse;
+	}
+
+	void eval_weights_mode5_2bit_rgb(const color_rgba* pPixels, uint8_t* pWeights0, // 2-bits
+		int lr, int lg, int lb,
+		int hr, int hg, int hb)
+	{
+		lr = from_7(lr); lg = from_7(lg); lb = from_7(lb);
+		hr = from_7(hr); hg = from_7(hg); hb = from_7(hb);
+
+		int dr = hr - lr;
+		int dg = hg - lg;
+		int db = hb - lb;
+
+		const float f = 3.0f / (float)(basisu::squarei(dr) + basisu::squarei(dg) + basisu::squarei(db) + .00000125f);
+
+		const int sofs = lr * dr + lg * dg + lb * db;
+
+		for (uint32_t i = 0; i < 16; i += 4)
+		{
+			int sel0 = (int)((float)((int)pPixels[i + 0][0] * dr + (int)pPixels[i + 0][1] * dg + (int)pPixels[i + 0][2] * db - sofs) * f + .5f);
+			int sel1 = (int)((float)((int)pPixels[i + 1][0] * dr + (int)pPixels[i + 1][1] * dg + (int)pPixels[i + 1][2] * db - sofs) * f + .5f);
+			int sel2 = (int)((float)((int)pPixels[i + 2][0] * dr + (int)pPixels[i + 2][1] * dg + (int)pPixels[i + 2][2] * db - sofs) * f + .5f);
+			int sel3 = (int)((float)((int)pPixels[i + 3][0] * dr + (int)pPixels[i + 3][1] * dg + (int)pPixels[i + 3][2] * db - sofs) * f + .5f);
+
+			if ((uint32_t)sel0 > 3) sel0 = (~sel0 >> 31) & 3;
+			if ((uint32_t)sel1 > 3) sel1 = (~sel1 >> 31) & 3;
+			if ((uint32_t)sel2 > 3) sel2 = (~sel2 >> 31) & 3;
+			if ((uint32_t)sel3 > 3) sel3 = (~sel3 >> 31) & 3;
+
+			pWeights0[i + 0] = (uint8_t)sel0;
+			pWeights0[i + 1] = (uint8_t)sel1;
+			pWeights0[i + 2] = (uint8_t)sel2;
+			pWeights0[i + 3] = (uint8_t)sel3;
+		}
+	}
+
+	uint32_t eval_weights_mode5_2bit_rgb_sse(const color_rgba* pPixels, uint8_t* pWeights0, // 2-bits
+		int lr, int lg, int lb,
+		int hr, int hg, int hb)
+	{
+		lr = from_7(lr); lg = from_7(lg); lb = from_7(lb);
+		hr = from_7(hr); hg = from_7(hg); hb = from_7(hb);
+
+		int dr = hr - lr;
+		int dg = hg - lg;
+		int db = hb - lb;
+
+		const float f = 3.0f / (float)(basisu::squarei(dr) + basisu::squarei(dg) + basisu::squarei(db) + .00000125f);
+
+		const int sofs = lr * dr + lg * dg + lb * db;
+
+		uint32_t sse = 0;
+
+		for (uint32_t i = 0; i < 16; i += 4)
+		{
+			int sel0 = (int)((float)((int)pPixels[i + 0][0] * dr + (int)pPixels[i + 0][1] * dg + (int)pPixels[i + 0][2] * db - sofs) * f + .5f);
+			int sel1 = (int)((float)((int)pPixels[i + 1][0] * dr + (int)pPixels[i + 1][1] * dg + (int)pPixels[i + 1][2] * db - sofs) * f + .5f);
+			int sel2 = (int)((float)((int)pPixels[i + 2][0] * dr + (int)pPixels[i + 2][1] * dg + (int)pPixels[i + 2][2] * db - sofs) * f + .5f);
+			int sel3 = (int)((float)((int)pPixels[i + 3][0] * dr + (int)pPixels[i + 3][1] * dg + (int)pPixels[i + 3][2] * db - sofs) * f + .5f);
+
+			if ((uint32_t)sel0 > 3) sel0 = (~sel0 >> 31) & 3;
+			if ((uint32_t)sel1 > 3) sel1 = (~sel1 >> 31) & 3;
+			if ((uint32_t)sel2 > 3) sel2 = (~sel2 >> 31) & 3;
+			if ((uint32_t)sel3 > 3) sel3 = (~sel3 >> 31) & 3;
+
+			pWeights0[i + 0] = (uint8_t)sel0;
+			pWeights0[i + 1] = (uint8_t)sel1;
+			pWeights0[i + 2] = (uint8_t)sel2;
+			pWeights0[i + 3] = (uint8_t)sel3;
+
+			sse += bc7_sse(pPixels[i + 0][0], pPixels[i + 0][1], pPixels[i + 0][2], lr, lg, lb, dr, dg, db, basist::g_bc7_weights2[sel0]);
+			sse += bc7_sse(pPixels[i + 1][0], pPixels[i + 1][1], pPixels[i + 1][2], lr, lg, lb, dr, dg, db, basist::g_bc7_weights2[sel1]);
+			sse += bc7_sse(pPixels[i + 2][0], pPixels[i + 2][1], pPixels[i + 2][2], lr, lg, lb, dr, dg, db, basist::g_bc7_weights2[sel2]);
+			sse += bc7_sse(pPixels[i + 3][0], pPixels[i + 3][1], pPixels[i + 3][2], lr, lg, lb, dr, dg, db, basist::g_bc7_weights2[sel3]);
+		}
+
+		return sse;
+	}
+
+	void eval_weights_mode5_2bit_a(const color_rgba* pPixels, uint8_t* pWeights1, // 2-bits
+		int la, int ha)
+	{
+		int da = ha - la;
+
+		const float f = 3.0f / (float)(da + .00000125f);
+
+		for (uint32_t i = 0; i < 16; i += 4)
+		{
+			int sel0 = (int)((float)(pPixels[i + 0][3] - la) * f + .5f);
+			int sel1 = (int)((float)(pPixels[i + 1][3] - la) * f + .5f);
+			int sel2 = (int)((float)(pPixels[i + 2][3] - la) * f + .5f);
+			int sel3 = (int)((float)(pPixels[i + 3][3] - la) * f + .5f);
+
+			if ((uint32_t)sel0 > 3) sel0 = (~sel0 >> 31) & 3;
+			if ((uint32_t)sel1 > 3) sel1 = (~sel1 >> 31) & 3;
+			if ((uint32_t)sel2 > 3) sel2 = (~sel2 >> 31) & 3;
+			if ((uint32_t)sel3 > 3) sel3 = (~sel3 >> 31) & 3;
+
+			pWeights1[i + 0] = (uint8_t)sel0;
+			pWeights1[i + 1] = (uint8_t)sel1;
+			pWeights1[i + 2] = (uint8_t)sel2;
+			pWeights1[i + 3] = (uint8_t)sel3;
+		}
+	}
+
+	uint32_t eval_weights_mode5_2bit_a_sse(const color_rgba* pPixels, uint8_t* pWeights1, // 2-bits
+		int la, int ha)
+	{
+		int da = ha - la;
+
+		const float f = 3.0f / (float)(da + .00000125f);
+
+		uint32_t sse = 0;
+
+		for (uint32_t i = 0; i < 16; i += 4)
+		{
+			int sel0 = (int)((float)(pPixels[i + 0][3] - la) * f + .5f);
+			int sel1 = (int)((float)(pPixels[i + 1][3] - la) * f + .5f);
+			int sel2 = (int)((float)(pPixels[i + 2][3] - la) * f + .5f);
+			int sel3 = (int)((float)(pPixels[i + 3][3] - la) * f + .5f);
+
+			if ((uint32_t)sel0 > 3) sel0 = (~sel0 >> 31) & 3;
+			if ((uint32_t)sel1 > 3) sel1 = (~sel1 >> 31) & 3;
+			if ((uint32_t)sel2 > 3) sel2 = (~sel2 >> 31) & 3;
+			if ((uint32_t)sel3 > 3) sel3 = (~sel3 >> 31) & 3;
+
+			pWeights1[i + 0] = (uint8_t)sel0;
+			pWeights1[i + 1] = (uint8_t)sel1;
+			pWeights1[i + 2] = (uint8_t)sel2;
+			pWeights1[i + 3] = (uint8_t)sel3;
+
+			sse += bc7_sse(pPixels[i + 0][3], la, da, basist::g_bc7_weights2[sel0]);
+			sse += bc7_sse(pPixels[i + 1][3], la, da, basist::g_bc7_weights2[sel1]);
+			sse += bc7_sse(pPixels[i + 2][3], la, da, basist::g_bc7_weights2[sel2]);
+			sse += bc7_sse(pPixels[i + 3][3], la, da, basist::g_bc7_weights2[sel3]);
+		}
+
+		return sse;
+	}
+
+	// Determines the best unique pbits to use to encode xl/xh, which are [0,1]
+	static void determine_unique_pbits(
+		uint32_t total_comps, uint32_t comp_bits, float xl[4], float xh[4],
+		color_rgba& bestMinColor, color_rgba& bestMaxColor, uint32_t best_pbits[2])
+	{
+#ifdef _DEBUG
+		for (uint32_t c = 0; c < total_comps; c++)
+		{
+			assert((xl[c] >= 0.0f) && (xl[c] <= 1.0f));
+			assert((xh[c] >= 0.0f) && (xh[c] <= 1.0f));
+		}
+#endif
+
+		const uint32_t total_bits = comp_bits + 1;
+		const int iscalep = (1 << total_bits) - 1;
+		const float scalep = (float)iscalep;
+
+		float best_err0 = 1e+9f;
+		float best_err1 = 1e+9f;
+
+		for (int p = 0; p < 2; p++)
+		{
+			color_rgba xMinColor, xMaxColor;
+
+			for (uint32_t c = 0; c < 4; c++)
+			{
+				xMinColor[c] = (uint8_t)(clampi(((int)((xl[c] * scalep - p) * (1.0f / 2.0f) + .5f)) * 2 + p, p, iscalep - 1 + p));
+				xMaxColor[c] = (uint8_t)(clampi(((int)((xh[c] * scalep - p) * (1.0f / 2.0f) + .5f)) * 2 + p, p, iscalep - 1 + p));
+			}
+
+			color_rgba scaledLow, scaledHigh;
+			for (uint32_t i = 0; i < 4; i++)
+			{
+				scaledLow[i] = (xMinColor[i] << (8 - total_bits));
+				scaledLow[i] |= (scaledLow[i] >> total_bits);
+				assert(scaledLow[i] <= 255);
+
+				scaledHigh[i] = (xMaxColor[i] << (8 - total_bits));
+				scaledHigh[i] |= (scaledHigh[i] >> total_bits);
+				assert(scaledHigh[i] <= 255);
+			}
+
+			float err0 = 0, err1 = 0;
+			for (uint32_t i = 0; i < total_comps; i++)
+			{
+				err0 += basisu::squaref(scaledLow[i] - xl[i] * 255.0f);
+				err1 += basisu::squaref(scaledHigh[i] - xh[i] * 255.0f);
+			}
+
+			if (err0 < best_err0)
+			{
+				best_err0 = err0;
+				best_pbits[0] = p;
+
+				bestMinColor[0] = xMinColor[0] >> 1;
+				bestMinColor[1] = xMinColor[1] >> 1;
+				bestMinColor[2] = xMinColor[2] >> 1;
+				bestMinColor[3] = xMinColor[3] >> 1;
+			}
+
+			if (err1 < best_err1)
+			{
+				best_err1 = err1;
+				best_pbits[1] = p;
+
+				bestMaxColor[0] = xMaxColor[0] >> 1;
+				bestMaxColor[1] = xMaxColor[1] >> 1;
+				bestMaxColor[2] = xMaxColor[2] >> 1;
+				bestMaxColor[3] = xMaxColor[3] >> 1;
+			}
+		}
+	}
+
+	// Determines the best shared pbits to use to encode xl/xh, which are [0,1]
+	static void determine_shared_pbits(
+		uint32_t total_comps, uint32_t comp_bits, float xl[4], float xh[4],
+		color_rgba& bestMinColor, color_rgba& bestMaxColor, uint32_t best_pbits[2])
+	{
+#ifdef _DEBUG
+		for (uint32_t c = 0; c < total_comps; c++)
+		{
+			assert((xl[c] >= 0.0f) && (xl[c] <= 1.0f));
+			assert((xh[c] >= 0.0f) && (xh[c] <= 1.0f));
+		}
+#endif
+
+		const uint32_t total_bits = comp_bits + 1;
+		assert((total_bits >= 4) && (total_bits <= 8));
+
+		const int iscalep = (1 << total_bits) - 1;
+		const float scalep = (float)iscalep;
+
+		float best_err = 1e+9f;
+
+		for (int p = 0; p < 2; p++)
+		{
+			color_rgba xMinColor, xMaxColor;
+			for (uint32_t c = 0; c < 4; c++)
+			{
+				xMinColor[c] = (uint8_t)(clampi(((int)((xl[c] * scalep - p) * (1.0f / 2.0f) + .5f)) * 2 + p, p, iscalep - 1 + p));
+				xMaxColor[c] = (uint8_t)(clampi(((int)((xh[c] * scalep - p) * (1.0f / 2.0f) + .5f)) * 2 + p, p, iscalep - 1 + p));
+			}
+
+			color_rgba scaledLow, scaledHigh;
+
+			for (uint32_t i = 0; i < 4; i++)
+			{
+				scaledLow[i] = (xMinColor[i] << (8 - total_bits));
+				scaledLow[i] |= (scaledLow[i] >> total_bits);
+				assert(scaledLow[i] <= 255);
+
+				scaledHigh[i] = (xMaxColor[i] << (8 - total_bits));
+				scaledHigh[i] |= (scaledHigh[i] >> total_bits);
+				assert(scaledHigh[i] <= 255);
+			}
+
+			float err = 0;
+			for (uint32_t i = 0; i < total_comps; i++)
+				err += basisu::squaref((scaledLow[i] * (1.0f / 255.0f)) - xl[i]) + basisu::squaref((scaledHigh[i] * (1.0f / 255.0f)) - xh[i]);
+
+			if (err < best_err)
+			{
+				best_err = err;
+				best_pbits[0] = p;
+				best_pbits[1] = p;
+				for (uint32_t j = 0; j < 4; j++)
+				{
+					bestMinColor[j] = xMinColor[j] >> 1;
+					bestMaxColor[j] = xMaxColor[j] >> 1;
+				}
+			}
+		}
+	}
+
+	// 4x4 ASTC blocks only, no dp, no subsets, outputs mode 6
+	static void pack_from_astc_4x4_single_subset(uint8_t* pDst_block_u8, const astc_helpers::log_astc_block& log_blk)
+	{
+		assert(!log_blk.m_dual_plane && (log_blk.m_num_partitions == 1));
+		assert((log_blk.m_grid_width <= 4) && (log_blk.m_grid_height <= 4));
+
+		color_rgba l, h;
+		astc_ldr_t::decode_endpoints(log_blk.m_color_endpoint_modes[0], log_blk.m_endpoints, log_blk.m_endpoint_ise_range, l, h);
+
+		uint8_t dequantized_weights[16];
+		uint8_t upsampled_weights[16];
+
+		const uint32_t total_weight_vals = log_blk.m_grid_width * log_blk.m_grid_height;
+
+		const astc_helpers::dequant_table& weight_dequant_tab = astc_helpers::g_dequant_tables.get_weight_tab(log_blk.m_weight_ise_range);
+		const uint8_t* pWeight_dequant = weight_dequant_tab.m_ISE_to_val.data();
+
+		for (uint32_t i = 0; i < total_weight_vals; i++)
+		{
+			assert(log_blk.m_weights[i] < weight_dequant_tab.m_ISE_to_val.size_u32());
+			
+			dequantized_weights[i] = pWeight_dequant[log_blk.m_weights[i]];
+		}
+
+		const uint8_t* pUpsampled_weights = dequantized_weights;
+		if ((log_blk.m_grid_width < 4) || (log_blk.m_grid_height < 4))
+		{
+			astc_helpers::upsample_weight_grid_xuastc_ldr(4, 4, log_blk.m_grid_width, log_blk.m_grid_height, dequantized_weights, upsampled_weights, nullptr, nullptr);
+			pUpsampled_weights = upsampled_weights;
+		}
+
+		const float q = 1.0f / 255.0f;
+		float sxl[4] = { (float)l.r * q, (float)l.g * q, (float)l.b * q, (float)l.a * q };
+		float sxh[4] = { (float)h.r * q, (float)h.g * q, (float)h.b * q, (float)h.a * q };
+
+		color_rgba bestMinColor, bestMaxColor;
+		uint32_t best_pbits[2];
+		determine_unique_pbits(4, 7, sxl, sxh, bestMinColor, bestMaxColor, best_pbits);
+
+		uint8_t bc7_weights[16];
+		// TODO: Potentially improve this mapping using a lookup table
+		for (uint32_t i = 0; i < 16; i++)
+			bc7_weights[i] = (uint8_t)((pUpsampled_weights[i] * 15 + 32) >> 6);
+
+		encode_mode6_rgba_block(pDst_block_u8,
+			bestMinColor.r, bestMinColor.g, bestMinColor.b, bestMinColor.a, best_pbits[0],
+			bestMaxColor.r, bestMaxColor.g, bestMaxColor.b, bestMaxColor.a, best_pbits[1],
+			bc7_weights);
+	}
+
+	// Outputs mode 6
+	static void pack_from_astc_single_subset(
+		uint8_t* pDst_block_u8, 
+		const astc_helpers::log_astc_block& log_blk, 
+		const uint8_t *pUpsampled_weights, 
+		uint32_t weight_ofs_x, uint32_t weight_ofs_y,
+		uint32_t block_width, uint32_t block_height)
+	{
+		BASISU_NOTE_UNUSED(block_width);
+		BASISU_NOTE_UNUSED(block_height);
+
+		assert(!log_blk.m_dual_plane && (log_blk.m_num_partitions == 1));
+		assert((log_blk.m_grid_width <= block_width) && (log_blk.m_grid_height <= block_height));
+		assert((weight_ofs_x + 3) < block_width);
+		assert((weight_ofs_y + 3) < block_height);
+
+		color_rgba l, h;
+		astc_ldr_t::decode_endpoints(log_blk.m_color_endpoint_modes[0], log_blk.m_endpoints, log_blk.m_endpoint_ise_range, l, h);
+
+		const float q = 1.0f / 255.0f;
+		float sxl[4] = { (float)l.r * q, (float)l.g * q, (float)l.b * q, (float)l.a * q };
+		float sxh[4] = { (float)h.r * q, (float)h.g * q, (float)h.b * q, (float)h.a * q };
+
+		color_rgba bestMinColor, bestMaxColor;
+		uint32_t best_pbits[2];
+		determine_unique_pbits(4, 7, sxl, sxh, bestMinColor, bestMaxColor, best_pbits);
+
+		uint8_t bc7_weights[16];
+		
+		// TODO: Potentially improve this mapping using a lookup table
+		for (uint32_t y = 0; y < 4; y++)
+		{
+			for (uint32_t x = 0; x < 4; x++)
+			{
+				uint32_t w = pUpsampled_weights[(weight_ofs_x + x) + (weight_ofs_y + y) * block_width];
+				assert(w <= 64);
+
+				bc7_weights[x + y * 4] = (uint8_t)((w * 15 + 32) >> 6);
+			} // x
+		} // y
+
+		encode_mode6_rgba_block(pDst_block_u8,
+			bestMinColor.r, bestMinColor.g, bestMinColor.b, bestMinColor.a, best_pbits[0],
+			bestMaxColor.r, bestMaxColor.g, bestMaxColor.b, bestMaxColor.a, best_pbits[1],
+			bc7_weights);
+	}
+
+	// same or super close endpoints, 8x6 or 6x6 only
+	void pack_from_astc_to_single_subset_same_endpoints(
+		uint8_t* pDst_block_u8,
+		const astc_helpers::log_astc_block& b0, const uint8_t* pUpsampled_weights0,
+		const astc_helpers::log_astc_block& b1, const uint8_t* pUpsampled_weights1,
+		int dx, int dy,
+		uint32_t block_width, uint32_t block_height)
+	{
+		assert(!b0.m_dual_plane && (b0.m_num_partitions == 1));
+		assert((b0.m_grid_width <= block_width) && (b0.m_grid_height <= block_height));
+		assert(!b0.m_solid_color_flag_ldr);
+
+		assert(!b1.m_dual_plane && (b1.m_num_partitions == 1));
+		assert((b1.m_grid_width <= block_width) && (b1.m_grid_height <= block_height));
+		assert(!b1.m_solid_color_flag_ldr);
+
+		const bool is_6x6 = ((block_width == 6) && (block_height == 6));
+		
+		// Only handles particular BC7 blocks in the 3x3 or 2x3 region.
+		if (is_6x6)
+		{
+			// 6x6
+			assert(
+				(!dx && (dy == 1)) || ((dx == 2) && (dy == 1)) ||
+				((dx == 1) && !dy) || ((dx == 1) && (dy == 2))
+			);
+		}
+		else
+		{
+			// 8x6
+			assert((block_width == 8) && (block_height == 6));
+			assert((dx >= 0) && (dx <= 1));
+			assert((dy >= 0) && (dy <= 2));
+		}
+
+		color_rgba l, h;
+		astc_ldr_t::decode_endpoints(b0.m_color_endpoint_modes[0], b0.m_endpoints, b0.m_endpoint_ise_range, l, h);
+
+		color_rgba al, ah;
+		astc_ldr_t::decode_endpoints(b1.m_color_endpoint_modes[0], b1.m_endpoints, b1.m_endpoint_ise_range, al, ah);
+		
+		for (uint32_t c = 0; c < 4; c++)
+		{
+			l[c] = (l[c] + al[c] + 1) >> 1;
+			h[c] = (h[c] + ah[c] + 1) >> 1;
+		}
+
+		const float q = 1.0f / 255.0f;
+		float sxl[4] = { (float)l.r * q, (float)l.g * q, (float)l.b * q, (float)l.a * q };
+		float sxh[4] = { (float)h.r * q, (float)h.g * q, (float)h.b * q, (float)h.a * q };
+
+		color_rgba bestMinColor, bestMaxColor;
+		uint32_t best_pbits[2];
+		determine_unique_pbits(4, 7, sxl, sxh, bestMinColor, bestMaxColor, best_pbits);
+
+		bool top_or_bottom = false;
+		
+		if (is_6x6)
+			top_or_bottom = (dy == 0) || (dy == 2);
+				
+		uint8_t bc7_weights[16];
+
+		// TODO: Potentially improve this mapping using a lookup table
+		for (uint32_t y = 0; y < 4; y++)
+		{
+			for (uint32_t x = 0; x < 4; x++)
+			{
+				uint32_t w;
+
+				if (is_6x6)
+				{
+					if (top_or_bottom)
+					{
+						if (x < 2)
+							w = pUpsampled_weights0[basisu::open_range_check<int>((x + 4) + (y + ((dy == 2) ? 2 : 0)) * 6, 0, 36)];
+						else
+							w = pUpsampled_weights1[basisu::open_range_check<int>((x - 2) + (y + ((dy == 2) ? 2 : 0)) * 6, 0, 36)];
+					}
+					else
+					{
+						if (y < 2)
+							w = pUpsampled_weights0[basisu::open_range_check<int>((x + ((dx == 2) ? 2 : 0)) + (y + 4) * 6, 0, 36)];
+						else
+							w = pUpsampled_weights1[basisu::open_range_check<int>((x + ((dx == 2) ? 2 : 0)) + (y - 2) * 6, 0, 36)];
+					}
+				}
+				else
+				{
+					// 8x6
+					if (y < 2)
+						w = pUpsampled_weights0[basisu::open_range_check<int>((dx * 4 + x) + (y + 4) * 8, 0, 48)];
+					else
+						w = pUpsampled_weights1[basisu::open_range_check<int>((dx * 4 + x) + (y - 2) * 8, 0, 48)];
+				}
+
+				assert(w <= 64);
+
+				bc7_weights[x + y * 4] = (uint8_t)((w * 15 + 32) >> 6);
+			} // x
+		} // y
+
+		encode_mode6_rgba_block(pDst_block_u8,
+			bestMinColor.r, bestMinColor.g, bestMinColor.b, bestMinColor.a, best_pbits[0],
+			bestMaxColor.r, bestMaxColor.g, bestMaxColor.b, bestMaxColor.a, best_pbits[1],
+			bc7_weights);
+	}
+
+	bool pack_from_astc_6x6_to_two_subsets_different_endpoints(
+		uint8_t *pDst_block_u8,
+		const astc_helpers::log_astc_block& b0, const uint8_t* pUpsampled_weights0,
+		const astc_helpers::log_astc_block& b1, const uint8_t* pUpsampled_weights1,
+		int dx, int dy)
+	{
+		const bool b0_solid = b0.m_solid_color_flag_ldr;
+		const bool b1_solid = b1.m_solid_color_flag_ldr;
+
+		assert(b0_solid || (!b0.m_dual_plane && (b0.m_num_partitions == 1)));
+		assert((b0.m_grid_width <= 6) && (b0.m_grid_height <= 6));
+		
+		assert(b1_solid || (!b1.m_dual_plane && (b1.m_num_partitions == 1)));
+		assert((b1.m_grid_width <= 6) && (b1.m_grid_height <= 6));
+		
+		// Only handles particular BC7 blocks in the 3x3 region.
+		assert(
+			(!dx && (dy == 1)) || ((dx == 2) && (dy == 1)) ||
+			((dx == 1) && !dy) || ((dx == 1) && (dy == 2))
+		);
+				
+		color_rgba l[2], h[2];
+		if (b0_solid)
+		{
+			l[0][0] = h[0][0] = (uint8_t)(b0.m_solid_color[0] >> 8);
+			l[0][1] = h[0][1] = (uint8_t)(b0.m_solid_color[1] >> 8);
+			l[0][2] = h[0][2] = (uint8_t)(b0.m_solid_color[2] >> 8);
+			l[0][3] = h[0][3] = (uint8_t)(b0.m_solid_color[3] >> 8);
+		}
+		else
+		{
+			astc_ldr_t::decode_endpoints(b0.m_color_endpoint_modes[0], b0.m_endpoints, b0.m_endpoint_ise_range, l[0], h[0]);
+		}
+
+		if (b1_solid)
+		{
+			l[1][0] = h[1][0] = (uint8_t)(b1.m_solid_color[0] >> 8);
+			l[1][1] = h[1][1] = (uint8_t)(b1.m_solid_color[1] >> 8);
+			l[1][2] = h[1][2] = (uint8_t)(b1.m_solid_color[2] >> 8);
+			l[1][3] = h[1][3] = (uint8_t)(b1.m_solid_color[3] >> 8);
+		}
+		else
+		{
+			astc_ldr_t::decode_endpoints(b1.m_color_endpoint_modes[0], b1.m_endpoints, b1.m_endpoint_ise_range, l[1], h[1]);
+		}
+
+		float sxl[2][4], sxh[2][4];
+		for (uint32_t i = 0; i < 2; i++)
+		{
+			for (uint32_t j = 0; j < 4; j++)
+			{
+				const float q = 1.0f / 255.0f;
+
+				sxl[i][j] = l[i][j] * q;
+				sxh[i][j] = h[i][j] * q;
+			} // j
+		} // i
+
+		color_rgba bestMinColor[2], bestMaxColor[2];
+		
+		uint32_t best_p0[2];
+		determine_shared_pbits(3, 6, sxl[0], &sxh[0][0], bestMinColor[0], bestMaxColor[0], best_p0);
+		
+		uint32_t best_p1[2];
+		determine_shared_pbits(3, 6, sxl[1], &sxh[1][0], bestMinColor[1], bestMaxColor[1], best_p1);
+
+		const bool top_or_bottom = (dy == 0) || (dy == 2);
+
+		uint8_t bc7_weights[16];
+
+		uint32_t part_id = 0;
+		if ((dx == 0) || (dx == 2))
+			part_id = 13;
+
+#if 0
+		const uint8_t* pPart_map = &g_bc7_partition2[part_id * 16];
+		uint32_t min_qw[2] = { 256, 256 }, max_qw[2] = { 0, 0 };
+#endif
+				
+		// TODO: Potentially improve this mapping using a lookup table
+		for (uint32_t y = 0; y < 4; y++)
+		{
+			for (uint32_t x = 0; x < 4; x++)
+			{
+				uint32_t w;
+
+				if (top_or_bottom)
+				{
+					if (x < 2)
+						w = b0_solid ? 0 : pUpsampled_weights0[basisu::open_range_check<int>((x + 4) + (y + ((dy == 2) ? 2 : 0)) * 6, 0, 36)];
+					else
+						w = b1_solid ? 0 : pUpsampled_weights1[basisu::open_range_check<int>((x - 2) + (y + ((dy == 2) ? 2 : 0)) * 6, 0, 36)];
+				}
+				else
+				{
+					if (y < 2)
+						w = b0_solid ? 0 : pUpsampled_weights0[basisu::open_range_check<int>((x + ((dx == 2) ? 2 : 0)) + (y + 4) * 6, 0, 36)];
+					else
+						w = b1_solid ? 0 : pUpsampled_weights1[basisu::open_range_check<int>((x + ((dx == 2) ? 2 : 0)) + (y - 2) * 6, 0, 36)];
+				}
+
+				assert(w <= 64);
+
+				uint32_t qw = ((w * 7 + 32) >> 6);
+
+#if 0
+				const uint8_t s = pPart_map[x + y * 4];
+				min_qw[s] = basisu::minimum(min_qw[s], qw);
+				max_qw[s] = basisu::maximum(max_qw[s], qw);
+#endif
+
+				bc7_weights[x + y * 4] = (uint8_t)qw;
+			} // x
+		} // y
+				
+#if 0
+		const uint32_t w_range_0 = max_qw[0] - min_qw[0];
+		const uint32_t w_range_1 = max_qw[1] - min_qw[1];
+		const uint32_t W_RANGE_THRESH = 2;
+		if ((w_range_0 <= W_RANGE_THRESH) || (w_range_1 <= W_RANGE_THRESH))
+			return false;
+#endif
+		
+		uint32_t lr[2] = { bestMinColor[0][0], bestMinColor[1][0] };
+		uint32_t lg[2] = { bestMinColor[0][1], bestMinColor[1][1] };
+		uint32_t lb[2] = { bestMinColor[0][2], bestMinColor[1][2] };
+		
+		uint32_t hr[2] = { bestMaxColor[0][0], bestMaxColor[1][0] };
+		uint32_t hg[2] = { bestMaxColor[0][1], bestMaxColor[1][1] };
+		uint32_t hb[2] = { bestMaxColor[0][2], bestMaxColor[1][2] };
+
+		encode_mode1_rgb_block(pDst_block_u8, part_id,
+			lr, lg, lb,
+			hr, hg, hb,
+			best_p0[0], best_p1[0],
+			bc7_weights);
+
+		return true;
+	}
+
+	bool pack_from_astc_8x6_to_two_subsets_different_endpoints(
+		uint8_t* pDst_block_u8,
+		const astc_helpers::log_astc_block& b0, const uint8_t* pUpsampled_weights0,
+		const astc_helpers::log_astc_block& b1, const uint8_t* pUpsampled_weights1,
+		int dx, int dy)
+	{
+		BASISU_NOTE_UNUSED(dy);
+
+		const bool b0_solid = b0.m_solid_color_flag_ldr;
+		const bool b1_solid = b1.m_solid_color_flag_ldr;
+
+		assert(b0_solid || (!b0.m_dual_plane && (b0.m_num_partitions == 1)));
+		assert((b0.m_grid_width <= 8) && (b0.m_grid_height <= 6));
+
+		assert(b1_solid || (!b1.m_dual_plane && (b1.m_num_partitions == 1)));
+		assert((b1.m_grid_width <= 8) && (b1.m_grid_height <= 6));
+
+		// Only handles particular BC7 blocks in the 2x3 region.
+		assert((dx >= 0) && (dx <= 1) && 
+			(dy >= 0) && (dy <= 2));
+
+		color_rgba l[2], h[2];
+		if (b0_solid)
+		{
+			l[0][0] = h[0][0] = (uint8_t)(b0.m_solid_color[0] >> 8);
+			l[0][1] = h[0][1] = (uint8_t)(b0.m_solid_color[1] >> 8);
+			l[0][2] = h[0][2] = (uint8_t)(b0.m_solid_color[2] >> 8);
+			l[0][3] = h[0][3] = (uint8_t)(b0.m_solid_color[3] >> 8);
+		}
+		else
+		{
+			astc_ldr_t::decode_endpoints(b0.m_color_endpoint_modes[0], b0.m_endpoints, b0.m_endpoint_ise_range, l[0], h[0]);
+		}
+
+		if (b1_solid)
+		{
+			l[1][0] = h[1][0] = (uint8_t)(b1.m_solid_color[0] >> 8);
+			l[1][1] = h[1][1] = (uint8_t)(b1.m_solid_color[1] >> 8);
+			l[1][2] = h[1][2] = (uint8_t)(b1.m_solid_color[2] >> 8);
+			l[1][3] = h[1][3] = (uint8_t)(b1.m_solid_color[3] >> 8);
+		}
+		else
+		{
+			astc_ldr_t::decode_endpoints(b1.m_color_endpoint_modes[0], b1.m_endpoints, b1.m_endpoint_ise_range, l[1], h[1]);
+		}
+
+		float sxl[2][4], sxh[2][4];
+		for (uint32_t i = 0; i < 2; i++)
+		{
+			for (uint32_t j = 0; j < 4; j++)
+			{
+				const float q = 1.0f / 255.0f;
+
+				sxl[i][j] = l[i][j] * q;
+				sxh[i][j] = h[i][j] * q;
+			} // j
+		} // i
+
+		color_rgba bestMinColor[2], bestMaxColor[2];
+
+		uint32_t best_p0[2];
+		determine_shared_pbits(3, 6, sxl[0], &sxh[0][0], bestMinColor[0], bestMaxColor[0], best_p0);
+
+		uint32_t best_p1[2];
+		determine_shared_pbits(3, 6, sxl[1], &sxh[1][0], bestMinColor[1], bestMaxColor[1], best_p1);
+				
+		uint8_t bc7_weights[16];
+
+		uint32_t part_id = 13;
+
+		// TODO: Potentially improve this mapping using a lookup table
+		for (uint32_t y = 0; y < 4; y++)
+		{
+			for (uint32_t x = 0; x < 4; x++)
+			{
+				uint32_t w;
+
+				if (y < 2)
+					w = b0_solid ? 0 : pUpsampled_weights0[basisu::open_range_check<int>((dx * 4 + x) + (y + 4) * 8, 0, 48)];
+				else
+					w = b1_solid ? 0 : pUpsampled_weights1[basisu::open_range_check<int>((dx * 4 + x) + (y - 2) * 8, 0, 48)];
+
+				assert(w <= 64);
+
+				uint32_t qw = ((w * 7 + 32) >> 6);
+
+				bc7_weights[x + y * 4] = (uint8_t)qw;
+			} // x
+		} // y
+
+		uint32_t lr[2] = { bestMinColor[0][0], bestMinColor[1][0] };
+		uint32_t lg[2] = { bestMinColor[0][1], bestMinColor[1][1] };
+		uint32_t lb[2] = { bestMinColor[0][2], bestMinColor[1][2] };
+
+		uint32_t hr[2] = { bestMaxColor[0][0], bestMaxColor[1][0] };
+		uint32_t hg[2] = { bestMaxColor[0][1], bestMaxColor[1][1] };
+		uint32_t hb[2] = { bestMaxColor[0][2], bestMaxColor[1][2] };
+
+		encode_mode1_rgb_block(pDst_block_u8, part_id,
+			lr, lg, lb,
+			hr, hg, hb,
+			best_p0[0], best_p1[0],
+			bc7_weights);
+
+		return true;
+	}
+
+	uint32_t fast_pack_bc7_rgb_partial_analytical(uint8_t* pBlock, const color_rgba* pPixels, uint32_t flags);
+		
+	bool pack_from_astc_8x6_to_two_subsets_different_endpoints_hq(
+		uint8_t* pDst_block_u8,
+		const astc_helpers::log_astc_block& b0, const uint8_t* pUpsampled_weights0,
+		const astc_helpers::log_astc_block& b1, const uint8_t* pUpsampled_weights1,
+		int dx, int dy, bool astc_srgb_decode, bool &fallback_encode_flag)
+	{
+		BASISU_NOTE_UNUSED(dy);
+
+		const bool b_solid[2] = { b0.m_solid_color_flag_ldr, b1.m_solid_color_flag_ldr };
+
+		assert(b_solid[0] || (!b0.m_dual_plane && (b0.m_num_partitions == 1)));
+		assert((b0.m_grid_width <= 8) && (b0.m_grid_height <= 6));
+
+		assert(b_solid[1] || (!b1.m_dual_plane && (b1.m_num_partitions == 1)));
+		assert((b1.m_grid_width <= 8) && (b1.m_grid_height <= 6));
+
+		// Only handles particular BC7 blocks in the 2x3 region.
+		assert((dx >= 0) && (dx <= 1) &&
+			(dy >= 0) && (dy <= 2));
+
+		color_rgba l[2], h[2];
+		if (b_solid[0])
+		{
+			l[0][0] = h[0][0] = (uint8_t)(b0.m_solid_color[0] >> 8);
+			l[0][1] = h[0][1] = (uint8_t)(b0.m_solid_color[1] >> 8);
+			l[0][2] = h[0][2] = (uint8_t)(b0.m_solid_color[2] >> 8);
+			l[0][3] = h[0][3] = (uint8_t)(b0.m_solid_color[3] >> 8);
+		}
+		else
+		{
+			astc_ldr_t::decode_endpoints(b0.m_color_endpoint_modes[0], b0.m_endpoints, b0.m_endpoint_ise_range, l[0], h[0]);
+		}
+
+		if (b_solid[1])
+		{
+			l[1][0] = h[1][0] = (uint8_t)(b1.m_solid_color[0] >> 8);
+			l[1][1] = h[1][1] = (uint8_t)(b1.m_solid_color[1] >> 8);
+			l[1][2] = h[1][2] = (uint8_t)(b1.m_solid_color[2] >> 8);
+			l[1][3] = h[1][3] = (uint8_t)(b1.m_solid_color[3] >> 8);
+		}
+		else
+		{
+			astc_ldr_t::decode_endpoints(b1.m_color_endpoint_modes[0], b1.m_endpoints, b1.m_endpoint_ise_range, l[1], h[1]);
+		}
+
+		uint32_t low_w[2] = { UINT32_MAX, UINT32_MAX };
+		uint32_t high_w[2] = { 0, 0 };
+
+		for (uint32_t y = 0; y < 4; y++)
+		{
+			for (uint32_t x = 0; x < 4; x++)
+			{
+				uint32_t s;
+				uint32_t w;
+
+				if (y < 2)
+				{
+					w = b_solid[0] ? 0 : pUpsampled_weights0[basisu::open_range_check<int>((dx * 4 + x) + (y + 4) * 8, 0, 48)];
+					s = 0;
+				}
+				else
+				{
+					w = b_solid[1] ? 0 : pUpsampled_weights1[basisu::open_range_check<int>((dx * 4 + x) + (y - 2) * 8, 0, 48)];
+					s = 1;
+				}
+
+				assert(w <= 64);
+
+				low_w[s] = basisu::minimum<uint32_t>(low_w[s], w);
+				high_w[s] = basisu::maximum<uint32_t>(high_w[s], w);
+			} // x
+		} // y
+
+		color_rgba orig_l[2], orig_h[2];
+		memcpy(orig_l, l, sizeof(l));
+		memcpy(orig_h, h, sizeof(h));
+
+#if 1
+		uint32_t num_low_stddev = 0;
+#endif
+
+		for (uint32_t s = 0; s < 2; s++)
+		{
+			if (b_solid[s])
+				continue;
+
+			if ((low_w[s] > 0) || (high_w[s] < 64))
+			{
+				for (uint32_t c = 0; c < 3; c++)
+				{
+					l[s][c] = (uint8_t)astc_helpers::channel_interpolate(orig_l[s][c], orig_h[s][c], low_w[s], astc_srgb_decode);
+					h[s][c] = (uint8_t)astc_helpers::channel_interpolate(orig_l[s][c], orig_h[s][c], high_w[s], astc_srgb_decode);
+				}
+			}
+
+#if 1
+			uint32_t e_delta = basisu::squarei((int)h[s][0] - (int)l[s][0]) + 
+				basisu::squarei((int)h[s][1] - (int)l[s][1]) + 
+				basisu::squarei((int)h[s][2] - (int)l[s][2]);
+
+			const uint32_t E_DELTA_THRESH = 60;
+			num_low_stddev += (e_delta < E_DELTA_THRESH);
+#endif
+		}
+
+#if 1
+		if (num_low_stddev == 2)
+		{
+			//bc7f::pack_mode5_solid(pDst_block_u8, color_rgba(200, 0, 0, 255));
+			//return true;
+
+			assert(!b_solid[0] && !b_solid[1]);
+
+			color_rgba dec_pixels[16];
+						
+			int ep_l[2][3], ep_h[2][3];
+			for (uint32_t s = 0; s < 2; s++)
+			{
+				for (uint32_t c = 0; c < 3; c++)
+				{
+					int le = l[s][c], he = h[s][c];
+
+					if (astc_srgb_decode)
+					{
+						le = (le << 8) | 0x80;
+						he = (he << 8) | 0x80;
+					}
+					else
+					{
+						le = (le << 8) | le;
+						he = (he << 8) | he;
+					}
+
+					ep_l[s][c] = le;
+					ep_h[s][c] = he;
+				}
+			}
+
+			color_rgba* pDst = dec_pixels;
+			for (uint32_t y = 0; y < 4; y++)
+			{
+				for (uint32_t x = 0; x < 4; x++)
+				{
+					uint32_t s = (y < 2) ? 0 : 1;
+
+					int w;
+					if (y < 2)
+						w = pUpsampled_weights0[basisu::open_range_check<int>((dx * 4 + x) + (y + 4) * 8, 0, 48)];
+					else
+						w = pUpsampled_weights1[basisu::open_range_check<int>((dx * 4 + x) + (y - 2) * 8, 0, 48)];
+
+					pDst->r = (uint8_t)(astc_helpers::weight_interpolate(ep_l[s][0], ep_h[s][0], w) >> 8);
+					pDst->g = (uint8_t)(astc_helpers::weight_interpolate(ep_l[s][1], ep_h[s][1], w) >> 8);
+					pDst->b = (uint8_t)(astc_helpers::weight_interpolate(ep_l[s][2], ep_h[s][2], w) >> 8);
+					pDst->a = 255;
+					
+					++pDst;
+
+				} // x
+			} // y
+
+			const uint32_t flags = cPackBC7FlagUseTrivialMode6 | cPackBC7FlagPBitOptMode6;
+			//const uint32_t flags = cPackBC7FlagUse2SubsetsRGB | cPackBC7FlagPBitOpt | cPackBC7FlagPBitOptMode6 | cPackBC7FlagUseTrivialMode6;
+			bc7f::fast_pack_bc7_rgb_analytical(pDst_block_u8, dec_pixels, flags);
+			fallback_encode_flag = true;
+			return true;
+		}
+#endif
+
+		float sxl[2][4], sxh[2][4];
+		for (uint32_t i = 0; i < 2; i++)
+		{
+			for (uint32_t j = 0; j < 4; j++)
+			{
+				const float q = 1.0f / 255.0f;
+
+				sxl[i][j] = (float)l[i][j] * q;
+				sxh[i][j] = (float)h[i][j] * q;
+			} // j
+		} // i
+
+		color_rgba bestMinColor[2], bestMaxColor[2];
+
+		uint32_t best_p0[2];
+		determine_shared_pbits(3, 6, sxl[0], &sxh[0][0], bestMinColor[0], bestMaxColor[0], best_p0);
+
+		uint32_t best_p1[2];
+		determine_shared_pbits(3, 6, sxl[1], &sxh[1][0], bestMinColor[1], bestMaxColor[1], best_p1);
+
+		uint8_t bc7_weights[16];
+
+		uint32_t part_id = 13;
+
+		float one_over_w_range_scaled[2];
+		for (uint32_t s = 0; s < 2; s++)
+		{
+			if (low_w[s] == high_w[s])
+				one_over_w_range_scaled[s] = 0;
+			else
+				one_over_w_range_scaled[s] = 7.0f / (high_w[s] - low_w[s]);
+		}
+
+		for (uint32_t y = 0; y < 4; y++)
+		{
+			for (uint32_t x = 0; x < 4; x++)
+			{
+				uint32_t s = (y < 2) ? 0 : 1;
+				
+				int qw = 0;
+
+				if (!b_solid[s])
+				{
+					int w;
+
+					if (y < 2)
+						w = pUpsampled_weights0[basisu::open_range_check<int>((dx * 4 + x) + (y + 4) * 8, 0, 48)];
+					else
+						w = pUpsampled_weights1[basisu::open_range_check<int>((dx * 4 + x) + (y - 2) * 8, 0, 48)];
+
+					assert(w <= 64);
+										
+					if (low_w[s] != high_w[s])
+					{
+						float f = ((float)w - (float)low_w[s]) * one_over_w_range_scaled[s];
+						
+						qw = (int)(f + .5f);
+
+						if ((uint32_t)qw > 7)
+						{
+							qw = basisu::clamp<int>(qw, 0, 7);
+						}
+					}
+				}
+
+				bc7_weights[x + y * 4] = (uint8_t)qw;
+			} // x
+		} // y
+
+		uint32_t lr[2] = { bestMinColor[0][0], bestMinColor[1][0] };
+		uint32_t lg[2] = { bestMinColor[0][1], bestMinColor[1][1] };
+		uint32_t lb[2] = { bestMinColor[0][2], bestMinColor[1][2] };
+
+		uint32_t hr[2] = { bestMaxColor[0][0], bestMaxColor[1][0] };
+		uint32_t hg[2] = { bestMaxColor[0][1], bestMaxColor[1][1] };
+		uint32_t hb[2] = { bestMaxColor[0][2], bestMaxColor[1][2] };
+
+		encode_mode1_rgb_block(pDst_block_u8, part_id,
+			lr, lg, lb,
+			hr, hg, hb,
+			best_p0[0], best_p1[0],
+			bc7_weights);
+
+		return true;
+	}
+
+	void pack_astc_6x6_to_two_subsets_middle_block(
+		uint8_t* pDst_block_u8,
+		const astc_helpers::log_astc_block* blocks[2][2],
+		const uint8_t(&weights)[2][2][36],
+		bool do_left_right)
+	{
+		const astc_helpers::log_astc_block* p[2];
+		const astc_helpers::log_astc_block* q[2];
+
+		if (do_left_right)
+		{
+			// left and right into separate subsets
+			p[0] = blocks[0][0];
+			q[0] = blocks[0][1];
+
+			p[1] = blocks[1][0];
+			q[1] = blocks[1][1];
+		}
+		else
+		{
+			// top and bottom into separate subsets
+			p[0] = blocks[0][0];
+			q[0] = blocks[1][0];
+
+			p[1] = blocks[0][1];
+			q[1] = blocks[1][1];
+		}
+
+		assert(p[0]->m_solid_color_flag_ldr || (!p[0]->m_dual_plane && (p[0]->m_num_partitions == 1)));
+		assert((p[0]->m_grid_width <= 6) && (p[0]->m_grid_height <= 6));
+
+		assert(p[1]->m_solid_color_flag_ldr || (!p[1]->m_dual_plane && (p[1]->m_num_partitions == 1)));
+		assert((p[1]->m_grid_width <= 6) && (p[1]->m_grid_height <= 6));
+
+		assert(q[0]->m_solid_color_flag_ldr || (!q[0]->m_dual_plane && (q[0]->m_num_partitions == 1)));
+		assert((q[0]->m_grid_width <= 6) && (q[0]->m_grid_height <= 6));
+
+		assert(q[1]->m_solid_color_flag_ldr || (!q[1]->m_dual_plane && (q[1]->m_num_partitions == 1)));
+		assert((q[1]->m_grid_width <= 6) && (q[1]->m_grid_height <= 6));
+
+		color_rgba el[2], eh[2];
+		color_rgba el2[2], eh2[2];
+
+		for (uint32_t i = 0; i < 2; i++)
+		{
+			if (p[i]->m_solid_color_flag_ldr)
+			{
+				el[i][0] = eh[i][0] = (uint8_t)(p[i]->m_solid_color[0] >> 8);
+				el[i][1] = eh[i][1] = (uint8_t)(p[i]->m_solid_color[1] >> 8);
+				el[i][2] = eh[i][2] = (uint8_t)(p[i]->m_solid_color[2] >> 8);
+				el[i][3] = eh[i][3] = (uint8_t)(p[i]->m_solid_color[3] >> 8);
+			}
+			else
+			{
+				astc_ldr_t::decode_endpoints(p[i]->m_color_endpoint_modes[0], p[i]->m_endpoints, p[i]->m_endpoint_ise_range, el[i], eh[i]);
+			}
+
+			if (q[i]->m_solid_color_flag_ldr)
+			{
+				el2[i][0] = eh2[i][0] = (uint8_t)(q[i]->m_solid_color[0] >> 8);
+				el2[i][1] = eh2[i][1] = (uint8_t)(q[i]->m_solid_color[1] >> 8);
+				el2[i][2] = eh2[i][2] = (uint8_t)(q[i]->m_solid_color[2] >> 8);
+				el2[i][3] = eh2[i][3] = (uint8_t)(q[i]->m_solid_color[3] >> 8);
+			}
+			else
+			{
+				astc_ldr_t::decode_endpoints(q[i]->m_color_endpoint_modes[0], q[i]->m_endpoints, q[i]->m_endpoint_ise_range, el2[i], eh2[i]);
+			}
+
+			assert(el[i][3] == 255);
+			assert(el2[i][3] == 255);
+			
+			assert(eh[i][3] == 255);
+			assert(eh2[i][3] == 255);
+		}
+
+		for (uint32_t i = 0; i < 2; i++)
+		{
+			for (uint32_t c = 0; c < 3; c++)
+			{
+				el[i][c] = (el[i][c] + el2[i][c] + 1) >> 1;
+				eh[i][c] = (eh[i][c] + eh2[i][c] + 1) >> 1;
+			} // c
+		} // i
+		
+		float sxl[2][4], sxh[2][4];
+		for (uint32_t i = 0; i < 2; i++)
+		{
+			for (uint32_t j = 0; j < 4; j++)
+			{
+				const float S = 1.0f / 255.0f;
+
+				sxl[i][j] = el[i][j] * S;
+				sxh[i][j] = eh[i][j] * S;
+			} // j
+		} // i
+
+		color_rgba bestMinColor[2], bestMaxColor[2];
+
+		uint32_t best_p0[2];
+		determine_shared_pbits(3, 6, sxl[0], &sxh[0][0], bestMinColor[0], bestMaxColor[0], best_p0);
+
+		uint32_t best_p1[2];
+		determine_shared_pbits(3, 6, sxl[1], &sxh[1][0], bestMinColor[1], bestMaxColor[1], best_p1);
+
+		uint8_t bc7_weights[16];
+
+		// TODO: Potentially improve this mapping using a lookup table
+		for (uint32_t y = 0; y < 4; y++)
+		{
+			for (uint32_t x = 0; x < 4; x++)
+			{
+				uint32_t w = 0;
+
+				if (y < 2)
+				{
+					if (x < 2)
+					{
+						if (!blocks[0][0]->m_solid_color_flag_ldr)
+							w = weights[0][0][(x + 4) + (y + 4) * 6];
+					}
+					else 
+					{
+						if (!blocks[1][0]->m_solid_color_flag_ldr)
+							w = weights[1][0][(x - 2) + (y + 4) * 6];
+					}
+				}
+				else
+				{
+					if (x < 2)
+					{
+						if (!blocks[0][1]->m_solid_color_flag_ldr)
+							w = weights[0][1][(x + 4) + (y - 2) * 6];
+					}
+					else
+					{
+						if (!blocks[1][1]->m_solid_color_flag_ldr)
+							w = weights[1][1][(x - 2) + (y - 2) * 6];
+					}
+				}
+				
+				assert(w <= 64);
+
+				bc7_weights[x + y * 4] = (uint8_t)((w * 7 + 32) >> 6);
+			} // x
+		} // y
+		
+		uint32_t part_id = 13;
+		if (do_left_right)
+			part_id = 0;
+
+		uint32_t lr[2] = { bestMinColor[0][0], bestMinColor[1][0] };
+		uint32_t lg[2] = { bestMinColor[0][1], bestMinColor[1][1] };
+		uint32_t lb[2] = { bestMinColor[0][2], bestMinColor[1][2] };
+
+		uint32_t hr[2] = { bestMaxColor[0][0], bestMaxColor[1][0] };
+		uint32_t hg[2] = { bestMaxColor[0][1], bestMaxColor[1][1] };
+		uint32_t hb[2] = { bestMaxColor[0][2], bestMaxColor[1][2] };
+
+		encode_mode1_rgb_block(pDst_block_u8, part_id,
+			lr, lg, lb,
+			hr, hg, hb,
+			best_p0[0], best_p1[0],
+			bc7_weights);
+	}
+
+#if 0
+	// var must be variance (divided by N, # pixels), not SSE
+	static inline int calc_span_est(int min_c, int max_c, int mean_c, float var)
+	{
+		// variance-implied span: span_var = ~sqrt(12 * var)
+		int span_var = (int)fast_roundf_pos_int(std::sqrtf((float)(12.0f * var)));
+
+		// take into account available headroom on the low/high end
+		span_var = basisu::minimum<int>(span_var, 2 * basisu::minimum<int>(mean_c, 255 - mean_c));
+
+		return basisu::minimum<int>(max_c - min_c, span_var);
+	}
+#endif
+
+	// Multi-channel estimates
+	// returns total SSE (pixel SSE * num_pixels), span_weights can be nullptr
+	float analytical_quant_est_sse(int e_levels, int w_levels, int num_chans, const int spans[4], const float span_weights[4], float endpoint_weight_scale, int num_pixels)
+	{
+		assert((e_levels >= 2) && (e_levels <= 256) && (w_levels >= 2) && (num_chans));
+		assert(spans);
+
+		const float Dep = 1.0f / (float)(e_levels - 1); // endpoint quant step
+		const float Dw = 1.0f / (float)(w_levels - 1); // weight quant step
+
+		// TODO: precompute
+		const float N = float(w_levels);
+		const float ab_sum = (2.0f * N - 1.0f) / (3.0f * (N - 1.0f));
+
+		float pixel_sse = (e_levels == 256) ? 0.0f : ((Dep * Dep) * ((1.0f / 12.0f) * ab_sum * (255.0f * 255.0f)) * (float)num_chans * endpoint_weight_scale);
+
+		const float k = (Dw * Dw) * (1.0f / 12.0f);
+		for (int i = 0; i < num_chans; i++)
+		{
+			pixel_sse += k * (float)(spans[i] * spans[i]) * (span_weights ? span_weights[i] : 1.0f);
+		}
+
+		return pixel_sse * float(num_pixels);
+	}
+
+	// Single channel estimates
+	float analytical_quant_est_sse(int e_levels, int w_levels, int span, float span_weight, float endpoint_weight_scale, int num_pixels)
+	{
+		assert((e_levels >= 2) && (e_levels <= 256) && (w_levels >= 2));
+
+		const float Dep = 1.0f / (float)(e_levels - 1); // endpoint quant step
+		const float Dw = 1.0f / (float)(w_levels - 1); // weight quant step
+
+		// TODO: precompute
+		const float N = float(w_levels);
+		const float ab_sum = (2.0f * N - 1.0f) / (3.0f * (N - 1.0f));
+
+		float pixel_sse = (e_levels == 256) ? 0.0f : ((Dep * Dep) * ((1.0f / 12.0f) * ab_sum * (255.0f * 255.0f)) * endpoint_weight_scale);
+
+		pixel_sse += (Dw * Dw) * (1.0f / 12.0f) * (float)(span * span) * span_weight;
+
+		return pixel_sse * float(num_pixels);
+	}
+
+	// if cov[] wasn't divided by the # of pixels, this is SSE
+	float estimate_slam_to_line_sse_3D(const float cov[6], float xr, float yr, float zr, float* pOrtho_ratio = nullptr)
+	{
+		// total var
+		const float total_var = cov[0] + cov[3] + cov[5];
+
+		float l = sqrtf(xr * xr + yr * yr + zr * zr);
+		if (l < basisu::SMALL_FLOAT_VAL)
+		{
+			xr = yr = zr = 0.577350269f;
+		}
+		else
+		{
+			l = 1.0f / l;
+			xr *= l; yr *= l; zr *= l;
+		}
+
+		float xr2 = cov[0] * xr + cov[1] * yr + cov[2] * zr;
+		float xg2 = cov[1] * xr + cov[3] * yr + cov[4] * zr;
+		float xb2 = cov[2] * xr + cov[4] * yr + cov[5] * zr;
+
+		// Rayleigh quotient/est var of principal axis
+		const float principal_axis_var = xr2 * xr + xg2 * yr + xb2 * zr;
+
+		// Compute leftover var, this is the var unexplaind by the principal axis
+		const float ortho_var = basisu::maximum(0.0f, total_var - principal_axis_var);
+
+		if (pOrtho_ratio)
+			*pOrtho_ratio = (total_var > basisu::SMALL_FLOAT_VAL) ? (ortho_var / total_var) : 0.0f;
+
+		return ortho_var;
+	}
+
+	float estimate_slam_to_line_sse_4D(const float cov[10], float xr, float yr, float zr, float wr, float* pOrtho_ratio = nullptr)
+	{
+		// total var
+		const float total_var = cov[0] + cov[4] + cov[7] + cov[9];
+
+		float l = sqrtf(xr * xr + yr * yr + zr * zr + wr * wr);
+		if (l < basisu::SMALL_FLOAT_VAL)
+		{
+			xr = yr = zr = wr = .5f;
+		}
+		else
+		{
+			l = 1.0f / l;
+			xr *= l; yr *= l; zr *= l; wr *= l;
+		}
+
+		float xr2 = cov[0] * xr + cov[1] * yr + cov[2] * zr + cov[3] * wr;
+		float xg2 = cov[1] * xr + cov[4] * yr + cov[5] * zr + cov[6] * wr;
+		float xb2 = cov[2] * xr + cov[5] * yr + cov[7] * zr + cov[8] * wr;
+		float xa2 = cov[3] * xr + cov[6] * yr + cov[8] * zr + cov[9] * wr;
+
+		// Rayleigh quotient/est var of principal axis
+		const float principal_axis_var = xr2 * xr + xg2 * yr + xb2 * zr + xa2 * wr;
+
+		// Compute leftover var, this is the var unexplaind by the principal axis
+		const float ortho_var = basisu::maximum(0.0f, total_var - principal_axis_var);
+
+		if (pOrtho_ratio)
+			*pOrtho_ratio = (total_var > basisu::SMALL_FLOAT_VAL) ? (ortho_var / total_var) : 0.0f;
+
+		return ortho_var;
+	}
+
+	uint32_t calc_sse(const uint8_t* pBlock, const color_rgba* pPixels)
+	{
+		color_rgba unpacked_pixels[16];
+		bool status = bc7u::unpack_bc7(pBlock, unpacked_pixels);
+		if (!status)
+		{
+			assert(0);
+			return UINT32_MAX;
+		}
+
+		uint32_t sse = 0;
+		for (uint32_t i = 0; i < 16; i++)
+			sse += basisu::squarei(pPixels[i][0] - unpacked_pixels[i][0]) + basisu::squarei(pPixels[i][1] - unpacked_pixels[i][1]) + basisu::squarei(pPixels[i][2] - unpacked_pixels[i][2]) + basisu::squarei(pPixels[i][3] - unpacked_pixels[i][3]);
+
+		return sse;
+	}
+
+	bool pack_mode1_or_3_rgb(uint8_t* pBlock, const color_rgba* pPixels,
+		float block_xr, float block_xg, float block_xb,
+		int block_mean_r, int block_mean_g, int block_mean_b,
+		float sse_est_to_beat, uint32_t flags,
+		float* pFinal_sse_est = nullptr,
+		uint32_t* pActual_sse = nullptr)
+	{
+#if BASISU_BC7F_PERF_STATS
+		g_total_mode13_evals++;
+#endif
+
+		uint32_t desired_pat_bits = 0;
+
+		for (uint32_t i = 0; i < 16; i++)
+		{
+			const float r = (float)(pPixels[i].r - block_mean_r);
+			const float g = (float)(pPixels[i].g - block_mean_g);
+			const float b = (float)(pPixels[i].b - block_mean_b);
+
+			const uint32_t subset = (r * block_xr + g * block_xg + b * block_xb) > 0.0f;
+
+			desired_pat_bits |= (subset << i);
+		}
+
+		uint32_t best_diff = UINT32_MAX;
+		for (uint32_t p = 0; p < MAX_PATTERNS2_TO_CHECK; p++)
+		{
+			const uint32_t bc6h_pat_bits = g_bc7_part2_bitmasks[p];
+
+			int diff = popcount32(bc6h_pat_bits ^ desired_pat_bits);
+			int diff_inv = 16 - diff;
+
+			uint32_t min_diff = (basisu::minimum<int>(diff, diff_inv) << 8) | p;
+			if (min_diff < best_diff)
+				best_diff = min_diff;
+		} // p
+
+		const uint32_t best_pat_index = best_diff & 0xFF;
+		const uint32_t best_pat_bits = g_bc7_part2_bitmasks[best_pat_index];
+
+		int total_r[2] = { }, total_g[2] = { }, total_b[2] = { }, total_c[2] = { };
+		for (uint32_t i = 0; i < 16; i++)
+		{
+			const int r = pPixels[i].r, g = pPixels[i].g, b = pPixels[i].b;
+			const int subset = (best_pat_bits >> i) & 1;
+
+			total_r[subset] += r; total_g[subset] += g; total_b[subset] += b;
+			total_c[subset]++;
+		}
+
+		int mean_r[2], mean_g[2], mean_b[2];
+		for (uint32_t s = 0; s < 2; s++)
+		{
+			const uint32_t t = total_c[s];
+			const uint32_t h = (t >> 1);
+
+			mean_r[s] = (total_r[s] + h) / t;
+			mean_g[s] = (total_g[s] + h) / t;
+			mean_b[s] = (total_b[s] + h) / t;
+		}
+
+		int icov[2][6] = { { }, { } };
+
+		for (uint32_t i = 0; i < 16; i++)
+		{
+			const int subset = (best_pat_bits >> i) & 1;
+
+			int r = (int)pPixels[i].r - mean_r[subset];
+			int g = (int)pPixels[i].g - mean_g[subset];
+			int b = (int)pPixels[i].b - mean_b[subset];
+			icov[subset][0] += r * r; icov[subset][1] += r * g; icov[subset][2] += r * b;
+			icov[subset][3] += g * g; icov[subset][4] += g * b;
+			icov[subset][5] += b * b;
+		}
+
+		int ar[2], ag[2], ab[2];
+
+		// Slam to line SSE estimate is the same for both mode 1 and 3.
+		float slam_to_line_sse_est = 0.0f;
+
+		for (uint32_t s = 0; s < 2; s++)
+		{
+			int block_max_var = basisu::maximum(icov[s][0], icov[s][3], icov[s][5]);
+
+			float cov[6];
+			for (uint32_t i = 0; i < 6; i++)
+				cov[i] = (float)icov[s][i];
+
+			const float sc = 1.0f / ((float)block_max_var + .0000125f);
+			const float wx = sc * cov[0], wy = sc * cov[3], wz = sc * cov[5];
+
+			const float alt_xr = cov[0] * wx + cov[1] * wy + cov[2] * wz;
+			const float alt_xg = cov[1] * wx + cov[3] * wy + cov[4] * wz;
+			const float alt_xb = cov[2] * wx + cov[4] * wy + cov[5] * wz;
+
+			slam_to_line_sse_est += estimate_slam_to_line_sse_3D(cov, alt_xr, alt_xg, alt_xb);
+
+			int saxis_r = 306, saxis_g = 601, saxis_b = 117;
+
+			float k = basisu::maximum(fabsf(alt_xr), fabsf(alt_xg), fabsf(alt_xb));
+			if (fabs(k) >= basisu::SMALL_FLOAT_VAL)
+			{
+				float m = 2048.0f / k;
+				saxis_r = (int)(alt_xr * m);
+				saxis_g = (int)(alt_xg * m);
+				saxis_b = (int)(alt_xb * m);
+			}
+
+			ar[s] = (int)((uint32_t)saxis_r << 4U);
+			ag[s] = (int)((uint32_t)saxis_g << 4U);
+			ab[s] = (int)((uint32_t)saxis_b << 4U);
+		} // s
+
+		int low_dot[2] = { INT_MAX, INT_MAX };
+		int high_dot[2] = { INT_MIN, INT_MIN };
+
+		for (uint32_t i = 0; i < 16; i++)
+		{
+			const int subset = (best_pat_bits >> i) & 1;
+			const int saxis_r = ar[subset], saxis_g = ag[subset], saxis_b = ab[subset];
+
+			int dot = (pPixels[i].r * saxis_r + pPixels[i].g * saxis_g + pPixels[i].b * saxis_b) + i;
+
+			low_dot[subset] = basisu::minimum(low_dot[subset], dot);
+			high_dot[subset] = basisu::maximum(high_dot[subset], dot);
+		}
+
+		int low_c[2] = { low_dot[0] & 15, low_dot[1] & 15 };
+		int high_c[2] = { high_dot[0] & 15, high_dot[1] & 15 };
+
+		int spans[4];
+		spans[3] = 0;
+
+		// Endpoint/weight quant error estimates for modes 1 and 3
+		float quant_err_sse_est[2] = { };
+
+		for (uint32_t subset = 0; subset < 2; subset++)
+		{
+			const uint32_t low_pixel = low_c[subset];
+			const uint32_t high_pixel = high_c[subset];
+
+			for (uint32_t c = 0; c < 3; c++)
+				spans[c] = pPixels[high_pixel][c] - pPixels[low_pixel][c];
+
+			// mode 1: 6-bit endpoints, unique pbits, 3 bit weights
+			quant_err_sse_est[0] += analytical_quant_est_sse(64, 8, 3, spans, nullptr, (flags & cPackBC7FlagPBitOpt) ? UNIQUE_PBIT_DISCOUNT : 1.0f, total_c[subset]);
+
+			// mode 3, 7-bit endpoints, shared pbits, 2-bit weights
+			quant_err_sse_est[1] += analytical_quant_est_sse(128, 4, 3, spans, nullptr, (flags & cPackBC7FlagPBitOpt) ? SHARED_PBIT_DISCOUNT : 1.0f, total_c[subset]);
+
+		} // subset
+
+		const float total_mode1_est_sse = slam_to_line_sse_est + quant_err_sse_est[0];
+		const float total_mode3_est_sse = slam_to_line_sse_est + quant_err_sse_est[1];
+
+		if (total_mode1_est_sse < total_mode3_est_sse)
+		{
+			if (pFinal_sse_est)
+				*pFinal_sse_est = total_mode1_est_sse;
+
+			// Mode 1: Large span
+			if (total_mode1_est_sse >= sse_est_to_beat)
+			{
+#if BASISU_BC7F_PERF_STATS
+				g_total_mode13_bailouts++;
+#endif
+				return false;
+			}
+
+			uint32_t lr[2], lg[2], lb[2];
+			uint32_t hr[2], hg[2], hb[2];
+			uint32_t pbits[2] = { 0, 0 };
+
+			for (uint32_t s = 0; s < 2; s++)
+			{
+				const int lc = low_c[s], hc = high_c[s];
+
+				if (flags & cPackBC7FlagPBitOpt)
+				{
+					const float q = 1.0f / 255.0f;
+					float sxl[4] = { (float)pPixels[lc].r * q, (float)pPixels[lc].g * q, (float)pPixels[lc].b * q, 0 };
+					float sxh[4] = { (float)pPixels[hc].r * q, (float)pPixels[hc].g * q, (float)pPixels[hc].b * q, 0 };
+
+					color_rgba bestMinColor, bestMaxColor;
+					uint32_t best_pbits[2];
+					determine_shared_pbits(3, 6, sxl, sxh, bestMinColor, bestMaxColor, best_pbits);
+
+					pbits[s] = best_pbits[0];
+					lr[s] = bestMinColor.r, lg[s] = bestMinColor.g, lb[s] = bestMinColor.b;
+					hr[s] = bestMaxColor.r, hg[s] = bestMaxColor.g, hb[s] = bestMaxColor.b;
+				}
+				else
+				{
+					int l = pPixels[lc].r + pPixels[lc].g + pPixels[lc].b;
+					int h = pPixels[hc].r + pPixels[hc].g + pPixels[hc].b;
+
+					if (basisu::maximum(l, h) >= 129 * 3)
+						pbits[s] = 1;
+
+					lr[s] = to_6(pPixels[lc].r, pbits[s]);
+					lg[s] = to_6(pPixels[lc].g, pbits[s]);
+					lb[s] = to_6(pPixels[lc].b, pbits[s]);
+
+					hr[s] = to_6(pPixels[hc].r, pbits[s]);
+					hg[s] = to_6(pPixels[hc].g, pbits[s]);
+					hb[s] = to_6(pPixels[hc].b, pbits[s]);
+				}
+			} // s
+
+			uint8_t cur_weights[16];
+			eval_weights_mode1_rgb(pPixels, cur_weights, lr, lg, lb, hr, hg, hb, pbits, best_pat_bits);
+
+			float z00[2] = { 0.0f }, z10[2] = { 0.0f }, z11[2] = { 0.0f };
+			float q00_r[2] = { 0.0f };
+			float q00_g[2] = { 0.0f };
+			float q00_b[2] = { 0.0f };
+
+			for (uint32_t i = 0; i < 16; i++)
+			{
+				const int subset = (best_pat_bits >> i) & 1;
+				const uint32_t sel = cur_weights[i];
+				assert(sel <= 7);
+
+				z00[subset] += g_bc7_3bit_ls_tab[sel][0];
+				z10[subset] += g_bc7_3bit_ls_tab[sel][1];
+				z11[subset] += g_bc7_3bit_ls_tab[sel][2];
+
+				const float w = g_bc7_3bit_ls_tab[sel][3];
+
+				q00_r[subset] += w * (float)pPixels[i][0];
+				q00_g[subset] += w * (float)pPixels[i][1];
+				q00_b[subset] += w * (float)pPixels[i][2];
+			} // i
+
+			for (uint32_t s = 0; s < 2; s++)
+			{
+				float q10_r = (float)total_r[s] - q00_r[s];
+				float q10_g = (float)total_g[s] - q00_g[s];
+				float q10_b = (float)total_b[s] - q00_b[s];
+
+				float z01 = z10[s];
+
+				float det = z00[s] * z11[s] - z01 * z10[s];
+				if (fabs(det) < 1e-8f)
+					continue;
+
+				det = 1.0f / det;
+
+				float iz00, iz01, iz10, iz11;
+				iz00 = z11[s] * det;
+				iz01 = -z01 * det;
+				iz10 = -z10[s] * det;
+				iz11 = z00[s] * det;
+
+				const float shr = iz00 * q00_r[s] + iz01 * q10_r;
+				const float slr = iz10 * q00_r[s] + iz11 * q10_r;
+
+				const float shg = iz00 * q00_g[s] + iz01 * q10_g;
+				const float slg = iz10 * q00_g[s] + iz11 * q10_g;
+
+				const float shb = iz00 * q00_b[s] + iz01 * q10_b;
+				const float slb = iz10 * q00_b[s] + iz11 * q10_b;
+
+				if (flags & cPackBC7FlagPBitOpt)
+				{
+					const float q = 1.0f / 255.0f;
+					float sxl[4] = { basisu::clamp(slr * q, 0.0f, 1.0f), basisu::clamp(slg * q, 0.0f, 1.0f), basisu::clamp(slb * q, 0.0f, 1.0f), 0 };
+					float sxh[4] = { basisu::clamp(shr * q, 0.0f, 1.0f), basisu::clamp(shg * q, 0.0f, 1.0f), basisu::clamp(shb * q, 0.0f, 1.0f), 0 };
+
+					color_rgba bestMinColor, bestMaxColor;
+					uint32_t best_pbits[2];
+					determine_shared_pbits(3, 6, sxl, sxh, bestMinColor, bestMaxColor, best_pbits);
+
+					pbits[s] = best_pbits[0];
+					lr[s] = bestMinColor.r, lg[s] = bestMinColor.g, lb[s] = bestMinColor.b;
+					hr[s] = bestMaxColor.r, hg[s] = bestMaxColor.g, hb[s] = bestMaxColor.b;
+				}
+				else
+				{
+					const float l = slr + slg + slb, h = shr + shg + shb;
+
+					pbits[s] = (basisu::maximum(l, h) >= 129.0f * 3.0f);
+
+					lr[s] = to_6_clamp(slr, pbits[s]);
+					hr[s] = to_6_clamp(shr, pbits[s]);
+
+					lg[s] = to_6_clamp(slg, pbits[s]);
+					hg[s] = to_6_clamp(shg, pbits[s]);
+
+					lb[s] = to_6_clamp(slb, pbits[s]);
+					hb[s] = to_6_clamp(shb, pbits[s]);
+				}
+
+			} // s
+
+			if (pActual_sse)
+				*pActual_sse = eval_weights_mode1_rgb_sse(pPixels, cur_weights, lr, lg, lb, hr, hg, hb, pbits, best_pat_bits);
+			else
+				eval_weights_mode1_rgb(pPixels, cur_weights, lr, lg, lb, hr, hg, hb, pbits, best_pat_bits);
+
+			encode_mode1_rgb_block(pBlock, best_pat_index,
+				lr, lg, lb, hr, hg, hb, pbits[0], pbits[1], cur_weights);
+		}
+		else
+		{
+			// Mode 3: Small span
+			if (pFinal_sse_est)
+				*pFinal_sse_est = total_mode3_est_sse;
+
+			if (total_mode3_est_sse >= sse_est_to_beat)
+			{
+#if BASISU_BC7F_PERF_STATS
+				g_total_mode13_bailouts++;
+#endif
+				return false;
+			}
+
+			uint32_t lr[2], lg[2], lb[2];
+			uint32_t hr[2], hg[2], hb[2];
+			uint32_t pbits[4];
+
+			for (uint32_t s = 0; s < 2; s++)
+			{
+				const int lc = low_c[s];
+				const int hc = high_c[s];
+
+				if (flags & cPackBC7FlagPBitOpt)
+				{
+					const float q = 1.0f / 255.0f;
+					float sxl[4] = { (float)pPixels[lc].r * q, (float)pPixels[lc].g * q, (float)pPixels[lc].b * q, 0 };
+					float sxh[4] = { (float)pPixels[hc].r * q, (float)pPixels[hc].g * q, (float)pPixels[hc].b * q, 0 };
+
+					color_rgba bestMinColor, bestMaxColor;
+					uint32_t best_pbits[2];
+					determine_unique_pbits(3, 7, sxl, sxh, bestMinColor, bestMaxColor, best_pbits);
+
+					pbits[s * 2 + 0] = best_pbits[0];
+					pbits[s * 2 + 1] = best_pbits[1];
+					lr[s] = bestMinColor.r, lg[s] = bestMinColor.g, lb[s] = bestMinColor.b;
+					hr[s] = bestMaxColor.r, hg[s] = bestMaxColor.g, hb[s] = bestMaxColor.b;
+				}
+				else
+				{
+					const int l = pPixels[lc].r + pPixels[lc].g + pPixels[lc].b;
+					const int l_pbit = (l >= 129);
+					pbits[s * 2 + 0] = l_pbit;
+
+					lr[s] = to_7(pPixels[lc].r, l_pbit);
+					lg[s] = to_7(pPixels[lc].g, l_pbit);
+					lb[s] = to_7(pPixels[lc].b, l_pbit);
+
+					int h = pPixels[hc].r + pPixels[hc].g + pPixels[hc].b;
+					const int h_pbit = (h >= 129);
+					pbits[s * 2 + 1] = h_pbit;
+
+					hr[s] = to_7(pPixels[hc].r, h_pbit);
+					hg[s] = to_7(pPixels[hc].g, h_pbit);
+					hb[s] = to_7(pPixels[hc].b, h_pbit);
+				}
+			} // s
+
+			uint8_t cur_weights[16];
+			eval_weights_mode3_rgb(pPixels, cur_weights, lr, lg, lb, hr, hg, hb, pbits, best_pat_bits);
+
+			float z00[2] = { 0.0f }, z10[2] = { 0.0f }, z11[2] = { 0.0f };
+			float q00_r[2] = { 0.0f };
+			float q00_g[2] = { 0.0f };
+			float q00_b[2] = { 0.0f };
+
+			for (uint32_t i = 0; i < 16; i++)
+			{
+				const int subset = (best_pat_bits >> i) & 1;
+				const uint32_t sel = cur_weights[i];
+				assert(sel <= 3);
+
+				z00[subset] += g_bc7_2bit_ls_tab[sel][0];
+				z10[subset] += g_bc7_2bit_ls_tab[sel][1];
+				z11[subset] += g_bc7_2bit_ls_tab[sel][2];
+
+				const float w = g_bc7_2bit_ls_tab[sel][3];
+
+				q00_r[subset] += w * (float)pPixels[i][0];
+				q00_g[subset] += w * (float)pPixels[i][1];
+				q00_b[subset] += w * (float)pPixels[i][2];
+			} // i
+
+			for (uint32_t s = 0; s < 2; s++)
+			{
+				float q10_r = (float)total_r[s] - q00_r[s];
+				float q10_g = (float)total_g[s] - q00_g[s];
+				float q10_b = (float)total_b[s] - q00_b[s];
+
+				float z01 = z10[s];
+
+				float det = z00[s] * z11[s] - z01 * z10[s];
+				if (fabs(det) < 1e-8f)
+					continue;
+
+				det = 1.0f / det;
+
+				float iz00, iz01, iz10, iz11;
+				iz00 = z11[s] * det;
+				iz01 = -z01 * det;
+				iz10 = -z10[s] * det;
+				iz11 = z00[s] * det;
+
+				const float shr = iz00 * q00_r[s] + iz01 * q10_r;
+				const float slr = iz10 * q00_r[s] + iz11 * q10_r;
+
+				const float shg = iz00 * q00_g[s] + iz01 * q10_g;
+				const float slg = iz10 * q00_g[s] + iz11 * q10_g;
+
+				const float shb = iz00 * q00_b[s] + iz01 * q10_b;
+				const float slb = iz10 * q00_b[s] + iz11 * q10_b;
+
+				if (flags & cPackBC7FlagPBitOpt)
+				{
+					const float q = 1.0f / 255.0f;
+					float sxl[4] = { basisu::clamp(slr * q, 0.0f, 1.0f), basisu::clamp(slg * q, 0.0f, 1.0f), basisu::clamp(slb * q, 0.0f, 1.0f), 0 };
+					float sxh[4] = { basisu::clamp(shr * q, 0.0f, 1.0f), basisu::clamp(shg * q, 0.0f, 1.0f), basisu::clamp(shb * q, 0.0f, 1.0f), 0 };
+
+					color_rgba bestMinColor, bestMaxColor;
+					uint32_t best_pbits[2];
+					determine_unique_pbits(3, 7, sxl, sxh, bestMinColor, bestMaxColor, best_pbits);
+
+					pbits[s * 2 + 0] = best_pbits[0];
+					pbits[s * 2 + 1] = best_pbits[1];
+					lr[s] = bestMinColor.r, lg[s] = bestMinColor.g, lb[s] = bestMinColor.b;
+					hr[s] = bestMaxColor.r, hg[s] = bestMaxColor.g, hb[s] = bestMaxColor.b;
+				}
+				else
+				{
+					const float l = slr + slg + slb;
+					const int l_pbit = (l >= 129.0f * 3.0f);
+					pbits[s * 2 + 0] = l_pbit;
+
+					lr[s] = to_7_clamp(slr, l_pbit);
+					lg[s] = to_7_clamp(slg, l_pbit);
+					lb[s] = to_7_clamp(slb, l_pbit);
+
+					const float h = shr + shg + shb;
+					const int h_pbit = (h >= 129.0f * 3.0f);
+					pbits[s * 2 + 1] = h_pbit;
+
+					hr[s] = to_7_clamp(shr, h_pbit);
+					hg[s] = to_7_clamp(shg, h_pbit);
+					hb[s] = to_7_clamp(shb, h_pbit);
+				}
+
+			} // s
+
+			if (pActual_sse)
+				*pActual_sse = eval_weights_mode3_rgb_sse(pPixels, cur_weights, lr, lg, lb, hr, hg, hb, pbits, best_pat_bits);
+			else
+				eval_weights_mode3_rgb(pPixels, cur_weights, lr, lg, lb, hr, hg, hb, pbits, best_pat_bits);
+
+			encode_mode3_rgb_block(pBlock, best_pat_index,
+				lr, lg, lb, hr, hg, hb, pbits, cur_weights);
+		}
+
+#ifdef _DEBUG
+		if (pActual_sse)
+		{
+			const uint32_t expected_sse = calc_sse(pBlock, pPixels);
+			assert(expected_sse == *pActual_sse);
+		}
+#endif
+
+		return true;
+	}
+
+	inline int dist3(int lr, int lg, int lb, int hr, int hg, int hb)
+	{
+		return basisu::squarei(hr - lr) + basisu::squarei(hg - lg) + basisu::squarei(hb - lb);
+	}
+
+	bool determine_3subsets(uint8_t* pFinal_3subsets,
+		const color_rgba* pPixels,
+		float block_xr, float block_xg, float block_xb,
+		int block_mean_r, int block_mean_g, int block_mean_b)
+	{
+		uint32_t subset_indices[16];
+		int subset_means[2][3] = { };
+		int subset_total[2] = { };
+
+		for (uint32_t i = 0; i < 16; i++)
+		{
+			const int rd = pPixels[i].r - block_mean_r;
+			const int gd = pPixels[i].g - block_mean_g;
+			const int bd = pPixels[i].b - block_mean_b;
+
+			const uint32_t subset_index = ((float)rd * block_xr + (float)gd * block_xg + (float)bd * block_xb) > 0.0f;
+
+			subset_indices[i] = subset_index;
+
+			subset_means[subset_index][0] += pPixels[i].r;
+			subset_means[subset_index][1] += pPixels[i].g;
+			subset_means[subset_index][2] += pPixels[i].b;
+
+			subset_total[subset_index]++;
+		}
+
+		for (uint32_t i = 0; i < 2; i++)
+		{
+			const uint32_t t = subset_total[i];
+			if (!t)
+				return false;
+
+			subset_means[i][0] = (subset_means[i][0] + (t >> 1)) / t;
+			subset_means[i][1] = (subset_means[i][1] + (t >> 1)) / t;
+			subset_means[i][2] = (subset_means[i][2] + (t >> 1)) / t;
+		}
+
+		int subset_sses[2] = { };
+		for (uint32_t i = 0; i < 16; i++)
+		{
+			const uint32_t subset_index = subset_indices[i];
+
+			subset_sses[subset_index] += dist3(pPixels[i].r, pPixels[i].g, pPixels[i].b, subset_means[subset_index][0], subset_means[subset_index][1], subset_means[subset_index][2]);
+		}
+
+		const uint32_t subset_to_split = (subset_sses[1] > subset_sses[0]);
+		if (subset_total[subset_to_split] < 2)
+			return false;
+
+		int lo_y = INT_MAX, hi_y = 0;
+		for (uint32_t i = 0; i < 16; i++)
+		{
+			if (subset_indices[i] != subset_to_split)
+				continue;
+
+			int y = ((pPixels[i].r + pPixels[i].g + pPixels[i].b) << 4) + i;
+
+			lo_y = basisu::minimum(lo_y, y);
+			hi_y = basisu::maximum(hi_y, y);
+		}
+
+		const int lo_y_index = lo_y & 15, hi_y_index = hi_y & 15;
+		if (lo_y_index == hi_y_index)
+			return false;
+
+		const int lr = pPixels[lo_y_index].r, lg = pPixels[lo_y_index].g, lb = pPixels[lo_y_index].b;
+		const int hr = pPixels[hi_y_index].r, hg = pPixels[hi_y_index].g, hb = pPixels[hi_y_index].b;
+
+		memset(pFinal_3subsets, 2, 16);
+
+		for (uint32_t i = 0; i < 16; i++)
+		{
+			if (subset_indices[i] == subset_to_split)
+			{
+				const int dist0 = dist3(lr, lg, lb, pPixels[i].r, pPixels[i].g, pPixels[i].b);
+				const int dist1 = dist3(hr, hg, hb, pPixels[i].r, pPixels[i].g, pPixels[i].b);
+
+				pFinal_3subsets[i] = dist1 > dist0;
+			}
+		}
+
+		return true;
+	}
+		
+	static inline int pop16(uint32_t x)
+	{
+#if defined(_MSC_VER)
+		return __popcnt16((unsigned short)x);
+#else
+		return __builtin_popcount(x & 0xFFFFu);
+#endif
+	}
+
+	int pick_3subset_pat_index(const uint8_t* pDesired_subsets, uint32_t& best_pat_index_first16)
+	{
+		best_pat_index_first16 = 0;
+
+		uint16_t M[3];
+		memset(M, 0, sizeof(M));
+
+		for (uint32_t i = 0; i < 16; i++)
+		{
+			uint32_t s = pDesired_subsets[i];
+			M[s] |= (1 << i);
+		}
+
+		const int n0 = pop16(M[0]), n1 = pop16(M[1]), n2 = 16 - n0 - n1;
+
+		int best_score = -1;
+		int best_pat = 0;
+
+		for (int p = 0; p < (int)MAX_PATTERNS3_TO_CHECK; ++p)
+		{
+			uint16_t S0 = (uint16_t)(g_part3_bitmasks[p] & 0xFFFFu);
+			uint16_t S1 = (uint16_t)(g_part3_bitmasks[p] >> 16);
+
+			// Row sums for subsets 0 and 1 via 6 popcnts; derive subset 2 by subtraction
+			int C00 = pop16(M[0] & S0), C01 = pop16(M[0] & S1), C02 = n0 - C00 - C01;
+			int C10 = pop16(M[1] & S0), C11 = pop16(M[1] & S1), C12 = n1 - C10 - C11;
+			int C20 = pop16(M[2] & S0), C21 = pop16(M[2] & S1), C22 = n2 - C20 - C21;
+
+			int s0 = C00 + C11 + C22; // (0,1,2)
+			int s1 = C00 + C12 + C21; // (0,2,1)
+			int s2 = C01 + C10 + C22; // (1,0,2)
+			int s3 = C01 + C12 + C20; // (1,2,0)
+			int s4 = C02 + C10 + C21; // (2,0,1)
+			int s5 = C02 + C11 + C20; // (2,1,0)
+
+			// Argmax over 6
+			int s = s0;
+			if (s1 > s) { s = s1; }
+			if (s2 > s) { s = s2; }
+			if (s3 > s) { s = s3; }
+			if (s4 > s) { s = s4; }
+			if (s5 > s) { s = s5; }
+
+			if (s > best_score)
+			{
+				best_score = s;
+				best_pat = p;
+
+				if (s == 16)
+				{
+					// perfect match so early out
+					if (p <= 15)
+						best_pat_index_first16 = best_pat;
+					break;
+				}
+			}
+
+			if (p == 15)
+			{
+				// for mode 0
+				best_pat_index_first16 = best_pat;
+			}
+		}
+
+		return best_pat;
+	}
+
+#if 0
+	static const uint8_t s_perms3[6][3] = { {0,1,2}, {0,2,1}, {1,0,2}, {1,2,0}, {2,0,1}, {2,1,0} };
+
+	int pick_3subset_pat_index_slow(const uint8_t* pDesired_subsets, uint32_t& best_pat_index_first16)
+	{
+		int best_pat = 0, best_dist = INT_MAX;
+
+		for (uint32_t m = 0; m < 64; m++)
+		{
+			const uint8_t* pPat = &g_bc7_partition3[m * 16];
+
+			for (uint32_t p = 0; p < 6; p++)
+			{
+				int trial_dist = 0;
+
+				for (uint32_t i = 0; i < 16; i++)
+				{
+					uint32_t s = s_perms3[p][pDesired_subsets[i]];
+
+					trial_dist += (s != pPat[i]);
+
+				} // i
+
+				if (trial_dist < best_dist)
+				{
+					best_dist = trial_dist;
+					best_pat = m;
+				}
+
+			} // p
+
+			if (m == 15)
+				best_pat_index_first16 = best_pat;
+
+		}  // m
+
+		return best_pat;
+	}
+#endif
+
+	// false if packing failed (not enough unique colors)
+	bool pack_mode0_or_2_rgb(uint8_t* pBlock, const color_rgba* pPixels,
+		float block_xr, float block_xg, float block_xb,
+		int block_mean_r, int block_mean_g, int block_mean_b, float sse_est_to_beat, uint32_t flags,
+		float* pFinal_sse_est = nullptr,
+		uint32_t* pActual_sse = nullptr)
+	{
+		(void)flags;
+
+#if BASISU_BC7F_PERF_STATS
+		g_total_mode02_evals++;
+#endif
+
+		uint8_t desired_3subsets[16];
+		if (!determine_3subsets(desired_3subsets, pPixels, block_xr, block_xg, block_xb, block_mean_r, block_mean_g, block_mean_b))
+		{
+#if BASISU_BC7F_PERF_STATS
+			g_total_mode02_bailouts++;
+#endif
+			if (pFinal_sse_est)
+				*pFinal_sse_est = 1e+9f;
+
+			return false;
+		}
+
+		uint32_t best_pat_indices[2]; // mode 0 and 2
+		best_pat_indices[1] = pick_3subset_pat_index(desired_3subsets, best_pat_indices[0]);
+
+		assert((best_pat_indices[0] <= 15) && (best_pat_indices[1] <= 63));
+
+		float total_quant_sse_mode[2] = { };
+		float total_slam_to_line_sse_mode[2] = { };
+
+		int mode_total_c[2][3] = { };
+		int mode_low_c[2][3] = { }, mode_high_c[2][3] = { };
+		int mode_total_r[2][3] = { }, mode_total_g[2][3] = { }, mode_total_b[2][3] = { };
+
+		int spans[4] = { };
+
+		for (uint32_t mode_iter = 0; mode_iter < 2; mode_iter++) // mode 0 vs. mode 2
+		{
+			if ((mode_iter) && (best_pat_indices[0] == best_pat_indices[1]))
+			{
+				for (uint32_t s = 0; s < 3; s++)
+				{
+					mode_total_c[1][s] = mode_total_c[0][s];
+
+					mode_low_c[1][s] = mode_low_c[0][s];
+					mode_high_c[1][s] = mode_high_c[0][s];
+
+					mode_total_r[1][s] = mode_total_r[0][s];
+					mode_total_g[1][s] = mode_total_g[0][s];
+					mode_total_b[1][s] = mode_total_b[0][s];
+
+					total_slam_to_line_sse_mode[1] = total_slam_to_line_sse_mode[0];
+
+				} // subset
+			}
+			else
+			{
+				const uint32_t best_pat_index = best_pat_indices[mode_iter];
+				const uint8_t* pBest_pat = &g_bc7_partition3[best_pat_index * 16];
+
+				int* pTotal_r = &mode_total_r[mode_iter][0];
+				int* pTotal_g = &mode_total_g[mode_iter][0];
+				int* pTotal_b = &mode_total_b[mode_iter][0];
+
+				int* pTotal_c = mode_total_c[mode_iter];
+
+				for (uint32_t i = 0; i < 16; i++)
+				{
+					const int r = pPixels[i].r, g = pPixels[i].g, b = pPixels[i].b;
+					const int subset = pBest_pat[i];
+
+					pTotal_r[subset] += r; pTotal_g[subset] += g; pTotal_b[subset] += b;
+					pTotal_c[subset]++;
+				}
+
+				int mean_r[3], mean_g[3], mean_b[3];
+				for (uint32_t s = 0; s < 3; s++)
+				{
+					const uint32_t t = pTotal_c[s];
+					const uint32_t h = (t >> 1);
+
+					mean_r[s] = (pTotal_r[s] + h) / t;
+					mean_g[s] = (pTotal_g[s] + h) / t;
+					mean_b[s] = (pTotal_b[s] + h) / t;
+				}
+
+				int icov[3][6] = { };
+
+				for (uint32_t i = 0; i < 16; i++)
+				{
+					const int subset = pBest_pat[i];
+
+					int r = (int)pPixels[i].r - mean_r[subset];
+					int g = (int)pPixels[i].g - mean_g[subset];
+					int b = (int)pPixels[i].b - mean_b[subset];
+					icov[subset][0] += r * r; icov[subset][1] += r * g; icov[subset][2] += r * b;
+					icov[subset][3] += g * g; icov[subset][4] += g * b;
+					icov[subset][5] += b * b;
+				}
+
+				int ar[3], ag[3], ab[3];
+
+				float total_slam_to_line_sse = 0.0f;
+
+				for (uint32_t s = 0; s < 3; s++)
+				{
+					int block_max_var = basisu::maximum(icov[s][0], icov[s][3], icov[s][5]);
+
+					float cov[6];
+					for (uint32_t i = 0; i < 6; i++)
+						cov[i] = (float)icov[s][i];
+
+					const float sc = 1.0f / ((float)block_max_var + .0000125f);
+					const float wx = sc * cov[0], wy = sc * cov[3], wz = sc * cov[5];
+
+					const float alt_xr = cov[0] * wx + cov[1] * wy + cov[2] * wz;
+					const float alt_xg = cov[1] * wx + cov[3] * wy + cov[4] * wz;
+					const float alt_xb = cov[2] * wx + cov[4] * wy + cov[5] * wz;
+
+					total_slam_to_line_sse += estimate_slam_to_line_sse_3D(cov, alt_xr, alt_xg, alt_xb);
+
+					int saxis_r = 306, saxis_g = 601, saxis_b = 117;
+
+					float k = basisu::maximum(fabsf(alt_xr), fabsf(alt_xg), fabsf(alt_xb));
+					if (fabs(k) >= basisu::SMALL_FLOAT_VAL)
+					{
+						float m = 2048.0f / k;
+						saxis_r = (int)(alt_xr * m);
+						saxis_g = (int)(alt_xg * m);
+						saxis_b = (int)(alt_xb * m);
+					}
+
+					ar[s] = (int)((uint32_t)saxis_r << 4U);
+					ag[s] = (int)((uint32_t)saxis_g << 4U);
+					ab[s] = (int)((uint32_t)saxis_b << 4U);
+				} // s
+
+				total_slam_to_line_sse_mode[mode_iter] = total_slam_to_line_sse;
+
+				int low_dot[3] = { INT_MAX, INT_MAX, INT_MAX };
+				int high_dot[3] = { INT_MIN, INT_MIN, INT_MIN };
+
+				for (uint32_t i = 0; i < 16; i++)
+				{
+					const int subset = pBest_pat[i];
+					const int saxis_r = ar[subset], saxis_g = ag[subset], saxis_b = ab[subset];
+
+					int dot = (pPixels[i].r * saxis_r + pPixels[i].g * saxis_g + pPixels[i].b * saxis_b) + i;
+
+					low_dot[subset] = basisu::minimum(low_dot[subset], dot);
+					high_dot[subset] = basisu::maximum(high_dot[subset], dot);
+				}
+
+				for (uint32_t subset = 0; subset < 3; subset++)
+				{
+					mode_low_c[mode_iter][subset] = low_dot[subset] & 15;
+					mode_high_c[mode_iter][subset] = high_dot[subset] & 15;
+				} // subset
+
+			} // if ((mode_iter) && (best_pat_indices[0] == best_pat_indices[1]))
+
+			for (uint32_t subset = 0; subset < 3; subset++)
+			{
+				const uint32_t low_pixel = mode_low_c[mode_iter][subset];
+				const uint32_t high_pixel = mode_high_c[mode_iter][subset];
+
+				for (uint32_t c = 0; c < 3; c++)
+					spans[c] = pPixels[high_pixel][c] - pPixels[low_pixel][c];
+
+				float subset_sse;
+				if (mode_iter == 0)
+				{
+					// mode 0: 4-bit endpoints, unique p-bits, 3-bit weights, slight p-bit endpoint scale factor
+					subset_sse = analytical_quant_est_sse(16, 8, 3, spans, nullptr, UNIQUE_PBIT_DISCOUNT, mode_total_c[mode_iter][subset]);
+				}
+				else
+				{
+					// mode 2: 5-bit endpoints, no p-bits, 2-bit weights, no endpoint scale factor
+					subset_sse = analytical_quant_est_sse(32, 4, 3, spans, nullptr, 1.0f, mode_total_c[mode_iter][subset]);
+				}
+
+				total_quant_sse_mode[mode_iter] += subset_sse;
+			} // subset
+
+		} // mode_iter
+
+		const float total_sse_est_mode0 = total_quant_sse_mode[0] + total_slam_to_line_sse_mode[0];
+		const float total_sse_est_mode2 = total_quant_sse_mode[1] + total_slam_to_line_sse_mode[1];
+
+		if (total_sse_est_mode0 < total_sse_est_mode2)
+		{
+			if (pFinal_sse_est)
+				*pFinal_sse_est = total_sse_est_mode0;
+
+			// Use mode 0 (high span)
+			if (total_sse_est_mode0 >= sse_est_to_beat)
+			{
+#if BASISU_BC7F_PERF_STATS
+				g_total_mode02_bailouts++;
+#endif
+				return false;
+			}
+
+			const uint32_t best_pat_index = best_pat_indices[0];
+			const uint8_t* pBest_pat = &g_bc7_partition3[best_pat_index * 16];
+
+			const int* pLow_c = &mode_low_c[0][0];
+			const int* pHigh_c = &mode_high_c[0][0];
+
+			const int* pTotal_r = &mode_total_r[0][0];
+			const int* pTotal_g = &mode_total_g[0][0];
+			const int* pTotal_b = &mode_total_b[0][0];
+
+			float xl[3][4], xh[3][4];
+
+			for (uint32_t s = 0; s < 3; s++)
+			{
+				const int lc = pLow_c[s];
+				const int hc = pHigh_c[s];
+
+				xl[s][0] = (float)pPixels[lc].r * (1.0f / 255.0f);
+				xl[s][1] = (float)pPixels[lc].g * (1.0f / 255.0f);
+				xl[s][2] = (float)pPixels[lc].b * (1.0f / 255.0f);
+				xl[s][3] = 0.0f;
+
+				xh[s][0] = (float)pPixels[hc].r * (1.0f / 255.0f);
+				xh[s][1] = (float)pPixels[hc].g * (1.0f / 255.0f);
+				xh[s][2] = (float)pPixels[hc].b * (1.0f / 255.0f);
+				xh[s][3] = 0.0f;
+			} // s
+
+			uint32_t lr[3], lg[3], lb[3], hr[3], hg[3], hb[3], pbits[6];
+
+			for (uint32_t s = 0; s < 3; s++)
+			{
+				color_rgba el, eh;
+				determine_unique_pbits(3, 4, xl[s], xh[s], el, eh, &pbits[s << 1]);
+
+				lr[s] = el[0]; lg[s] = el[1]; lb[s] = el[2];
+				hr[s] = eh[0]; hg[s] = eh[1]; hb[s] = eh[2];
+
+			} // s
+
+			uint8_t cur_weights[16];
+			eval_weights_mode0_rgb(pPixels, cur_weights, lr, lg, lb, hr, hg, hb, pbits, best_pat_index);
+
+			float z00[3] = { 0.0f }, z10[3] = { 0.0f }, z11[3] = { 0.0f };
+			float q00_r[3] = { 0.0f };
+			float q00_g[3] = { 0.0f };
+			float q00_b[3] = { 0.0f };
+
+			for (uint32_t i = 0; i < 16; i++)
+			{
+				const int subset = pBest_pat[i];
+				const uint32_t sel = cur_weights[i];
+				assert(sel <= 7);
+
+				z00[subset] += g_bc7_3bit_ls_tab[sel][0];
+				z10[subset] += g_bc7_3bit_ls_tab[sel][1];
+				z11[subset] += g_bc7_3bit_ls_tab[sel][2];
+
+				const float w = g_bc7_3bit_ls_tab[sel][3];
+
+				q00_r[subset] += w * (float)pPixels[i][0];
+				q00_g[subset] += w * (float)pPixels[i][1];
+				q00_b[subset] += w * (float)pPixels[i][2];
+			} // i
+
+			for (uint32_t s = 0; s < 3; s++)
+			{
+				float q10_r = (float)pTotal_r[s] - q00_r[s];
+				float q10_g = (float)pTotal_g[s] - q00_g[s];
+				float q10_b = (float)pTotal_b[s] - q00_b[s];
+
+				float z01 = z10[s];
+
+				float det = z00[s] * z11[s] - z01 * z10[s];
+				if (fabs(det) < 1e-8f)
+					continue;
+
+				det = 1.0f / det;
+
+				float iz00, iz01, iz10, iz11;
+				iz00 = z11[s] * det;
+				iz01 = -z01 * det;
+				iz10 = -z10[s] * det;
+				iz11 = z00[s] * det;
+
+				const float q = 1.0f / 255.0f;
+
+				xl[s][0] = basisu::clamp(q * (iz10 * q00_r[s] + iz11 * q10_r), 0.0f, 1.0f);
+				xh[s][0] = basisu::clamp(q * (iz00 * q00_r[s] + iz01 * q10_r), 0.0f, 1.0f);
+
+				xl[s][1] = basisu::clamp(q * (iz10 * q00_g[s] + iz11 * q10_g), 0.0f, 1.0f);
+				xh[s][1] = basisu::clamp(q * (iz00 * q00_g[s] + iz01 * q10_g), 0.0f, 1.0f);
+
+				xl[s][2] = basisu::clamp(q * (iz10 * q00_b[s] + iz11 * q10_b), 0.0f, 1.0f);
+				xh[s][2] = basisu::clamp(q * (iz00 * q00_b[s] + iz01 * q10_b), 0.0f, 1.0f);
+			} // s
+
+			for (uint32_t s = 0; s < 3; s++)
+			{
+				color_rgba el, eh;
+				determine_unique_pbits(3, 4, xl[s], xh[s], el, eh, &pbits[s << 1]); // fills in both pbit entries
+
+				lr[s] = el[0]; lg[s] = el[1]; lb[s] = el[2];
+				hr[s] = eh[0]; hg[s] = eh[1]; hb[s] = eh[2];
+
+			} // s
+
+			if (pActual_sse)
+				*pActual_sse = eval_weights_mode0_rgb_sse(pPixels, cur_weights, lr, lg, lb, hr, hg, hb, pbits, best_pat_index);
+			else
+				eval_weights_mode0_rgb(pPixels, cur_weights, lr, lg, lb, hr, hg, hb, pbits, best_pat_index);
+
+			encode_mode0_rgb_block(pBlock, best_pat_index, lr, lg, lb, hr, hg, hb, pbits, cur_weights);
+		}
+		else
+		{
+			if (pFinal_sse_est)
+				*pFinal_sse_est = total_sse_est_mode2;
+
+			// Use mode 2 (low span)
+			if (total_sse_est_mode2 >= sse_est_to_beat)
+			{
+#if BASISU_BC7F_PERF_STATS
+				g_total_mode02_bailouts++;
+#endif
+				return false;
+			}
+
+			const uint32_t best_pat_index = best_pat_indices[1];
+			const uint8_t* pBest_pat = &g_bc7_partition3[best_pat_index * 16];
+
+			const int* pLow_c = &mode_low_c[1][0];
+			const int* pHigh_c = &mode_high_c[1][0];
+
+			const int* pTotal_r = &mode_total_r[1][0];
+			const int* pTotal_g = &mode_total_g[1][0];
+			const int* pTotal_b = &mode_total_b[1][0];
+
+			uint32_t lr[3], lg[3], lb[3];
+			uint32_t hr[3], hg[3], hb[3];
+
+			for (uint32_t s = 0; s < 3; s++)
+			{
+				const int lc = pLow_c[s];
+				const int hc = pHigh_c[s];
+
+				lr[s] = to_5(pPixels[lc].r);
+				lg[s] = to_5(pPixels[lc].g);
+				lb[s] = to_5(pPixels[lc].b);
+
+				hr[s] = to_5(pPixels[hc].r);
+				hg[s] = to_5(pPixels[hc].g);
+				hb[s] = to_5(pPixels[hc].b);
+			}
+
+			uint8_t cur_weights[16];
+			eval_weights_mode2_rgb(pPixels, cur_weights, lr, lg, lb, hr, hg, hb, best_pat_index);
+
+			float z00[3] = { 0.0f }, z10[3] = { 0.0f }, z11[3] = { 0.0f };
+			float q00_r[3] = { 0.0f };
+			float q00_g[3] = { 0.0f };
+			float q00_b[3] = { 0.0f };
+
+			for (uint32_t i = 0; i < 16; i++)
+			{
+				const int subset = pBest_pat[i];
+				const uint32_t sel = cur_weights[i];
+				assert(sel <= 3);
+
+				z00[subset] += g_bc7_2bit_ls_tab[sel][0];
+				z10[subset] += g_bc7_2bit_ls_tab[sel][1];
+				z11[subset] += g_bc7_2bit_ls_tab[sel][2];
+
+				const float w = g_bc7_2bit_ls_tab[sel][3];
+
+				q00_r[subset] += w * (float)pPixels[i][0];
+				q00_g[subset] += w * (float)pPixels[i][1];
+				q00_b[subset] += w * (float)pPixels[i][2];
+			} // i
+
+			for (uint32_t s = 0; s < 3; s++)
+			{
+				float q10_r = (float)pTotal_r[s] - q00_r[s];
+				float q10_g = (float)pTotal_g[s] - q00_g[s];
+				float q10_b = (float)pTotal_b[s] - q00_b[s];
+
+				float z01 = z10[s];
+
+				float det = z00[s] * z11[s] - z01 * z10[s];
+				if (fabs(det) < 1e-8f)
+					continue;
+
+				det = 1.0f / det;
+
+				float iz00, iz01, iz10, iz11;
+				iz00 = z11[s] * det;
+				iz01 = -z01 * det;
+				iz10 = -z10[s] * det;
+				iz11 = z00[s] * det;
+
+				hr[s] = to_5_clamp(iz00 * q00_r[s] + iz01 * q10_r);
+				lr[s] = to_5_clamp(iz10 * q00_r[s] + iz11 * q10_r);
+
+				hg[s] = to_5_clamp(iz00 * q00_g[s] + iz01 * q10_g);
+				lg[s] = to_5_clamp(iz10 * q00_g[s] + iz11 * q10_g);
+
+				hb[s] = to_5_clamp(iz00 * q00_b[s] + iz01 * q10_b);
+				lb[s] = to_5_clamp(iz10 * q00_b[s] + iz11 * q10_b);
+			} // s
+
+			if (pActual_sse)
+				*pActual_sse = eval_weights_mode2_rgb_sse(pPixels, cur_weights, lr, lg, lb, hr, hg, hb, best_pat_index);
+			else
+				eval_weights_mode2_rgb(pPixels, cur_weights, lr, lg, lb, hr, hg, hb, best_pat_index);
+
+			encode_mode2_rgb_block(pBlock, best_pat_index,
+				lr, lg, lb, hr, hg, hb, cur_weights);
+		}
+
+#ifdef _DEBUG
+		if (pActual_sse)
+		{
+			const uint32_t expected_sse = calc_sse(pBlock, pPixels);
+			assert(expected_sse == *pActual_sse);
+		}
+#endif
+
+		return true;
+	}
+
+	bool pack_mode4_or_5(uint8_t* pBlock, const color_rgba* pOrig_pixels, uint32_t dp_chan_index, float sse_est_to_beat, uint32_t flags,
+		float* pFinal_sse_est = nullptr,
+		uint32_t* pActual_sse = nullptr)
+	{
+		(void)flags;
+
+#if BASISU_BC7F_PERF_STATS
+		g_total_mode45_evals++;
+#endif
+
+		color_rgba pixels[16];
+		const color_rgba* pPixels = pOrig_pixels;
+
+		if (dp_chan_index != 3)
+		{
+			memcpy(pixels, pOrig_pixels, sizeof(color_rgba) * 16);
+			pPixels = pixels;
+
+			for (uint32_t i = 0; i < 16; i++)
+			{
+				const uint8_t c = pixels[i][dp_chan_index];
+				pixels[i][dp_chan_index] = pixels[i][3];
+				pixels[i][3] = c;
+			}
+		}
+
+		int total_r = 0, total_g = 0, total_b = 0, total_a = 0;
+
+		int min_r = 255, min_g = 255, min_b = 255, min_a = 255;
+		int max_r = 0, max_g = 0, max_b = 0, max_a = 0;
+
+		for (uint32_t i = 0; i < 16; i++)
+		{
+			const int r = pPixels[i].r, g = pPixels[i].g, b = pPixels[i].b, a = pPixels[i].a;
+
+			total_r += r; total_g += g; total_b += b; total_a += a;
+
+			min_r = basisu::minimum(min_r, r); min_g = basisu::minimum(min_g, g); min_b = basisu::minimum(min_b, b); min_a = basisu::minimum(min_a, a);
+			max_r = basisu::maximum(max_r, r); max_g = basisu::maximum(max_g, g); max_b = basisu::maximum(max_b, b); max_a = basisu::maximum(max_a, a);
+		}
+
+		int mean_r = (total_r + 8) >> 4, mean_g = (total_g + 8) >> 4, mean_b = (total_b + 8) >> 4;
+
+		// covar rows are:
+		// 0, 1, 2
+		// 1, 3, 4
+		// 2, 4, 5
+		int icov[6] = { 0, 0, 0, 0, 0, 0 };
+
+		for (uint32_t i = 0; i < 16; i++)
+		{
+			const int r = (int)pPixels[i].r - mean_r;
+			const int g = (int)pPixels[i].g - mean_g;
+			const int b = (int)pPixels[i].b - mean_b;
+			icov[0] += r * r; icov[1] += r * g; icov[2] += r * b;
+			icov[3] += g * g; icov[4] += g * b;
+			icov[5] += b * b;
+		}
+
+		float cov3[6];
+		for (uint32_t i = 0; i < 6; i++)
+			cov3[i] = (float)icov[i];
+
+		const int block_max_var3 = basisu::maximum(icov[0], icov[3], icov[5]); // not divided by 16, i.e. scaled by 16
+
+		const float sc3 = block_max_var3 ? (1.0f / (float)block_max_var3) : 0;
+		const float wx3 = sc3 * cov3[0], wy3 = sc3 * cov3[3], wz3 = sc3 * cov3[5];
+
+		const float alt_xr = cov3[0] * wx3 + cov3[1] * wy3 + cov3[2] * wz3;
+		const float alt_xg = cov3[1] * wx3 + cov3[3] * wy3 + cov3[4] * wz3;
+		const float alt_xb = cov3[2] * wx3 + cov3[4] * wy3 + cov3[5] * wz3;
+
+		// Same for mode 4/5
+		const float rgb_slam_to_line_sse_est = estimate_slam_to_line_sse_3D(cov3, alt_xr, alt_xg, alt_xb);
+
+		int saxis_r = 306, saxis_g = 601, saxis_b = 117;
+
+		float k = basisu::maximum(fabsf(alt_xr), fabsf(alt_xg), fabsf(alt_xb));
+		if (fabs(k) >= basisu::SMALL_FLOAT_VAL)
+		{
+			float m = 2048.0f / k;
+			saxis_r = (int)(alt_xr * m);
+			saxis_g = (int)(alt_xg * m);
+			saxis_b = (int)(alt_xb * m);
+		}
+
+		saxis_r = (int)((uint32_t)saxis_r << 4U);
+		saxis_g = (int)((uint32_t)saxis_g << 4U);
+		saxis_b = (int)((uint32_t)saxis_b << 4U);
+
+		int low_dot = INT_MAX, high_dot = INT_MIN;
+
+		for (uint32_t i = 0; i < 16; i += 4)
+		{
+			int dot0 = (pPixels[i].r * saxis_r + pPixels[i].g * saxis_g + pPixels[i].b * saxis_b) + i;
+			int dot1 = (pPixels[i + 1].r * saxis_r + pPixels[i + 1].g * saxis_g + pPixels[i + 1].b * saxis_b) + i + 1;
+			int dot2 = (pPixels[i + 2].r * saxis_r + pPixels[i + 2].g * saxis_g + pPixels[i + 2].b * saxis_b) + i + 2;
+			int dot3 = (pPixels[i + 3].r * saxis_r + pPixels[i + 3].g * saxis_g + pPixels[i + 3].b * saxis_b) + i + 3;
+
+			int min_d01 = basisu::minimum(dot0, dot1);
+			int max_d01 = basisu::maximum(dot0, dot1);
+
+			int min_d23 = basisu::minimum(dot2, dot3);
+			int max_d23 = basisu::maximum(dot2, dot3);
+
+			int min_d = basisu::minimum(min_d01, min_d23);
+			int max_d = basisu::maximum(max_d01, max_d23);
+
+			low_dot = basisu::minimum(low_dot, min_d);
+			high_dot = basisu::maximum(high_dot, max_d);
+		}
+
+		const int low_c = low_dot & 15;
+		const int high_c = high_dot & 15;
+
+		const int rgb_spans[4] = { pPixels[high_c][0] - pPixels[low_c][0], pPixels[high_c][1] - pPixels[low_c][1], pPixels[high_c][2] - pPixels[low_c][2], 0 };
+		const int a_span = max_a - min_a;
+
+		const float SECOND_PLANE_SPAN_WEIGHT = (dp_chan_index == 3) ? 1.0f : 1.0f;
+
+		const float mode_4_rgb_3bit_quant_sse_est = analytical_quant_est_sse(32, 8, 3, rgb_spans, nullptr, 1.0f, 16); // mode 4 rgb: 5-bit endpoints, using 3-bit weights for RGB
+		const float mode_4_a_2bit_quant_sse_est = analytical_quant_est_sse(64, 4, a_span, SECOND_PLANE_SPAN_WEIGHT, 1.0f, 16); // mode 4 a: 6-bit endpoints, using 2-bit weights for RGB
+
+		const float mode_4_rgb_2bit_quant_sse_est = analytical_quant_est_sse(32, 4, 3, rgb_spans, nullptr, 1.0f, 16); // mode 4 rgb: 5-bit endpoints, using 2-bit weights for RGB
+		const float mode_4_a_3bit_quant_sse_est = analytical_quant_est_sse(64, 8, a_span, SECOND_PLANE_SPAN_WEIGHT, 1.0f, 16); // mode 4 a: 6-bit endpoints, using 3-bit weights for RGB
+
+		const float total_mode_4_rgb3_a2_sse_est = rgb_slam_to_line_sse_est + mode_4_rgb_3bit_quant_sse_est + mode_4_a_2bit_quant_sse_est;
+		const float total_mode_4_rgb2_a3_sse_est = rgb_slam_to_line_sse_est + mode_4_rgb_2bit_quant_sse_est + mode_4_a_3bit_quant_sse_est;
+
+		const float mode_5_rgb_quant_sse_est = analytical_quant_est_sse(128, 4, 3, rgb_spans, nullptr, 1.0f, 16); // mode 5 rgb: 7-bit endpoints, using 2-bit weights for RGB
+		const float mode_5_a_quant_sse_est = analytical_quant_est_sse(256, 4, a_span, SECOND_PLANE_SPAN_WEIGHT, 1.0f, 16); // mode 5 a: 8-bit endpoints, using 2-bit weights for RGB
+		const float total_mode_5_rgba_sse_est = rgb_slam_to_line_sse_est + mode_5_rgb_quant_sse_est + mode_5_a_quant_sse_est;
+
+		if (total_mode_5_rgba_sse_est < basisu::minimum(total_mode_4_rgb3_a2_sse_est, total_mode_4_rgb2_a3_sse_est))
+		{
+			if (pFinal_sse_est)
+				*pFinal_sse_est = total_mode_5_rgba_sse_est;
+
+			// Mode 5 - low RGB/A span
+			if (total_mode_5_rgba_sse_est >= sse_est_to_beat)
+			{
+#if BASISU_BC7F_PERF_STATS
+				g_total_mode45_bailouts++;
+#endif
+				return false;
+			}
+
+			int lr = to_7(pPixels[low_c].r), lg = to_7(pPixels[low_c].g), lb = to_7(pPixels[low_c].b), la = min_a;
+			int hr = to_7(pPixels[high_c].r), hg = to_7(pPixels[high_c].g), hb = to_7(pPixels[high_c].b), ha = max_a;
+
+			uint8_t cur_weights0[16]; // rgb 2-bits
+			if (pActual_sse)
+				*pActual_sse = eval_weights_mode5_2bit_rgb_sse(pPixels, cur_weights0, lr, lg, lb, hr, hg, hb);
+			else
+				eval_weights_mode5_2bit_rgb(pPixels, cur_weights0, lr, lg, lb, hr, hg, hb);
+
+			vec4F xl, xh;
+			bool res = compute_least_squares_endpoints_3D(
+				16, cur_weights0, 4,
+				g_bc7_2bit_ls_tab,
+				xl, xh,
+				pPixels,
+				(float)total_r, (float)total_g, (float)total_b);
+
+			if (res)
+			{
+				lr = fast_roundf_int(xl[0] * (127.0f / 255.0f));
+				lg = fast_roundf_int(xl[1] * (127.0f / 255.0f));
+				lb = fast_roundf_int(xl[2] * (127.0f / 255.0f));
+
+				hr = fast_roundf_int(xh[0] * (127.0f / 255.0f));
+				hg = fast_roundf_int(xh[1] * (127.0f / 255.0f));
+				hb = fast_roundf_int(xh[2] * (127.0f / 255.0f));
+
+				if (pActual_sse)
+					*pActual_sse = eval_weights_mode5_2bit_rgb_sse(pPixels, cur_weights0, lr, lg, lb, hr, hg, hb);
+				else
+					eval_weights_mode5_2bit_rgb(pPixels, cur_weights0, lr, lg, lb, hr, hg, hb);
+			}
+
+			uint8_t cur_weights1[16]; // alpha 2-bits
+			uint32_t a_sse = 0;
+			if (pActual_sse)
+				a_sse = eval_weights_mode5_2bit_a_sse(pPixels, cur_weights1, la, ha);
+			else
+				eval_weights_mode5_2bit_a(pPixels, cur_weights1, la, ha);
+
+			float nal, nah;
+			if (compute_least_squares_endpoints_1D(
+				16, cur_weights1, 4,
+				g_bc7_2bit_ls_tab,
+				nal, nah,
+				pPixels, 3,
+				(float)total_a))
+			{
+				la = fast_roundf_int(nal);
+				ha = fast_roundf_int(nah);
+
+				if (pActual_sse)
+					a_sse = eval_weights_mode5_2bit_a_sse(pPixels, cur_weights1, la, ha);
+				else
+					eval_weights_mode5_2bit_a(pPixels, cur_weights1, la, ha);
+			}
+
+			if (pActual_sse)
+				*pActual_sse += a_sse;
+
+			encode_mode5_rgba_block(pBlock,
+				lr, lg, lb, la,
+				hr, hg, hb, ha,
+				cur_weights0, cur_weights1, (dp_chan_index + 1) & 3);
+		}
+		else if (total_mode_4_rgb3_a2_sse_est < total_mode_4_rgb2_a3_sse_est)
+		{
+			if (pFinal_sse_est)
+				*pFinal_sse_est = total_mode_4_rgb3_a2_sse_est;
+
+			// mode 4, rgb 3-bits, alpha 2-bits - high span RGB, low span in A, index bit=1
+			if (total_mode_4_rgb3_a2_sse_est >= sse_est_to_beat)
+			{
+#if BASISU_BC7F_PERF_STATS
+				g_total_mode45_bailouts++;
+#endif
+				return false;
+			}
+
+			int lr = to_5(pPixels[low_c].r), lg = to_5(pPixels[low_c].g), lb = to_5(pPixels[low_c].b), la = to_6(min_a);
+			int hr = to_5(pPixels[high_c].r), hg = to_5(pPixels[high_c].g), hb = to_5(pPixels[high_c].b), ha = to_6(max_a);
+
+			uint8_t cur_weights0[16]; // rgb 3-bits
+			if (pActual_sse)
+				*pActual_sse = eval_weights_mode4_3bit_rgb_sse(pPixels, cur_weights0, lr, lg, lb, hr, hg, hb);
+			else
+				eval_weights_mode4_3bit_rgb(pPixels, cur_weights0, lr, lg, lb, hr, hg, hb);
+
+			vec4F xl, xh;
+			bool res = compute_least_squares_endpoints_3D(
+				16, cur_weights0, 8,
+				g_bc7_3bit_ls_tab,
+				xl, xh,
+				pPixels,
+				(float)total_r, (float)total_g, (float)total_b);
+
+			if (res)
+			{
+				lr = fast_roundf_int(xl[0] * (31.0f / 255.0f));
+				lg = fast_roundf_int(xl[1] * (31.0f / 255.0f));
+				lb = fast_roundf_int(xl[2] * (31.0f / 255.0f));
+
+				hr = fast_roundf_int(xh[0] * (31.0f / 255.0f));
+				hg = fast_roundf_int(xh[1] * (31.0f / 255.0f));
+				hb = fast_roundf_int(xh[2] * (31.0f / 255.0f));
+
+				if (pActual_sse)
+					*pActual_sse = eval_weights_mode4_3bit_rgb_sse(pPixels, cur_weights0, lr, lg, lb, hr, hg, hb);
+				else
+					eval_weights_mode4_3bit_rgb(pPixels, cur_weights0, lr, lg, lb, hr, hg, hb);
+			}
+
+			uint8_t cur_weights1[16]; // alpha 2-bits
+
+			uint32_t a_sse = 0;
+			if (pActual_sse)
+				a_sse = eval_weights_mode4_2bit_a_sse(pPixels, cur_weights1, la, ha);
+			else
+				eval_weights_mode4_2bit_a(pPixels, cur_weights1, la, ha);
+
+			float nal, nah;
+			if (compute_least_squares_endpoints_1D(
+				16, cur_weights1, 4,
+				g_bc7_2bit_ls_tab,
+				nal, nah,
+				pPixels, 3,
+				(float)total_a))
+			{
+				la = fast_roundf_int(nal * (63.0f / 255.0f));
+				ha = fast_roundf_int(nah * (63.0f / 255.0f));
+
+				if (pActual_sse)
+					a_sse = eval_weights_mode4_2bit_a_sse(pPixels, cur_weights1, la, ha);
+				else
+					eval_weights_mode4_2bit_a(pPixels, cur_weights1, la, ha);
+			}
+
+			if (pActual_sse)
+				*pActual_sse += a_sse;
+
+			encode_mode4_rgba_block(pBlock,
+				lr, lg, lb, la,
+				hr, hg, hb, ha,
+				cur_weights0, cur_weights1, (dp_chan_index + 1) & 3, 1);
+		}
+		else
+		{
+			if (pFinal_sse_est)
+				*pFinal_sse_est = total_mode_4_rgb2_a3_sse_est;
+
+			// mode 4, rgb 2-bits, alpha 3-bits - low span RGB, high span in A, index bit=0
+			if (total_mode_4_rgb2_a3_sse_est >= sse_est_to_beat)
+			{
+#if BASISU_BC7F_PERF_STATS
+				g_total_mode45_bailouts++;
+#endif
+				return false;
+			}
+
+			int lr = to_5(pPixels[low_c].r), lg = to_5(pPixels[low_c].g), lb = to_5(pPixels[low_c].b), la = to_6(min_a);
+			int hr = to_5(pPixels[high_c].r), hg = to_5(pPixels[high_c].g), hb = to_5(pPixels[high_c].b), ha = to_6(max_a);
+
+			uint8_t cur_weights0[16]; // rgb 2-bits
+			if (pActual_sse)
+				*pActual_sse = eval_weights_mode4_2bit_rgb_sse(pPixels, cur_weights0, lr, lg, lb, hr, hg, hb);
+			else
+				eval_weights_mode4_2bit_rgb(pPixels, cur_weights0, lr, lg, lb, hr, hg, hb);
+
+			vec4F xl, xh;
+			bool res = compute_least_squares_endpoints_3D(
+				16, cur_weights0, 4,
+				g_bc7_2bit_ls_tab,
+				xl, xh,
+				pPixels,
+				(float)total_r, (float)total_g, (float)total_b);
+
+			if (res)
+			{
+				lr = fast_roundf_int(xl[0] * (31.0f / 255.0f));
+				lg = fast_roundf_int(xl[1] * (31.0f / 255.0f));
+				lb = fast_roundf_int(xl[2] * (31.0f / 255.0f));
+
+				hr = fast_roundf_int(xh[0] * (31.0f / 255.0f));
+				hg = fast_roundf_int(xh[1] * (31.0f / 255.0f));
+				hb = fast_roundf_int(xh[2] * (31.0f / 255.0f));
+
+				if (pActual_sse)
+					*pActual_sse = eval_weights_mode4_2bit_rgb_sse(pPixels, cur_weights0, lr, lg, lb, hr, hg, hb);
+				else
+					eval_weights_mode4_2bit_rgb(pPixels, cur_weights0, lr, lg, lb, hr, hg, hb);
+			}
+
+			uint8_t cur_weights1[16]; // alpha 2-bits
+			uint32_t a_sse = 0;
+			if (pActual_sse)
+				a_sse = eval_weights_mode4_3bit_a_sse(pPixels, cur_weights1, la, ha);
+			else
+				eval_weights_mode4_3bit_a(pPixels, cur_weights1, la, ha);
+
+			float nal, nah;
+			if (compute_least_squares_endpoints_1D(
+				16, cur_weights1, 8,
+				g_bc7_3bit_ls_tab,
+				nal, nah,
+				pPixels, 3,
+				(float)total_a))
+			{
+				la = fast_roundf_int(nal * (63.0f / 255.0f));
+				ha = fast_roundf_int(nah * (63.0f / 255.0f));
+
+				if (pActual_sse)
+					a_sse = eval_weights_mode4_3bit_a_sse(pPixels, cur_weights1, la, ha);
+				else
+					eval_weights_mode4_3bit_a(pPixels, cur_weights1, la, ha);
+			}
+
+			if (pActual_sse)
+				*pActual_sse += a_sse;
+
+			encode_mode4_rgba_block(pBlock,
+				lr, lg, lb, la,
+				hr, hg, hb, ha,
+				cur_weights0, cur_weights1, (dp_chan_index + 1) & 3, 0);
+		}
+
+#ifdef _DEBUG
+		if (pActual_sse)
+		{
+			const uint32_t expected_sse = calc_sse(pBlock, pOrig_pixels);
+			assert(expected_sse == *pActual_sse);
+		}
+#endif
+
+		return true;
+	}
+
+	bool pack_mode7_rgba(uint8_t* pBlock, const color_rgba* pPixels,
+		float block_xr, float block_xg, float block_xb, float block_xa,
+		int block_mean_r, int block_mean_g, int block_mean_b, int block_mean_a,
+		float sse_est_to_beat, uint32_t flags,
+		float* pFinal_sse_est = nullptr,
+		uint32_t* pActual_sse = nullptr)
+	{
+#if BASISU_BC7F_PERF_STATS
+		g_total_mode7_evals++;
+#endif
+
+		uint32_t desired_pat_bits = 0;
+
+		for (uint32_t i = 0; i < 16; i++)
+		{
+			const float r = (float)(pPixels[i].r - block_mean_r);
+			const float g = (float)(pPixels[i].g - block_mean_g);
+			const float b = (float)(pPixels[i].b - block_mean_b);
+			const float a = (float)(pPixels[i].a - block_mean_a);
+
+			const uint32_t subset = (r * block_xr + g * block_xg + b * block_xb + a * block_xa) > 0.0f;
+
+			desired_pat_bits |= (subset << i);
+		}
+
+		uint32_t best_diff = UINT32_MAX;
+		for (uint32_t p = 0; p < MAX_PATTERNS2_TO_CHECK; p++)
+		{
+			const uint32_t bc6h_pat_bits = g_bc7_part2_bitmasks[p];
+
+			int diff = popcount32(bc6h_pat_bits ^ desired_pat_bits);
+			int diff_inv = 16 - diff;
+
+			uint32_t min_diff = (basisu::minimum<int>(diff, diff_inv) << 8) | p;
+			if (min_diff < best_diff)
+				best_diff = min_diff;
+		} // p
+
+		const uint32_t best_pat_index = best_diff & 0xFF;
+		const uint32_t best_pat_bits = g_bc7_part2_bitmasks[best_pat_index];
+
+		int total_r[2] = { }, total_g[2] = { }, total_b[2] = { }, total_a[2] = { }, total_c[2] = { };
+		for (uint32_t i = 0; i < 16; i++)
+		{
+			const int r = pPixels[i].r, g = pPixels[i].g, b = pPixels[i].b, a = pPixels[i].a;
+			const int subset = (best_pat_bits >> i) & 1;
+
+			total_r[subset] += r; total_g[subset] += g; total_b[subset] += b; total_a[subset] += a;
+			total_c[subset]++;
+		}
+
+		int mean_r[2], mean_g[2], mean_b[2], mean_a[2];
+		for (uint32_t s = 0; s < 2; s++)
+		{
+			const uint32_t t = total_c[s];
+			const uint32_t h = (t >> 1);
+
+			mean_r[s] = (total_r[s] + h) / t;
+			mean_g[s] = (total_g[s] + h) / t;
+			mean_b[s] = (total_b[s] + h) / t;
+			mean_a[s] = (total_a[s] + h) / t;
+		}
+
+		int icov4[2][10] = { { }, { } };
+
+		// 0=rr
+		// 1=rg
+		// 2=rb
+		// 3=ra
+		// 
+		// 4=gg
+		// 5=gb
+		// 6=ga
+		// 
+		// 7=bb
+		// 8=ba
+		// 
+		// 9=aa
+
+		// 0 1 2 3
+		//   4 5 6
+		//     7 8
+		//       9
+
+		// 0 1 2 3
+		// 1 4 5 6
+		// 2 5 7 8
+		// 3 6 8 9
+
+		// trace at 0,4,7,9
+
+		for (uint32_t i = 0; i < 16; i++)
+		{
+			const int s = (best_pat_bits >> i) & 1;
+
+			int r = (int)pPixels[i].r - mean_r[s];
+			int g = (int)pPixels[i].g - mean_g[s];
+			int b = (int)pPixels[i].b - mean_b[s];
+			int a = (int)pPixels[i].a - mean_a[s];
+
+			icov4[s][0] += r * r; icov4[s][1] += r * g; icov4[s][2] += r * b; icov4[s][3] += r * a;
+			icov4[s][4] += g * g; icov4[s][5] += g * b; icov4[s][6] += g * a;
+			icov4[s][7] += b * b; icov4[s][8] += b * a;
+			icov4[s][9] += a * a;
+		}
+
+		int ar[2], ag[2], ab[2], aa[2];
+
+		float slam_to_line_sse_est = 0.0f;
+
+		for (uint32_t s = 0; s < 2; s++)
+		{
+			const int block_max_var4 = basisu::maximum(icov4[s][0], icov4[s][4], icov4[s][7], icov4[s][9]);
+
+			float cov4[10];
+			for (uint32_t i = 0; i < 10; i++)
+				cov4[i] = (float)icov4[s][i];
+
+			const float sc4 = block_max_var4 ? (1.0f / (float)block_max_var4) : 0;
+			const float wx = sc4 * cov4[0], wy = sc4 * cov4[4], wz = sc4 * cov4[7], wa = sc4 * cov4[9];
+
+			// 0 1 2 3
+			// 1 4 5 6
+			// 2 5 7 8
+			// 3 6 8 9
+
+			const float x0 = cov4[0] * wx + cov4[1] * wy + cov4[2] * wz + cov4[3] * wa;
+			const float y0 = cov4[1] * wx + cov4[4] * wy + cov4[5] * wz + cov4[6] * wa;
+			const float z0 = cov4[2] * wx + cov4[5] * wy + cov4[7] * wz + cov4[8] * wa;
+			const float w0 = cov4[3] * wx + cov4[6] * wy + cov4[8] * wz + cov4[9] * wa;
+
+			const float x1 = cov4[0] * x0 + cov4[1] * y0 + cov4[2] * z0 + cov4[3] * w0;
+			const float y1 = cov4[1] * x0 + cov4[4] * y0 + cov4[5] * z0 + cov4[6] * w0;
+			const float z1 = cov4[2] * x0 + cov4[5] * y0 + cov4[7] * z0 + cov4[8] * w0;
+			const float w1 = cov4[3] * x0 + cov4[6] * y0 + cov4[8] * z0 + cov4[9] * w0;
+
+			slam_to_line_sse_est += estimate_slam_to_line_sse_4D(cov4, x1, y1, z1, w1);
+
+			int saxis_r = 256, saxis_g = 256, saxis_b = 256, saxis_a = 256;
+
+			float k = basisu::maximum(fabsf(x1), fabsf(y1), fabsf(z1), fabsf(w1));
+			if (fabsf(k) >= basisu::SMALL_FLOAT_VAL)
+			{
+				float m = 2048.0f / k;
+				saxis_r = (int)(x1 * m);
+				saxis_g = (int)(y1 * m);
+				saxis_b = (int)(z1 * m);
+				saxis_a = (int)(w1 * m);
+			}
+
+			ar[s] = (int)((uint32_t)saxis_r << 4U);
+			ag[s] = (int)((uint32_t)saxis_g << 4U);
+			ab[s] = (int)((uint32_t)saxis_b << 4U);
+			aa[s] = (int)((uint32_t)saxis_a << 4U);
+		} // s
+
+		int low_dot[2] = { INT_MAX, INT_MAX };
+		int high_dot[2] = { INT_MIN, INT_MIN };
+
+		for (uint32_t i = 0; i < 16; i++)
+		{
+			const int subset = (best_pat_bits >> i) & 1;
+			const int saxis_r = ar[subset], saxis_g = ag[subset], saxis_b = ab[subset], saxis_a = aa[subset];
+
+			assert(((pPixels[i].r * saxis_r + pPixels[i].g * saxis_g + pPixels[i].b * saxis_b + pPixels[i].a * saxis_a) & 0xF) == 0); // sanity
+			const int dot = (pPixels[i].r * saxis_r + pPixels[i].g * saxis_g + pPixels[i].b * saxis_b + pPixels[i].a * saxis_a) + i;
+
+			low_dot[subset] = basisu::minimum(low_dot[subset], dot);
+			high_dot[subset] = basisu::maximum(high_dot[subset], dot);
+		}
+
+		int low_c[2] = { low_dot[0] & 15, low_dot[1] & 15 };
+		int high_c[2] = { high_dot[0] & 15, high_dot[1] & 15 };
+
+		float quant_err_sse_est = 0;
+
+		for (uint32_t subset = 0; subset < 2; subset++)
+		{
+			const uint32_t low_pixel = low_c[subset];
+			const uint32_t high_pixel = high_c[subset];
+
+			int spans[4];
+			for (uint32_t c = 0; c < 4; c++)
+				spans[c] = pPixels[high_pixel][c] - pPixels[low_pixel][c];
+
+			// mode 7: 5-bit endpoints, unique pbits, 2 bit weights, 4 chans
+			quant_err_sse_est += analytical_quant_est_sse(32, 4, 4, spans, nullptr, (flags & cPackBC7FlagPBitOpt) ? UNIQUE_PBIT_DISCOUNT : 1.0f, total_c[subset]);
+
+		} // subset
+
+		const float total_mode7_est_sse = slam_to_line_sse_est + quant_err_sse_est;
+
+		if (pFinal_sse_est)
+			*pFinal_sse_est = total_mode7_est_sse;
+
+		if (total_mode7_est_sse >= sse_est_to_beat)
+		{
+#if BASISU_BC7F_PERF_STATS
+			g_total_mode7_bailouts++;
+#endif
+			return false;
+		}
+
+		uint32_t lr[2], lg[2], lb[2], la[2];
+		uint32_t hr[2], hg[2], hb[2], ha[2];
+		uint32_t pbits[4];
+
+		for (uint32_t s = 0; s < 2; s++)
+		{
+			const int lc = low_c[s], hc = high_c[s];
+
+			if (flags & cPackBC7FlagPBitOpt)
+			{
+				const float q = 1.0f / 255.0f;
+				float sxl[4] = { (float)pPixels[lc].r * q, (float)pPixels[lc].g * q, (float)pPixels[lc].b * q, (float)pPixels[lc].a * q };
+				float sxh[4] = { (float)pPixels[hc].r * q, (float)pPixels[hc].g * q, (float)pPixels[hc].b * q, (float)pPixels[hc].a * q };
+
+				color_rgba bestMinColor, bestMaxColor;
+				determine_unique_pbits(4, 5, sxl, sxh, bestMinColor, bestMaxColor, &pbits[s * 2]);
+
+				lr[s] = bestMinColor.r, lg[s] = bestMinColor.g, lb[s] = bestMinColor.b; la[s] = bestMinColor.a;
+				hr[s] = bestMaxColor.r, hg[s] = bestMaxColor.g, hb[s] = bestMaxColor.b; ha[s] = bestMaxColor.a;
+			}
+			else
+			{
+				const uint32_t l_pbit = (pPixels[lc].a >= 129);
+				const uint32_t h_pbit = (pPixels[hc].a >= 129);
+
+				pbits[s * 2 + 0] = l_pbit;
+				pbits[s * 2 + 1] = h_pbit;
+
+				lr[s] = to_5(pPixels[lc].r, l_pbit);
+				lg[s] = to_5(pPixels[lc].g, l_pbit);
+				lb[s] = to_5(pPixels[lc].b, l_pbit);
+				la[s] = to_5(pPixels[lc].a, l_pbit);
+
+				hr[s] = to_5(pPixels[hc].r, h_pbit);
+				hg[s] = to_5(pPixels[hc].g, h_pbit);
+				hb[s] = to_5(pPixels[hc].b, h_pbit);
+				ha[s] = to_5(pPixels[hc].a, h_pbit);
+			}
+		} // s
+
+		uint8_t cur_weights[16];
+
+		eval_weights_mode7_rgba(pPixels, cur_weights,
+			lr, lg, lb, la,
+			hr, hg, hb, ha,
+			pbits, best_pat_bits);
+
+		float z00[2] = { 0.0f }, z10[2] = { 0.0f }, z11[2] = { 0.0f };
+		float q00_r[2] = { 0.0f };
+		float q00_g[2] = { 0.0f };
+		float q00_b[2] = { 0.0f };
+		float q00_a[2] = { 0.0f };
+
+		for (uint32_t i = 0; i < 16; i++)
+		{
+			const int subset = (best_pat_bits >> i) & 1;
+			const uint32_t sel = cur_weights[i];
+			assert(sel <= 3);
+
+			z00[subset] += g_bc7_2bit_ls_tab[sel][0];
+			z10[subset] += g_bc7_2bit_ls_tab[sel][1];
+			z11[subset] += g_bc7_2bit_ls_tab[sel][2];
+
+			const float w = g_bc7_2bit_ls_tab[sel][3];
+
+			q00_r[subset] += w * (float)pPixels[i][0];
+			q00_g[subset] += w * (float)pPixels[i][1];
+			q00_b[subset] += w * (float)pPixels[i][2];
+			q00_a[subset] += w * (float)pPixels[i][3];
+		} // i
+
+		for (uint32_t s = 0; s < 2; s++)
+		{
+			float q10_r = (float)total_r[s] - q00_r[s];
+			float q10_g = (float)total_g[s] - q00_g[s];
+			float q10_b = (float)total_b[s] - q00_b[s];
+			float q10_a = (float)total_a[s] - q00_a[s];
+
+			float z01 = z10[s];
+
+			float det = z00[s] * z11[s] - z01 * z10[s];
+			if (fabsf(det) < 1e-8f)
+				continue;
+
+			det = 1.0f / det;
+
+			float iz00, iz01, iz10, iz11;
+			iz00 = z11[s] * det;
+			iz01 = -z01 * det;
+			iz10 = -z10[s] * det;
+			iz11 = z00[s] * det;
+
+			const float slr = iz10 * q00_r[s] + iz11 * q10_r;
+			const float shr = iz00 * q00_r[s] + iz01 * q10_r;
+
+			const float slg = iz10 * q00_g[s] + iz11 * q10_g;
+			const float shg = iz00 * q00_g[s] + iz01 * q10_g;
+
+			const float slb = iz10 * q00_b[s] + iz11 * q10_b;
+			const float shb = iz00 * q00_b[s] + iz01 * q10_b;
+
+			const float sla = iz10 * q00_a[s] + iz11 * q10_a;
+			const float sha = iz00 * q00_a[s] + iz01 * q10_a;
+
+			if (flags & cPackBC7FlagPBitOpt)
+			{
+				const float q = 1.0f / 255.0f;
+				float sxl[4] = { basisu::clamp(slr * q, 0.0f, 1.0f), basisu::clamp(slg * q, 0.0f, 1.0f), basisu::clamp(slb * q, 0.0f, 1.0f), basisu::clamp(sla * q, 0.0f, 1.0f) };
+				float sxh[4] = { basisu::clamp(shr * q, 0.0f, 1.0f), basisu::clamp(shg * q, 0.0f, 1.0f), basisu::clamp(shb * q, 0.0f, 1.0f), basisu::clamp(sha * q, 0.0f, 1.0f) };
+
+				color_rgba bestMinColor, bestMaxColor;
+				determine_unique_pbits(4, 5, sxl, sxh, bestMinColor, bestMaxColor, &pbits[s * 2]);
+
+				lr[s] = bestMinColor.r, lg[s] = bestMinColor.g, lb[s] = bestMinColor.b; la[s] = bestMinColor.a;
+				hr[s] = bestMaxColor.r, hg[s] = bestMaxColor.g, hb[s] = bestMaxColor.b; ha[s] = bestMaxColor.a;
+			}
+			else
+			{
+				const uint32_t l_pbit = (sla >= 129.0f);
+				const uint32_t h_pbit = (sha >= 129.0f);
+
+				pbits[s * 2 + 0] = l_pbit;
+				pbits[s * 2 + 1] = h_pbit;
+
+				lr[s] = to_5_clamp(slr, l_pbit);
+				lg[s] = to_5_clamp(slg, l_pbit);
+				lb[s] = to_5_clamp(slb, l_pbit);
+				la[s] = to_5_clamp(sla, l_pbit);
+
+				hr[s] = to_5_clamp(shr, h_pbit);
+				hg[s] = to_5_clamp(shg, h_pbit);
+				hb[s] = to_5_clamp(shb, h_pbit);
+				ha[s] = to_5_clamp(sha, h_pbit);
+			}
+
+		} // s
+
+		if (pActual_sse)
+		{
+			*pActual_sse = eval_weights_mode7_rgba_sse(pPixels, cur_weights,
+				lr, lg, lb, la,
+				hr, hg, hb, ha,
+				pbits, best_pat_bits);
+		}
+		else
+		{
+			eval_weights_mode7_rgba(pPixels, cur_weights,
+				lr, lg, lb, la,
+				hr, hg, hb, ha,
+				pbits, best_pat_bits);
+		}
+
+		encode_mode7_rgba_block(pBlock, best_pat_index,
+			lr, lg, lb, la,
+			hr, hg, hb, ha,
+			pbits, cur_weights);
+
+#ifdef _DEBUG
+		if (pActual_sse)
+		{
+			const uint32_t expected_sse = calc_sse(pBlock, pPixels);
+			assert(expected_sse == *pActual_sse);
+		}
+#endif
+
+		return true;
+	}
+
+	const int TRIVIAL_BLOCK_THRESH_RGB = 20 * 16; // skip PCA/LS threshold (uses trivial mode 6 encoder)
+	const int TRIVIAL_BLOCK_THRESH_RGBA = 2 * 16;
+
+	// dual plane
+#if 0
+	const int DP_BLOCK_VAR_THRESH = 1 * 16; // use dual plane threshold
+	const float STRONG_CORR_THRESH = .98f;
+#else
+	const int DP_BLOCK_VAR_THRESH = 2 * 16; // use dual plane threshold
+	const float STRONG_CORR_THRESH = .85f;
+#endif
+
+	// 2-3 subsets
+#if 0
+	const float HIGH_ORTHO_ENERGY_THRESH = 1.0f * 16.0f; // use 2+ subsets threshold
+	const int MIN_BLOCK_MAX_VAR_23SUBSETS = 4 * 16;
+	const float ORTHO_RATIO_23SUBSET_RATIO_THRESH = .004f;
+#else
+	const int MIN_BLOCK_MAX_VAR_23SUBSETS = 100 * 16;
+	const float HIGH_ORTHO_ENERGY_THRESH = 1.0f * 16.0f; // use 2+ subsets threshold
+	const float ORTHO_RATIO_23SUBSET_RATIO_THRESH = .004f;
+#endif
+
+#if 0
+	const int DP_BLOCK_VAR_THRESH_RGBA = 2 * 16; // use dual plane threshold
+	const float ALPHA_DECORR_THRESHOLD = .9f;
+	const float STRONG_DECORR_THRESH_RGBA = .85f;
+#else
+	const int DP_BLOCK_VAR_THRESH_RGBA = 1 * 16; // use dual plane threshold
+	//const float ALPHA_DECORR_THRESHOLD = .98f;
+	const float ALPHA_DECORR_THRESHOLD = .995f;
+	const float STRONG_DECORR_THRESH_RGBA = .85f;
+#endif
+
+	// 3 subsets
+	const int MIN_BLOCK_MAX_VAR_3SUBSETS = 500 * 16; // use 3 subsets threshold
+
+	//-------------------------------------------------------------------------------------------------------
+
+	// Note: solid block check assumes A's all == 255.
+	void fast_pack_bc7_rgb_analytical(uint8_t* pBlock, const color_rgba* pPixels, uint32_t flags)
+	{
+		assert(g_bc7_4bit_ls_tab[1][0]);
+
+#if BASISU_BC7F_PERF_STATS
+		g_total_rgb_calls++;
+#endif
+
+		const uint32_t fc = *(const uint32_t*)&pPixels[0];
+		if (fc == *(const uint32_t*)&pPixels[15])
+		{
+			int k;
+			for (k = 1; k < 15; k++)
+				if (*(const uint32_t*)&pPixels[k] != fc)
+					break;
+
+			if (k == 15)
+			{
+#if BASISU_BC7F_PERF_STATS
+				g_total_solid_blocks++;
+#endif
+
+				pack_mode5_solid(pBlock, pPixels[0]);
+				return;
+			}
+		}
+
+		int total_r = 0, total_g = 0, total_b = 0;
+
+		int min_r = 255, min_g = 255, min_b = 255;
+		int max_r = 0, max_g = 0, max_b = 0;
+
+		for (uint32_t i = 0; i < 16; i++)
+		{
+			int r = pPixels[i].r, g = pPixels[i].g, b = pPixels[i].b;
+
+			total_r += r; total_g += g; total_b += b;
+
+			min_r = basisu::minimum(min_r, r); min_g = basisu::minimum(min_g, g); min_b = basisu::minimum(min_b, b);
+			max_r = basisu::maximum(max_r, r); max_g = basisu::maximum(max_g, g); max_b = basisu::maximum(max_b, b);
+		}
+
+		int mean_r = (total_r + 8) >> 4, mean_g = (total_g + 8) >> 4, mean_b = (total_b + 8) >> 4;
+
+		// covar rows are:
+		// 0, 1, 2
+		// 1, 3, 4
+		// 2, 4, 5
+		int icov[6] = { 0, 0, 0, 0, 0, 0 };
+
+		for (uint32_t i = 0; i < 16; i++)
+		{
+			int r = (int)pPixels[i].r - mean_r;
+			int g = (int)pPixels[i].g - mean_g;
+			int b = (int)pPixels[i].b - mean_b;
+			icov[0] += r * r; icov[1] += r * g; icov[2] += r * b;
+			icov[3] += g * g; icov[4] += g * b;
+			icov[5] += b * b;
+		}
+
+		int block_max_var = basisu::maximum(icov[0], icov[3], icov[5]); // not divided by 16, i.e. scaled by 16
+
+		// not redundant due to uint32_t test above, which could be fooled by alpha accidentally passed in
+		if (!block_max_var)
+		{
+#if BASISU_BC7F_PERF_STATS
+			g_total_solid_blocks++;
+#endif
+			pack_mode5_solid(pBlock, pPixels[0]);
+			return;
+		}
+
+		// check for dual plane, if a single component is very strongly decorrelated then switch to modes 4/5
+		int desired_dp_chan = -1;
+
+		if ((flags & cPackBC7FlagUseDualPlaneRGB) && (block_max_var >= DP_BLOCK_VAR_THRESH))
+		{
+			// 0,1
+			// 0,2
+			// 1,2
+			const bool has_r = icov[0] > 16, has_g = icov[3] > 16, has_b = icov[5] > 16;
+
+			const uint32_t total_active_chans = has_r + has_g + has_b;
+
+			if (total_active_chans >= 2)
+			{
+				const float r_var = (float)icov[0], g_var = (float)icov[3], b_var = (float)icov[5];
+
+				const float rg_corr = (has_r && has_g) ? fabs((float)icov[1] / sqrtf(r_var * g_var)) : 1.0f;
+				const float rb_corr = (has_r && has_b) ? fabs((float)icov[2] / sqrtf(r_var * b_var)) : 1.0f;
+				const float gb_corr = (has_g && has_b) ? fabs((float)icov[4] / sqrtf(g_var * b_var)) : 1.0f;
+
+				float min_p = basisu::minimum(rg_corr, rb_corr, gb_corr);
+				if (min_p < STRONG_CORR_THRESH)
+				{
+					if (total_active_chans == 2)
+					{
+						if (!has_r)
+							desired_dp_chan = 1;
+						else if (!has_g)
+							desired_dp_chan = 0;
+						else
+							desired_dp_chan = 0;
+					}
+					else
+					{
+						// see if rg/rb is weakly correlated vs. gb
+						if ((rg_corr < gb_corr) && (rb_corr < gb_corr))
+							desired_dp_chan = 0;
+						// see if gr/gb is weakly correlated vs. rb
+						else if ((rg_corr < rb_corr) && (gb_corr < rb_corr))
+							desired_dp_chan = 1;
+						// assume b is weakest
+						else
+							desired_dp_chan = 2;
+					}
+#if BASISU_BC7F_PERF_STATS
+					g_total_dp_valid_chans_rgb++;
+#endif
+				}
+			}
+		}
+
+		if ((flags & cPackBC7FlagUseTrivialMode6) && ((desired_dp_chan == -1) && (block_max_var < TRIVIAL_BLOCK_THRESH_RGB)))
+		{
+			//pack_mode5_solid(pBlock, color_rgba(0, 255, 0, 255));
+			//return;
+
+			int low_c = INT_MAX, high_c = 0;
+
+			for (uint32_t i = 0; i < 16; i++)
+			{
+				int y = ((16 * 2) * pPixels[i].r + (16 * 4) * pPixels[i].g + 16 * pPixels[i].b) + i;
+				low_c = basisu::minimum(low_c, y);
+				high_c = basisu::maximum(high_c, y);
+			}
+
+			low_c &= 0xF;
+			high_c &= 0xF;
+
+			int p0, p1, lr, lg, lb, hr, hg, hb;
+
+			if (flags & cPackBC7FlagPBitOptMode6)
+			{
+				// An alternative would be to set A's=1.0 here and bias the p-bit optimizer to lower A RMSE.
+				const float q = 1.0f / 255.0f;
+				float sxl[4] = { (float)pPixels[low_c].r * q, (float)pPixels[low_c].g * q, (float)pPixels[low_c].b * q, 0 };
+				float sxh[4] = { (float)pPixels[high_c].r * q, (float)pPixels[high_c].g * q, (float)pPixels[high_c].b * q, 0 };
+
+				color_rgba bestMinColor, bestMaxColor;
+				uint32_t best_pbits[2];
+				determine_unique_pbits(3, 7, sxl, sxh, bestMinColor, bestMaxColor, best_pbits);
+
+				p0 = best_pbits[0], p1 = best_pbits[1];
+				lr = bestMinColor.r, lg = bestMinColor.g, lb = bestMinColor.b;
+				hr = bestMaxColor.r, hg = bestMaxColor.g, hb = bestMaxColor.b;
+			}
+			else
+			{
+				p0 = 1;
+				p1 = 1;
+
+				lr = to_7(pPixels[low_c].r, p0), lg = to_7(pPixels[low_c].g, p0), lb = to_7(pPixels[low_c].b, p0);
+				hr = to_7(pPixels[high_c].r, p1), hg = to_7(pPixels[high_c].g, p1), hb = to_7(pPixels[high_c].b, p1);
+			}
+
+			uint8_t cur_weights[16];
+
+#if BASISU_BC7F_USE_SSE41
+			eval_weights_mode6_rgb_sse41(pPixels, cur_weights, lr, lg, lb, hr, hg, hb, p0, p1);
+#else
+			eval_weights_mode6_rgb(pPixels, cur_weights, lr, lg, lb, hr, hg, hb, p0, p1);
+#endif
+
+			encode_mode6_rgba_block(pBlock,
+				lr, lg, lb, 127, p0,
+				hr, hg, hb, 127, p1,
+				cur_weights);
+
+#if BASISU_BC7F_PERF_STATS
+			g_total_trivial_mode6_blocks++;
+#endif
+			return;
+		}
+
+		float cov[6];
+		for (uint32_t i = 0; i < 6; i++)
+			cov[i] = (float)icov[i];
+
+		const float sc = block_max_var ? (1.0f / (float)block_max_var) : 0;
+		const float wx = sc * cov[0], wy = sc * cov[3], wz = sc * cov[5];
+
+		const float alt_xr = cov[0] * wx + cov[1] * wy + cov[2] * wz;
+		const float alt_xg = cov[1] * wx + cov[3] * wy + cov[4] * wz;
+		const float alt_xb = cov[2] * wx + cov[4] * wy + cov[5] * wz;
+
+		// quite rough mode 6 SSE estimate (explictly higher bound): if some other mode can't even beat this, don't use it and we fall back to a decently strong mode 6
+		const int spans[4] = { max_r - min_r, max_g - min_g, max_b - min_b, 0 };
+				
+		// need_sse_estimates MUST be set correctly or subtle mode selection issues will occur.
+		const bool need_sse_estimates = ((flags & cPackBC7FlagUse2SubsetsRGB) != 0) || (desired_dp_chan >= 0);
+
+		float mode6_ortho_ratio = 0;
+		const float mode6_slam_to_line_sse_est = need_sse_estimates ? estimate_slam_to_line_sse_3D(cov, alt_xr, alt_xg, alt_xb, &mode6_ortho_ratio) : 0;
+		const float mode6_sse_est = need_sse_estimates ? (mode6_slam_to_line_sse_est + analytical_quant_est_sse(128, 16, 3, spans, nullptr, 1.0f, 16)) : 0;
+
+		// Prefer 2/3-subsets over dual plane
+		// TODO: Use mode 6 sse est?
+		if ((flags & cPackBC7FlagUse2SubsetsRGB) && (block_max_var >= MIN_BLOCK_MAX_VAR_23SUBSETS) && (mode6_ortho_ratio > ORTHO_RATIO_23SUBSET_RATIO_THRESH))
+		{
+			assert(need_sse_estimates);
+
+			const bool high_ortho_energy_flag = (mode6_slam_to_line_sse_est >= HIGH_ORTHO_ENERGY_THRESH);
+
+			if (high_ortho_energy_flag)
+			{
+#if BASISU_BC7F_PERF_STATS
+				g_total_high_ortho_energy++;
+#endif
+				//pack_mode5_solid(pBlock, color_rgba(255, 255, 0, 255));
+				//return;
+
+				if ((flags & cPackBC7FlagUse3SubsetsRGB) && (block_max_var >= MIN_BLOCK_MAX_VAR_3SUBSETS))
+				{
+					//pack_mode5_solid(pBlock, color_rgba(255, 0, 255, 255));
+					//return;
+
+#if 0
+					if (pack_mode0_or_2_rgb(pBlock, pPixels, alt_xr, alt_xg, alt_xb, mean_r, mean_g, mean_b, mode6_sse_est, flags))
+					{
+						return;
+					}
+#else
+					float mode0_or_2_sse_est = 1e+9f;
+					if (pack_mode0_or_2_rgb(pBlock, pPixels, alt_xr, alt_xg, alt_xb, mean_r, mean_g, mean_b, mode6_sse_est, flags, &mode0_or_2_sse_est))
+					{
+						float mode1_or_3_sse_est = 1e+9f;
+
+						uint8_t temp_2subset_block[sizeof(basist::bc7_block)];
+						if (pack_mode1_or_3_rgb(temp_2subset_block, pPixels, alt_xr, alt_xg, alt_xb, mean_r, mean_g, mean_b, mode0_or_2_sse_est, flags, &mode1_or_3_sse_est))
+						{
+							assert(mode1_or_3_sse_est < mode0_or_2_sse_est);
+							memcpy(pBlock, temp_2subset_block, sizeof(basist::bc7_block));
+						}
+
+						return;
+					}
+#endif
+				}
+
+				if (pack_mode1_or_3_rgb(pBlock, pPixels, alt_xr, alt_xg, alt_xb, mean_r, mean_g, mean_b, mode6_sse_est, flags))
+					return;
+			}
+		}
+
+		// Use dual plane over mode 6
+		if (desired_dp_chan >= 0)
+		{
+			assert(need_sse_estimates);
+
+			if (pack_mode4_or_5(pBlock, pPixels, desired_dp_chan, mode6_sse_est, flags))
+				return;
+
+		} // if (desired_dp_chan >= 0)
+
+		int saxis_r = 306, saxis_g = 601, saxis_b = 117;
+
+		float k = basisu::maximum(fabsf(alt_xr), fabsf(alt_xg), fabsf(alt_xb));
+		if (fabs(k) >= basisu::SMALL_FLOAT_VAL)
+		{
+			float m = 2048.0f / k;
+			saxis_r = (int)(alt_xr * m);
+			saxis_g = (int)(alt_xg * m);
+			saxis_b = (int)(alt_xb * m);
+		}
+
+		saxis_r = (int)((uint32_t)saxis_r << 4U);
+		saxis_g = (int)((uint32_t)saxis_g << 4U);
+		saxis_b = (int)((uint32_t)saxis_b << 4U);
+
+		int low_dot = INT_MAX, high_dot = INT_MIN;
+
+#if BASISU_BC7F_USE_SSE41
+		int low_c, high_c;
+		bc7_proj_minmax_indices_sse41(pPixels, saxis_r, saxis_g, saxis_b, &low_c, &high_c);
+#else
+		for (uint32_t i = 0; i < 16; i += 4)
+		{
+			assert(((pPixels[i].r * saxis_r + pPixels[i].g * saxis_g + pPixels[i].b * saxis_b) & 0xF) == 0); // sanity
+			assert(((pPixels[i + 1].r * saxis_r + pPixels[i + 1].g * saxis_g + pPixels[i + 1].b * saxis_b) & 0xF) == 0);
+			assert(((pPixels[i + 2].r * saxis_r + pPixels[i + 2].g * saxis_g + pPixels[i + 2].b * saxis_b) & 0xF) == 0);
+			assert(((pPixels[i + 3].r * saxis_r + pPixels[i + 3].g * saxis_g + pPixels[i + 3].b * saxis_b) & 0xF) == 0);
+
+			const int dot0 = (pPixels[i].r * saxis_r + pPixels[i].g * saxis_g + pPixels[i].b * saxis_b) + i;
+			const int dot1 = (pPixels[i + 1].r * saxis_r + pPixels[i + 1].g * saxis_g + pPixels[i + 1].b * saxis_b) + i + 1;
+			const int dot2 = (pPixels[i + 2].r * saxis_r + pPixels[i + 2].g * saxis_g + pPixels[i + 2].b * saxis_b) + i + 2;
+			const int dot3 = (pPixels[i + 3].r * saxis_r + pPixels[i + 3].g * saxis_g + pPixels[i + 3].b * saxis_b) + i + 3;
+
+			int min_d01 = basisu::minimum(dot0, dot1);
+			int max_d01 = basisu::maximum(dot0, dot1);
+
+			int min_d23 = basisu::minimum(dot2, dot3);
+			int max_d23 = basisu::maximum(dot2, dot3);
+
+			int min_d = basisu::minimum(min_d01, min_d23);
+			int max_d = basisu::maximum(max_d01, max_d23);
+
+			low_dot = basisu::minimum(low_dot, min_d);
+			high_dot = basisu::maximum(high_dot, max_d);
+		}
+
+		int low_c = low_dot & 15;
+		int high_c = high_dot & 15;
+#endif
+
+		int p0, p1, lr, lg, lb, hr, hg, hb;
+
+		if (flags & cPackBC7FlagPBitOptMode6)
+		{
+			const float q = 1.0f / 255.0f;
+			float sxl[4] = { (float)pPixels[low_c].r * q, (float)pPixels[low_c].g * q, (float)pPixels[low_c].b * q, 0 };
+			float sxh[4] = { (float)pPixels[high_c].r * q, (float)pPixels[high_c].g * q, (float)pPixels[high_c].b * q, 0 };
+
+			color_rgba bestMinColor, bestMaxColor;
+			uint32_t best_pbits[2];
+			determine_unique_pbits(3, 7, sxl, sxh, bestMinColor, bestMaxColor, best_pbits);
+
+			p0 = best_pbits[0], p1 = best_pbits[1];
+			lr = bestMinColor.r, lg = bestMinColor.g, lb = bestMinColor.b;
+			hr = bestMaxColor.r, hg = bestMaxColor.g, hb = bestMaxColor.b;
+		}
+		else
+		{
+			// explictly force pbits to 1, that way alpha is always 255 and we don't slow down the entire encoder by 4-8% for a tiny ~.1 dB PSNR gain (not worth it)
+			p0 = 1, p1 = 1;
+			lr = to_7(pPixels[low_c].r, p0), lg = to_7(pPixels[low_c].g, p0), lb = to_7(pPixels[low_c].b, p0);
+			hr = to_7(pPixels[high_c].r, p1), hg = to_7(pPixels[high_c].g, p1), hb = to_7(pPixels[high_c].b, p1);
+		}
+
+		uint8_t cur_weights[16];
+
+#if BASISU_BC7F_USE_SSE41
+		eval_weights_mode6_rgb_sse41(pPixels, cur_weights, lr, lg, lb, hr, hg, hb, p0, p1);
+#else
+		eval_weights_mode6_rgb(pPixels, cur_weights, lr, lg, lb, hr, hg, hb, p0, p1);
+#endif
+
+		vec4F xl, xh;
+		bool res = compute_least_squares_endpoints_3D(
+			16, cur_weights, 16,
+			g_bc7_4bit_ls_tab,
+			xl, xh,
+			pPixels,
+			(float)total_r, (float)total_g, (float)total_b);
+
+		if (res)
+		{
+			if (flags & cPackBC7FlagPBitOptMode6)
+			{
+				const float q = 1.0f / 255.0f;
+				float sxl[4] = { xl[0] * q, xl[1] * q, xl[2] * q, 0.0f };
+				float sxh[4] = { xh[0] * q, xh[1] * q, xh[2] * q, 0.0f };
+
+				color_rgba bestMinColor, bestMaxColor;
+				uint32_t best_pbits[2];
+				determine_unique_pbits(
+					3, 7, sxl, sxh,
+					bestMinColor, bestMaxColor, best_pbits);
+
+				p0 = best_pbits[0], p1 = best_pbits[1];
+				lr = bestMinColor.r, lg = bestMinColor.g, lb = bestMinColor.b;
+				hr = bestMaxColor.r, hg = bestMaxColor.g, hb = bestMaxColor.b;
+			}
+			else
+			{
+				p0 = 1; p1 = 1;
+				lr = to_7(xl[0], p0);
+				lg = to_7(xl[1], p0);
+				lb = to_7(xl[2], p0);
+
+				hr = to_7(xh[0], p1);
+				hg = to_7(xh[1], p1);
+				hb = to_7(xh[2], p1);
+			}
+
+#if BASISU_BC7F_USE_SSE41
+			eval_weights_mode6_rgb_sse41(pPixels, cur_weights, lr, lg, lb, hr, hg, hb, p0, p1);
+#else
+			eval_weights_mode6_rgb(pPixels, cur_weights, lr, lg, lb, hr, hg, hb, p0, p1);
+#endif
+		}
+
+		//pack_mode5_solid(pBlock, color_rgba(0, 0, 255, 255));
+		//return;
+
+		// pbits set to 1 to ensure alpha is always decoded to fully opaque (255)
+		encode_mode6_rgba_block(pBlock,
+			lr, lg, lb, 127, p0,
+			hr, hg, hb, 127, p1,
+			cur_weights);
+	}
+
+	//-------------------------------------------------------------------------------------------------------
+	const int MIN_BLOCK_MAX_VAR_23SUBSETS_RGBA = 100 * 16;
+	const float HIGH_ORTHO_ENERGY_THRESH_RGBA = 1.0f * 16.0f; // use 2+ subsets threshold
+	const float ORTHO_RATIO_23SUBSET_RATIO_THRESH_RGBA = .004f;
+
+	uint32_t fast_pack_bc7_rgb_partial_analytical(uint8_t* pBlock, const color_rgba* pPixels, uint32_t flags)
+	{
+		assert(g_bc7_4bit_ls_tab[1][0]);
+
+#if BASISU_BC7F_PERF_STATS
+		g_total_rgb_calls++;
+#endif
+
+		const uint32_t fc = *(const uint32_t*)&pPixels[0];
+		if (fc == *(const uint32_t*)&pPixels[15])
+		{
+			int k;
+			for (k = 1; k < 15; k++)
+				if (*(const uint32_t*)&pPixels[k] != fc)
+					break;
+
+			if (k == 15)
+			{
+#if BASISU_BC7F_PERF_STATS
+				g_total_solid_blocks++;
+#endif
+
+				pack_mode5_solid(pBlock, pPixels[0]);
+				return 0;
+			}
+		}
+
+		int total_r = 0, total_g = 0, total_b = 0;
+
+		int min_r = 255, min_g = 255, min_b = 255;
+		int max_r = 0, max_g = 0, max_b = 0;
+
+		for (uint32_t i = 0; i < 16; i++)
+		{
+			int r = pPixels[i].r, g = pPixels[i].g, b = pPixels[i].b;
+
+			total_r += r; total_g += g; total_b += b;
+
+			min_r = basisu::minimum(min_r, r); min_g = basisu::minimum(min_g, g); min_b = basisu::minimum(min_b, b);
+			max_r = basisu::maximum(max_r, r); max_g = basisu::maximum(max_g, g); max_b = basisu::maximum(max_b, b);
+		}
+
+		int mean_r = (total_r + 8) >> 4, mean_g = (total_g + 8) >> 4, mean_b = (total_b + 8) >> 4;
+
+		// covar rows are:
+		// 0, 1, 2
+		// 1, 3, 4
+		// 2, 4, 5
+		int icov[6] = { 0, 0, 0, 0, 0, 0 };
+
+		for (uint32_t i = 0; i < 16; i++)
+		{
+			int r = (int)pPixels[i].r - mean_r;
+			int g = (int)pPixels[i].g - mean_g;
+			int b = (int)pPixels[i].b - mean_b;
+			icov[0] += r * r; icov[1] += r * g; icov[2] += r * b;
+			icov[3] += g * g; icov[4] += g * b;
+			icov[5] += b * b;
+		}
+
+		int block_max_var = basisu::maximum(icov[0], icov[3], icov[5]); // not divided by 16, i.e. scaled by 16
+
+		// not redundant due to uint32_t test above, which could be fooled by alpha accidentally passed in
+		if (!block_max_var)
+		{
+#if BASISU_BC7F_PERF_STATS
+			g_total_solid_blocks++;
+#endif
+			pack_mode5_solid(pBlock, pPixels[0]);
+			return 0;
+		}
+
+		// check for dual plane, if a single component is very strongly decorrelated then switch to modes 4/5
+		int desired_dp_chan = -1;
+
+		const bool non_analytical_flag = (flags & cPackBC7FlagNonAnalyticalRGB) != 0;
+
+		if ((flags & cPackBC7FlagUseDualPlaneRGB) &&
+			((!non_analytical_flag && (block_max_var >= DP_BLOCK_VAR_THRESH)) || (non_analytical_flag && (block_max_var >= 16))))
+		{
+			// 0,1
+			// 0,2
+			// 1,2
+			const bool has_r = icov[0] > 16, has_g = icov[3] > 16, has_b = icov[5] > 16;
+
+			const uint32_t total_active_chans = has_r + has_g + has_b;
+
+			if (total_active_chans >= 2)
+			{
+				const float r_var = (float)icov[0], g_var = (float)icov[3], b_var = (float)icov[5];
+
+				const float rg_corr = (has_r && has_g) ? fabs((float)icov[1] / sqrtf(r_var * g_var)) : 1.0f;
+				const float rb_corr = (has_r && has_b) ? fabs((float)icov[2] / sqrtf(r_var * b_var)) : 1.0f;
+				const float gb_corr = (has_g && has_b) ? fabs((float)icov[4] / sqrtf(g_var * b_var)) : 1.0f;
+
+				float min_p = basisu::minimum(rg_corr, rb_corr, gb_corr);
+
+				const float corr_thresh = non_analytical_flag ? .999f : STRONG_CORR_THRESH;
+
+				if (min_p < corr_thresh)
+				{
+					if (total_active_chans == 2)
+					{
+						if (!has_r)
+							desired_dp_chan = 1;
+						else if (!has_g)
+							desired_dp_chan = 0;
+						else
+							desired_dp_chan = 0;
+					}
+					else
+					{
+						// see if rg/rb is weakly correlated vs. gb
+						if ((rg_corr < gb_corr) && (rb_corr < gb_corr))
+							desired_dp_chan = 0;
+						// see if gr/gb is weakly correlated vs. rb
+						else if ((rg_corr < rb_corr) && (gb_corr < rb_corr))
+							desired_dp_chan = 1;
+						// assume b is weakest
+						else
+							desired_dp_chan = 2;
+					}
+#if BASISU_BC7F_PERF_STATS
+					g_total_dp_valid_chans_rgb++;
+#endif
+				}
+			}
+		}
+
+		if ((flags & cPackBC7FlagUseTrivialMode6) && ((desired_dp_chan == -1) && (block_max_var < TRIVIAL_BLOCK_THRESH_RGB)))
+		{
+			int low_c = INT_MAX, high_c = 0;
+
+			for (uint32_t i = 0; i < 16; i++)
+			{
+				int y = ((16 * 2) * pPixels[i].r + (16 * 4) * pPixels[i].g + 16 * pPixels[i].b) + i;
+				low_c = basisu::minimum(low_c, y);
+				high_c = basisu::maximum(high_c, y);
+			}
+
+			low_c &= 0xF;
+			high_c &= 0xF;
+
+			int p0, p1, lr, lg, lb, hr, hg, hb;
+
+			if (flags & cPackBC7FlagPBitOptMode6)
+			{
+				// An alternative would be to set A's=1.0 here and bias the p-bit optimizer to lower A RMSE.
+				const float q = 1.0f / 255.0f;
+				float sxl[4] = { (float)pPixels[low_c].r * q, (float)pPixels[low_c].g * q, (float)pPixels[low_c].b * q, 0 };
+				float sxh[4] = { (float)pPixels[high_c].r * q, (float)pPixels[high_c].g * q, (float)pPixels[high_c].b * q, 0 };
+
+				color_rgba bestMinColor, bestMaxColor;
+				uint32_t best_pbits[2];
+				determine_unique_pbits(3, 7, sxl, sxh, bestMinColor, bestMaxColor, best_pbits);
+
+				p0 = best_pbits[0], p1 = best_pbits[1];
+				lr = bestMinColor.r, lg = bestMinColor.g, lb = bestMinColor.b;
+				hr = bestMaxColor.r, hg = bestMaxColor.g, hb = bestMaxColor.b;
+			}
+			else
+			{
+				p0 = 1;
+				p1 = 1;
+
+				lr = to_7(pPixels[low_c].r, p0), lg = to_7(pPixels[low_c].g, p0), lb = to_7(pPixels[low_c].b, p0);
+				hr = to_7(pPixels[high_c].r, p1), hg = to_7(pPixels[high_c].g, p1), hb = to_7(pPixels[high_c].b, p1);
+			}
+
+			uint8_t cur_weights[16];
+			uint32_t mode6_actual_sse = eval_weights_mode6_rgb_sse(pPixels, cur_weights, lr, lg, lb, hr, hg, hb, p0, p1);
+
+			encode_mode6_rgba_block(pBlock,
+				lr, lg, lb, 127, p0,
+				hr, hg, hb, 127, p1,
+				cur_weights);
+
+#if BASISU_BC7F_PERF_STATS
+			g_total_trivial_mode6_blocks++;
+#endif
+
+#ifdef _DEBUG
+			{
+				// Final sanity checking.
+				uint32_t expected_actual_sse = calc_sse(pBlock, pPixels);
+				assert(expected_actual_sse == mode6_actual_sse);
+			}
+#endif
+
+			return mode6_actual_sse;
+		}
+
+		float cov[6];
+		for (uint32_t i = 0; i < 6; i++)
+			cov[i] = (float)icov[i];
+
+		const float sc = block_max_var ? (1.0f / (float)block_max_var) : 0;
+		const float wx = sc * cov[0], wy = sc * cov[3], wz = sc * cov[5];
+
+		const float alt_xr = cov[0] * wx + cov[1] * wy + cov[2] * wz;
+		const float alt_xg = cov[1] * wx + cov[3] * wy + cov[4] * wz;
+		const float alt_xb = cov[2] * wx + cov[4] * wy + cov[5] * wz;
+
+		int saxis_r = 306, saxis_g = 601, saxis_b = 117;
+
+		float k = basisu::maximum(fabsf(alt_xr), fabsf(alt_xg), fabsf(alt_xb));
+		if (fabs(k) >= basisu::SMALL_FLOAT_VAL)
+		{
+			float m = 2048.0f / k;
+			saxis_r = (int)(alt_xr * m);
+			saxis_g = (int)(alt_xg * m);
+			saxis_b = (int)(alt_xb * m);
+		}
+
+		saxis_r = (int)((uint32_t)saxis_r << 4U);
+		saxis_g = (int)((uint32_t)saxis_g << 4U);
+		saxis_b = (int)((uint32_t)saxis_b << 4U);
+
+		int low_dot = INT_MAX, high_dot = INT_MIN;
+
+#if BASISU_BC7F_USE_SSE41
+		int low_c, high_c;
+		bc7_proj_minmax_indices_sse41(pPixels, saxis_r, saxis_g, saxis_b, &low_c, &high_c);
+#else
+		for (uint32_t i = 0; i < 16; i += 4)
+		{
+			assert(((pPixels[i].r * saxis_r + pPixels[i].g * saxis_g + pPixels[i].b * saxis_b) & 0xF) == 0); // sanity
+			assert(((pPixels[i + 1].r * saxis_r + pPixels[i + 1].g * saxis_g + pPixels[i + 1].b * saxis_b) & 0xF) == 0);
+			assert(((pPixels[i + 2].r * saxis_r + pPixels[i + 2].g * saxis_g + pPixels[i + 2].b * saxis_b) & 0xF) == 0);
+			assert(((pPixels[i + 3].r * saxis_r + pPixels[i + 3].g * saxis_g + pPixels[i + 3].b * saxis_b) & 0xF) == 0);
+
+			const int dot0 = (pPixels[i].r * saxis_r + pPixels[i].g * saxis_g + pPixels[i].b * saxis_b) + i;
+			const int dot1 = (pPixels[i + 1].r * saxis_r + pPixels[i + 1].g * saxis_g + pPixels[i + 1].b * saxis_b) + i + 1;
+			const int dot2 = (pPixels[i + 2].r * saxis_r + pPixels[i + 2].g * saxis_g + pPixels[i + 2].b * saxis_b) + i + 2;
+			const int dot3 = (pPixels[i + 3].r * saxis_r + pPixels[i + 3].g * saxis_g + pPixels[i + 3].b * saxis_b) + i + 3;
+
+			int min_d01 = basisu::minimum(dot0, dot1);
+			int max_d01 = basisu::maximum(dot0, dot1);
+
+			int min_d23 = basisu::minimum(dot2, dot3);
+			int max_d23 = basisu::maximum(dot2, dot3);
+
+			int min_d = basisu::minimum(min_d01, min_d23);
+			int max_d = basisu::maximum(max_d01, max_d23);
+
+			low_dot = basisu::minimum(low_dot, min_d);
+			high_dot = basisu::maximum(high_dot, max_d);
+		}
+
+		int low_c = low_dot & 15;
+		int high_c = high_dot & 15;
+#endif
+
+		int p0, p1, lr, lg, lb, hr, hg, hb;
+
+		if (flags & cPackBC7FlagPBitOptMode6)
+		{
+			const float q = 1.0f / 255.0f;
+			float sxl[4] = { (float)pPixels[low_c].r * q, (float)pPixels[low_c].g * q, (float)pPixels[low_c].b * q, 0 };
+			float sxh[4] = { (float)pPixels[high_c].r * q, (float)pPixels[high_c].g * q, (float)pPixels[high_c].b * q, 0 };
+
+			color_rgba bestMinColor, bestMaxColor;
+			uint32_t best_pbits[2];
+			determine_unique_pbits(3, 7, sxl, sxh, bestMinColor, bestMaxColor, best_pbits);
+
+			p0 = best_pbits[0], p1 = best_pbits[1];
+			lr = bestMinColor.r, lg = bestMinColor.g, lb = bestMinColor.b;
+			hr = bestMaxColor.r, hg = bestMaxColor.g, hb = bestMaxColor.b;
+		}
+		else
+		{
+			// explictly force pbits to 1, that way alpha is always 255 and we don't slow down the entire encoder by 4-8% for a tiny ~.1 dB PSNR gain (not worth it)
+			p0 = 1, p1 = 1;
+			lr = to_7(pPixels[low_c].r, p0), lg = to_7(pPixels[low_c].g, p0), lb = to_7(pPixels[low_c].b, p0);
+			hr = to_7(pPixels[high_c].r, p1), hg = to_7(pPixels[high_c].g, p1), hb = to_7(pPixels[high_c].b, p1);
+		}
+
+		uint8_t cur_weights[16];
+
+		uint32_t mode6_actual_sse = eval_weights_mode6_rgb_sse(pPixels, cur_weights, lr, lg, lb, hr, hg, hb, p0, p1);
+
+		if (mode6_actual_sse)
+		{
+			vec4F xl, xh;
+			bool res = compute_least_squares_endpoints_3D(
+				16, cur_weights, 16,
+				g_bc7_4bit_ls_tab,
+				xl, xh,
+				pPixels,
+				(float)total_r, (float)total_g, (float)total_b);
+
+			if (res)
+			{
+				int trial_p0, trial_p1, trial_lr, trial_lg, trial_lb, trial_hr, trial_hg, trial_hb;
+
+				if (flags & cPackBC7FlagPBitOptMode6)
+				{
+					const float q = 1.0f / 255.0f;
+					float sxl[4] = { xl[0] * q, xl[1] * q, xl[2] * q, 0.0f };
+					float sxh[4] = { xh[0] * q, xh[1] * q, xh[2] * q, 0.0f };
+
+					color_rgba bestMinColor, bestMaxColor;
+					uint32_t best_pbits[2];
+					determine_unique_pbits(
+						3, 7, sxl, sxh,
+						bestMinColor, bestMaxColor, best_pbits);
+
+					trial_p0 = best_pbits[0], trial_p1 = best_pbits[1];
+					trial_lr = bestMinColor.r, trial_lg = bestMinColor.g, trial_lb = bestMinColor.b;
+					trial_hr = bestMaxColor.r, trial_hg = bestMaxColor.g, trial_hb = bestMaxColor.b;
+				}
+				else
+				{
+					trial_p0 = 1; trial_p1 = 1;
+					trial_lr = to_7(xl[0], trial_p0);
+					trial_lg = to_7(xl[1], trial_p0);
+					trial_lb = to_7(xl[2], trial_p0);
+
+					trial_hr = to_7(xh[0], trial_p1);
+					trial_hg = to_7(xh[1], trial_p1);
+					trial_hb = to_7(xh[2], trial_p1);
+				}
+
+				uint8_t trial_weights[16];
+				uint32_t mode6_ls_actual_sse = eval_weights_mode6_rgb_sse(pPixels, trial_weights, trial_lr, trial_lg, trial_lb, trial_hr, trial_hg, trial_hb, trial_p0, trial_p1);
+				if (mode6_ls_actual_sse < mode6_actual_sse)
+				{
+					mode6_actual_sse = mode6_ls_actual_sse;
+					memcpy(cur_weights, trial_weights, 16);
+					p0 = trial_p0; p1 = trial_p1;
+					lr = trial_lr; lg = trial_lg; lb = trial_lb;
+					hr = trial_hr; hg = trial_hg; hb = trial_hb;
+				}
+			}
+		}
+
+		uint32_t mode02_actual_sse = UINT32_MAX;
+		uint8_t mode02_candidate_block[sizeof(basist::bc7_block)];
+
+		uint32_t mode13_actual_sse = UINT32_MAX;
+		uint8_t mode13_candidate_block[sizeof(basist::bc7_block)];
+
+		uint32_t mode45_actual_sse = UINT32_MAX;
+		uint8_t mode45_candidate_block[sizeof(basist::bc7_block)];
+
+		if (mode6_actual_sse)
+		{
+			if (non_analytical_flag)
+			{
+				// No gates: very expensive.
+				if (flags & cPackBC7FlagUse2SubsetsRGB)
+				{
+					if (flags & cPackBC7FlagUse3SubsetsRGB)
+					{
+						pack_mode0_or_2_rgb(mode02_candidate_block, pPixels, alt_xr, alt_xg, alt_xb, mean_r, mean_g, mean_b, 1e+9f, flags, nullptr, &mode02_actual_sse);
+					}
+
+					pack_mode1_or_3_rgb(mode13_candidate_block, pPixels, alt_xr, alt_xg, alt_xb, mean_r, mean_g, mean_b, 1e+9f, flags, nullptr, &mode13_actual_sse);
+				}
+
+				if (flags & cPackBC7FlagUseDualPlaneRGB)
+					pack_mode4_or_5(mode45_candidate_block, pPixels, (desired_dp_chan >= 0) ? desired_dp_chan : 1, 1e+9f, flags, nullptr, &mode45_actual_sse); // todo: determine best def channel here
+			}
+			else
+			{
+				float mode6_ortho_ratio;
+				const float mode6_slam_to_line_sse_est = estimate_slam_to_line_sse_3D(cov, alt_xr, alt_xg, alt_xb, &mode6_ortho_ratio);
+
+				if ((flags & cPackBC7FlagUse2SubsetsRGB) && (block_max_var >= MIN_BLOCK_MAX_VAR_23SUBSETS) && (mode6_ortho_ratio > ORTHO_RATIO_23SUBSET_RATIO_THRESH))
+				{
+					const bool high_ortho_energy_flag = (mode6_slam_to_line_sse_est >= HIGH_ORTHO_ENERGY_THRESH);
+
+					if (high_ortho_energy_flag)
+					{
+#if BASISU_BC7F_PERF_STATS
+						g_total_high_ortho_energy++;
+#endif
+
+						if ((flags & cPackBC7FlagUse3SubsetsRGB) && (block_max_var >= MIN_BLOCK_MAX_VAR_3SUBSETS))
+						{
+							pack_mode0_or_2_rgb(mode02_candidate_block, pPixels, alt_xr, alt_xg, alt_xb, mean_r, mean_g, mean_b, 1e+9f, flags, nullptr, &mode02_actual_sse);
+							pack_mode1_or_3_rgb(mode13_candidate_block, pPixels, alt_xr, alt_xg, alt_xb, mean_r, mean_g, mean_b, 1e+9f, flags, nullptr, &mode13_actual_sse);
+						}
+						else
+						{
+							pack_mode1_or_3_rgb(mode13_candidate_block, pPixels, alt_xr, alt_xg, alt_xb, mean_r, mean_g, mean_b, 1e+9f, flags, nullptr, &mode13_actual_sse);
+						}
+					}
+				}
+
+				if (desired_dp_chan >= 0)
+				{
+					assert(flags & cPackBC7FlagUseDualPlaneRGB);
+
+					pack_mode4_or_5(mode45_candidate_block, pPixels, desired_dp_chan, 1e+9f, flags, nullptr, &mode45_actual_sse);
+
+				} // if (desired_dp_chan >= 0)
+			}
+		}
+
+		const uint32_t best_actual_sse = basisu::minimum(mode6_actual_sse, mode02_actual_sse, mode13_actual_sse, mode45_actual_sse);
+
+		if ((mode45_actual_sse != UINT32_MAX) && (best_actual_sse == mode45_actual_sse))
+		{
+			memcpy(pBlock, mode45_candidate_block, sizeof(basist::bc7_block));
+		}
+		else if ((mode02_actual_sse != UINT32_MAX) && (best_actual_sse == mode02_actual_sse))
+		{
+			memcpy(pBlock, mode02_candidate_block, sizeof(basist::bc7_block));
+		}
+		else if ((mode13_actual_sse != UINT32_MAX) && (best_actual_sse == mode13_actual_sse))
+		{
+			memcpy(pBlock, mode13_candidate_block, sizeof(basist::bc7_block));
+		}
+		else
+		{
+			assert(mode6_actual_sse == best_actual_sse);
+
+			// pbits set to 1 to ensure alpha is always decoded to fully opaque (255)
+			encode_mode6_rgba_block(pBlock,
+				lr, lg, lb, 127, p0,
+				hr, hg, hb, 127, p1,
+				cur_weights);
+		}
+
+#ifdef _DEBUG
+		{
+			// Final sanity checking.
+			uint32_t expected_actual_sse = calc_sse(pBlock, pPixels);
+			assert(expected_actual_sse == best_actual_sse);
+		}
+#endif
+
+		return best_actual_sse;
+	}
+
+	//-------------------------------------------------------------------------------------------------------
+
+	void fast_pack_bc7_rgba_analytical(uint8_t* pBlock, const color_rgba* pPixels, uint32_t flags)
+	{
+		assert(g_bc7_4bit_ls_tab[1][0]);
+
+#if BASISU_BC7F_PERF_STATS
+		g_total_rgba_calls++;
+#endif
+
+		const uint32_t fc = *(const uint32_t*)&pPixels[0];
+		if (fc == *(const uint32_t*)&pPixels[15])
+		{
+			int k;
+			for (k = 1; k < 15; k++)
+				if (*(const uint32_t*)&pPixels[k] != fc)
+					break;
+
+			if (k == 15)
+			{
+				pack_mode5_solid(pBlock, pPixels[0]);
+				return;
+			}
+		}
+
+		int total_r = 0, total_g = 0, total_b = 0, total_a = 0;
+		int min_r = 255, min_g = 255, min_b = 255, min_a = 255;
+		int max_r = 0, max_g = 0, max_b = 0, max_a = 0;
+
+		for (uint32_t i = 0; i < 16; i++)
+		{
+			int r = pPixels[i].r, g = pPixels[i].g, b = pPixels[i].b, a = pPixels[i].a;
+
+			total_r += r; total_g += g; total_b += b; total_a += a;
+
+			min_r = basisu::minimum(min_r, r); min_g = basisu::minimum(min_g, g); min_b = basisu::minimum(min_b, b); min_a = basisu::minimum(min_a, a);
+			max_r = basisu::maximum(max_r, r); max_g = basisu::maximum(max_g, g); max_b = basisu::maximum(max_b, b); max_a = basisu::maximum(max_a, a);
+		}
+
+		assert((min_r != max_r) || (min_g != max_g) || (min_b != max_b) || (min_a != max_a));
+
+		const int mean_r = (total_r + 8) >> 4, mean_g = (total_g + 8) >> 4, mean_b = (total_b + 8) >> 4, mean_a = (total_a + 8) >> 4;
+
+		// covar rows are:
+		int icov4[10] = { };
+
+		// 0=rr
+		// 1=rg
+		// 2=rb
+		// 3=ra
+		// 
+		// 4=gg
+		// 5=gb
+		// 6=ga
+		// 
+		// 7=bb
+		// 8=ba
+		// 
+		// 9=aa
+
+		// 0 1 2 3
+		//   4 5 6
+		//     7 8
+		//       9
+
+		// 0 1 2 3
+		// 1 4 5 6
+		// 2 5 7 8
+		// 3 6 8 9
+
+		// trace at 0,4,7,9
+
+		for (uint32_t i = 0; i < 16; i++)
+		{
+			const int r = (int)pPixels[i].r - mean_r, g = (int)pPixels[i].g - mean_g, b = (int)pPixels[i].b - mean_b, a = (int)pPixels[i].a - mean_a;
+
+			icov4[0] += r * r; icov4[1] += r * g; icov4[2] += r * b; icov4[3] += r * a;
+			icov4[4] += g * g; icov4[5] += g * b; icov4[6] += g * a;
+			icov4[7] += b * b; icov4[8] += b * a;
+			icov4[9] += a * a;
+		}
+
+		const int block_max_var4 = basisu::maximum(icov4[0], icov4[4], icov4[7], icov4[9]); // not divided by 16, i.e. scaled by 16
+		assert(block_max_var4); // solid blocks already filtered out
+
+		// check for dual plane, if a single component is very strongly decorrelated then switch to modes 4/5
+		int desired_dp_chan = -1;
+
+		if ((flags & cPackBC7FlagUseDualPlaneRGBA) && (block_max_var4 >= DP_BLOCK_VAR_THRESH_RGBA))
+		{
+			// Prefer A, if not strongly decorrelated then check RGB.
+			const float r_var = (float)icov4[0], g_var = (float)icov4[4], b_var = (float)icov4[7], a_var = (float)icov4[9];
+
+			const bool has_a = icov4[9] > 0;
+
+			if (has_a)
+			{
+				const float p_03 = icov4[0] ? fabs((float)icov4[3] / sqrtf(r_var * a_var)) : 1.0f;
+				const float p_13 = icov4[4] ? fabs((float)icov4[6] / sqrtf(g_var * a_var)) : 1.0f;
+				const float p_23 = icov4[7] ? fabs((float)icov4[8] / sqrtf(b_var * a_var)) : 1.0f;
+
+				const float min_p = basisu::minimum(p_03, p_13, p_23);
+				if (min_p < ALPHA_DECORR_THRESHOLD)
+				{
+					desired_dp_chan = 3;
+#if BASISU_BC7F_PERF_STATS
+					g_total_dp_valid_chans_a++;
+#endif
+				}
+			}
+
+			if (desired_dp_chan < 0)
+			{
+				const bool has_r = icov4[0] > 16, has_g = icov4[4] > 16, has_b = icov4[7] > 16;
+				const uint32_t total_active_chans_rgb = has_r + has_g + has_b;
+
+				if (total_active_chans_rgb >= 2)
+				{
+					const float rg_corr = (has_r && has_g) ? fabs((float)icov4[1] / sqrtf(r_var * g_var)) : 1.0f;
+					const float rb_corr = (has_r && has_b) ? fabs((float)icov4[2] / sqrtf(r_var * b_var)) : 1.0f;
+					const float gb_corr = (has_g && has_b) ? fabs((float)icov4[5] / sqrtf(g_var * b_var)) : 1.0f;
+
+					float min_p = basisu::minimum(rg_corr, rb_corr, gb_corr);
+					if (min_p < STRONG_DECORR_THRESH_RGBA)
+					{
+						if (total_active_chans_rgb == 2)
+						{
+							if (!has_r)
+								desired_dp_chan = 1;
+							else if (!has_g)
+								desired_dp_chan = 0;
+							else
+								desired_dp_chan = 0;
+						}
+						else
+						{
+							// see if rg/rb is weakly correlated vs. gb
+							if ((rg_corr < gb_corr) && (rb_corr < gb_corr))
+								desired_dp_chan = 0;
+							// see if gr/gb is weakly correlated vs. rb
+							else if ((rg_corr < rb_corr) && (gb_corr < rb_corr))
+								desired_dp_chan = 1;
+							// assume b is weakest
+							else
+								desired_dp_chan = 2;
+						}
+#if BASISU_BC7F_PERF_STATS
+						g_total_dp_valid_chans_rgb++;
+#endif
+					}
+				}
+			}
+		}
+
+		if ((flags & cPackBC7FlagUseTrivialMode6) && ((desired_dp_chan == -1) && (block_max_var4 < TRIVIAL_BLOCK_THRESH_RGBA)))
+		{
+			//pack_mode5_solid(pBlock, color_rgba(0, 255, 0, 255));
+			//return;
+
+			int low_c = INT_MAX, high_c = 0;
+
+			for (uint32_t i = 0; i < 16; i++)
+			{
+				int y = ((16 * 2) * pPixels[i].r + (16 * 4) * pPixels[i].g + 16 * pPixels[i].b + (16 * 4) * pPixels[i].a);
+				assert((y & 0xF) == 0);
+				y += i;
+				low_c = basisu::minimum(low_c, y);
+				high_c = basisu::maximum(high_c, y);
+			}
+
+			low_c &= 0xF;
+			high_c &= 0xF;
+
+			int p0, p1, lr, lg, lb, la, hr, hg, hb, ha;
+
+			if (flags & cPackBC7FlagPBitOptMode6)
+			{
+				const float q = 1.0f / 255.0f;
+				float sxl[4] = { (float)pPixels[low_c].r * q, (float)pPixels[low_c].g * q, (float)pPixels[low_c].b * q, (float)pPixels[low_c].a * q };
+				float sxh[4] = { (float)pPixels[high_c].r * q, (float)pPixels[high_c].g * q, (float)pPixels[high_c].b * q, (float)pPixels[high_c].a * q };
+
+				color_rgba bestMinColor, bestMaxColor;
+				uint32_t best_pbits[2];
+				determine_unique_pbits(4, 7, sxl, sxh, bestMinColor, bestMaxColor, best_pbits);
+
+				p0 = best_pbits[0], p1 = best_pbits[1];
+				lr = bestMinColor.r, lg = bestMinColor.g, lb = bestMinColor.b, la = bestMinColor.a;
+				hr = bestMaxColor.r, hg = bestMaxColor.g, hb = bestMaxColor.b, ha = bestMaxColor.a;
+			}
+			else
+			{
+				p0 = pPixels[low_c].a > 128;
+				p1 = pPixels[high_c].a > 128;
+
+				lr = to_7(pPixels[low_c].r, p0), lg = to_7(pPixels[low_c].g, p0), lb = to_7(pPixels[low_c].b, p0), la = to_7(pPixels[low_c].a, p0);
+				hr = to_7(pPixels[high_c].r, p1), hg = to_7(pPixels[high_c].g, p1), hb = to_7(pPixels[high_c].b, p1), ha = to_7(pPixels[high_c].a, p1);
+			}
+
+			uint8_t cur_weights[16];
+			eval_weights_mode6_rgba(pPixels, cur_weights,
+				lr, lg, lb, la, p0,
+				hr, hg, hb, ha, p1);
+
+			encode_mode6_rgba_block(pBlock,
+				lr, lg, lb, la, p0,
+				hr, hg, hb, ha, p1,
+				cur_weights);
+
+#if BASISU_BC7F_PERF_STATS
+			g_total_trivial_mode6_blocks++;
+#endif
+			return;
+		}
+
+		float cov4[10];
+		for (uint32_t i = 0; i < 10; i++)
+			cov4[i] = (float)icov4[i];
+
+		// all channel pairs:
+		// 0,1=1
+		// 0,2=2
+		// 0,3=3
+		// 1,2=5
+		// 1,3=6
+		// 2,3=8
+		//const float r_var = cov4[0], g_var = cov4[4], b_var = cov4[7], a_var = cov4[9];
+
+		const float sc4 = block_max_var4 ? (1.0f / (float)block_max_var4) : 0;
+		float wx = sc4 * cov4[0], wy = sc4 * cov4[4], wz = sc4 * cov4[7], wa = sc4 * cov4[9];
+
+		// 0 1 2 3
+		// 1 4 5 6
+		// 2 5 7 8
+		// 3 6 8 9
+
+		// TODO
+		float x1, y1, z1, w1;
+		for (uint32_t i = 0; i < 4; i++)
+		{
+			x1 = cov4[0] * wx + cov4[1] * wy + cov4[2] * wz + cov4[3] * wa;
+			y1 = cov4[1] * wx + cov4[4] * wy + cov4[5] * wz + cov4[6] * wa;
+			z1 = cov4[2] * wx + cov4[5] * wy + cov4[7] * wz + cov4[8] * wa;
+			w1 = cov4[3] * wx + cov4[6] * wy + cov4[8] * wz + cov4[9] * wa;
+
+			float t = sqrtf(x1 * x1 + y1 * y1 + z1 * z1 + w1 * w1);
+			if (t > basisu::SMALL_FLOAT_VAL)
+			{
+				t = 1.0f / t;
+				x1 *= t; y1 *= t; z1 *= t; w1 *= t;
+			}
+			else
+			{
+				x1 = y1 = z1 = w1 = .25f;
+			}
+
+			wx = x1; wy = y1; wz = z1; wa = w1;
+		}
+
+		const int spans[4] = { max_r - min_r, max_g - min_g, max_b - min_b, max_a - min_a };
+
+		float mode6_ortho_ratio;
+		const float mode6_slam_to_line_sse_est = estimate_slam_to_line_sse_4D(cov4, x1, y1, z1, w1, &mode6_ortho_ratio);
+		const float mode6_sse_est = (mode6_slam_to_line_sse_est + analytical_quant_est_sse(128, 16, 4, spans, nullptr, 1.0f, 16));
+
+		float mode45_sse_est = 1e+9f, mode7_sse_est = 1e+9f;
+
+		uint8_t mode45_block[sizeof(basist::bc7_block)];
+		const bool mode45_valid_flag = (desired_dp_chan >= 0) ? pack_mode4_or_5(mode45_block, pPixels, desired_dp_chan, mode6_sse_est, flags, &mode45_sse_est) : false;
+		BASISU_NOTE_UNUSED(mode45_valid_flag);
+
+		uint8_t mode7_block[sizeof(basist::bc7_block)];
+		bool mode7_valid_flag = false;
+		BASISU_NOTE_UNUSED(mode7_valid_flag);
+
+		if ((flags & cPackBC7FlagUse2SubsetsRGBA) && (block_max_var4 >= MIN_BLOCK_MAX_VAR_23SUBSETS_RGBA) && (mode6_ortho_ratio > ORTHO_RATIO_23SUBSET_RATIO_THRESH_RGBA))
+		{
+			const bool high_ortho_energy_flag = (mode6_slam_to_line_sse_est >= HIGH_ORTHO_ENERGY_THRESH_RGBA);
+
+			if (high_ortho_energy_flag)
+			{
+#if BASISU_BC7F_PERF_STATS
+				g_total_high_ortho_energy++;
+#endif
+				mode7_valid_flag = pack_mode7_rgba(mode7_block, pPixels, x1, y1, z1, w1, mean_r, mean_g, mean_b, mean_a, mode6_sse_est, flags, &mode7_sse_est);
+			}
+		}
+
+		if ((mode45_sse_est < mode7_sse_est) && (mode45_sse_est < mode6_sse_est))
+		{
+			assert(mode45_valid_flag);
+			memcpy(pBlock, mode45_block, sizeof(basist::bc7_block));
+			return;
+		}
+		else if ((mode7_sse_est < mode45_sse_est) && (mode7_sse_est < mode6_sse_est))
+		{
+			assert(mode7_valid_flag);
+			memcpy(pBlock, mode7_block, sizeof(basist::bc7_block));
+			return;
+		}
+
+		// Fall back to mode 6
+		int saxis_r = 256, saxis_g = 256, saxis_b = 256, saxis_a = 256;
+
+		float k = basisu::maximum(fabsf(x1), fabsf(y1), fabsf(z1), fabs(w1));
+		if (fabs(k) >= basisu::SMALL_FLOAT_VAL)
+		{
+			float m = 2048.0f / k;
+			saxis_r = (int)(x1 * m);
+			saxis_g = (int)(y1 * m);
+			saxis_b = (int)(z1 * m);
+			saxis_a = (int)(w1 * m);
+		}
+
+		saxis_r = (int)((uint32_t)saxis_r << 4U);
+		saxis_g = (int)((uint32_t)saxis_g << 4U);
+		saxis_b = (int)((uint32_t)saxis_b << 4U);
+		saxis_a = (int)((uint32_t)saxis_a << 4U);
+
+		int low_dot = INT_MAX, high_dot = INT_MIN;
+
+		for (uint32_t i = 0; i < 16; i += 4)
+		{
+			assert(((pPixels[i].r * saxis_r + pPixels[i].g * saxis_g + pPixels[i].b * saxis_b + pPixels[i].a * saxis_a) & 0xF) == 0); // sanity
+			assert(((pPixels[i + 1].r * saxis_r + pPixels[i + 1].g * saxis_g + pPixels[i + 1].b * saxis_b + pPixels[i + 1].a * saxis_a) & 0xF) == 0);
+			assert(((pPixels[i + 2].r * saxis_r + pPixels[i + 2].g * saxis_g + pPixels[i + 2].b * saxis_b + pPixels[i + 2].a * saxis_a) & 0xF) == 0);
+			assert(((pPixels[i + 3].r * saxis_r + pPixels[i + 3].g * saxis_g + pPixels[i + 3].b * saxis_b + pPixels[i + 3].a * saxis_a) & 0xF) == 0);
+
+			const int dot0 = (pPixels[i].r * saxis_r + pPixels[i].g * saxis_g + pPixels[i].b * saxis_b + pPixels[i].a * saxis_a) + i;
+			const int dot1 = (pPixels[i + 1].r * saxis_r + pPixels[i + 1].g * saxis_g + pPixels[i + 1].b * saxis_b + pPixels[i + 1].a * saxis_a) + i + 1;
+			const int dot2 = (pPixels[i + 2].r * saxis_r + pPixels[i + 2].g * saxis_g + pPixels[i + 2].b * saxis_b + pPixels[i + 2].a * saxis_a) + i + 2;
+			const int dot3 = (pPixels[i + 3].r * saxis_r + pPixels[i + 3].g * saxis_g + pPixels[i + 3].b * saxis_b + pPixels[i + 3].a * saxis_a) + i + 3;
+
+			int min_d01 = basisu::minimum(dot0, dot1);
+			int max_d01 = basisu::maximum(dot0, dot1);
+
+			int min_d23 = basisu::minimum(dot2, dot3);
+			int max_d23 = basisu::maximum(dot2, dot3);
+
+			int min_d = basisu::minimum(min_d01, min_d23);
+			int max_d = basisu::maximum(max_d01, max_d23);
+
+			low_dot = basisu::minimum(low_dot, min_d);
+			high_dot = basisu::maximum(high_dot, max_d);
+		}
+
+		const int low_c = low_dot & 15;
+		const int high_c = high_dot & 15;
+
+		int p0, p1, lr, lg, lb, la, hr, hg, hb, ha;
+
+		if (flags & cPackBC7FlagPBitOptMode6)
+		{
+			const float q = 1.0f / 255.0f;
+			float sxl[4] = { (float)pPixels[low_c].r * q, (float)pPixels[low_c].g * q, (float)pPixels[low_c].b * q, (float)pPixels[low_c].a * q };
+			float sxh[4] = { (float)pPixels[high_c].r * q, (float)pPixels[high_c].g * q, (float)pPixels[high_c].b * q, (float)pPixels[high_c].a * q };
+
+			color_rgba bestMinColor, bestMaxColor;
+			uint32_t best_pbits[2];
+			determine_unique_pbits(4, 7, sxl, sxh, bestMinColor, bestMaxColor, best_pbits);
+
+			p0 = best_pbits[0], p1 = best_pbits[1];
+			lr = bestMinColor.r, lg = bestMinColor.g, lb = bestMinColor.b, la = bestMinColor.a;
+			hr = bestMaxColor.r, hg = bestMaxColor.g, hb = bestMaxColor.b, ha = bestMaxColor.a;
+		}
+		else
+		{
+			p0 = pPixels[low_c].a > 128;
+			p1 = pPixels[high_c].a > 128;
+
+			lr = to_7(pPixels[low_c].r, p0), lg = to_7(pPixels[low_c].g, p0), lb = to_7(pPixels[low_c].b, p0), la = to_7(pPixels[low_c].a, p0);
+			hr = to_7(pPixels[high_c].r, p1), hg = to_7(pPixels[high_c].g, p1), hb = to_7(pPixels[high_c].b, p1), ha = to_7(pPixels[high_c].a, p1);
+		}
+
+		uint8_t cur_weights[16];
+		eval_weights_mode6_rgba(pPixels, cur_weights,
+			lr, lg, lb, la, p0,
+			hr, hg, hb, ha, p1);
+
+		vec4F xl, xh;
+		bool res = compute_least_squares_endpoints_4D(
+			16, cur_weights, 16,
+			g_bc7_4bit_ls_tab,
+			xl, xh,
+			pPixels,
+			(float)total_r, (float)total_g, (float)total_b, (float)total_a);
+
+		if (res)
+		{
+			if (flags & cPackBC7FlagPBitOptMode6)
+			{
+				const float q = 1.0f / 255.0f;
+				float sxl[4] = { xl[0] * q, xl[1] * q, xl[2] * q, xl[3] * q };
+				float sxh[4] = { xh[0] * q, xh[1] * q, xh[2] * q, xh[3] * q };
+
+				color_rgba bestMinColor, bestMaxColor;
+				uint32_t best_pbits[2];
+				determine_unique_pbits(4, 7, sxl, sxh, bestMinColor, bestMaxColor, best_pbits);
+
+				p0 = best_pbits[0], p1 = best_pbits[1];
+				lr = bestMinColor.r, lg = bestMinColor.g, lb = bestMinColor.b, la = bestMinColor.a;
+				hr = bestMaxColor.r, hg = bestMaxColor.g, hb = bestMaxColor.b, ha = bestMaxColor.a;
+			}
+			else
+			{
+				p0 = (xl[3] >= 129.0f);
+				lr = to_7(xl[0], p0);
+				lg = to_7(xl[1], p0);
+				lb = to_7(xl[2], p0);
+				la = to_7(xl[3], p0);
+
+				p1 = (xh[3] >= 129.0f);
+				hr = to_7(xh[0], p1);
+				hg = to_7(xh[1], p1);
+				hb = to_7(xh[2], p1);
+				ha = to_7(xh[3], p1);
+			}
+
+			eval_weights_mode6_rgba(pPixels, cur_weights,
+				lr, lg, lb, la, p0,
+				hr, hg, hb, ha, p1);
+		}
+
+		encode_mode6_rgba_block(pBlock,
+			lr, lg, lb, la, p0,
+			hr, hg, hb, ha, p1,
+			cur_weights);
+	}
+
+	uint32_t fast_pack_bc7_rgba_partial_analytical(uint8_t* pBlock, const color_rgba* pPixels, uint32_t flags)
+	{
+		assert(g_bc7_4bit_ls_tab[1][0]);
+
+#if BASISU_BC7F_PERF_STATS
+		g_total_rgba_calls++;
+#endif
+
+		const uint32_t fc = *(const uint32_t*)&pPixels[0];
+		if (fc == *(const uint32_t*)&pPixels[15])
+		{
+			int k;
+			for (k = 1; k < 15; k++)
+				if (*(const uint32_t*)&pPixels[k] != fc)
+					break;
+
+			if (k == 15)
+			{
+				pack_mode5_solid(pBlock, pPixels[0]);
+				return 0;
+			}
+		}
+
+		int total_r = 0, total_g = 0, total_b = 0, total_a = 0;
+		int min_r = 255, min_g = 255, min_b = 255, min_a = 255;
+		int max_r = 0, max_g = 0, max_b = 0, max_a = 0;
+
+		for (uint32_t i = 0; i < 16; i++)
+		{
+			int r = pPixels[i].r, g = pPixels[i].g, b = pPixels[i].b, a = pPixels[i].a;
+
+			total_r += r; total_g += g; total_b += b; total_a += a;
+
+			min_r = basisu::minimum(min_r, r); min_g = basisu::minimum(min_g, g); min_b = basisu::minimum(min_b, b); min_a = basisu::minimum(min_a, a);
+			max_r = basisu::maximum(max_r, r); max_g = basisu::maximum(max_g, g); max_b = basisu::maximum(max_b, b); max_a = basisu::maximum(max_a, a);
+		}
+
+		assert((min_r != max_r) || (min_g != max_g) || (min_b != max_b) || (min_a != max_a));
+
+		const int mean_r = (total_r + 8) >> 4, mean_g = (total_g + 8) >> 4, mean_b = (total_b + 8) >> 4, mean_a = (total_a + 8) >> 4;
+
+		// covar rows are:
+		int icov4[10] = { };
+
+		// 0=rr
+		// 1=rg
+		// 2=rb
+		// 3=ra
+		// 
+		// 4=gg
+		// 5=gb
+		// 6=ga
+		// 
+		// 7=bb
+		// 8=ba
+		// 
+		// 9=aa
+
+		// 0 1 2 3
+		//   4 5 6
+		//     7 8
+		//       9
+
+		// 0 1 2 3
+		// 1 4 5 6
+		// 2 5 7 8
+		// 3 6 8 9
+
+		// trace at 0,4,7,9
+
+		for (uint32_t i = 0; i < 16; i++)
+		{
+			const int r = (int)pPixels[i].r - mean_r, g = (int)pPixels[i].g - mean_g, b = (int)pPixels[i].b - mean_b, a = (int)pPixels[i].a - mean_a;
+
+			icov4[0] += r * r; icov4[1] += r * g; icov4[2] += r * b; icov4[3] += r * a;
+			icov4[4] += g * g; icov4[5] += g * b; icov4[6] += g * a;
+			icov4[7] += b * b; icov4[8] += b * a;
+			icov4[9] += a * a;
+		}
+
+		const int block_max_var4 = basisu::maximum(icov4[0], icov4[4], icov4[7], icov4[9]); // not divided by 16, i.e. scaled by 16
+		assert(block_max_var4); // solid blocks already filtered out
+
+		// check for dual plane, if a single component is very strongly decorrelated then switch to modes 4/5
+		int desired_dp_chan = -1;
+
+		const bool non_analytical_flag = (flags & cPackBC7FlagNonAnalyticalRGBA) != 0;
+
+		if ((flags & cPackBC7FlagUseDualPlaneRGBA) &&
+			((!non_analytical_flag && (block_max_var4 >= DP_BLOCK_VAR_THRESH_RGBA)) || (non_analytical_flag && (block_max_var4 > 16)))
+			)
+		{
+			// Prefer A, if not strongly decorrelated then check RGB.
+			const float r_var = (float)icov4[0], g_var = (float)icov4[4], b_var = (float)icov4[7], a_var = (float)icov4[9];
+
+			const bool has_a = icov4[9] > 0;
+
+			if (has_a)
+			{
+				const float p_03 = icov4[0] ? fabs((float)icov4[3] / sqrtf(r_var * a_var)) : 1.0f;
+				const float p_13 = icov4[4] ? fabs((float)icov4[6] / sqrtf(g_var * a_var)) : 1.0f;
+				const float p_23 = icov4[7] ? fabs((float)icov4[8] / sqrtf(b_var * a_var)) : 1.0f;
+
+				const float min_p = basisu::minimum(p_03, p_13, p_23);
+				if (min_p < ALPHA_DECORR_THRESHOLD)
+				{
+					desired_dp_chan = 3;
+#if BASISU_BC7F_PERF_STATS
+					g_total_dp_valid_chans_a++;
+#endif
+				}
+			}
+
+			if (desired_dp_chan < 0)
+			{
+				const bool has_r = icov4[0] > 16, has_g = icov4[4] > 16, has_b = icov4[7] > 16;
+				const uint32_t total_active_chans_rgb = has_r + has_g + has_b;
+
+				if (total_active_chans_rgb >= 2)
+				{
+					const float rg_corr = (has_r && has_g) ? fabs((float)icov4[1] / sqrtf(r_var * g_var)) : 1.0f;
+					const float rb_corr = (has_r && has_b) ? fabs((float)icov4[2] / sqrtf(r_var * b_var)) : 1.0f;
+					const float gb_corr = (has_g && has_b) ? fabs((float)icov4[5] / sqrtf(g_var * b_var)) : 1.0f;
+
+					float min_p = basisu::minimum(rg_corr, rb_corr, gb_corr);
+
+					const float decorr_thresh = non_analytical_flag ? .999f : STRONG_DECORR_THRESH_RGBA;
+					if (min_p < decorr_thresh)
+					{
+						if (total_active_chans_rgb == 2)
+						{
+							if (!has_r)
+								desired_dp_chan = 1;
+							else if (!has_g)
+								desired_dp_chan = 0;
+							else
+								desired_dp_chan = 0;
+						}
+						else
+						{
+							// see if rg/rb is weakly correlated vs. gb
+							if ((rg_corr < gb_corr) && (rb_corr < gb_corr))
+								desired_dp_chan = 0;
+							// see if gr/gb is weakly correlated vs. rb
+							else if ((rg_corr < rb_corr) && (gb_corr < rb_corr))
+								desired_dp_chan = 1;
+							// assume b is weakest
+							else
+								desired_dp_chan = 2;
+						}
+#if BASISU_BC7F_PERF_STATS
+						g_total_dp_valid_chans_rgb++;
+#endif
+					}
+				}
+			}
+		}
+
+		if ((flags & cPackBC7FlagUseTrivialMode6) && ((desired_dp_chan == -1) && (block_max_var4 < TRIVIAL_BLOCK_THRESH_RGBA)))
+		{
+			int low_c = INT_MAX, high_c = 0;
+
+			for (uint32_t i = 0; i < 16; i++)
+			{
+				int y = ((16 * 2) * pPixels[i].r + (16 * 4) * pPixels[i].g + 16 * pPixels[i].b + (16 * 4) * pPixels[i].a);
+				assert((y & 0xF) == 0);
+				y += i;
+				low_c = basisu::minimum(low_c, y);
+				high_c = basisu::maximum(high_c, y);
+			}
+
+			low_c &= 0xF;
+			high_c &= 0xF;
+
+			int p0, p1, lr, lg, lb, la, hr, hg, hb, ha;
+
+			if (flags & cPackBC7FlagPBitOptMode6)
+			{
+				const float q = 1.0f / 255.0f;
+				float sxl[4] = { (float)pPixels[low_c].r * q, (float)pPixels[low_c].g * q, (float)pPixels[low_c].b * q, (float)pPixels[low_c].a * q };
+				float sxh[4] = { (float)pPixels[high_c].r * q, (float)pPixels[high_c].g * q, (float)pPixels[high_c].b * q, (float)pPixels[high_c].a * q };
+
+				color_rgba bestMinColor, bestMaxColor;
+				uint32_t best_pbits[2];
+				determine_unique_pbits(4, 7, sxl, sxh, bestMinColor, bestMaxColor, best_pbits);
+
+				p0 = best_pbits[0], p1 = best_pbits[1];
+				lr = bestMinColor.r, lg = bestMinColor.g, lb = bestMinColor.b, la = bestMinColor.a;
+				hr = bestMaxColor.r, hg = bestMaxColor.g, hb = bestMaxColor.b, ha = bestMaxColor.a;
+			}
+			else
+			{
+				p0 = pPixels[low_c].a > 128;
+				p1 = pPixels[high_c].a > 128;
+
+				lr = to_7(pPixels[low_c].r, p0), lg = to_7(pPixels[low_c].g, p0), lb = to_7(pPixels[low_c].b, p0), la = to_7(pPixels[low_c].a, p0);
+				hr = to_7(pPixels[high_c].r, p1), hg = to_7(pPixels[high_c].g, p1), hb = to_7(pPixels[high_c].b, p1), ha = to_7(pPixels[high_c].a, p1);
+			}
+
+			uint8_t cur_weights[16];
+			uint32_t mode6_actual_sse = eval_weights_mode6_rgba_sse(pPixels, cur_weights,
+				lr, lg, lb, la, p0,
+				hr, hg, hb, ha, p1);
+
+			encode_mode6_rgba_block(pBlock,
+				lr, lg, lb, la, p0,
+				hr, hg, hb, ha, p1,
+				cur_weights);
+
+#if BASISU_BC7F_PERF_STATS
+			g_total_trivial_mode6_blocks++;
+#endif
+
+#ifdef _DEBUG
+			{
+				// Final sanity checking.
+				uint32_t expected_actual_sse = calc_sse(pBlock, pPixels);
+				assert(expected_actual_sse == mode6_actual_sse);
+			}
+#endif
+
+			return mode6_actual_sse;
+		}
+
+		float cov4[10];
+		for (uint32_t i = 0; i < 10; i++)
+			cov4[i] = (float)icov4[i];
+
+		// all channel pairs:
+		// 0,1=1
+		// 0,2=2
+		// 0,3=3
+		// 1,2=5
+		// 1,3=6
+		// 2,3=8
+		//const float r_var = cov4[0], g_var = cov4[4], b_var = cov4[7], a_var = cov4[9];
+
+		const float sc4 = block_max_var4 ? (1.0f / (float)block_max_var4) : 0;
+		float wx = sc4 * cov4[0], wy = sc4 * cov4[4], wz = sc4 * cov4[7], wa = sc4 * cov4[9];
+
+		// 0 1 2 3
+		// 1 4 5 6
+		// 2 5 7 8
+		// 3 6 8 9
+
+		// TODO
+		float x1, y1, z1, w1;
+		for (uint32_t i = 0; i < 4; i++)
+		{
+			x1 = cov4[0] * wx + cov4[1] * wy + cov4[2] * wz + cov4[3] * wa;
+			y1 = cov4[1] * wx + cov4[4] * wy + cov4[5] * wz + cov4[6] * wa;
+			z1 = cov4[2] * wx + cov4[5] * wy + cov4[7] * wz + cov4[8] * wa;
+			w1 = cov4[3] * wx + cov4[6] * wy + cov4[8] * wz + cov4[9] * wa;
+
+			float t = sqrtf(x1 * x1 + y1 * y1 + z1 * z1 + w1 * w1);
+			if (t > basisu::SMALL_FLOAT_VAL)
+			{
+				t = 1.0f / t;
+				x1 *= t; y1 *= t; z1 *= t; w1 *= t;
+			}
+			else
+			{
+				x1 = y1 = z1 = w1 = .25f;
+			}
+
+			wx = x1; wy = y1; wz = z1; wa = w1;
+		}
+
+		// Fall back to mode 6
+		int saxis_r = 256, saxis_g = 256, saxis_b = 256, saxis_a = 256;
+
+		float k = basisu::maximum(fabsf(x1), fabsf(y1), fabsf(z1), fabs(w1));
+		if (fabs(k) >= basisu::SMALL_FLOAT_VAL)
+		{
+			float m = 2048.0f / k;
+			saxis_r = (int)(x1 * m);
+			saxis_g = (int)(y1 * m);
+			saxis_b = (int)(z1 * m);
+			saxis_a = (int)(w1 * m);
+		}
+
+		saxis_r = (int)((uint32_t)saxis_r << 4U);
+		saxis_g = (int)((uint32_t)saxis_g << 4U);
+		saxis_b = (int)((uint32_t)saxis_b << 4U);
+		saxis_a = (int)((uint32_t)saxis_a << 4U);
+
+		int low_dot = INT_MAX, high_dot = INT_MIN;
+
+		for (uint32_t i = 0; i < 16; i += 4)
+		{
+			assert(((pPixels[i].r * saxis_r + pPixels[i].g * saxis_g + pPixels[i].b * saxis_b + pPixels[i].a * saxis_a) & 0xF) == 0); // sanity
+			assert(((pPixels[i + 1].r * saxis_r + pPixels[i + 1].g * saxis_g + pPixels[i + 1].b * saxis_b + pPixels[i + 1].a * saxis_a) & 0xF) == 0);
+			assert(((pPixels[i + 2].r * saxis_r + pPixels[i + 2].g * saxis_g + pPixels[i + 2].b * saxis_b + pPixels[i + 2].a * saxis_a) & 0xF) == 0);
+			assert(((pPixels[i + 3].r * saxis_r + pPixels[i + 3].g * saxis_g + pPixels[i + 3].b * saxis_b + pPixels[i + 3].a * saxis_a) & 0xF) == 0);
+
+			const int dot0 = (pPixels[i].r * saxis_r + pPixels[i].g * saxis_g + pPixels[i].b * saxis_b + pPixels[i].a * saxis_a) + i;
+			const int dot1 = (pPixels[i + 1].r * saxis_r + pPixels[i + 1].g * saxis_g + pPixels[i + 1].b * saxis_b + pPixels[i + 1].a * saxis_a) + i + 1;
+			const int dot2 = (pPixels[i + 2].r * saxis_r + pPixels[i + 2].g * saxis_g + pPixels[i + 2].b * saxis_b + pPixels[i + 2].a * saxis_a) + i + 2;
+			const int dot3 = (pPixels[i + 3].r * saxis_r + pPixels[i + 3].g * saxis_g + pPixels[i + 3].b * saxis_b + pPixels[i + 3].a * saxis_a) + i + 3;
+
+			int min_d01 = basisu::minimum(dot0, dot1);
+			int max_d01 = basisu::maximum(dot0, dot1);
+
+			int min_d23 = basisu::minimum(dot2, dot3);
+			int max_d23 = basisu::maximum(dot2, dot3);
+
+			int min_d = basisu::minimum(min_d01, min_d23);
+			int max_d = basisu::maximum(max_d01, max_d23);
+
+			low_dot = basisu::minimum(low_dot, min_d);
+			high_dot = basisu::maximum(high_dot, max_d);
+		}
+
+		const int low_c = low_dot & 15;
+		const int high_c = high_dot & 15;
+
+		int p0, p1, lr, lg, lb, la, hr, hg, hb, ha;
+
+		if (flags & cPackBC7FlagPBitOptMode6)
+		{
+			const float q = 1.0f / 255.0f;
+			float sxl[4] = { (float)pPixels[low_c].r * q, (float)pPixels[low_c].g * q, (float)pPixels[low_c].b * q, (float)pPixels[low_c].a * q };
+			float sxh[4] = { (float)pPixels[high_c].r * q, (float)pPixels[high_c].g * q, (float)pPixels[high_c].b * q, (float)pPixels[high_c].a * q };
+
+			color_rgba bestMinColor, bestMaxColor;
+			uint32_t best_pbits[2];
+			determine_unique_pbits(4, 7, sxl, sxh, bestMinColor, bestMaxColor, best_pbits);
+
+			p0 = best_pbits[0], p1 = best_pbits[1];
+			lr = bestMinColor.r, lg = bestMinColor.g, lb = bestMinColor.b, la = bestMinColor.a;
+			hr = bestMaxColor.r, hg = bestMaxColor.g, hb = bestMaxColor.b, ha = bestMaxColor.a;
+		}
+		else
+		{
+			p0 = pPixels[low_c].a > 128;
+			p1 = pPixels[high_c].a > 128;
+
+			lr = to_7(pPixels[low_c].r, p0), lg = to_7(pPixels[low_c].g, p0), lb = to_7(pPixels[low_c].b, p0), la = to_7(pPixels[low_c].a, p0);
+			hr = to_7(pPixels[high_c].r, p1), hg = to_7(pPixels[high_c].g, p1), hb = to_7(pPixels[high_c].b, p1), ha = to_7(pPixels[high_c].a, p1);
+		}
+
+		uint8_t cur_weights[16];
+		uint32_t mode6_actual_sse = eval_weights_mode6_rgba_sse(pPixels, cur_weights,
+			lr, lg, lb, la, p0,
+			hr, hg, hb, ha, p1);
+
+		if (mode6_actual_sse)
+		{
+			vec4F xl, xh;
+			bool res = compute_least_squares_endpoints_4D(
+				16, cur_weights, 16,
+				g_bc7_4bit_ls_tab,
+				xl, xh,
+				pPixels,
+				(float)total_r, (float)total_g, (float)total_b, (float)total_a);
+
+			if (res)
+			{
+				int trial_p0, trial_p1, trial_lr, trial_lg, trial_lb, trial_la, trial_hr, trial_hg, trial_hb, trial_ha;
+
+				if (flags & cPackBC7FlagPBitOptMode6)
+				{
+					const float q = 1.0f / 255.0f;
+					float sxl[4] = { xl[0] * q, xl[1] * q, xl[2] * q, xl[3] * q };
+					float sxh[4] = { xh[0] * q, xh[1] * q, xh[2] * q, xh[3] * q };
+
+					color_rgba bestMinColor, bestMaxColor;
+					uint32_t best_pbits[2];
+					determine_unique_pbits(4, 7, sxl, sxh, bestMinColor, bestMaxColor, best_pbits);
+
+					trial_p0 = best_pbits[0], trial_p1 = best_pbits[1];
+					trial_lr = bestMinColor.r, trial_lg = bestMinColor.g, trial_lb = bestMinColor.b, trial_la = bestMinColor.a;
+					trial_hr = bestMaxColor.r, trial_hg = bestMaxColor.g, trial_hb = bestMaxColor.b, trial_ha = bestMaxColor.a;
+				}
+				else
+				{
+					trial_p0 = (xl[3] >= 129.0f);
+					trial_lr = to_7(xl[0], trial_p0);
+					trial_lg = to_7(xl[1], trial_p0);
+					trial_lb = to_7(xl[2], trial_p0);
+					trial_la = to_7(xl[3], trial_p0);
+
+					trial_p1 = (xh[3] >= 129.0f);
+					trial_hr = to_7(xh[0], trial_p1);
+					trial_hg = to_7(xh[1], trial_p1);
+					trial_hb = to_7(xh[2], trial_p1);
+					trial_ha = to_7(xh[3], trial_p1);
+				}
+
+				uint8_t trial_weights[16];
+				uint32_t mode6_ls_actual_sse = eval_weights_mode6_rgba_sse(pPixels, trial_weights,
+					trial_lr, trial_lg, trial_lb, trial_la, trial_p0,
+					trial_hr, trial_hg, trial_hb, trial_ha, trial_p1);
+
+				if (mode6_ls_actual_sse < mode6_actual_sse)
+				{
+					mode6_actual_sse = mode6_ls_actual_sse;
+					memcpy(cur_weights, trial_weights, 16);
+					p0 = trial_p0; p1 = trial_p1;
+					lr = trial_lr; lg = trial_lg; lb = trial_lb; la = trial_la;
+					hr = trial_hr; hg = trial_hg; hb = trial_hb; ha = trial_ha;
+				}
+			}
+		}
+
+		uint32_t mode7_actual_sse = UINT32_MAX;
+		uint8_t mode7_candidate_block[sizeof(basist::bc7_block)];
+
+		uint32_t mode45_actual_sse = UINT32_MAX;
+		uint8_t mode45_candidate_block[sizeof(basist::bc7_block)];
+
+		if (mode6_actual_sse)
+		{
+			if (non_analytical_flag)
+			{
+				// No gates: very expensive.
+				if (flags & cPackBC7FlagUse2SubsetsRGBA)
+				{
+					pack_mode7_rgba(mode7_candidate_block, pPixels, x1, y1, z1, w1, mean_r, mean_g, mean_b, mean_a, 1e+9f, flags, nullptr, &mode7_actual_sse);
+				}
+
+				if (flags & cPackBC7FlagUseDualPlaneRGBA)
+					pack_mode4_or_5(mode45_candidate_block, pPixels, (desired_dp_chan >= 0) ? desired_dp_chan : 3, 1e+9f, flags, nullptr, &mode45_actual_sse); // todo: determine best def channel here
+			}
+			else
+			{
+				float mode6_ortho_ratio;
+				const float mode6_slam_to_line_sse_est = estimate_slam_to_line_sse_4D(cov4, x1, y1, z1, w1, &mode6_ortho_ratio);
+
+				if ((flags & cPackBC7FlagUse2SubsetsRGBA) && (block_max_var4 >= MIN_BLOCK_MAX_VAR_23SUBSETS_RGBA) && (mode6_ortho_ratio > ORTHO_RATIO_23SUBSET_RATIO_THRESH_RGBA))
+				{
+					const bool high_ortho_energy_flag = (mode6_slam_to_line_sse_est >= HIGH_ORTHO_ENERGY_THRESH_RGBA);
+
+					if (high_ortho_energy_flag)
+					{
+#if BASISU_BC7F_PERF_STATS
+						g_total_high_ortho_energy++;
+#endif
+						pack_mode7_rgba(mode7_candidate_block, pPixels, x1, y1, z1, w1, mean_r, mean_g, mean_b, mean_a, 1e+9f, flags, nullptr, &mode7_actual_sse);
+					}
+				}
+
+				if (desired_dp_chan >= 0)
+					pack_mode4_or_5(mode45_candidate_block, pPixels, desired_dp_chan, 1e+9f, flags, nullptr, &mode45_actual_sse);
+			}
+		}
+
+		const uint32_t best_actual_sse = basisu::minimum(mode6_actual_sse, mode45_actual_sse, mode7_actual_sse);
+
+		if ((mode45_actual_sse != UINT32_MAX) && (best_actual_sse == mode45_actual_sse))
+		{
+			memcpy(pBlock, mode45_candidate_block, sizeof(basist::bc7_block));
+		}
+		else if ((mode7_actual_sse != UINT32_MAX) && (best_actual_sse == mode7_actual_sse))
+		{
+			memcpy(pBlock, mode7_candidate_block, sizeof(basist::bc7_block));
+		}
+		else
+		{
+			assert(mode6_actual_sse == best_actual_sse);
+
+			encode_mode6_rgba_block(pBlock,
+				lr, lg, lb, la, p0,
+				hr, hg, hb, ha, p1,
+				cur_weights);
+		}
+
+#ifdef _DEBUG
+		{
+			// Final sanity checking.
+			uint32_t expected_actual_sse = calc_sse(pBlock, pPixels);
+			assert(expected_actual_sse == best_actual_sse);
+		}
+#endif
+
+		return best_actual_sse;
+	}
+
+	// Routes to either rgb or rgba automatically
+	uint32_t fast_pack_bc7_auto_rgba(uint8_t* pBlock, const color_rgba* pPixels, uint32_t flags)
+	{
+		for (uint32_t i = 0; i < 16; i += 4)
+		{
+			if ((pPixels[i].a < 255) || (pPixels[i + 1].a < 255) || (pPixels[i + 2].a < 255) || (pPixels[i + 3].a < 255))
+			{
+				if (flags & cPackBC7FlagPartiallyAnalyticalRGBA)
+					return bc7f::fast_pack_bc7_rgba_partial_analytical(pBlock, pPixels, flags);
+				else
+				{
+					bc7f::fast_pack_bc7_rgba_analytical(pBlock, pPixels, flags);
+					return 0;
+				}
+			}
+		}
+
+		if (flags & cPackBC7FlagPartiallyAnalyticalRGB)
+			return bc7f::fast_pack_bc7_rgb_partial_analytical(pBlock, pPixels, flags);
+		else
+		{
+			bc7f::fast_pack_bc7_rgb_analytical(pBlock, pPixels, flags);
+			return 0;
+		}
+	}
+
+	// Source block cannot have alpha.
+	uint32_t fast_pack_bc7_auto_rgb(uint8_t* pBlock, const color_rgba* pPixels, uint32_t flags)
+	{
+// Disabling this check here, because during fuzzing the ktx2 file may lie. In this case it's harmless to output an opaque block.
+#if 0
+#if defined(DEBUG) || defined(_DEBUG)
+		for (uint32_t i = 0; i < 16; i += 4)
+		{
+			if ((pPixels[i].a < 255) || (pPixels[i + 1].a < 255) || (pPixels[i + 2].a < 255) || (pPixels[i + 3].a < 255))
+			{
+				// Block can't have alpha here, or the solid color detectors may misfire.
+				assert(0);
+			}
+		}
+#endif
+#endif
+
+		if (flags & cPackBC7FlagPartiallyAnalyticalRGB)
+			return bc7f::fast_pack_bc7_rgb_partial_analytical(pBlock, pPixels, flags);
+		else
+		{
+			bc7f::fast_pack_bc7_rgb_analytical(pBlock, pPixels, flags);
+			return 0;
+		}
+	}
+
+	void clear_perf_stats()
+	{
+#if BASISU_BC7F_PERF_STATS
+#define BU_CLEAR_BLOCK_STAT(x) x = 0;
+		BU_CLEAR_BLOCK_STAT(g_total_rgb_calls);
+		BU_CLEAR_BLOCK_STAT(g_total_rgba_calls);
+		BU_CLEAR_BLOCK_STAT(g_total_solid_blocks);
+		BU_CLEAR_BLOCK_STAT(g_total_trivial_mode6_blocks);
+		BU_CLEAR_BLOCK_STAT(g_total_dp_valid_chans_rgb);
+		BU_CLEAR_BLOCK_STAT(g_total_dp_valid_chans_a);
+		BU_CLEAR_BLOCK_STAT(g_total_high_ortho_energy);
+		BU_CLEAR_BLOCK_STAT(g_total_mode02_evals);
+		BU_CLEAR_BLOCK_STAT(g_total_mode02_bailouts);
+		BU_CLEAR_BLOCK_STAT(g_total_mode13_evals);
+		BU_CLEAR_BLOCK_STAT(g_total_mode13_bailouts);
+		BU_CLEAR_BLOCK_STAT(g_total_mode45_evals);
+		BU_CLEAR_BLOCK_STAT(g_total_mode45_bailouts);
+		BU_CLEAR_BLOCK_STAT(g_total_mode7_evals);
+		BU_CLEAR_BLOCK_STAT(g_total_mode7_bailouts);
+#undef BU_CLEAR_BLOCK_STAT
+#endif
+	}
+
+	void print_perf_stats()
+	{
+#if BASISU_BC7F_PERF_STATS
+		const uint32_t total_bc7_blocks = g_total_rgb_calls + g_total_rgba_calls;
+		if (!total_bc7_blocks)
+			return;
+
+#define BU_PRINT_BLOCK_STAT(x) printf(#x ": %u %3.2f%%\n", (uint32_t)x, static_cast<float>(x) * 100.0f / (float)total_bc7_blocks);
+		BU_PRINT_BLOCK_STAT(g_total_rgb_calls);
+		BU_PRINT_BLOCK_STAT(g_total_rgba_calls);
+		BU_PRINT_BLOCK_STAT(g_total_solid_blocks);
+		BU_PRINT_BLOCK_STAT(g_total_trivial_mode6_blocks);
+		BU_PRINT_BLOCK_STAT(g_total_dp_valid_chans_rgb);
+		BU_PRINT_BLOCK_STAT(g_total_dp_valid_chans_a);
+		BU_PRINT_BLOCK_STAT(g_total_high_ortho_energy);
+		BU_PRINT_BLOCK_STAT(g_total_mode02_evals);
+		BU_PRINT_BLOCK_STAT(g_total_mode02_bailouts);
+		BU_PRINT_BLOCK_STAT(g_total_mode13_evals);
+		BU_PRINT_BLOCK_STAT(g_total_mode13_bailouts);
+		BU_PRINT_BLOCK_STAT(g_total_mode45_evals);
+		BU_PRINT_BLOCK_STAT(g_total_mode45_bailouts);
+		BU_PRINT_BLOCK_STAT(g_total_mode7_evals);
+		BU_PRINT_BLOCK_STAT(g_total_mode7_bailouts);
+#undef BU_PRINT_BLOCK_STAT
+
+#endif
+	}
+
+#if 0
+	struct bc7_mode_6
+	{
+		struct
+		{
+			uint64_t m_mode : 7;
+			uint64_t m_r0 : 7;
+			uint64_t m_r1 : 7;
+			uint64_t m_g0 : 7;
+			uint64_t m_g1 : 7;
+			uint64_t m_b0 : 7;
+			uint64_t m_b1 : 7;
+			uint64_t m_a0 : 7;
+			uint64_t m_a1 : 7;
+			uint64_t m_p0 : 1;
+		} m_lo;
+
+		union
+		{
+			struct
+			{
+				uint64_t m_p1 : 1;
+				uint64_t m_s00 : 3;
+				uint64_t m_s10 : 4;
+				uint64_t m_s20 : 4;
+				uint64_t m_s30 : 4;
+
+				uint64_t m_s01 : 4;
+				uint64_t m_s11 : 4;
+				uint64_t m_s21 : 4;
+				uint64_t m_s31 : 4;
+
+				uint64_t m_s02 : 4;
+				uint64_t m_s12 : 4;
+				uint64_t m_s22 : 4;
+				uint64_t m_s32 : 4;
+
+				uint64_t m_s03 : 4;
+				uint64_t m_s13 : 4;
+				uint64_t m_s23 : 4;
+				uint64_t m_s33 : 4;
+
+			} m_hi;
+
+			uint64_t m_hi_bits;
+		};
+	};
+#endif
+
+#if 0
+	// Very basic ASTC LDR 4x4 packer which transcodes BC7 mode 6 RGB/RGBA only to ASTC LDR 4x4.
+	void fast_pack_astc(void* pBlock, const color_rgba* pPixels)
+	{
+		astc_helpers::astc_block* pDst_block = (astc_helpers::astc_block*)pBlock;
+
+		astc_helpers::log_astc_block log_blk;
+		log_blk.clear();
+		log_blk.m_grid_width = 4;
+		log_blk.m_grid_height = 4;
+
+		const uint32_t fc = *(const uint32_t*)&pPixels[0];
+		if (fc == *(const uint32_t*)&pPixels[15])
+		{
+			int k;
+			for (k = 1; k < 15; k++)
+				if (*(const uint32_t*)&pPixels[k] != fc)
+					break;
+
+			if (k == 15)
+			{
+				const uint32_t r = pPixels[0].r, g = pPixels[0].g, b = pPixels[0].b, a = pPixels[0].a;
+
+				log_blk.m_solid_color_flag_ldr = true;
+				log_blk.m_solid_color[0] = (uint16_t)(r | ((uint32_t)r << 8));
+				log_blk.m_solid_color[1] = (uint16_t)(g | ((uint32_t)g << 8));
+				log_blk.m_solid_color[2] = (uint16_t)(b | ((uint32_t)b << 8));
+				log_blk.m_solid_color[3] = (uint16_t)(a | ((uint32_t)a << 8));
+
+				bool pack_status = astc_helpers::pack_astc_block(*pDst_block, log_blk);
+				assert(pack_status);
+				BASISU_NOTE_UNUSED(pack_status);
+
+				return;
+			}
+		}
+
+		basist::bc7_block bc7_block;
+		fast_pack_bc7_auto_rgba((uint8_t*)&bc7_block, pPixels, cPackBC7FlagPBitOpt | cPackBC7FlagPBitOptMode6 | cPackBC7FlagUseTrivialMode6);
+
+		assert(bc7u::determine_bc7_mode(&bc7_block) == 6);
+
+		bc7u::bc7_mode_6& mode6 = *(bc7u::bc7_mode_6*)&bc7_block;
+
+		log_blk.m_num_partitions = 1;
+
+		if ((mode6.m_lo.m_a0 < 127) || (mode6.m_lo.m_a1 < 127))
+		{
+			log_blk.m_color_endpoint_modes[0] = 12;
+			log_blk.m_endpoint_ise_range = astc_helpers::BISE_96_LEVELS;
+			log_blk.m_weight_ise_range = astc_helpers::BISE_12_LEVELS;
+
+			const auto& endpoint_to_ise = astc_helpers::g_dequant_tables.get_endpoint_tab(log_blk.m_endpoint_ise_range).m_val_to_ise;
+			const auto& endpoint_from_ise = astc_helpers::g_dequant_tables.get_endpoint_tab(log_blk.m_endpoint_ise_range).m_ISE_to_val;
+			//const auto& weight_to_ise = astc_helpers::g_dequant_tables.get_weight_tab(log_blk.m_weight_ise_range).m_rank_to_ISE;
+
+			int p0 = mode6.m_lo.m_p0;
+			int r0 = bc7f::from_7(mode6.m_lo.m_r0, p0);
+			int g0 = bc7f::from_7(mode6.m_lo.m_g0, p0);
+			int b0 = bc7f::from_7(mode6.m_lo.m_b0, p0);
+			int a0 = bc7f::from_7(mode6.m_lo.m_a0, p0);
+
+			int p1 = mode6.m_hi.m_p1;
+			int r1 = bc7f::from_7(mode6.m_lo.m_r1, p1);
+			int g1 = bc7f::from_7(mode6.m_lo.m_g1, p1);
+			int b1 = bc7f::from_7(mode6.m_lo.m_b1, p1);
+			int a1 = bc7f::from_7(mode6.m_lo.m_a1, p1);
+
+			log_blk.m_endpoints[0] = endpoint_to_ise[r0];
+			log_blk.m_endpoints[1] = endpoint_to_ise[r1];
+
+			log_blk.m_endpoints[2] = endpoint_to_ise[g0];
+			log_blk.m_endpoints[3] = endpoint_to_ise[g1];
+
+			log_blk.m_endpoints[4] = endpoint_to_ise[b0];
+			log_blk.m_endpoints[5] = endpoint_to_ise[b1];
+
+			log_blk.m_endpoints[6] = endpoint_to_ise[a0];
+			log_blk.m_endpoints[7] = endpoint_to_ise[a1];
+
+			int s0 = endpoint_from_ise[log_blk.m_endpoints[0]] + endpoint_from_ise[log_blk.m_endpoints[2]] + endpoint_from_ise[log_blk.m_endpoints[4]];
+			int s1 = endpoint_from_ise[log_blk.m_endpoints[1]] + endpoint_from_ise[log_blk.m_endpoints[3]] + endpoint_from_ise[log_blk.m_endpoints[5]];
+
+			int invw = 0;
+			if (s1 < s0)
+			{
+				std::swap(log_blk.m_endpoints[0], log_blk.m_endpoints[1]);
+				std::swap(log_blk.m_endpoints[2], log_blk.m_endpoints[3]);
+				std::swap(log_blk.m_endpoints[4], log_blk.m_endpoints[5]);
+				std::swap(log_blk.m_endpoints[6], log_blk.m_endpoints[7]);
+				std::swap(g0, g1);
+				std::swap(b0, b1);
+				invw = 15;
+			}
+
+			static const uint8_t s_pWeight_to_ise[16] = { 0, 4, 8, 8, 2, 6, 10, 10, 11, 11, 7, 3, 9, 9, 5, 1 };
+
+			log_blk.m_weights[0] = s_pWeight_to_ise[mode6.m_hi.m_s00 ^ invw];
+			log_blk.m_weights[1] = s_pWeight_to_ise[mode6.m_hi.m_s10 ^ invw];
+			log_blk.m_weights[2] = s_pWeight_to_ise[mode6.m_hi.m_s20 ^ invw];
+			log_blk.m_weights[3] = s_pWeight_to_ise[mode6.m_hi.m_s30 ^ invw];
+
+			log_blk.m_weights[4] = s_pWeight_to_ise[mode6.m_hi.m_s01 ^ invw];
+			log_blk.m_weights[5] = s_pWeight_to_ise[mode6.m_hi.m_s11 ^ invw];
+			log_blk.m_weights[6] = s_pWeight_to_ise[mode6.m_hi.m_s21 ^ invw];
+			log_blk.m_weights[7] = s_pWeight_to_ise[mode6.m_hi.m_s31 ^ invw];
+
+			log_blk.m_weights[8] = s_pWeight_to_ise[mode6.m_hi.m_s02 ^ invw];
+			log_blk.m_weights[9] = s_pWeight_to_ise[mode6.m_hi.m_s12 ^ invw];
+			log_blk.m_weights[10] = s_pWeight_to_ise[mode6.m_hi.m_s22 ^ invw];
+			log_blk.m_weights[11] = s_pWeight_to_ise[mode6.m_hi.m_s32 ^ invw];
+
+			log_blk.m_weights[12] = s_pWeight_to_ise[mode6.m_hi.m_s03 ^ invw];
+			log_blk.m_weights[13] = s_pWeight_to_ise[mode6.m_hi.m_s13 ^ invw];
+			log_blk.m_weights[14] = s_pWeight_to_ise[mode6.m_hi.m_s23 ^ invw];
+			log_blk.m_weights[15] = s_pWeight_to_ise[mode6.m_hi.m_s33 ^ invw];
+		}
+		else
+		{
+			log_blk.m_color_endpoint_modes[0] = 8;
+			log_blk.m_endpoint_ise_range = astc_helpers::BISE_192_LEVELS;
+			log_blk.m_weight_ise_range = astc_helpers::BISE_16_LEVELS;
+
+			const auto& endpoint_to_ise = astc_helpers::g_dequant_tables.get_endpoint_tab(log_blk.m_endpoint_ise_range).m_val_to_ise;
+			const auto& endpoint_from_ise = astc_helpers::g_dequant_tables.get_endpoint_tab(log_blk.m_endpoint_ise_range).m_ISE_to_val;
+			const auto& weight_to_ise = astc_helpers::g_dequant_tables.get_weight_tab(log_blk.m_weight_ise_range).m_rank_to_ISE;
+
+			int p0 = mode6.m_lo.m_p0;
+			int r0 = bc7f::from_7(mode6.m_lo.m_r0, p0);
+			int g0 = bc7f::from_7(mode6.m_lo.m_g0, p0);
+			int b0 = bc7f::from_7(mode6.m_lo.m_b0, p0);
+
+			int p1 = mode6.m_hi.m_p1;
+			int r1 = bc7f::from_7(mode6.m_lo.m_r1, p1);
+			int g1 = bc7f::from_7(mode6.m_lo.m_g1, p1);
+			int b1 = bc7f::from_7(mode6.m_lo.m_b1, p1);
+
+			log_blk.m_endpoints[0] = endpoint_to_ise[r0];
+			log_blk.m_endpoints[1] = endpoint_to_ise[r1];
+
+			log_blk.m_endpoints[2] = endpoint_to_ise[g0];
+			log_blk.m_endpoints[3] = endpoint_to_ise[g1];
+
+			log_blk.m_endpoints[4] = endpoint_to_ise[b0];
+			log_blk.m_endpoints[5] = endpoint_to_ise[b1];
+
+			int s0 = endpoint_from_ise[log_blk.m_endpoints[0]] + endpoint_from_ise[log_blk.m_endpoints[2]] + endpoint_from_ise[log_blk.m_endpoints[4]];
+			int s1 = endpoint_from_ise[log_blk.m_endpoints[1]] + endpoint_from_ise[log_blk.m_endpoints[3]] + endpoint_from_ise[log_blk.m_endpoints[5]];
+
+			int invw = 0;
+			if (s1 < s0)
+			{
+				std::swap(log_blk.m_endpoints[0], log_blk.m_endpoints[1]);
+				std::swap(log_blk.m_endpoints[2], log_blk.m_endpoints[3]);
+				std::swap(log_blk.m_endpoints[4], log_blk.m_endpoints[5]);
+				invw = 15;
+			}
+
+			log_blk.m_weights[0] = weight_to_ise[(size_t)(mode6.m_hi.m_s00 ^ invw)];
+			log_blk.m_weights[1] = weight_to_ise[(size_t)(mode6.m_hi.m_s10 ^ invw)];
+			log_blk.m_weights[2] = weight_to_ise[(size_t)(mode6.m_hi.m_s20 ^ invw)];
+			log_blk.m_weights[3] = weight_to_ise[(size_t)(mode6.m_hi.m_s30 ^ invw)];
+
+			log_blk.m_weights[4] = weight_to_ise[(size_t)(mode6.m_hi.m_s01 ^ invw)];
+			log_blk.m_weights[5] = weight_to_ise[(size_t)(mode6.m_hi.m_s11 ^ invw)];
+			log_blk.m_weights[6] = weight_to_ise[(size_t)(mode6.m_hi.m_s21 ^ invw)];
+			log_blk.m_weights[7] = weight_to_ise[(size_t)(mode6.m_hi.m_s31 ^ invw)];
+
+			log_blk.m_weights[8] = weight_to_ise[(size_t)(mode6.m_hi.m_s02 ^ invw)];
+			log_blk.m_weights[9] = weight_to_ise[(size_t)(mode6.m_hi.m_s12 ^ invw)];
+			log_blk.m_weights[10] = weight_to_ise[(size_t)(mode6.m_hi.m_s22 ^ invw)];
+			log_blk.m_weights[11] = weight_to_ise[(size_t)(mode6.m_hi.m_s32 ^ invw)];
+
+			log_blk.m_weights[12] = weight_to_ise[(size_t)(mode6.m_hi.m_s03 ^ invw)];
+			log_blk.m_weights[13] = weight_to_ise[(size_t)(mode6.m_hi.m_s13 ^ invw)];
+			log_blk.m_weights[14] = weight_to_ise[(size_t)(mode6.m_hi.m_s23 ^ invw)];
+			log_blk.m_weights[15] = weight_to_ise[(size_t)(mode6.m_hi.m_s33 ^ invw)];
+		}
+
+		bool pack_status = astc_helpers::pack_astc_block(*pDst_block, log_blk);
+		assert(pack_status);
+		BASISU_NOTE_UNUSED(pack_status);
+	}
+#endif
+
+} // namespace bc7f
+
+namespace etc1f
+{
+#include "basisu_etc1_mods.inl"
+
+	// flip 0:
+	// 0011
+	// 0011
+	// 0011
+	// 0011
+
+	// flip 1:
+	// 0000
+	// 0000
+	// 1111
+	// 1111
+
+	uint8_t g_nearest5[256], g_nearest4[256];
+
+	const uint32_t NUM_SOLID_MODS = 4;
+
+	uint8_t g_solid8_5_base[256][NUM_SOLID_MODS][4]; // [desired8][mod][sel]
+	uint8_t g_solid8_5_err[256][NUM_SOLID_MODS][4];
+	uint8_t g_solid8_4_base[256][NUM_SOLID_MODS][4];
+	uint8_t g_solid8_4_err[256][NUM_SOLID_MODS][4];
+
+	uint8_t g_solid_grayscale_etc1_blocks[256][8];
+
+	inline int expand5(int v5)
+	{
+		return (v5 << 3) | (v5 >> 2);
+	}
+
+	inline int expand4(int v4)
+	{
+		return (v4 << 4) | v4;
+	}
+
+	static inline int dequant4(uint32_t v)
+	{
+		assert(v < 16);
+		return (v << 4) | v;
+	}
+
+	static inline int dequant5(uint32_t v)
+	{
+		assert(v < 32);
+		return (v << 3) | (v >> 2);
+	}
+	
+	void init()
+	{
+		for (int i = 0; i < 256; i++)
+		{
+			int best_e = INT_MAX, best_idx = 0;
+
+			for (int s = 0; s < 32; s++)
+			{
+				int recovered = (s << 3) | (s >> 2);
+				int e = basisu::iabs(recovered - i);
+				if (e < best_e)
+				{
+					best_e = e;
+					best_idx = s;
+				}
+			}
+
+			g_nearest5[i] = (uint8_t)best_idx;
+		}
+
+		for (int i = 0; i < 256; i++)
+		{
+			int best_e = INT_MAX, best_idx = 0;
+
+			for (int s = 0; s < 16; s++)
+			{
+				int recovered = (s << 4) | s;
+				int e = basisu::iabs(recovered - i);
+				if (e < best_e)
+				{
+					best_e = e;
+					best_idx = s;
+				}
+			}
+
+			g_nearest4[i] = (uint8_t)best_idx;
+		}
+
+		for (uint32_t desired8 = 0; desired8 < 256; desired8++)
+		{
+			for (uint32_t mod = 0; mod < NUM_SOLID_MODS; mod++)
+			{
+				for (uint32_t sel = 0; sel < 4; sel++)
+				{
+					int32_t best_err = INT32_MAX;
+					uint32_t best_base = 0;
+
+					for (uint32_t b = 0; b < 32; b++)
+					{
+						int val = basisu::clamp(dequant5(b) + g_etc1_inten_tables[mod][sel], 0, 255);
+						int err = basisu::iabs(val - desired8);
+
+						if (err < best_err)
+						{
+							best_err = err;
+							best_base = b;
+							if (!best_err)
+								break;
+						}
+
+					} // b
+
+					g_solid8_5_base[desired8][mod][sel] = (uint8_t)best_base;
+					g_solid8_5_err[desired8][mod][sel] = (uint8_t)basisu::minimum<uint32_t>(255, best_err * best_err);
+
+				} // sel
+
+			} // mod
+
+		} // desired8
+
+		for (uint32_t desired8 = 0; desired8 < 256; desired8++)
+		{
+			for (uint32_t mod = 0; mod < NUM_SOLID_MODS; mod++)
+			{
+				for (uint32_t sel = 0; sel < 4; sel++)
+				{
+					int32_t best_err = INT32_MAX;
+					uint32_t best_base = 0;
+
+					for (uint32_t b = 0; b < 16; b++)
+					{
+						int val = basisu::clamp(dequant4(b) + g_etc1_inten_tables[mod][sel], 0, 255);
+						int err = basisu::iabs(val - desired8);
+
+						if (err < best_err)
+						{
+							best_err = err;
+							best_base = b;
+							if (!best_err)
+								break;
+						}
+
+					} // b
+
+					g_solid8_4_base[desired8][mod][sel] = (uint8_t)best_base;
+					g_solid8_4_err[desired8][mod][sel] = (uint8_t)basisu::minimum<uint32_t>(255, best_err * best_err);
+
+				} // sel
+
+			} // mod
+
+		} // desired8
+
+		pack_etc1_state pack_state;
+
+		for (uint32_t i = 0; i <= 255; i++)
+		{
+			etc1f::pack_etc1_solid(&g_solid_grayscale_etc1_blocks[i][0], color_rgba(i, i, i, 255), pack_state, true);
+		}
+	}
+
+	inline int dequant_d3(int8_t v)
+	{
+		assert(v <= 7);
+		return (int8_t(v << 5) >> 5);
+	}
+
+	void get_block_colors(uint8_t* pBlock, color_rgba* pColors0, color_rgba* pColors1)
+	{
+		const uint32_t b0 = pBlock[0], b1 = pBlock[1], b2 = pBlock[2], b3 = pBlock[3];
+
+		int base8_r[2], base8_g[2], base8_b[2];
+
+		if (b3 & 2)
+		{
+			// diff mode
+			base8_r[0] = dequant5(b0 >> 3);
+			base8_r[1] = dequant5(basisu::clamp<int>((b0 >> 3) + dequant_d3(b0 & 7), 0, 31));
+
+			base8_g[0] = dequant5(b1 >> 3);
+			base8_g[1] = dequant5(basisu::clamp<int>((b1 >> 3) + dequant_d3(b1 & 7), 0, 31));
+
+			base8_b[0] = dequant5(b2 >> 3);
+			base8_b[1] = dequant5(basisu::clamp<int>((b2 >> 3) + dequant_d3(b2 & 7), 0, 31));
+		}
+		else
+		{
+			// abs mode
+			base8_r[0] = dequant4(b0 >> 4);
+			base8_r[1] = dequant4(b0 & 15);
+
+			base8_g[0] = dequant4(b1 >> 4);
+			base8_g[1] = dequant4(b1 & 15);
+
+			base8_b[0] = dequant4(b2 >> 4);
+			base8_b[1] = dequant4(b2 & 15);
+		}
+
+		const int* pInten_table0 = &g_etc1_inten_tables[b3 >> 5][0];
+		const int* pInten_table1 = &g_etc1_inten_tables[(b3 >> 2) & 7][0];
+
+		for (uint32_t i = 0; i < 4; i++)
+		{
+			const int d = pInten_table0[i];
+			pColors0[i].r = (uint8_t)clamp255(base8_r[0] + d);
+			pColors0[i].g = (uint8_t)clamp255(base8_g[0] + d);
+			pColors0[i].b = (uint8_t)clamp255(base8_b[0] + d);
+			pColors0[i].a = 0;
+		}
+
+		for (uint32_t i = 0; i < 4; i++)
+		{
+			const int d = pInten_table1[i];
+			pColors1[i].r = (uint8_t)clamp255(base8_r[1] + d);
+			pColors1[i].g = (uint8_t)clamp255(base8_g[1] + d);
+			pColors1[i].b = (uint8_t)clamp255(base8_b[1] + d);
+			pColors1[i].a = 0;
+		}
+	}
+
+	void get_block_colors_y(uint8_t* pBlock, uint8_t* pColors0, uint8_t* pColors1)
+	{
+		//const uint32_t b0 = pBlock[0], b1 = pBlock[1], b2 = pBlock[2], b3 = pBlock[3];
+		const uint32_t b0 = pBlock[0], b3 = pBlock[3];
+
+		int base8_y[2];
+
+		if (b3 & 2)
+		{
+			// diff mode
+			base8_y[0] = dequant5(b0 >> 3);
+			base8_y[1] = dequant5(basisu::clamp<int>((b0 >> 3) + dequant_d3(b0 & 7), 0, 31));
+		}
+		else
+		{
+			// abs mode
+			base8_y[0] = dequant4(b0 >> 4);
+			base8_y[1] = dequant4(b0 & 15);
+		}
+
+		const int* pInten_table0 = g_etc1_inten_tables[b3 >> 5];
+		const int* pInten_table1 = g_etc1_inten_tables[(b3 >> 2) & 7];
+
+		for (uint32_t i = 0; i < 4; i++)
+		{
+			const int d = pInten_table0[i];
+			pColors0[i] = (uint8_t)clamp255(base8_y[0] + d);
+		}
+
+		for (uint32_t i = 0; i < 4; i++)
+		{
+			const int d = pInten_table1[i];
+			pColors1[i] = (uint8_t)clamp255(base8_y[1] + d);
+		}
+	}
+
+	static inline int q4_floor(int x) { return (x * 15) / 255; }
+	static inline int q5_floor(int x) { return (x * 31) / 255; }
+
+	void corr_round_555(int R, int G, int B, int& qR, int& qG, int& qB)
+	{
+		int rL = q5_floor(R), gL = q5_floor(G), bL = q5_floor(B);
+		int rH = (rL < 31) ? (rL + 1) : 31;
+		int gH = (gL < 31) ? (gL + 1) : 31;
+		int bH = (bL < 31) ? (bL + 1) : 31;
+
+		int r8[2] = { expand5(rL), expand5(rH) };
+		int g8[2] = { expand5(gL), expand5(gH) };
+		int b8[2] = { expand5(bL), expand5(bH) };
+
+		int tr = r8[0], tg = g8[0], tb = b8[0];
+		int eR = R - tr, eG = G - tg, eB = B - tb;
+		int bestJ = basisu::squarei(eR - eG) + basisu::squarei(eG - eB) + basisu::squarei(eB - eR);
+		int br = tr, bg = tg, bb = tb;
+
+		for (int m = 1; m < 8; ++m)
+		{
+			tr = r8[m & 1], tg = g8[(m >> 1) & 1], tb = b8[(m >> 2) & 1];
+			eR = R - tr, eG = G - tg, eB = B - tb;
+
+			int J = basisu::squarei(eR - eG) + basisu::squarei(eG - eB) + basisu::squarei(eB - eR);
+			if (J < bestJ)
+			{
+				bestJ = J;
+				br = tr;
+				bg = tg;
+				bb = tb;
+			}
+		}
+
+		qR = br >> 3; qG = bg >> 3; qB = bb >> 3;
+	}
+
+	void corr_round_444(int R, int G, int B, int& qR, int& qG, int& qB)
+	{
+		int rL = q4_floor(R), gL = q4_floor(G), bL = q4_floor(B);
+		int rH = (rL < 15) ? (rL + 1) : 15;
+		int gH = (gL < 15) ? (gL + 1) : 15;
+		int bH = (bL < 15) ? (bL + 1) : 15;
+
+		int r8[2] = { expand4(rL), expand4(rH) };
+		int g8[2] = { expand4(gL), expand4(gH) };
+		int b8[2] = { expand4(bL), expand4(bH) };
+
+		int tr = r8[0], tg = g8[0], tb = b8[0];
+		int eR = R - tr, eG = G - tg, eB = B - tb;
+		int bestJ = basisu::squarei(eR - eG) + basisu::squarei(eG - eB) + basisu::squarei(eB - eR);
+		int br = tr, bg = tg, bb = tb;
+
+		for (int m = 1; m < 8; ++m)
+		{
+			tr = r8[m & 1], tg = g8[(m >> 1) & 1], tb = b8[(m >> 2) & 1];
+			eR = R - tr, eG = G - tg, eB = B - tb;
+
+			int J = basisu::squarei(eR - eG) + basisu::squarei(eG - eB) + basisu::squarei(eB - eR);
+			if (J < bestJ)
+			{
+				bestJ = J;
+				br = tr;
+				bg = tg;
+				bb = tb;
+			}
+		}
+
+		qR = br >> 4; qG = bg >> 4; qB = bb >> 4;
+	}
+
+	inline bool quantize_444_color_correlated(int mean8_r, int mean8_g, int mean8_b, int enc_color[3], bool early_out = true)
+	{
+		// Floor to low 4-bit
+		int r4_low = (mean8_r * 15) / 255;
+		int g4_low = (mean8_g * 15) / 255;
+		int b4_low = (mean8_b * 15) / 255;
+
+		// High = +1, clamped
+		int r4_high = basisu::clamp<int>(r4_low + 1, 0, 15);
+		int g4_high = basisu::clamp<int>(g4_low + 1, 0, 15);
+		int b4_high = basisu::clamp<int>(b4_low + 1, 0, 15);
+
+		const int r8_low = expand4(r4_low);
+		const int g8_low = expand4(g4_low);
+		const int b8_low = expand4(b4_low);
+		const int r8_high = expand4(r4_high);
+		const int g8_high = expand4(g4_high);
+		const int b8_high = expand4(b4_high);
+
+		// Errors if we pick "low"
+		const float dr = float(r8_low) - mean8_r;
+		const float dg = float(g8_low) - mean8_g;
+		const float db = float(b8_low) - mean8_b;
+
+		const float dRG = fabsf(dr - dg);
+		const float dRB = fabsf(dr - db);
+		const float dGB = fabsf(dg - db);
+		const float maxSpread = basisu::maximum(dRG, dRB, dGB);
+
+		if ((early_out) && (maxSpread <= 1.0f))
+			return false;
+
+		// Step sizes low->high
+		const float kr = float(r8_high - r8_low);
+		const float kg = float(g8_high - g8_low);
+		const float kb = float(b8_high - b8_low);
+
+		// Precompute constants for cost(mask) = S0 + Lsum - Ksum^2
+		const float D = dr + dg + db;
+		const float S0 = 3.0f * (dr * dr + dg * dg + db * db) - D * D;
+
+		const float Lr = 6.0f * dr * kr + 3.0f * kr * kr - 2.0f * D * kr;
+		const float Lg = 6.0f * dg * kg + 3.0f * kg * kg - 2.0f * D * kg;
+		const float Lb = 6.0f * db * kb + 3.0f * kb * kb - 2.0f * D * kb;
+
+		float bestCost = basisu::BIG_FLOAT_VAL;
+		int   bestMask = 0;
+
+		for (int mask = 0; mask < 8; ++mask)
+		{
+			const float Ksum = ((mask & 1) ? kr : 0.0f) + ((mask & 2) ? kg : 0.0f) + ((mask & 4) ? kb : 0.0f);
+			const float Lsum = ((mask & 1) ? Lr : 0.0f) + ((mask & 2) ? Lg : 0.0f) + ((mask & 4) ? Lb : 0.0f);
+
+			const float cost = S0 + Lsum - Ksum * Ksum;
+
+			if (cost < bestCost)
+			{
+				bestCost = cost;
+				bestMask = mask;
+			}
+		}
+
+		enc_color[0] = (bestMask & 1) ? r4_high : r4_low;
+		enc_color[1] = (bestMask & 2) ? g4_high : g4_low;
+		enc_color[2] = (bestMask & 4) ? b4_high : b4_low;
+
+		assert((enc_color[0]) >= 0 && (enc_color[0] <= 15));
+		assert((enc_color[1]) >= 0 && (enc_color[1] <= 15));
+		assert((enc_color[2]) >= 0 && (enc_color[2] <= 15));
+
+		return true;
+	}
+
+	void pack_etc1_solid(uint8_t* pBlock, const color_rgba& color, pack_etc1_state& state, bool init_flag)
+	{
+		uint32_t r8 = color[0], g8 = color[1], b8 = color[2];
+		//const uint32_t r8 = 0, g8 = 0, b8 = 0;
+
+		if (!init_flag)
+		{
+			if ((r8 == g8) && (r8 == b8))
+			{
+				memcpy(pBlock, &g_solid_grayscale_etc1_blocks[r8][0], sizeof(decoder_etc_block));
+				return;
+			}
+
+			if ((state.m_prev_solid_r8 == (int)r8) && (state.m_prev_solid_g8 == (int)g8) && (state.m_prev_solid_b8 == (int)b8))
+			{
+				memcpy(pBlock, &state.m_prev_solid_block, sizeof(decoder_etc_block));
+				return;
+			}
+		}
+
+		uint32_t best_err = UINT32_MAX;
+		uint32_t best_mod = 0, best_sel = 0;
+		uint32_t best4_flag = false;
+
+		const int RW = 2, GW = 4;
+
+		for (uint32_t mod = 0; mod < NUM_SOLID_MODS; mod++)
+		{
+			for (uint32_t sel = 0; sel < 4; sel++)
+			{
+				uint32_t total_err5 = RW * g_solid8_5_err[r8][mod][sel] + GW * g_solid8_5_err[g8][mod][sel] + g_solid8_5_err[b8][mod][sel];
+				if (total_err5 < best_err)
+				{
+					best_err = total_err5;
+					best_mod = mod;
+					best_sel = sel;
+					best4_flag = false;
+					if (!best_err)
+						goto etc1_solid_done;
+				}
+
+				uint32_t total_err4 = RW * g_solid8_4_err[r8][mod][sel] + GW * g_solid8_4_err[g8][mod][sel] + g_solid8_4_err[b8][mod][sel];
+				if (total_err4 < best_err)
+				{
+					best_err = total_err4;
+					best_mod = mod;
+					best_sel = sel;
+					best4_flag = true;
+				}
+
+			} // sel
+		} // mod
+
+	etc1_solid_done:
+
+		if (best4_flag)
+		{
+			const uint32_t best_base_r4 = g_solid8_4_base[r8][best_mod][best_sel];
+			const uint32_t best_base_g4 = g_solid8_4_base[g8][best_mod][best_sel];
+			const uint32_t best_base_b4 = g_solid8_4_base[b8][best_mod][best_sel];
+
+			pBlock[0] = (uint8_t)(best_base_r4 | (best_base_r4 << 4));
+			pBlock[1] = (uint8_t)(best_base_g4 | (best_base_g4 << 4));
+			pBlock[2] = (uint8_t)(best_base_b4 | (best_base_b4 << 4));
+		}
+		else
+		{
+			pBlock[0] = (uint8_t)(g_solid8_5_base[r8][best_mod][best_sel] << 3);
+			pBlock[1] = (uint8_t)(g_solid8_5_base[g8][best_mod][best_sel] << 3);
+			pBlock[2] = (uint8_t)(g_solid8_5_base[b8][best_mod][best_sel] << 3);
+		}
+
+		const uint32_t flip = 0;
+		const uint32_t diff = (best4_flag == 0);
+		pBlock[3] = (uint8_t)(flip | (diff << 1) | (best_mod << 5) | (best_mod << 2));
+
+		const uint32_t etc1_sels = g_selector_index_to_etc1[best_sel];
+
+		const uint8_t lb = (etc1_sels & 2) ? 0xFF : 0;
+		pBlock[4] = lb;
+		pBlock[5] = lb;
+
+		const uint8_t hb = (etc1_sels & 1) ? 0xFF : 0;
+		pBlock[6] = hb;
+		pBlock[7] = hb;
+
+		state.m_prev_solid_r8 = r8;
+		state.m_prev_solid_g8 = g8;
+		state.m_prev_solid_b8 = b8;
+		memcpy(&state.m_prev_solid_block, pBlock, sizeof(decoder_etc_block));
+	}
+
+	static const uint8_t s_vi[16] = { 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1 };
+	static const uint8_t s_hi[16] = { 2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3 };
+
+	static const uint8_t s_subsets[2][16] =
+	{
+		{ 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1 },
+		{ 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1 }
+	};
+
+	// [flip][subblock][sel][l/h]
+	static const uint16_t s_sel_bitmasks[2 * 2 * 4][2] =
+	{
+		// flip=0, subblock=0, sels=0-3
+		{ 0xff, 0xff },
+		{ 0x0, 0xff },
+		{ 0x0, 0x0 },
+		{ 0xff, 0x0 },
+
+		// flip=0, subblock=1, sels=0-3
+		{ 0xff00, 0xff00 },
+		{ 0x0, 0xff00 },
+		{ 0x0, 0x0 },
+		{ 0xff00, 0x0 },
+
+		// flip=1, subblock=0, sels=0-3
+		{ 0x3333, 0x3333 },
+		{ 0x0, 0x3333 },
+		{ 0x0, 0x0 },
+		{ 0x3333, 0x0 },
+
+		// flip=1, subblock=1, sels=0-3
+		{ 0xcccc, 0xcccc },
+		{ 0x0, 0xcccc },
+		{ 0x0, 0x0 },
+		{ 0xcccc, 0x0 }
+	};
+
+	void pack_etc1_solid_subblocks(uint8_t* pBlock, const color_rgba* pPixels, const color_rgba subblock_means[2], uint32_t flip)
+	{
+		(void)pPixels;
+
+		uint32_t best_mod5[2] = {}, best_sel5[2] = {};
+		uint32_t best_base5[2][3] = {};
+		uint32_t best_err5[2] = { UINT32_MAX, UINT32_MAX };
+
+		uint32_t best_mod4[2] = {}, best_sel4[2] = {};
+		uint32_t best_base4[2][3] = {};
+		uint32_t best_err4[2] = { UINT32_MAX, UINT32_MAX };
+
+		const int RW = 2, GW = 4;
+
+		for (uint32_t t = 0; t < 2; t++)
+		{
+			const uint32_t r8 = subblock_means[t][0];
+			const uint32_t g8 = subblock_means[t][1];
+			const uint32_t b8 = subblock_means[t][2];
+
+			const uint8_t* pR5 = &g_solid8_5_err[r8][0][0];
+			const uint8_t* pG5 = &g_solid8_5_err[g8][0][0];
+			const uint8_t* pB5 = &g_solid8_5_err[b8][0][0];
+
+			const uint8_t* pR4 = &g_solid8_4_err[r8][0][0];
+			const uint8_t* pG4 = &g_solid8_4_err[g8][0][0];
+			const uint8_t* pB4 = &g_solid8_4_err[b8][0][0];
+
+			for (uint32_t mod = 0; mod < NUM_SOLID_MODS; mod++)
+			{
+				const uint32_t mod4 = mod << 2;
+
+				const uint32_t total_err5_0 = ((RW * pR5[0] + GW * pG5[0] + pB5[0]) << 5) + (mod4 + 0);
+				const uint32_t total_err5_1 = ((RW * pR5[1] + GW * pG5[1] + pB5[1]) << 5) + (mod4 + 1);
+				const uint32_t total_err5_2 = ((RW * pR5[2] + GW * pG5[2] + pB5[2]) << 5) + (mod4 + 2);
+				const uint32_t total_err5_3 = ((RW * pR5[3] + GW * pG5[3] + pB5[3]) << 5) + (mod4 + 3);
+
+				best_err5[t] = basisu::minimum(best_err5[t], basisu::minimum(total_err5_0, total_err5_1), basisu::minimum(total_err5_2, total_err5_3));
+
+				const uint32_t total_err4_0 = ((RW * pR4[0] + GW * pG4[0] + pB4[0]) << 5) + (mod4 + 0);
+				const uint32_t total_err4_1 = ((RW * pR4[1] + GW * pG4[1] + pB4[1]) << 5) + (mod4 + 1);
+				const uint32_t total_err4_2 = ((RW * pR4[2] + GW * pG4[2] + pB4[2]) << 5) + (mod4 + 2);
+				const uint32_t total_err4_3 = ((RW * pR4[3] + GW * pG4[3] + pB4[3]) << 5) + (mod4 + 3);
+
+				best_err4[t] = basisu::minimum(best_err4[t], basisu::minimum(total_err4_0, total_err4_1), basisu::minimum(total_err4_2, total_err4_3));
+
+				pR5 += 4; pG5 += 4; pB5 += 4;
+				pR4 += 4; pG4 += 4; pB4 += 4;
+			} // mod
+
+			best_mod5[t] = (best_err5[t] >> 2) & 7;
+			best_sel5[t] = best_err5[t] & 3;
+			best_err5[t] >>= 5;
+
+			best_mod4[t] = (best_err4[t] >> 2) & 7;
+			best_sel4[t] = best_err4[t] & 3;
+			best_err4[t] >>= 5;
+
+			best_base5[t][0] = g_solid8_5_base[r8][best_mod5[t]][best_sel5[t]];
+			best_base5[t][1] = g_solid8_5_base[g8][best_mod5[t]][best_sel5[t]];
+			best_base5[t][2] = g_solid8_5_base[b8][best_mod5[t]][best_sel5[t]];
+
+			best_base4[t][0] = g_solid8_4_base[r8][best_mod4[t]][best_sel4[t]];
+			best_base4[t][1] = g_solid8_4_base[g8][best_mod4[t]][best_sel4[t]];
+			best_base4[t][2] = g_solid8_4_base[b8][best_mod4[t]][best_sel4[t]];
+
+		} // t
+
+		uint32_t total_err4 = best_err4[0] + best_err4[1];
+		uint32_t total_err5 = best_err5[0] + best_err5[1];
+
+		bool use_abs = false;
+		if (total_err4 < total_err5)
+		{
+			use_abs = true;
+		}
+		else
+		{
+			int delta_r = best_base5[1][0] - best_base5[0][0];
+			int delta_g = best_base5[1][1] - best_base5[0][1];
+			int delta_b = best_base5[1][2] - best_base5[0][2];
+
+			if ((delta_r < -4) || (delta_r > 3) ||
+				(delta_g < -4) || (delta_g > 3) ||
+				(delta_b < -4) || (delta_b > 3))
+			{
+				use_abs = true;
+			}
+		}
+
+		uint32_t* pBest_sels;
+
+		if (use_abs)
+		{
+			pBlock[0] = (uint8_t)(best_base4[1][0] | (best_base4[0][0] << 4));
+			pBlock[1] = (uint8_t)(best_base4[1][1] | (best_base4[0][1] << 4));
+			pBlock[2] = (uint8_t)(best_base4[1][2] | (best_base4[0][2] << 4));
+
+			const uint32_t diff = false;
+			pBlock[3] = (uint8_t)(flip | (diff << 1) | (best_mod4[0] << 5) | (best_mod4[1] << 2));
+
+			pBest_sels = best_sel4;
+		}
+		else
+		{
+			const int delta_r = (best_base5[1][0] - best_base5[0][0]) & 7;
+			const int delta_g = (best_base5[1][1] - best_base5[0][1]) & 7;
+			const int delta_b = (best_base5[1][2] - best_base5[0][2]) & 7;
+
+			pBlock[0] = (uint8_t)(delta_r | (best_base5[0][0] << 3));
+			pBlock[1] = (uint8_t)(delta_g | (best_base5[0][1] << 3));
+			pBlock[2] = (uint8_t)(delta_b | (best_base5[0][2] << 3));
+
+			const uint32_t diff = 1;
+			pBlock[3] = (uint8_t)(flip | (diff << 1) | (best_mod5[0] << 5) | (best_mod5[1] << 2));
+
+			pBest_sels = best_sel5;
+		}
+
+		uint16_t l_bitmask = 0, h_bitmask = 0;
+
+		for (uint32_t subblock = 0; subblock < 2; subblock++)
+		{
+			uint32_t best_etc1_sel = pBest_sels[subblock];
+
+			l_bitmask |= s_sel_bitmasks[flip * 8 + subblock * 4 + best_etc1_sel][0];
+			h_bitmask |= s_sel_bitmasks[flip * 8 + subblock * 4 + best_etc1_sel][1];
+		}
+
+		pBlock[7] = (uint8_t)(l_bitmask);
+		pBlock[6] = (uint8_t)(l_bitmask >> 8);
+		pBlock[5] = (uint8_t)(h_bitmask);
+		pBlock[4] = (uint8_t)(h_bitmask >> 8);
+	}
+
+	//------------------------------------------
+
+	void pack_etc1(uint8_t* pBlock, const color_rgba* pPixels, pack_etc1_state& state)
+	{
+		{
+			// Solid block check, ignoring alpha.
+			const uint32_t fc = *(const uint32_t*)&pPixels[0] & BASISD_COLOR_RGBA_RGB_MASK;
+
+			if (fc == (*(const uint32_t*)&pPixels[15] & BASISD_COLOR_RGBA_RGB_MASK))
+			{
+				int k;
+				for (k = 1; k < 15; k++)
+					if ((*(const uint32_t*)&pPixels[k] & BASISD_COLOR_RGBA_RGB_MASK) != fc)
+						break;
+
+				if (k == 15)
+				{
+					pack_etc1_solid(pBlock, pPixels[0], state, false);
+					return;
+				}
+			}
+		}
+
+		// [0]=left, [1]=right, [2]=top, [3]=bottom
+		int accum_y[4] = { 0 }, accum_y2[4] = { 0 }, accum_c2[4] = { 0 };
+		int total_c2 = 0, max_c2 = 0;
+
+		for (uint32_t i = 0; i < 16; i++)
+		{
+			int r = pPixels[i].r, g = pPixels[i].g, b = pPixels[i].b;
+			int rg = r - g, bg = b - g;
+
+			int y = (r + g + b + 1) / 3;
+			int y2 = y * y, c2 = rg * rg + bg * bg;
+
+			total_c2 += c2;
+			max_c2 = basisu::maximum(max_c2, c2);
+
+			const int vi = s_vi[i], hi = s_hi[i];
+
+			accum_y[vi] += y;
+			accum_y2[vi] += y2;
+			accum_c2[vi] += c2;
+
+			accum_y[hi] += y;
+			accum_y2[hi] += y2;
+			accum_c2[hi] += c2;
+
+		} // i
+
+#if 1
+		// sqrt(300/16)=~4.33
+		const int CHROMA_ENERGY_SUM_THRESH = 300;
+		const int CHROMA_ENERGY_MAX_THRESH = 32;
+		if ((total_c2 < CHROMA_ENERGY_SUM_THRESH) && (max_c2 < CHROMA_ENERGY_MAX_THRESH))
+		{
+			//memset(pBlock, 0, 8);
+			//return;
+
+			uint8_t y_pixels[16];
+			if (total_c2 == 0)
+			{
+				for (uint32_t i = 0; i < 16; i++)
+					y_pixels[i] = pPixels[i].r;
+			}
+			else
+			{
+				for (uint32_t i = 0; i < 16; i++)
+					y_pixels[i] = (uint8_t)pPixels[i].get_709_luma();
+			}
+			pack_etc1_grayscale(pBlock, y_pixels, state);
+			return;
+		}
+#endif
+
+		int var_y_scaled[4]; // scaled by x64 (8*8)
+		for (uint32_t i = 0; i < 4; i++)
+			var_y_scaled[i] = basisu::maximum(0, (accum_y2[i] << 3) - (accum_y[i] * accum_y[i])); // max not needed
+
+		float std_luma[4], std_chroma[4];
+		for (uint32_t i = 0; i < 4; i++)
+		{
+			std_luma[i] = sqrtf((float)var_y_scaled[i] * (1.0f / 64.0f));
+			std_chroma[i] = sqrtf((float)accum_c2[i] * (1.0f / 8.0f));
+		}
+
+		const float LUMA_SCALE = 2, CHROMA_SCALE = 1;
+		float flip0_score = (std_luma[0] + std_luma[1]) * LUMA_SCALE + (std_chroma[0] + std_chroma[1]) * CHROMA_SCALE;
+		float flip1_score = (std_luma[2] + std_luma[3]) * LUMA_SCALE + (std_chroma[2] + std_chroma[3]) * CHROMA_SCALE;
+
+		const uint32_t flip = flip1_score < flip0_score;
+
+		int var8_y[2] = {}, mean8_y[2] = {}, mean8_r[2] = {}, mean8_g[2] = {}, mean8_b[2] = {};
+		int min_y[2] = { INT_MAX, INT_MAX }, max_y[2] = { INT_MIN, INT_MIN };
+
+		for (uint32_t i = 0; i < 16; i++)
+		{
+			const int r = pPixels[i].r, g = pPixels[i].g, b = pPixels[i].b;
+			const int y = (r + g + b + 1) / 3;
+
+			const uint32_t s = s_subsets[flip][i];
+
+			var8_y[s] += y * y;
+			mean8_y[s] += y;
+
+			mean8_r[s] += r;
+			mean8_g[s] += g;
+			mean8_b[s] += b;
+
+			min_y[s] = basisu::minimum(min_y[s], y);
+			max_y[s] = basisu::maximum(max_y[s], y);
+		}
+
+		//memset(pBlock, 0, sizeof(etc_block));
+		//return;
+
+		if (((max_y[0] - min_y[0]) < 8) && ((max_y[1] - min_y[1]) < 8))
+		{
+			color_rgba subblock_means[2] = {
+				color_rgba((mean8_r[0] + 4) / 8, (mean8_g[0] + 4) / 8, (mean8_b[0] + 4) / 8, 255),
+				color_rgba((mean8_r[1] + 4) / 8, (mean8_g[1] + 4) / 8, (mean8_b[1] + 4) / 8, 255),
+			};
+
+			if (subblock_means[0] == subblock_means[1])
+				pack_etc1_solid(pBlock, subblock_means[0], state, false);
+			else
+				pack_etc1_solid_subblocks(pBlock, pPixels, subblock_means, flip);
+
+			return;
+		}
+
+		//memset(pBlock, 0, sizeof(etc_block));
+		//return;
+
+		int half_span8_y[2];
+		float stddev_y[2];
+
+		for (uint32_t i = 0; i < 2; i++)
+		{
+			var8_y[i] = basisu::maximum<int>(0, (var8_y[i] << 3) - mean8_y[i] * mean8_y[i]);
+			stddev_y[i] = std::sqrt(static_cast<float>(var8_y[i])) * (1.0f / 8.0f);
+
+			mean8_y[i] = (mean8_y[i] + 4) >> 3;
+
+			mean8_r[i] = (mean8_r[i] + 4) >> 3;
+			mean8_g[i] = (mean8_g[i] + 4) >> 3;
+			mean8_b[i] = (mean8_b[i] + 4) >> 3;
+
+			half_span8_y[i] = basisu::maximum<int>(max_y[i] - mean8_y[i], mean8_y[i] - min_y[i]);
+		}
+
+		int stddev[2] =
+		{
+			basisu::clamp<int>((int)ceilf(9.0f * (stddev_y[0] / (float)basisu::maximum(1, half_span8_y[0]))) - 1, 0, 7),
+			basisu::clamp<int>((int)ceilf(9.0f * (stddev_y[1] / (float)basisu::maximum(1, half_span8_y[1]))) - 1, 0, 7)
+		};
+
+		uint32_t mod_tab[2];
+		for (uint32_t i = 0; i < 2; i++)
+			mod_tab[i] = g_etc1_mod_tabs[basisu::clamp<int>(half_span8_y[i], 1, 255)][stddev[i]];
+
+		int mean5_r[2], mean5_g[2], mean5_b[2];
+
+		for (uint32_t i = 0; i < 2; i++)
+		{
+#if 1
+			corr_round_555(mean8_r[i], mean8_g[i], mean8_b[i], mean5_r[i], mean5_g[i], mean5_b[i]);
+#else
+			mean5_r[i] = g_nearest5[mean8_r[i]];
+			mean5_g[i] = g_nearest5[mean8_g[i]];
+			mean5_b[i] = g_nearest5[mean8_b[i]];
+#endif
+		}
+
+		int delta5_r = mean5_r[1] - mean5_r[0];
+		int delta5_g = mean5_g[1] - mean5_g[0];
+		int delta5_b = mean5_b[1] - mean5_b[0];
+
+		const uint32_t z = (delta5_r + 4) | (delta5_g + 4) | (delta5_b + 4);
+		bool use_abs_colors4 = z > 7;
+
+		if (!use_abs_colors4)
+		{
+			assert((delta5_r >= -4) && (delta5_r <= 3));
+			assert((delta5_g >= -4) && (delta5_g <= 3));
+			assert((delta5_b >= -4) && (delta5_b <= 3));
+		}
+
+		if (use_abs_colors4)
+		{
+			int mean4_r[2], mean4_g[2], mean4_b[2];
+
+			for (uint32_t i = 0; i < 2; i++)
+			{
+#if 1
+				corr_round_444(mean8_r[i], mean8_g[i], mean8_b[i], mean4_r[i], mean4_g[i], mean4_b[i]);
+#else
+				mean4_r[i] = g_nearest4[mean8_r[i]];
+				mean4_g[i] = g_nearest4[mean8_g[i]];
+				mean4_b[i] = g_nearest4[mean8_b[i]];
+#endif
+			} // i
+
+			pBlock[0] = (uint8_t)(mean4_r[1] | (mean4_r[0] << 4));
+			pBlock[1] = (uint8_t)(mean4_g[1] | (mean4_g[0] << 4));
+			pBlock[2] = (uint8_t)(mean4_b[1] | (mean4_b[0] << 4));
+
+			const uint32_t diff = 0;
+			pBlock[3] = (uint8_t)(flip | (diff << 1) | (mod_tab[0] << 5) | (mod_tab[1] << 2));
+		}
+		else
+		{
+			pBlock[0] = (uint8_t)((delta5_r & 7) | (mean5_r[0] << 3));
+			pBlock[1] = (uint8_t)((delta5_g & 7) | (mean5_g[0] << 3));
+			pBlock[2] = (uint8_t)((delta5_b & 7) | (mean5_b[0] << 3));
+
+			const uint32_t diff = 1;
+			pBlock[3] = (uint8_t)(flip | (diff << 1) | (mod_tab[0] << 5) | (mod_tab[1] << 2));
+		}
+
+		uint16_t l_bitmask = 0;
+		uint16_t h_bitmask = 0;
+
+		static const uint8_t s_tran[4] = { 1, 0, 2, 3 };
+
+		color_rgba subblock_colors[2][4];
+		get_block_colors(pBlock, &subblock_colors[0][0], &subblock_colors[1][0]);
+
+		for (uint32_t subblock = 0; subblock < 2; subblock++)
+		{
+			const color_rgba* block_colors = &subblock_colors[subblock][0];
+
+			uint32_t block_y[4];
+			for (uint32_t i = 0; i < 4; i++)
+				block_y[i] = block_colors[i][0] * 54 + block_colors[i][1] * 183 + block_colors[i][2] * 19;
+
+			const uint32_t block_y01 = block_y[0] + block_y[1];
+			const uint32_t block_y12 = block_y[1] + block_y[2];
+			const uint32_t block_y23 = block_y[2] + block_y[3];
+
+			if (flip)
+			{
+				uint32_t ofs = subblock * 2;
+
+				for (uint32_t y = 0; y < 2; y++)
+				{
+					for (uint32_t x = 0; x < 4; x++)
+					{
+						const color_rgba& c = pPixels[x + (subblock * 2 + y) * 4];
+						const uint32_t l = c[0] * 108 + c[1] * 366 + c[2] * 38;
+
+						uint32_t t = s_tran[(l < block_y01) + (l < block_y12) + (l < block_y23)];
+
+						assert(ofs < 16);
+						l_bitmask |= ((t & 1) << ofs);
+						h_bitmask |= ((t >> 1) << ofs);
+						ofs += 4;
+					}
+
+					ofs = (int)ofs + 1 - 4 * 4;
+				}
+			}
+			else
+			{
+				uint32_t ofs = (subblock * 2) * 4;
+				for (uint32_t x = 0; x < 2; x++)
+				{
+					for (uint32_t y = 0; y < 4; y++)
+					{
+						const color_rgba& c = pPixels[subblock * 2 + x + y * 4];
+						const uint32_t l = c[0] * 108 + c[1] * 366 + c[2] * 38;
+
+						uint32_t t = s_tran[(l < block_y01) + (l < block_y12) + (l < block_y23)];
+
+						assert(ofs < 16);
+						l_bitmask |= ((t & 1) << ofs);
+						h_bitmask |= ((t >> 1) << ofs);
+						++ofs;
+					}
+				}
+			}
+
+			pBlock[7] = (uint8_t)(l_bitmask);
+			pBlock[6] = (uint8_t)(l_bitmask >> 8);
+			pBlock[5] = (uint8_t)(h_bitmask);
+			pBlock[4] = (uint8_t)(h_bitmask >> 8);
+
+		} // subblock
+	}
+
+	void pack_etc1_grayscale_solid_subblocks(uint8_t* pBlock, const uint8_t* pPixels, const uint8_t subblock_means[2], uint32_t flip)
+	{
+		(void)pPixels;
+
+		uint32_t best_mod5[2] = {}, best_sel5[2] = {};
+		uint32_t best_base5[2] = {};
+		uint32_t best_err5[2] = { UINT32_MAX, UINT32_MAX };
+
+		uint32_t best_mod4[2] = {}, best_sel4[2] = {};
+		uint32_t best_base4[2] = {};
+		uint32_t best_err4[2] = { UINT32_MAX, UINT32_MAX };
+
+		for (uint32_t t = 0; t < 2; t++)
+		{
+			const uint32_t y8 = subblock_means[t];
+
+			const uint8_t* pY5 = &g_solid8_5_err[y8][0][0];
+			const uint8_t* pY4 = &g_solid8_4_err[y8][0][0];
+
+			for (uint32_t mod = 0; mod < NUM_SOLID_MODS; mod++)
+			{
+				const uint32_t mod4 = mod << 2;
+
+				const uint32_t total_err5_0 = (pY5[0] << 5) + (mod4 + 0);
+				const uint32_t total_err5_1 = (pY5[1] << 5) + (mod4 + 1);
+				const uint32_t total_err5_2 = (pY5[2] << 5) + (mod4 + 2);
+				const uint32_t total_err5_3 = (pY5[3] << 5) + (mod4 + 3);
+
+				best_err5[t] = basisu::minimum(best_err5[t], basisu::minimum(total_err5_0, total_err5_1), basisu::minimum(total_err5_2, total_err5_3));
+
+				const uint32_t total_err4_0 = (pY4[0] << 5) + (mod4 + 0);
+				const uint32_t total_err4_1 = (pY4[1] << 5) + (mod4 + 1);
+				const uint32_t total_err4_2 = (pY4[2] << 5) + (mod4 + 2);
+				const uint32_t total_err4_3 = (pY4[3] << 5) + (mod4 + 3);
+
+				best_err4[t] = basisu::minimum(best_err4[t], basisu::minimum(total_err4_0, total_err4_1), basisu::minimum(total_err4_2, total_err4_3));
+
+				pY5 += 4;
+				pY4 += 4;
+			} // mod
+
+			best_mod5[t] = (best_err5[t] >> 2) & 7;
+			best_sel5[t] = best_err5[t] & 3;
+			best_err5[t] >>= 5;
+
+			best_mod4[t] = (best_err4[t] >> 2) & 7;
+			best_sel4[t] = best_err4[t] & 3;
+			best_err4[t] >>= 5;
+
+			best_base5[t] = g_solid8_5_base[y8][best_mod5[t]][best_sel5[t]];
+
+			best_base4[t] = g_solid8_4_base[y8][best_mod4[t]][best_sel4[t]];
+
+		} // t
+
+		uint32_t total_err4 = best_err4[0] + best_err4[1];
+		uint32_t total_err5 = best_err5[0] + best_err5[1];
+
+		bool use_abs = false;
+		if (total_err4 < total_err5)
+		{
+			use_abs = true;
+		}
+		else
+		{
+			int delta_y = best_base5[1] - best_base5[0];
+
+			if ((delta_y < -4) || (delta_y > 3))
+			{
+				use_abs = true;
+			}
+		}
+
+		uint32_t* pBest_sels;
+
+		if (use_abs)
+		{
+			pBlock[0] = pBlock[1] = pBlock[2] = (uint8_t)(best_base4[1] | (best_base4[0] << 4));
+
+			const uint32_t diff = false;
+			pBlock[3] = (uint8_t)(flip | (diff << 1) | (best_mod4[0] << 5) | (best_mod4[1] << 2));
+
+			pBest_sels = best_sel4;
+		}
+		else
+		{
+			const int delta_y = (best_base5[1] - best_base5[0]) & 7;
+
+			pBlock[0] = pBlock[1] = pBlock[2] = (uint8_t)(delta_y | (best_base5[0] << 3));
+
+			const uint32_t diff = 1;
+			pBlock[3] = (uint8_t)(flip | (diff << 1) | (best_mod5[0] << 5) | (best_mod5[1] << 2));
+
+			pBest_sels = best_sel5;
+		}
+
+		uint16_t l_bitmask = 0, h_bitmask = 0;
+
+		for (uint32_t subblock = 0; subblock < 2; subblock++)
+		{
+			uint32_t best_etc1_sel = pBest_sels[subblock];
+
+			l_bitmask |= s_sel_bitmasks[flip * 8 + subblock * 4 + best_etc1_sel][0];
+			h_bitmask |= s_sel_bitmasks[flip * 8 + subblock * 4 + best_etc1_sel][1];
+		}
+
+		pBlock[7] = (uint8_t)(l_bitmask);
+		pBlock[6] = (uint8_t)(l_bitmask >> 8);
+		pBlock[5] = (uint8_t)(h_bitmask);
+		pBlock[4] = (uint8_t)(h_bitmask >> 8);
+	}
+
+	void pack_etc1_grayscale(uint8_t* pBlock, const uint8_t* pPixels, pack_etc1_state& state)
+	{
+		(void)state;
+
+		const uint8_t fc = pPixels[0];
+
+		if (fc == pPixels[15])
+		{
+			int k;
+			for (k = 1; k < 15; k++)
+				if (pPixels[k] != fc)
+					break;
+
+			if (k == 15)
+			{
+				memcpy(pBlock, &g_solid_grayscale_etc1_blocks[fc][0], sizeof(decoder_etc_block));
+				return;
+			}
+		}
+
+		int accum_y[4] = { 0 }, accum_y2[4] = { 0 };
+
+		for (uint32_t i = 0; i < 16; i++)
+		{
+			int y = pPixels[i];
+			int y2 = y * y;
+
+			const int vi = s_vi[i], hi = s_hi[i];
+
+			accum_y[vi] += y;
+			accum_y2[vi] += y2;
+
+			accum_y[hi] += y;
+			accum_y2[hi] += y2;
+
+		} // i
+
+		int var_y_scaled[4]; // scaled by x64 (8*8)
+		for (uint32_t i = 0; i < 4; i++)
+			var_y_scaled[i] = basisu::maximum(0, (accum_y2[i] << 3) - (accum_y[i] * accum_y[i])); // max not needed
+
+		float std_luma[4];
+		for (uint32_t i = 0; i < 4; i++)
+			std_luma[i] = sqrtf((float)var_y_scaled[i] * (1.0f / 64.0f));
+
+		float flip0_score = std_luma[0] + std_luma[1];
+		float flip1_score = std_luma[2] + std_luma[3];
+
+		const uint32_t flip = flip1_score < flip0_score;
+
+		int var8_y[2] = {}, mean8_y[2] = {};
+		int min_y[2] = { INT_MAX, INT_MAX }, max_y[2] = { INT_MIN, INT_MIN };
+
+		for (uint32_t i = 0; i < 16; i++)
+		{
+			const int y = pPixels[i];
+
+			const uint32_t s = s_subsets[flip][i];
+
+			var8_y[s] += y * y;
+			mean8_y[s] += y;
+
+			min_y[s] = basisu::minimum(min_y[s], y);
+			max_y[s] = basisu::maximum(max_y[s], y);
+		}
+
+		if (((max_y[0] - min_y[0]) < 8) && ((max_y[1] - min_y[1]) < 8))
+		{
+			uint8_t subblock_means[2] = {
+				(uint8_t)((mean8_y[0] + 4) / 8),
+				(uint8_t)((mean8_y[1] + 4) / 8),
+			};
+
+			if (subblock_means[0] == subblock_means[1])
+				memcpy(pBlock, &g_solid_grayscale_etc1_blocks[subblock_means[0]][0], sizeof(decoder_etc_block));
+			else
+				pack_etc1_grayscale_solid_subblocks(pBlock, pPixels, subblock_means, flip);
+
+			return;
+		}
+
+		int half_span8_y[2];
+		float stddev_y[2];
+
+		for (uint32_t i = 0; i < 2; i++)
+		{
+			var8_y[i] = basisu::maximum<int>(0, (var8_y[i] << 3) - mean8_y[i] * mean8_y[i]);
+			stddev_y[i] = std::sqrt(static_cast<float>(var8_y[i])) * (1.0f / 8.0f);
+
+			mean8_y[i] = (mean8_y[i] + 4) >> 3;
+
+			half_span8_y[i] = basisu::maximum<int>(max_y[i] - mean8_y[i], mean8_y[i] - min_y[i]);
+		}
+
+		int stddev[2] =
+		{
+			basisu::clamp<int>((int)ceilf(9.0f * (stddev_y[0] / (float)basisu::maximum(1, half_span8_y[0]))) - 1, 0, 7),
+			basisu::clamp<int>((int)ceilf(9.0f * (stddev_y[1] / (float)basisu::maximum(1, half_span8_y[1]))) - 1, 0, 7)
+		};
+
+		uint32_t mod_tab[2];
+		for (uint32_t i = 0; i < 2; i++)
+			mod_tab[i] = etc1f::g_etc1_mod_tabs[basisu::clamp<int>(half_span8_y[i], 1, 255)][stddev[i]];
+
+		int mean5_y[2];
+
+		for (uint32_t i = 0; i < 2; i++)
+			mean5_y[i] = g_nearest5[mean8_y[i]];
+
+		int delta5_y = mean5_y[1] - mean5_y[0];
+
+		const uint32_t z = delta5_y + 4;
+		bool use_abs_colors4 = z > 7;
+
+		if (!use_abs_colors4)
+		{
+			assert((delta5_y >= -4) && (delta5_y <= 3));
+		}
+
+		if (use_abs_colors4)
+		{
+			int mean4_y[2];
+
+			for (uint32_t i = 0; i < 2; i++)
+			{
+				mean4_y[i] = g_nearest4[mean8_y[i]];
+			} // i
+
+			pBlock[0] = pBlock[1] = pBlock[2] = (uint8_t)(mean4_y[1] | (mean4_y[0] << 4));
+
+			const uint32_t diff = 0;
+			pBlock[3] = (uint8_t)(flip | (diff << 1) | (mod_tab[0] << 5) | (mod_tab[1] << 2));
+		}
+		else
+		{
+			pBlock[0] = pBlock[1] = pBlock[2] = (uint8_t)((delta5_y & 7) | (mean5_y[0] << 3));
+
+			const uint32_t diff = 1;
+			pBlock[3] = (uint8_t)(flip | (diff << 1) | (mod_tab[0] << 5) | (mod_tab[1] << 2));
+		}
+
+		//decoder_etc_block& blk = *(decoder_etc_block*)pBlock;
+
+		uint16_t l_bitmask = 0;
+		uint16_t h_bitmask = 0;
+
+		static const uint8_t s_tran[4] = { 1, 0, 2, 3 };
+
+		uint8_t subblock_colors[2][4];
+		get_block_colors_y(pBlock, &subblock_colors[0][0], &subblock_colors[1][0]);
+
+		for (uint32_t subblock = 0; subblock < 2; subblock++)
+		{
+			const uint8_t* block_y = &subblock_colors[subblock][0];
+
+			//color_rgba block_colors[4];
+			//blk.get_block_colors(block_colors, subblock);
+
+			//uint32_t block_y[4];
+			//for (uint32_t i = 0; i < 4; i++)
+				//block_y[i] = block_colors[i];
+
+			const uint32_t block_y01 = block_y[0] + block_y[1];
+			const uint32_t block_y12 = block_y[1] + block_y[2];
+			const uint32_t block_y23 = block_y[2] + block_y[3];
+
+			if (flip)
+			{
+				uint32_t ofs = subblock * 2;
+
+				for (uint32_t y = 0; y < 2; y++)
+				{
+					for (uint32_t x = 0; x < 4; x++)
+					{
+						const uint8_t c = pPixels[x + (subblock * 2 + y) * 4];
+						const uint32_t l = c * 2;
+
+						uint32_t t = s_tran[(l < block_y01) + (l < block_y12) + (l < block_y23)];
+
+						assert(ofs < 16);
+						l_bitmask |= ((t & 1) << ofs);
+						h_bitmask |= ((t >> 1) << ofs);
+						ofs += 4;
+					}
+
+					ofs = (int)ofs + 1 - 4 * 4;
+				}
+			}
+			else
+			{
+				uint32_t ofs = (subblock * 2) * 4;
+				for (uint32_t x = 0; x < 2; x++)
+				{
+					for (uint32_t y = 0; y < 4; y++)
+					{
+						const uint8_t c = pPixels[subblock * 2 + x + y * 4];
+						const uint32_t l = c * 2;
+
+						uint32_t t = s_tran[(l < block_y01) + (l < block_y12) + (l < block_y23)];
+
+						assert(ofs < 16);
+						l_bitmask |= ((t & 1) << ofs);
+						h_bitmask |= ((t >> 1) << ofs);
+						++ofs;
+					}
+				}
+			}
+
+			pBlock[7] = (uint8_t)(l_bitmask);
+			pBlock[6] = (uint8_t)(l_bitmask >> 8);
+			pBlock[5] = (uint8_t)(h_bitmask);
+			pBlock[4] = (uint8_t)(h_bitmask >> 8);
+
+		} // subblock
+	}
+
+} // namespace etc1f
+
+#endif // BASISD_SUPPORT_XUASTC
+
+//------------------------------------------------------------------------------------------------
+// XUASTC LDR transcoding
+//------------------------------------------------------------------------------------------------
+// XUASTC adaptive deblocking threshold
+const int XUASTC_LDR_DEBLOCK_SKIP_THRESH = 24;
+
+block_format xuastc_get_block_format(transcoder_texture_format tex_fmt)
+{
+	switch (tex_fmt)
+	{
+	case transcoder_texture_format::cTFASTC_LDR_4x4_RGBA: return block_format::cASTC_LDR_4x4;
+	case transcoder_texture_format::cTFASTC_LDR_5x4_RGBA: return block_format::cASTC_LDR_5x4;
+	case transcoder_texture_format::cTFASTC_LDR_5x5_RGBA: return block_format::cASTC_LDR_5x5;
+	case transcoder_texture_format::cTFASTC_LDR_6x5_RGBA: return block_format::cASTC_LDR_6x5;
+	case transcoder_texture_format::cTFASTC_LDR_6x6_RGBA: return block_format::cASTC_LDR_6x6;
+	case transcoder_texture_format::cTFASTC_LDR_8x5_RGBA: return block_format::cASTC_LDR_8x5;
+	case transcoder_texture_format::cTFASTC_LDR_8x6_RGBA: return block_format::cASTC_LDR_8x6;
+	case transcoder_texture_format::cTFASTC_LDR_10x5_RGBA: return block_format::cASTC_LDR_10x5;
+	case transcoder_texture_format::cTFASTC_LDR_10x6_RGBA: return block_format::cASTC_LDR_10x6;
+	case transcoder_texture_format::cTFASTC_LDR_8x8_RGBA: return block_format::cASTC_LDR_8x8;
+	case transcoder_texture_format::cTFASTC_LDR_10x8_RGBA: return block_format::cASTC_LDR_10x8;
+	case transcoder_texture_format::cTFASTC_LDR_10x10_RGBA: return block_format::cASTC_LDR_10x10;
+	case transcoder_texture_format::cTFASTC_LDR_12x10_RGBA: return block_format::cASTC_LDR_12x10;
+	case transcoder_texture_format::cTFASTC_LDR_12x12_RGBA: return block_format::cASTC_LDR_12x12;
+	default:
+		break;
+	}
+
+	assert(0);
+	return block_format::cASTC_LDR_4x4;
+}
+
+basisu_lowlevel_xuastc_ldr_transcoder::basisu_lowlevel_xuastc_ldr_transcoder()
+{
+}
+
+#if BASISD_SUPPORT_XUASTC
+void transcode_4x4_block(
+	block_format fmt, 
+	uint32_t block_x, uint32_t block_y,
+	void *pDst_blocks, uint8_t* pDst_block_u8,
+	const color32* block_pixels,
+	uint32_t output_block_or_pixel_stride_in_bytes, uint32_t output_row_pitch_in_blocks_or_pixels, uint32_t output_rows_in_pixels,
+	int channel0, int channel1, 
+	bool high_quality, bool from_alpha,
+	uint32_t bc7f_flags,
+	etc1f::pack_etc1_state& etc1_pack_state,
+	int has_alpha) // has_alpha = -1 unknown, 0=definitely no (a all 255's), 1=potentially yes
+{
+	BASISU_NOTE_UNUSED(output_block_or_pixel_stride_in_bytes);
+
+	switch (fmt)
+	{
+	case block_format::cETC1:
+	{
+		assert(output_block_or_pixel_stride_in_bytes == 8);
+		if (from_alpha)
+		{
+			// Annoying overhead
+			uint8_t alpha_pixels[16];
+			for (uint32_t i = 0; i < 16; i++)
+				alpha_pixels[i] = block_pixels[i].a;
+
+			etc1f::pack_etc1_grayscale(pDst_block_u8, alpha_pixels, etc1_pack_state);
+		}
+		else
+		{
+			etc1f::pack_etc1(pDst_block_u8, (color_rgba *)block_pixels, etc1_pack_state);
+		}
+		break;
+	}
+	case block_format::cETC2_RGBA:
+	{
+		assert(output_block_or_pixel_stride_in_bytes == 16);
+
+		(high_quality ? pack_eac_high_quality : pack_eac)(reinterpret_cast<eac_block*>(pDst_block_u8)[0], &block_pixels[0].c[3], sizeof(color32));
+		etc1f::pack_etc1(pDst_block_u8 + 8, (color_rgba*)block_pixels, etc1_pack_state);
+
+		break;
+	}
+	case block_format::cETC2_EAC_R11:
+	{
+		assert(output_block_or_pixel_stride_in_bytes == 8);
+
+		// Pack R by default
+		if (channel0 < 0)
+			channel0 = 0;
+
+		(high_quality ? pack_eac_high_quality : pack_eac)(reinterpret_cast<eac_block*>(pDst_block_u8)[0], &block_pixels[0].c[channel0], sizeof(color32));
+
+		break;
+	}
+	case block_format::cETC2_EAC_RG11:
+	{
+		assert(output_block_or_pixel_stride_in_bytes == 16);
+
+		// Pack RA by default
+		if (channel0 < 0)
+			channel0 = 0;
+		if (channel1 < 0)
+			channel1 = 3;
+
+		(high_quality ? pack_eac_high_quality : pack_eac)(reinterpret_cast<eac_block*>(pDst_block_u8)[0], &block_pixels[0].c[channel0], sizeof(color32));
+		(high_quality ? pack_eac_high_quality : pack_eac)(reinterpret_cast<eac_block*>(pDst_block_u8)[1], &block_pixels[0].c[channel1], sizeof(color32));
+
+		break;
+	}
+	case block_format::cBC1:
+	{
+		assert(output_block_or_pixel_stride_in_bytes == 8);
+
+		encode_bc1(pDst_block_u8, (const uint8_t *)block_pixels, high_quality ? cEncodeBC1HighQuality : 0);
+		break;
+	}
+	case block_format::cBC3:
+	{
+		assert(output_block_or_pixel_stride_in_bytes == 16);
+
+		encode_bc4(pDst_block_u8, &block_pixels[0].c[3], sizeof(color32));
+		encode_bc1(pDst_block_u8 + 8, (const uint8_t *)block_pixels, high_quality ? cEncodeBC1HighQuality : 0);
+		break;
+	}
+	case block_format::cBC4:
+	{
+		assert(output_block_or_pixel_stride_in_bytes == 8);
+
+		// Pack R by default
+		if (channel0 < 0)
+			channel0 = 0;
+
+		encode_bc4(pDst_block_u8, &block_pixels[0].c[channel0], sizeof(color32));
+		break;
+	}
+	case block_format::cBC5:
+	{
+		assert(output_block_or_pixel_stride_in_bytes == 16);
+		
+		// Pack RA by default
+		if (channel0 < 0)
+			channel0 = 0;
+		if (channel1 < 0)
+			channel1 = 3;
+
+		encode_bc4(pDst_block_u8, &block_pixels[0].c[channel0], sizeof(color32));
+		encode_bc4(pDst_block_u8 + 8, &block_pixels[0].c[channel1], sizeof(color32));
+
+		break;
+	}
+	case block_format::cBC7:
+	{
+		assert(output_block_or_pixel_stride_in_bytes == 16);
+		
+		// 0=definitely no alpha, so skip alpha checks
+		if (has_alpha == 0) 
+			bc7f::fast_pack_bc7_auto_rgb(pDst_block_u8, (const basist::color_rgba*)block_pixels, bc7f_flags);
+		else
+			bc7f::fast_pack_bc7_auto_rgba(pDst_block_u8, (const basist::color_rgba*)block_pixels, bc7f_flags);
+
+		break;
+	}
+	case block_format::cRGBA32:
+	{
+		assert(sizeof(uint32_t) == output_block_or_pixel_stride_in_bytes);
+		uint8_t* pDst_pixels = static_cast<uint8_t*>(pDst_blocks) + (block_x * 4 + block_y * 4 * output_row_pitch_in_blocks_or_pixels) * sizeof(uint32_t);
+
+		const uint32_t max_x = basisu::minimum<int>(4, (int)output_row_pitch_in_blocks_or_pixels - (int)block_x * 4);
+		const uint32_t max_y = basisu::minimum<int>(4, (int)output_rows_in_pixels - (int)block_y * 4);
+
+		if ((max_x == 4) && (max_y == 4))
+		{
+			memcpy(pDst_pixels, block_pixels, 4 * sizeof(color32));
+			memcpy(pDst_pixels + output_row_pitch_in_blocks_or_pixels * sizeof(uint32_t) * 1, &block_pixels[1 * 4], 4 * sizeof(color32));
+			memcpy(pDst_pixels + output_row_pitch_in_blocks_or_pixels * sizeof(uint32_t) * 2, &block_pixels[2 * 4], 4 * sizeof(color32));
+			memcpy(pDst_pixels + output_row_pitch_in_blocks_or_pixels * sizeof(uint32_t) * 3, &block_pixels[3 * 4], 4 * sizeof(color32));
+		}
+		else
+		{
+			for (uint32_t y = 0; y < max_y; y++)
+			{
+				memcpy(pDst_pixels, &block_pixels[y * 4], max_x * sizeof(color32));
+				pDst_pixels += output_row_pitch_in_blocks_or_pixels * sizeof(uint32_t);
+			}
+		}
+
+		break;
+	}
+	case block_format::cRGB565:
+	case block_format::cBGR565:
+	{
+		// This writes little endian data always.
+		assert(sizeof(uint16_t) == output_block_or_pixel_stride_in_bytes);
+		uint8_t* pDst_pixels = static_cast<uint8_t*>(pDst_blocks) + (block_x * 4 + block_y * 4 * output_row_pitch_in_blocks_or_pixels) * sizeof(uint16_t);
+
+		const uint32_t max_x = basisu::minimum<int>(4, (int)output_row_pitch_in_blocks_or_pixels - (int)block_x * 4);
+		const uint32_t max_y = basisu::minimum<int>(4, (int)output_rows_in_pixels - (int)block_y * 4);
+
+		for (uint32_t y = 0; y < max_y; y++)
+		{
+			for (uint32_t x = 0; x < max_x; x++)
+			{
+				const color32& c = block_pixels[y * 4 + x];
+
+				const uint16_t packed = (fmt == block_format::cRGB565) ? static_cast<uint16_t>((mul_8(c.r, 31) << 11) | (mul_8(c.g, 63) << 5) | mul_8(c.b, 31)) :
+					static_cast<uint16_t>((mul_8(c.b, 31) << 11) | (mul_8(c.g, 63) << 5) | mul_8(c.r, 31));
+								
+				pDst_pixels[x * 2 + 0] = (uint8_t)(packed & 0xFF);
+				pDst_pixels[x * 2 + 1] = (uint8_t)((packed >> 8) & 0xFF);
+			}
+
+			pDst_pixels += output_row_pitch_in_blocks_or_pixels * sizeof(uint16_t);
+		}
+
+		break;
+	}
+	case block_format::cRGBA4444:
+	{
+		// This writes little endian data always.
+		assert(sizeof(uint16_t) == output_block_or_pixel_stride_in_bytes);
+		uint8_t* pDst_pixels = static_cast<uint8_t*>(pDst_blocks) + (block_x * 4 + block_y * 4 * output_row_pitch_in_blocks_or_pixels) * sizeof(uint16_t);
+
+		const uint32_t max_x = basisu::minimum<int>(4, (int)output_row_pitch_in_blocks_or_pixels - (int)block_x * 4);
+		const uint32_t max_y = basisu::minimum<int>(4, (int)output_rows_in_pixels - (int)block_y * 4);
+
+		for (uint32_t y = 0; y < max_y; y++)
+		{
+			for (uint32_t x = 0; x < max_x; x++)
+			{
+				const color32& c = block_pixels[y * 4 + x];
+
+				const uint16_t packed = static_cast<uint16_t>((mul_8(c.r, 15) << 12) | (mul_8(c.g, 15) << 8) | (mul_8(c.b, 15) << 4) | mul_8(c.a, 15));
+
+				pDst_pixels[x * 2 + 0] = (uint8_t)(packed & 0xFF);
+				pDst_pixels[x * 2 + 1] = (uint8_t)((packed >> 8) & 0xFF);
+			}
+
+			pDst_pixels += output_row_pitch_in_blocks_or_pixels * sizeof(uint16_t);
+		}
+		break;
+	}
+	default:
+		// Unsupported or invalid format
+		assert(0);
+		break;
+	}
+}
+
+static bool xuastc_deblock_filter(
+	uint32_t filter_block_width, uint32_t filter_block_height, 
+	const basisu::vector2D<color32> &src_img,
+	basisu::vector2D<color32> &dst_img,
+	bool stronger_filtering, int skip_thresh)
+{
+	basisu::vector2D<color32> temp_img;
+	if (!temp_img.try_resize(src_img.get_width(), src_img.get_height()))
+		return false;
+
+	if (stronger_filtering)
+		skip_thresh *= 2;
+
+	//basisu::fmt_printf("stronger filtering: {}, skip_thread: {}\n", stronger_filtering, skip_thresh);
+
+	temp_img = src_img;
+
+	for (int y = 0; y < (int)src_img.get_height(); y++)
+	{
+		for (int x = filter_block_width; x < (int)src_img.get_width(); x += filter_block_width)
+		{
+			const color32 &ll = src_img.at_clamped(x - 2, y);
+			const color32 &l = src_img.at_clamped(x - 1, y);
+			const color32 &r =src_img.at_clamped(x, y);
+			const color32 &rr = src_img.at_clamped(x + 1, y);
+
+			if (skip_thresh < 256)
+			{
+				bool skip_flag = false;
+				for (uint32_t c = 0; c < 4; c++)
+				{
+					int delta = basisu::iabs((int)l[c] - (int)r[c]);
+					if (delta > skip_thresh)
+					{
+						skip_flag = true;
+						break;
+					}
+				}
+
+				if (skip_flag)
+					continue;
+			}
+
+			color32 ml, mr;
+			for (uint32_t c = 0; c < 4; c++)
+			{
+				if (stronger_filtering)
+				{
+					ml[c] = (3 * l[c] + 2 * r[c] + ll[c] + 3) / 6;
+					mr[c] = (3 * r[c] + 2 * l[c] + rr[c] + 3) / 6;
+				}
+				else
+				{
+					ml[c] = (5 * l[c] + 2 * r[c] + ll[c] + 4) / 8;
+					mr[c] = (5 * r[c] + 2 * l[c] + rr[c] + 4) / 8;
+				}
+			}
+
+			temp_img.set_clipped(x - 1, y, ml);
+			temp_img.set_clipped(x, y, mr);
+
+		} // x
+
+	} // y
+
+	dst_img = temp_img;
+
+	for (int x = 0; x < (int)temp_img.get_width(); x++)
+	{
+		for (int y = filter_block_height; y < (int)temp_img.get_height(); y += filter_block_height)
+		{
+			const color32 &uu = temp_img.at_clamped(x, y - 2);
+			const color32 &u = temp_img.at_clamped(x, y - 1);
+			const color32 &d = temp_img.at_clamped(x, y);
+			const color32 &dd = temp_img.at_clamped(x, y + 1);
+
+			if (skip_thresh < 256)
+			{
+				bool skip_flag = false;
+				for (uint32_t c = 0; c < 4; c++)
+				{
+					int delta = basisu::iabs((int)u[c] - (int)d[c]);
+					if (delta > skip_thresh)
+					{
+						skip_flag = true;
+						break;
+					}
+				}
+
+				if (skip_flag)
+					continue;
+			}
+
+			color32 mu, md;
+			for (uint32_t c = 0; c < 4; c++)
+			{
+				if (stronger_filtering)
+				{
+					mu[c] = (3 * u[c] + 2 * d[c] + uu[c] + 3) / 6;
+					md[c] = (3 * d[c] + 2 * u[c] + dd[c] + 3) / 6;
+				}
+				else
+				{
+					mu[c] = (5 * u[c] + 2 * d[c] + uu[c] + 4) / 8;
+					md[c] = (5 * d[c] + 2 * u[c] + dd[c] + 4) / 8;
+				}
+			}
+
+			dst_img.set_clipped(x, y - 1, mu);
+			dst_img.set_clipped(x, y, md);
+
+		} // x
+
+	} // y
+
+	return true;
+}
+
+static void xuastc_fixup_pvrtc1_4_modulation_rgb(
+	const basisu::vector2D<color32>& temp_image,
+	const uint32_t* pPVRTC_endpoints,
+	void* pDst_blocks,
+	uint32_t num_blocks_x, uint32_t num_blocks_y, bool from_alpha)
+{
+	const uint32_t x_mask = num_blocks_x - 1;
+	const uint32_t y_mask = num_blocks_y - 1;
+	const uint32_t x_bits = basisu::total_bits(x_mask);
+	const uint32_t y_bits = basisu::total_bits(y_mask);
+	const uint32_t min_bits = basisu::minimum(x_bits, y_bits);
+	//const uint32_t max_bits = basisu::maximum(x_bits, y_bits);
+	const uint32_t swizzle_mask = (1 << (min_bits * 2)) - 1;
+
+	uint32_t block_index = 0;
+
+	// really 3x3
+	int e0[4][4], e1[4][4];
+
+	for (int y = 0; y < static_cast<int>(num_blocks_y); y++)
+	{
+		const uint32_t* pE_rows[3];
+
+		for (int ey = 0; ey < 3; ey++)
+		{
+			int by = y + ey - 1;
+
+			const uint32_t* pE = &pPVRTC_endpoints[(by & y_mask) * num_blocks_x];
+
+			pE_rows[ey] = pE;
+
+			for (int ex = 0; ex < 3; ex++)
+			{
+				int bx = 0 + ex - 1;
+
+				const uint32_t e = pE[bx & x_mask];
+
+				e0[ex][ey] = (get_opaque_endpoint_l0(e) * 255) / 31;
+				e1[ex][ey] = (get_opaque_endpoint_l1(e) * 255) / 31;
+			}
+		}
+
+		const uint32_t y_swizzle = (g_pvrtc_swizzle_table[y >> 8] << 16) | g_pvrtc_swizzle_table[y & 0xFF];
+
+		for (int x = 0; x < static_cast<int>(num_blocks_x); x++, block_index++)
+		{
+			color32 block_pixels[4][4];
+			temp_image.extract_block_clamped(&block_pixels[0][0], x * 4, y * 4, 4, 4);
+
+			if (from_alpha)
+			{
+				// Just set RGB to alpha to avoid adding complexity below.
+				for (uint32_t i = 0; i < 16; i++)
+				{
+					const uint8_t a = ((color32*)block_pixels)[i].a;
+					((color32*)block_pixels)[i].set(a, a, a, 255);
+				}
+			}
+
+			const uint32_t x_swizzle = (g_pvrtc_swizzle_table[x >> 8] << 17) | (g_pvrtc_swizzle_table[x & 0xFF] << 1);
+
+			uint32_t swizzled = x_swizzle | y_swizzle;
+			if (num_blocks_x != num_blocks_y)
+			{
+				swizzled &= swizzle_mask;
+
+				if (num_blocks_x > num_blocks_y)
+					swizzled |= ((x >> min_bits) << (min_bits * 2));
+				else
+					swizzled |= ((y >> min_bits) << (min_bits * 2));
+			}
+
+			pvrtc4_block* pDst_block = static_cast<pvrtc4_block*>(pDst_blocks) + swizzled;
+			pDst_block->m_endpoints = pPVRTC_endpoints[block_index];
+
+			{
+				const uint32_t ex = 2;
+				int bx = x + ex - 1;
+				bx &= x_mask;
+
+#define BUT_DO_ROW(ey) \
+				{ \
+					const uint32_t e = pE_rows[ey][bx]; \
+					e0[ex][ey] = (get_opaque_endpoint_l0(e) * 255) / 31; \
+					e1[ex][ey] = (get_opaque_endpoint_l1(e) * 255) / 31; \
+				}
+
+				BUT_DO_ROW(0);
+				BUT_DO_ROW(1);
+				BUT_DO_ROW(2);
+#undef BUT_DO_ROW
+			}
+
+			uint32_t mod = 0;
+
+#define BUT_DO_PIX(lx, ly, w0, w1, w2, w3) \
+			{ \
+				int ca_l = a0 * w0 + a1 * w1 + a2 * w2 + a3 * w3; \
+				int cb_l = b0 * w0 + b1 * w1 + b2 * w2 + b3 * w3; \
+				int cl = (block_pixels[ly][lx].r + block_pixels[ly][lx].g + block_pixels[ly][lx].b) * 16; \
+				int dl = cb_l - ca_l; \
+				int vl = cl - ca_l; \
+				int p = vl * 16; \
+				if (ca_l > cb_l) { p = -p; dl = -dl; } \
+				uint32_t m = 0; \
+				if (p > 3 * dl) m = (uint32_t)(1 << ((ly) * 8 + (lx) * 2)); \
+				if (p > 8 * dl) m = (uint32_t)(2 << ((ly) * 8 + (lx) * 2)); \
+				if (p > 13 * dl) m = (uint32_t)(3 << ((ly) * 8 + (lx) * 2)); \
+				mod |= m; \
+			}
+
+			{
+				const uint32_t ex = 0, ey = 0;
+				const int a0 = e0[ex][ey], a1 = e0[ex + 1][ey], a2 = e0[ex][ey + 1], a3 = e0[ex + 1][ey + 1];
+				const int b0 = e1[ex][ey], b1 = e1[ex + 1][ey], b2 = e1[ex][ey + 1], b3 = e1[ex + 1][ey + 1];
+				BUT_DO_PIX(0, 0, 4, 4, 4, 4);
+				BUT_DO_PIX(1, 0, 2, 6, 2, 6);
+				BUT_DO_PIX(0, 1, 2, 2, 6, 6);
+				BUT_DO_PIX(1, 1, 1, 3, 3, 9);
+			}
+
+			{
+				const uint32_t ex = 1, ey = 0;
+				const int a0 = e0[ex][ey], a1 = e0[ex + 1][ey], a2 = e0[ex][ey + 1], a3 = e0[ex + 1][ey + 1];
+				const int b0 = e1[ex][ey], b1 = e1[ex + 1][ey], b2 = e1[ex][ey + 1], b3 = e1[ex + 1][ey + 1];
+				BUT_DO_PIX(2, 0, 8, 0, 8, 0);
+				BUT_DO_PIX(3, 0, 6, 2, 6, 2);
+				BUT_DO_PIX(2, 1, 4, 0, 12, 0);
+				BUT_DO_PIX(3, 1, 3, 1, 9, 3);
+			}
+
+			{
+				const uint32_t ex = 0, ey = 1;
+				const int a0 = e0[ex][ey], a1 = e0[ex + 1][ey], a2 = e0[ex][ey + 1], a3 = e0[ex + 1][ey + 1];
+				const int b0 = e1[ex][ey], b1 = e1[ex + 1][ey], b2 = e1[ex][ey + 1], b3 = e1[ex + 1][ey + 1];
+				BUT_DO_PIX(0, 2, 8, 8, 0, 0);
+				BUT_DO_PIX(1, 2, 4, 12, 0, 0);
+				BUT_DO_PIX(0, 3, 6, 6, 2, 2);
+				BUT_DO_PIX(1, 3, 3, 9, 1, 3);
+			}
+
+			{
+				const uint32_t ex = 1, ey = 1;
+				const int a0 = e0[ex][ey], a1 = e0[ex + 1][ey], a2 = e0[ex][ey + 1], a3 = e0[ex + 1][ey + 1];
+				const int b0 = e1[ex][ey], b1 = e1[ex + 1][ey], b2 = e1[ex][ey + 1], b3 = e1[ex + 1][ey + 1];
+				BUT_DO_PIX(2, 2, 16, 0, 0, 0);
+				BUT_DO_PIX(3, 2, 12, 4, 0, 0);
+				BUT_DO_PIX(2, 3, 12, 0, 4, 0);
+				BUT_DO_PIX(3, 3, 9, 3, 3, 1);
+			}
+#undef BUT_DO_PIX
+
+			pDst_block->m_modulation = mod;
+
+			e0[0][0] = e0[1][0]; e0[1][0] = e0[2][0];
+			e0[0][1] = e0[1][1]; e0[1][1] = e0[2][1];
+			e0[0][2] = e0[1][2]; e0[1][2] = e0[2][2];
+
+			e1[0][0] = e1[1][0]; e1[1][0] = e1[2][0];
+			e1[0][1] = e1[1][1]; e1[1][1] = e1[2][1];
+			e1[0][2] = e1[1][2]; e1[1][2] = e1[2][2];
+
+		} // x
+	} // y
+}
+
+static void xuastc_fixup_pvrtc1_4_modulation_rgba(
+	const basisu::vector2D<color32>& temp_image,
+	const uint32_t* pPVRTC_endpoints,
+	void* pDst_blocks, uint32_t num_blocks_x, uint32_t num_blocks_y)
+{
+	const uint32_t x_mask = num_blocks_x - 1;
+	const uint32_t y_mask = num_blocks_y - 1;
+	const uint32_t x_bits = basisu::total_bits(x_mask);
+	const uint32_t y_bits = basisu::total_bits(y_mask);
+	const uint32_t min_bits = basisu::minimum(x_bits, y_bits);
+	//const uint32_t max_bits = basisu::maximum(x_bits, y_bits);
+	const uint32_t swizzle_mask = (1 << (min_bits * 2)) - 1;
+
+	uint32_t block_index = 0;
+
+	// really 3x3
+	int e0[4][4], e1[4][4];
+
+	for (int y = 0; y < static_cast<int>(num_blocks_y); y++)
+	{
+		const uint32_t* pE_rows[3];
+
+		for (int ey = 0; ey < 3; ey++)
+		{
+			int by = y + ey - 1;
+
+			const uint32_t* pE = &pPVRTC_endpoints[(by & y_mask) * num_blocks_x];
+
+			pE_rows[ey] = pE;
+
+			for (int ex = 0; ex < 3; ex++)
+			{
+				int bx = 0 + ex - 1;
+
+				const uint32_t e = pE[bx & x_mask];
+
+				e0[ex][ey] = get_endpoint_l8(e, 0);
+				e1[ex][ey] = get_endpoint_l8(e, 1);
+			}
+		}
+
+		const uint32_t y_swizzle = (g_pvrtc_swizzle_table[y >> 8] << 16) | g_pvrtc_swizzle_table[y & 0xFF];
+
+		for (int x = 0; x < static_cast<int>(num_blocks_x); x++, block_index++)
+		{
+			color32 block_pixels[4][4];
+			temp_image.extract_block_clamped(&block_pixels[0][0], x * 4, y * 4, 4, 4);
+
+			const uint32_t x_swizzle = (g_pvrtc_swizzle_table[x >> 8] << 17) | (g_pvrtc_swizzle_table[x & 0xFF] << 1);
+
+			uint32_t swizzled = x_swizzle | y_swizzle;
+			if (num_blocks_x != num_blocks_y)
+			{
+				swizzled &= swizzle_mask;
+
+				if (num_blocks_x > num_blocks_y)
+					swizzled |= ((x >> min_bits) << (min_bits * 2));
+				else
+					swizzled |= ((y >> min_bits) << (min_bits * 2));
+			}
+
+			pvrtc4_block* pDst_block = static_cast<pvrtc4_block*>(pDst_blocks) + swizzled;
+			pDst_block->m_endpoints = pPVRTC_endpoints[block_index];
+
+			{
+				const uint32_t ex = 2;
+				int bx = x + ex - 1;
+				bx &= x_mask;
+
+#define DO_ROW(ey) \
+					{ \
+						const uint32_t e = pE_rows[ey][bx]; \
+						e0[ex][ey] = get_endpoint_l8(e, 0); \
+						e1[ex][ey] = get_endpoint_l8(e, 1); \
+					}
+
+				DO_ROW(0);
+				DO_ROW(1);
+				DO_ROW(2);
+#undef DO_ROW
+			}
+
+			uint32_t mod = 0;
+
+#define DO_PIX(lx, ly, w0, w1, w2, w3) \
+				{ \
+					int ca_l = a0 * w0 + a1 * w1 + a2 * w2 + a3 * w3; \
+					int cb_l = b0 * w0 + b1 * w1 + b2 * w2 + b3 * w3; \
+					int cl = 16 * (block_pixels[ly][lx].r + block_pixels[ly][lx].g + block_pixels[ly][lx].b + block_pixels[ly][lx].a); \
+					int dl = cb_l - ca_l; \
+					int vl = cl - ca_l; \
+					int p = vl * 16; \
+					if (ca_l > cb_l) { p = -p; dl = -dl; } \
+					uint32_t m = 0; \
+					if (p > 3 * dl) m = (uint32_t)(1 << ((ly) * 8 + (lx) * 2)); \
+					if (p > 8 * dl) m = (uint32_t)(2 << ((ly) * 8 + (lx) * 2)); \
+					if (p > 13 * dl) m = (uint32_t)(3 << ((ly) * 8 + (lx) * 2)); \
+					mod |= m; \
+				}
+
+			{
+				const uint32_t ex = 0, ey = 0;
+				const int a0 = e0[ex][ey], a1 = e0[ex + 1][ey], a2 = e0[ex][ey + 1], a3 = e0[ex + 1][ey + 1];
+				const int b0 = e1[ex][ey], b1 = e1[ex + 1][ey], b2 = e1[ex][ey + 1], b3 = e1[ex + 1][ey + 1];
+				DO_PIX(0, 0, 4, 4, 4, 4);
+				DO_PIX(1, 0, 2, 6, 2, 6);
+				DO_PIX(0, 1, 2, 2, 6, 6);
+				DO_PIX(1, 1, 1, 3, 3, 9);
+			}
+
+			{
+				const uint32_t ex = 1, ey = 0;
+				const int a0 = e0[ex][ey], a1 = e0[ex + 1][ey], a2 = e0[ex][ey + 1], a3 = e0[ex + 1][ey + 1];
+				const int b0 = e1[ex][ey], b1 = e1[ex + 1][ey], b2 = e1[ex][ey + 1], b3 = e1[ex + 1][ey + 1];
+				DO_PIX(2, 0, 8, 0, 8, 0);
+				DO_PIX(3, 0, 6, 2, 6, 2);
+				DO_PIX(2, 1, 4, 0, 12, 0);
+				DO_PIX(3, 1, 3, 1, 9, 3);
+			}
+
+			{
+				const uint32_t ex = 0, ey = 1;
+				const int a0 = e0[ex][ey], a1 = e0[ex + 1][ey], a2 = e0[ex][ey + 1], a3 = e0[ex + 1][ey + 1];
+				const int b0 = e1[ex][ey], b1 = e1[ex + 1][ey], b2 = e1[ex][ey + 1], b3 = e1[ex + 1][ey + 1];
+				DO_PIX(0, 2, 8, 8, 0, 0);
+				DO_PIX(1, 2, 4, 12, 0, 0);
+				DO_PIX(0, 3, 6, 6, 2, 2);
+				DO_PIX(1, 3, 3, 9, 1, 3);
+			}
+
+			{
+				const uint32_t ex = 1, ey = 1;
+				const int a0 = e0[ex][ey], a1 = e0[ex + 1][ey], a2 = e0[ex][ey + 1], a3 = e0[ex + 1][ey + 1];
+				const int b0 = e1[ex][ey], b1 = e1[ex + 1][ey], b2 = e1[ex][ey + 1], b3 = e1[ex + 1][ey + 1];
+				DO_PIX(2, 2, 16, 0, 0, 0);
+				DO_PIX(3, 2, 12, 4, 0, 0);
+				DO_PIX(2, 3, 12, 0, 4, 0);
+				DO_PIX(3, 3, 9, 3, 3, 1);
+			}
+#undef DO_PIX
+
+			pDst_block->m_modulation = mod;
+
+			e0[0][0] = e0[1][0]; e0[1][0] = e0[2][0];
+			e0[0][1] = e0[1][1]; e0[1][1] = e0[2][1];
+			e0[0][2] = e0[1][2]; e0[1][2] = e0[2][2];
+
+			e1[0][0] = e1[1][0]; e1[1][0] = e1[2][0];
+			e1[0][1] = e1[1][1]; e1[1][1] = e1[2][1];
+			e1[0][2] = e1[1][2]; e1[1][2] = e1[2][2];
+
+		} // x
+	} // y
+}
+
+void encode_pvrtc1(
+	block_format fmt, void* pDst_blocks,
+	const basisu::vector2D<color32> &temp_image,
+	uint32_t dst_num_blocks_x, uint32_t dst_num_blocks_y, bool from_alpha)
+{
+	assert((fmt == block_format::cPVRTC1_4_RGB) || (fmt == block_format::cPVRTC1_4_RGBA));
+
+	basisu::vector2D<uint32_t> pvrtc1_endpoints(dst_num_blocks_x, dst_num_blocks_y);
+
+	// Determine block endpoints
+	for (uint32_t dst_by = 0; dst_by < dst_num_blocks_y; dst_by++)
+	{
+		for (uint32_t dst_bx = 0; dst_bx < dst_num_blocks_x; dst_bx++)
+		{
+			color32 block_pixels[4 * 4];
+
+			temp_image.extract_block_clamped(block_pixels, dst_bx * 4, dst_by * 4, 4, 4);
+
+			color32 low_color(255, 255, 255, 255), high_color(0, 0, 0, 0);
+
+			for (uint32_t i = 0; i < 16; i++)
+			{
+				low_color = color32::comp_min(low_color, block_pixels[i]);
+				high_color = color32::comp_max(high_color, block_pixels[i]);
+			}
+
+			if ((fmt == block_format::cPVRTC1_4_RGB) && (from_alpha))
+			{
+				low_color.set(low_color.a, low_color.a, low_color.a, 255);
+				high_color.set(high_color.a, high_color.a, high_color.a, 255);
+			}
+
+			pvrtc4_block temp;
+			if (fmt == block_format::cPVRTC1_4_RGBA)
+			{
+				temp.set_endpoint_floor(0, low_color);
+				temp.set_endpoint_ceil(1, high_color);
+			}
+			else
+			{
+				temp.set_opaque_endpoint_floor(0, low_color);
+				temp.set_opaque_endpoint_ceil(1, high_color);
+			}
+
+			pvrtc1_endpoints(dst_bx, dst_by) = temp.m_endpoints;
+		} // dst_bx
+
+	}  // dst_by
+
+	// Create PVRTC1 texture data.
+	if (fmt == block_format::cPVRTC1_4_RGBA)
+		xuastc_fixup_pvrtc1_4_modulation_rgba(temp_image, pvrtc1_endpoints.get_ptr(), pDst_blocks, dst_num_blocks_x, dst_num_blocks_y);
+	else
+		xuastc_fixup_pvrtc1_4_modulation_rgb(temp_image, pvrtc1_endpoints.get_ptr(), pDst_blocks, dst_num_blocks_x, dst_num_blocks_y, from_alpha);
+}
+
+#endif // BASISD_SUPPORT_XUASTC
+
+static inline bool blocks_same_solid_colors(const astc_helpers::log_astc_block& a, const astc_helpers::log_astc_block& b, uint32_t tol)
+{
+	if ((!a.m_solid_color_flag_ldr) || (!b.m_solid_color_flag_ldr))
+		return false;
+
+	if (tol == 0)
+	{
+		return (a.m_solid_color[0] == b.m_solid_color[0]) && (a.m_solid_color[1] == b.m_solid_color[1]) &&
+			(a.m_solid_color[2] == b.m_solid_color[2]) && (a.m_solid_color[3] == b.m_solid_color[3]);
+	}
+	
+	for (uint32_t i = 0; i < 4; i++)
+	{
+		int ac = a.m_solid_color[i] >> 8;
+		int bc = b.m_solid_color[i] >> 8;
+		
+		const int dl = basisu::iabs((int)ac - (int)bc);
+		if (dl > (int)tol)
+			return false;
+	}
+	
+	return true;
+}
+
+static inline bool blocks_same_single_subset_endpoints(const astc_helpers::log_astc_block& a, const astc_helpers::log_astc_block& b, uint32_t tol)
+{
+	if (a.m_solid_color_flag_ldr || b.m_solid_color_flag_ldr)
+		return false;
+
+	if (a.m_dual_plane || b.m_dual_plane)
+		return false;
+
+	if ((a.m_num_partitions > 1) || (b.m_num_partitions > 1))
+		return false;
+
+	if (a.m_color_endpoint_modes[0] != b.m_color_endpoint_modes[0])
+		return false;
+		
+	if (a.m_endpoint_ise_range != b.m_endpoint_ise_range)
+		return false;
+
+	if (tol > 0)
+	{
+		// Compare endpoints with tolerance
+		color_rgba al, ah;
+		astc_ldr_t::decode_endpoints(a.m_color_endpoint_modes[0], a.m_endpoints, a.m_endpoint_ise_range, al, ah);
+
+		color_rgba bl, bh;
+		astc_ldr_t::decode_endpoints(b.m_color_endpoint_modes[0], b.m_endpoints, b.m_endpoint_ise_range, bl, bh);
+
+		for (uint32_t i = 0; i < 4; i++)
+		{
+			const int dl = basisu::iabs((int)al[i] - (int)bl[i]);
+			if (dl > (int)tol)
+				return false;
+			
+			const int dh = basisu::iabs((int)ah[i] - (int)bh[i]);
+			if (dh > (int)tol)
+				return false;
+		}
+	}
+	else
+	{
+		uint32_t total_endpoint_vals = astc_helpers::get_num_cem_values(a.m_color_endpoint_modes[0]);
+		if (memcmp(a.m_endpoints, b.m_endpoints, total_endpoint_vals) != 0)
+			return false;
+	}
+
+	return true;
+}
+
+static inline bool block_has_alpha(const astc_helpers::log_astc_block& a)
+{
+	if (a.m_solid_color_flag_ldr)
+	{
+		return (a.m_solid_color[3] >> 8) != 255;
+	}
+
+	assert(a.m_num_partitions == 1);
+
+	return astc_helpers::does_cem_have_alpha(a.m_color_endpoint_modes[0]);
+}
+
+static void astc_upsample_grid_weights(const astc_helpers::log_astc_block& log_blk, uint8_t* pDst_weights, uint32_t block_width, uint32_t block_height)
+{
+	// Skip if solid (which is fine)
+	if (log_blk.m_solid_color_flag_ldr)
+	{
+#if defined(DEBUG) || defined(_DEBUG)
+		memset(pDst_weights, 0xFF, block_width * block_height);
+#endif
+		return;
+	}
+	
+	assert((log_blk.m_grid_width <= block_width) && (log_blk.m_grid_height <= block_height));
+
+	uint8_t dequantized_weights[astc_helpers::MAX_BLOCK_PIXELS];
+	
+	const uint32_t total_weight_vals = log_blk.m_grid_width * log_blk.m_grid_height;
+
+	const astc_helpers::dequant_table& weight_dequant_tab = astc_helpers::g_dequant_tables.get_weight_tab(log_blk.m_weight_ise_range);
+	const uint8_t* pWeight_dequant = weight_dequant_tab.m_ISE_to_val.data();
+
+	for (uint32_t i = 0; i < total_weight_vals; i++)
+	{
+		assert(log_blk.m_weights[i] < weight_dequant_tab.m_ISE_to_val.size_u32());
+
+		dequantized_weights[i] = pWeight_dequant[log_blk.m_weights[i]];
+	}
+		
+	if ((log_blk.m_grid_width < block_width) || (log_blk.m_grid_height < block_height))
+	{
+		astc_helpers::upsample_weight_grid_xuastc_ldr(block_width, block_height, log_blk.m_grid_width, log_blk.m_grid_height, dequantized_weights, pDst_weights, nullptr, nullptr);
+	}
+	else
+	{
+		memcpy(pDst_weights, dequantized_weights, block_width * block_height);
+	}
+}
+
+bool basisu_lowlevel_xuastc_ldr_transcoder::transcode_slice(
+	basis_tex_format src_format, bool use_astc_srgb_decode_profile,
+	void* pDst_blocks,
+	uint32_t src_num_blocks_x, uint32_t src_num_blocks_y,
+	const uint8_t* pImage_data, uint32_t image_data_size, block_format fmt,
+	uint32_t output_block_or_pixel_stride_in_bytes, bool bc1_allow_threecolor_blocks, bool has_alpha,
+	const uint32_t orig_width, const uint32_t orig_height, uint32_t output_row_pitch_in_blocks_or_pixels,
+	basisu_transcoder_state* pState, uint32_t output_rows_in_pixels, int channel0, int channel1, uint32_t decode_flags)
+{
+	BASISU_NOTE_UNUSED(pState);
+	BASISU_NOTE_UNUSED(bc1_allow_threecolor_blocks);
+
+#if BASISD_SUPPORT_XUASTC
+
+	assert(g_transcoder_initialized);
+	if (!g_transcoder_initialized)
+	{
+		BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_slice: Transcoder not globally initialized.\n");
+		return false;
+	}
+
+	if (block_format_is_hdr(fmt))
+	{
+		assert(0);
+		BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_slice: Invalid fmt argument\n");
+		return false;
+	}
+
+	//const uint32_t total_blocks = num_blocks_x * num_blocks_y;
+
+	const uint32_t src_block_width = basis_tex_format_get_block_width(src_format), src_block_height = basis_tex_format_get_block_height(src_format);
+
+	const uint32_t dst_fmt_block_width = get_block_width(fmt), dst_fmt_block_height = get_block_height(fmt);
+	const bool dst_fmt_is_astc = block_format_is_astc(fmt);
+	const bool dst_fmt_is_pvrtc1 = (fmt == block_format::cPVRTC1_4_RGB) || (fmt == block_format::cPVRTC1_4_RGBA);
+
+	if (dst_fmt_is_pvrtc1)
+	{
+		if (!basisu::is_pow2(orig_width) || !basisu::is_pow2(orig_height))
+		{
+			BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_slice: PVRTC1 requires power of 2 texture dimensions\n");
+			return false;
+		}
+	}
+
+	const bool is_uncompressed_fmt = basis_block_format_is_uncompressed(fmt);
+	if (!output_row_pitch_in_blocks_or_pixels)
+	{
+		if (is_uncompressed_fmt)
+			output_row_pitch_in_blocks_or_pixels = orig_width;
+		else
+			output_row_pitch_in_blocks_or_pixels = (orig_width + dst_fmt_block_width - 1) / dst_fmt_block_width;
+	}
+
+	if (is_uncompressed_fmt)
+	{
+		if (!output_rows_in_pixels)
+			output_rows_in_pixels = orig_height;
+	}
+
+	const bool high_quality = (decode_flags & cDecodeFlagsHighQuality) != 0;
+	const bool enable_fast_bc7_transcoding = (decode_flags & cDecodeFlagXUASTCLDRDisableFastBC7Transcoding) == 0;
+	const bool from_alpha = has_alpha && (decode_flags & cDecodeFlagsTranscodeAlphaDataToOpaqueFormats) != 0;
+	const bool disable_deblocking = (decode_flags & cDecodeFlagsNoDeblockFiltering) != 0;
+	const bool stronger_deblocking = ((decode_flags & cDecodeFlagsStrongerDeblockFiltering) != 0) || ((src_block_width > 8) || (src_block_height > 8));
+	const bool force_deblocking = (decode_flags & cDecodeFlagsForceDeblockFiltering) != 0;
+	const bool deblock_filtering = !disable_deblocking && (force_deblocking || ((src_block_width > 8) || (src_block_height > 6)));
+		
+	const uint32_t bc7f_flags = high_quality ? bc7f::cPackBC7FlagDefaultPartiallyAnalytical : bc7f::cPackBC7FlagDefault;
+	etc1f::pack_etc1_state etc1_pack_state;
+
+	if (basis_tex_format_is_astc_ldr(src_format))
+	{
+		// Plain ASTC LDR 4x4-12x12 - note it could be ANY valid/standard ASTC written by any ASTC encoder, so we cannot trust this ASTC data. 
+		// It must be fully validated.
+		if (dst_fmt_is_astc)
+		{
+			assert(output_block_or_pixel_stride_in_bytes == sizeof(astc_helpers::astc_block));
+
+			if ((dst_fmt_block_width != src_block_width) || (dst_fmt_block_height != src_block_height))
+			{
+				// ASTC block dimensions must match, i.e. we can't change the ASTC block size during transcoding.
+				BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_slice: fmt's ASTC block dimensions don't match the content's block dimensions\n");
+				return false;
+			}
+
+			// No transcoding needed, it's ASTC in->ASTC out.
+			memcpy(pDst_blocks, pImage_data, src_num_blocks_x * src_num_blocks_y * sizeof(astc_helpers::astc_block));
+		}
+		else if (((src_block_width == 4) && (src_block_height == 4)) && (!dst_fmt_is_pvrtc1) && (!deblock_filtering))
+		{
+			// Block dimensions aren't changing, no pvrtc1, no deblock filtering
+			if ((dst_fmt_block_width != 4) || (dst_fmt_block_height != 4))
+			{
+				BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_slice: fmt's ASTC block dimensions don't match the content's block dimensions\n");
+				return false;
+			}
+
+			const astc_helpers::astc_block* pSrc_phys_blk = (const astc_helpers::astc_block*)pImage_data;
+
+			astc_helpers::log_astc_block log_blk;
+
+			for (uint32_t block_y = 0; block_y < src_num_blocks_y; block_y++)
+			{
+				uint8_t* pDst_block_u8 = (uint8_t*)pDst_blocks + block_y * output_row_pitch_in_blocks_or_pixels * output_block_or_pixel_stride_in_bytes;
+
+				for (uint32_t block_x = 0; block_x < src_num_blocks_x; block_x++)
+				{
+					color32 block_pixels[4 * 4];
+
+					bool unpack_status = astc_helpers::unpack_block(pSrc_phys_blk, log_blk, 4, 4);
+					if (!unpack_status)
+					{
+						BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_slice: astc_helpers::unpack_block() failed\n");
+						return false;
+					}
+					
+					// TODO: Specially handle solid block case
+					bool decode_status = astc_helpers::decode_block(log_blk, block_pixels, 4, 4, use_astc_srgb_decode_profile ? astc_helpers::cDecodeModeSRGB8 : astc_helpers::cDecodeModeLDR8);
+					if (!decode_status)
+					{
+						BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_slice: astc_helpers::decode_block() failed\n");
+						return false;
+					}
+
+					transcode_4x4_block(
+						fmt,
+						block_x, block_y,
+						pDst_blocks, pDst_block_u8,
+						block_pixels,
+						output_block_or_pixel_stride_in_bytes, output_row_pitch_in_blocks_or_pixels, output_rows_in_pixels,
+						channel0, channel1,
+						high_quality, from_alpha,
+						bc7f_flags,
+						etc1_pack_state);
+
+					pDst_block_u8 += output_block_or_pixel_stride_in_bytes;
+					++pSrc_phys_blk;
+
+				} // block_x
+
+			} // block_y
+		}
+		else if ((!deblock_filtering) && (!dst_fmt_is_pvrtc1))
+		{
+			assert((dst_fmt_block_width == 4) && (dst_fmt_block_height == 4));
+
+			// Compute how many source block rows we need to buffer so we have a multiple of 4 scanlines. The max # of scanlines is 20.
+			uint32_t num_src_block_rows_to_buffer = 1;
+			while ((num_src_block_rows_to_buffer * src_block_height) & 3)
+				num_src_block_rows_to_buffer++;
+			assert((num_src_block_rows_to_buffer >= 1) && (num_src_block_rows_to_buffer <= 4));
+
+			// Compute how many 4x4 dest blocks fit into these many source rows.
+			assert(((num_src_block_rows_to_buffer * src_block_height) & 3) == 0);
+			//const uint32_t num_dst_block_rows_to_buffer = (num_src_block_rows_to_buffer * src_block_height) >> 2;
+
+			const uint32_t dst_num_blocks_x = (orig_width + dst_fmt_block_width - 1) / dst_fmt_block_width;
+			const uint32_t dst_num_blocks_y = (orig_height + dst_fmt_block_height - 1) / dst_fmt_block_height;
+
+			basisu::vector2D<color32> buffered_rows(src_num_blocks_x * src_block_width, num_src_block_rows_to_buffer * src_block_height);
+
+			const astc_helpers::astc_block* pSrc_phys_blk = (const astc_helpers::astc_block*)pImage_data;
+
+			astc_helpers::log_astc_block log_blk;
+
+			for (uint32_t by = 0; by < src_num_blocks_y; by++)
+			{
+				const uint32_t buffered_src_block_row_y = (by % num_src_block_rows_to_buffer);
+																
+				for (uint32_t bx = 0; bx < src_num_blocks_x; bx++)
+				{
+					color32 block_pixels[astc_helpers::MAX_BLOCK_PIXELS];
+
+					bool unpack_status = astc_helpers::unpack_block(pSrc_phys_blk, log_blk, src_block_width, src_block_height);
+					if (!unpack_status)
+					{
+						BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_slice: astc_helpers::unpack_block() failed\n");
+						return false;
+					}
+
+					bool decode_status = astc_helpers::decode_block(log_blk, block_pixels, src_block_width, src_block_height, use_astc_srgb_decode_profile ? astc_helpers::cDecodeModeSRGB8 : astc_helpers::cDecodeModeLDR8);
+					if (!decode_status)
+					{
+						BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_slice: astc_helpers::decode_block() failed\n");
+						return false;
+					}
+
+					color32* pSrc_pixels = block_pixels;
+					color32* pDst_pixels = &buffered_rows(bx * src_block_width, buffered_src_block_row_y * src_block_height);
+
+					for (uint32_t y = 0; y < src_block_height; y++)
+					{
+						memcpy(pDst_pixels, pSrc_pixels, src_block_width * sizeof(color32));
+
+						pSrc_pixels += src_block_width;
+						pDst_pixels += buffered_rows.get_width();
+					} // y
+										
+					++pSrc_phys_blk;
+
+				} // block_x
+
+				const bool final_src_block_row = (by == (src_num_blocks_y - 1));
+								
+				if ((buffered_src_block_row_y != (num_src_block_rows_to_buffer - 1)) && (!final_src_block_row))
+					continue;
+
+				// src/destination image Y coordinate of the top of the buffered rows
+				const uint32_t buffered_src_pixel_y = ((by / num_src_block_rows_to_buffer) * num_src_block_rows_to_buffer) * src_block_height;
+				assert((buffered_src_pixel_y & 3) == 0);
+
+				// The total # of valid src block rows we can read.
+				const uint32_t num_buffered_src_block_rows = buffered_src_block_row_y + 1;
+
+				assert((num_buffered_src_block_rows == num_src_block_rows_to_buffer) || (final_src_block_row));
+
+				// The maximum number of valid buffer scanlines we can fetch from, taking into account the original texture's actual (unpadded) height.
+				const uint32_t override_buffer_height = basisu::minimum(orig_height - buffered_src_pixel_y, num_buffered_src_block_rows * src_block_height);
+				assert(override_buffer_height);
+
+				// total_dst_block_rows_to_emit=really an upper bound for the final row of src ASTC blocks
+				const uint32_t total_dst_block_rows_to_emit = (num_buffered_src_block_rows * src_block_height + 3) >> 2;
+
+				for (uint32_t dst_ofs_by = 0; dst_ofs_by < total_dst_block_rows_to_emit; dst_ofs_by++)
+				{
+					const uint32_t dst_by = (buffered_src_pixel_y >> 2) + dst_ofs_by;
+					if (dst_by >= dst_num_blocks_y)
+						break;
+
+					for (uint32_t dst_bx = 0; dst_bx < dst_num_blocks_x; dst_bx++)
+					{
+						color32 block_pixels[4 * 4];
+
+						// Extract the 4x4 block pixels from our buffered rows, taking into account the actual # of valid scanlines inside the buffer.
+						buffered_rows.extract_block_clamped(block_pixels, dst_bx * 4, dst_ofs_by * 4, 4, 4, override_buffer_height);
+
+						uint8_t* pDst_block_u8 = (uint8_t*)pDst_blocks + (dst_by * output_row_pitch_in_blocks_or_pixels + dst_bx) * output_block_or_pixel_stride_in_bytes;
+
+						transcode_4x4_block(
+							fmt,
+							dst_bx, dst_by,
+							pDst_blocks, pDst_block_u8,
+							block_pixels,
+							output_block_or_pixel_stride_in_bytes, output_row_pitch_in_blocks_or_pixels, output_rows_in_pixels,
+							channel0, channel1,
+							high_quality, from_alpha,
+							bc7f_flags,
+							etc1_pack_state);
+
+					} // dst_bx
+
+				} // dst_ofs_by
+
+			} // block_y
+
+		}
+		else
+		{
+			// unpack entire 32bpp image into memory (needed for deblocking and PVRTC1)
+			// TODO: Add more memory efficient non-deblocking code path
+			basisu::vector2D<color32> temp_image;
+
+			const uint32_t actual_width = src_block_width * src_num_blocks_x, actual_height = src_block_height * src_num_blocks_y;
+
+			if (!temp_image.try_resize(actual_width, actual_height))
+			{
+				BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_slice: out of memory\n");
+				return false;
+			}
+
+			const astc_helpers::astc_block* pSrc_phys_blk = (const astc_helpers::astc_block*)pImage_data;
+
+			astc_helpers::log_astc_block log_blk;
+			color32 block_pixels[astc_helpers::MAX_BLOCK_PIXELS];
+
+			for (uint32_t src_by = 0; src_by < src_num_blocks_y; src_by++)
+			{
+				const uint32_t img_y = src_by * src_block_height;
+
+				for (uint32_t src_bx = 0; src_bx < src_num_blocks_x; src_bx++)
+				{
+					bool unpack_status = astc_helpers::unpack_block(pSrc_phys_blk, log_blk, src_block_width, src_block_height);
+					if (!unpack_status)
+					{
+						BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_slice: astc_helpers::unpack_block() failed\n");
+						return false;
+					}
+
+					bool decode_status = astc_helpers::decode_block(log_blk, block_pixels, src_block_width, src_block_height, use_astc_srgb_decode_profile ? astc_helpers::cDecodeModeSRGB8 : astc_helpers::cDecodeModeLDR8);
+					if (!decode_status)
+					{
+						BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_slice: astc_helpers::decode_block() failed\n");
+						return false;
+					}
+
+					color32* pSrc_pixels = (color32*)block_pixels;
+					color32* pDst_pixels = &temp_image(src_bx * src_block_width, img_y);
+
+					for (uint32_t y = 0; y < src_block_height; y++)
+					{
+						memcpy(pDst_pixels, pSrc_pixels, src_block_width * sizeof(color32));
+
+						pSrc_pixels += src_block_width;
+						pDst_pixels += temp_image.get_width();
+					} // y
+
+					++pSrc_phys_blk;
+
+				} // src_bx
+			} // src_by
+
+			if (deblock_filtering)
+			{
+				if (!xuastc_deblock_filter(
+					src_block_width, src_block_height,
+					temp_image, temp_image,
+					stronger_deblocking, XUASTC_LDR_DEBLOCK_SKIP_THRESH))
+				{
+					BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_slice: out of memory\n");
+					return false;
+				}
+			}
+
+			const uint32_t dst_num_blocks_x = (orig_width + dst_fmt_block_width - 1) / dst_fmt_block_width;
+			const uint32_t dst_num_blocks_y = (orig_height + dst_fmt_block_height - 1) / dst_fmt_block_height;
+
+			if (dst_fmt_is_pvrtc1)
+			{
+				assert((dst_fmt_block_width == 4) && (dst_fmt_block_height == 4));
+
+				encode_pvrtc1(fmt, pDst_blocks, temp_image, dst_num_blocks_x, dst_num_blocks_y, from_alpha);
+			}
+			else
+			{
+				for (uint32_t dst_by = 0; dst_by < dst_num_blocks_y; dst_by++)
+				{
+					uint8_t* pDst_block_u8 = (uint8_t*)pDst_blocks + dst_by * output_row_pitch_in_blocks_or_pixels * output_block_or_pixel_stride_in_bytes;
+
+					for (uint32_t dst_bx = 0; dst_bx < dst_num_blocks_x; dst_bx++)
+					{
+						temp_image.extract_block_clamped(block_pixels, dst_bx * 4, dst_by * 4, 4, 4);
+
+						transcode_4x4_block(
+							fmt,
+							dst_bx, dst_by,
+							pDst_blocks, pDst_block_u8,
+							block_pixels,
+							output_block_or_pixel_stride_in_bytes, output_row_pitch_in_blocks_or_pixels, output_rows_in_pixels,
+							channel0, channel1,
+							high_quality, from_alpha,
+							bc7f_flags,
+							etc1_pack_state);
+
+						pDst_block_u8 += output_block_or_pixel_stride_in_bytes;
+
+					} // dst_bx
+
+				} // dst_by
+
+			} // if (dst_fmt_is_pvrtc1)
+		}
+	}
+	else
+	{
+		// Supercompressed XUASTC LDR 4x4-12x12
+		// note use_astc_srgb_decode_profile can be ignored here, we'll use the decoded sRGB profile bit from the compressed stream.
+				
+		if (dst_fmt_is_astc)
+		{
+			// src and dst are ASTC - ideal case, just pack physical ASTC blocks to output buffer during transcoding.
+			struct decode_state
+			{
+				uint32_t m_src_num_blocks_x;
+				uint32_t m_src_num_blocks_y;
+				uint32_t m_dst_format_block_width;
+				uint32_t m_dst_format_block_height;
+
+				void* m_pDst_blocks;
+				uint32_t m_output_row_pitch_in_blocks_or_pixels;
+				uint32_t m_output_block_or_pixel_stride_in_bytes;
+			};
+
+			decode_state dec_state;
+			dec_state.m_src_num_blocks_x = src_num_blocks_x;
+			dec_state.m_src_num_blocks_y = src_num_blocks_y;
+			dec_state.m_dst_format_block_width = dst_fmt_block_width;
+			dec_state.m_dst_format_block_height = dst_fmt_block_height;
+			dec_state.m_pDst_blocks = pDst_blocks;
+			dec_state.m_output_row_pitch_in_blocks_or_pixels = output_row_pitch_in_blocks_or_pixels;
+			dec_state.m_output_block_or_pixel_stride_in_bytes = output_block_or_pixel_stride_in_bytes;
+
+			auto init_func = [](uint32_t num_blocks_x, uint32_t num_blocks_y, uint32_t block_width, uint32_t block_height, bool srgb_decode_profile, float dct_q, bool has_alpha, void* pData)
+			{
+				BASISU_NOTE_UNUSED(srgb_decode_profile);
+				BASISU_NOTE_UNUSED(dct_q);
+				BASISU_NOTE_UNUSED(has_alpha);
+
+				if (basisu::g_debug_printf)
+					basisu::debug_printf("init_func: %u %u %u %u %u %f %u\n", num_blocks_x, num_blocks_y, block_width, block_height, srgb_decode_profile, dct_q, has_alpha);
+
+				decode_state& state = *(decode_state*)pData;
+				if ((block_width != state.m_dst_format_block_width) || (block_height != state.m_dst_format_block_height))
+				{
+					BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_slice: header validation failed (1)\n");
+					return false;
+				}
+				if ((num_blocks_x != state.m_src_num_blocks_x) || (num_blocks_y != state.m_src_num_blocks_y))
+				{
+					BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_slice: header validation failed (2)\n");
+					return false;
+				}
+				return true;
+			};
+
+			auto src_block_func = [](uint32_t bx, uint32_t by, const astc_helpers::log_astc_block& log_blk, void* pData)
+			{
+				decode_state& state = *(decode_state*)pData;
+				assert((bx < state.m_src_num_blocks_x) && (by < state.m_src_num_blocks_y));
+
+				astc_helpers::astc_block* pDst_astc_block = (astc_helpers::astc_block*)((uint8_t*)state.m_pDst_blocks + (by * state.m_output_row_pitch_in_blocks_or_pixels + bx) * state.m_output_block_or_pixel_stride_in_bytes);
+
+				bool pack_status = astc_helpers::pack_astc_block(*pDst_astc_block, log_blk);
+				if (!pack_status)
+				{
+					BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_slice: astc_helpers::pack_astc_block() failed\n");
+					return false;
+				}
+
+				return true;
+			};
+						
+			xuastc_decoded_image decoded_image;
+
+			const bool decomp_flag = decoded_image.decode(pImage_data, image_data_size, init_func, &dec_state, src_block_func, &dec_state);
+			if (!decomp_flag)
+			{
+				BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_slice: astc_ldr_t::decompress_image() failed\n");
+				return false;
+			}
+		}
+		else if ((fmt == block_format::cBC7) && (src_block_width == 8) && (src_block_height == 6) &&
+			(enable_fast_bc7_transcoding) && (!high_quality) && (!deblock_filtering))
+		{
+			// src is ASTC LDR 8x6, destination is BC7, no deblocking: buffer 2 rows of ASTC logical blocks, favor fast pure transcode to BC7 whenever possible.
+			// transcodes 2 ASTC 8x6 blocks (a tile of 1x2 or 2*48=96 pixels) to 6 BC7 blocks (a tile of 2x3 of 6*16=96 pixels)
+			// no BC7 block crosses more than 2 ASTC blocks making this easy if the source blocks are only solid or 1 subset
+
+			const uint32_t num_src_block_rows_to_buffer = 2;
+
+			assert(((num_src_block_rows_to_buffer* src_block_height) & 3) == 0);
+
+			const uint32_t dst_num_blocks_x = (orig_width + dst_fmt_block_width - 1) / dst_fmt_block_width;
+			const uint32_t dst_num_blocks_y = (orig_height + dst_fmt_block_height - 1) / dst_fmt_block_height;
+
+			basisu::vector2D<astc_helpers::log_astc_block> buffered_rows(src_num_blocks_x, num_src_block_rows_to_buffer);
+
+			struct decode_state
+			{
+				uint32_t m_orig_height;
+
+				uint32_t m_src_num_blocks_x;
+				uint32_t m_src_num_blocks_y;
+				uint32_t m_src_block_width;
+				uint32_t m_src_block_height;
+
+				uint32_t m_dst_num_blocks_x;
+				uint32_t m_dst_num_blocks_y;
+
+				void* m_pDst_blocks;
+				uint32_t m_output_row_pitch_in_blocks_or_pixels;
+				uint32_t m_output_block_or_pixel_stride_in_bytes;
+				uint32_t m_output_rows_in_pixels;
+
+				uint32_t m_num_src_block_rows_to_buffer;
+				//uint32_t m_num_dst_block_rows_to_buffer;
+
+				basisu::vector2D<astc_helpers::log_astc_block>* m_pBuffered_rows;
+
+				bool m_used_srgb_astc_decode_mode;
+				bool m_has_alpha;
+
+				uint32_t m_total_src_blocks_unpacked;
+				uint32_t m_total_src_blocks_partial_unpacked;
+				uint32_t m_total_blocks_transcoded;
+				uint32_t m_total_blocks_encoded;
+
+				block_format m_fmt;
+				int m_channel0, m_channel1;
+				bool m_high_quality;
+				bool m_from_alpha;
+				uint32_t m_bc7f_flags;
+				etc1f::pack_etc1_state* m_pEtc1_pack_state;
+			};
+
+			decode_state dec_state;
+			dec_state.m_orig_height = orig_height;
+			dec_state.m_src_num_blocks_x = src_num_blocks_x;
+			dec_state.m_src_num_blocks_y = src_num_blocks_y;
+			dec_state.m_src_block_width = src_block_width;
+			dec_state.m_src_block_height = src_block_height;
+			dec_state.m_dst_num_blocks_x = dst_num_blocks_x;
+			dec_state.m_dst_num_blocks_y = dst_num_blocks_y;
+			dec_state.m_pDst_blocks = pDst_blocks;
+			dec_state.m_output_row_pitch_in_blocks_or_pixels = output_row_pitch_in_blocks_or_pixels;
+			dec_state.m_output_block_or_pixel_stride_in_bytes = output_block_or_pixel_stride_in_bytes;
+			dec_state.m_output_rows_in_pixels = output_rows_in_pixels;
+
+			dec_state.m_num_src_block_rows_to_buffer = num_src_block_rows_to_buffer;
+			//dec_state.m_num_dst_block_rows_to_buffer = num_dst_block_rows_to_buffer;
+
+			dec_state.m_pBuffered_rows = &buffered_rows;
+			dec_state.m_used_srgb_astc_decode_mode = false; // will be set by init from the compressed stream's header
+			dec_state.m_has_alpha = true; // will be set by init from the compressed stream's header
+
+			dec_state.m_total_src_blocks_unpacked = 0;
+			dec_state.m_total_src_blocks_partial_unpacked = 0;
+			dec_state.m_total_blocks_transcoded = 0;
+			dec_state.m_total_blocks_encoded = 0;
+
+			dec_state.m_fmt = fmt;
+			dec_state.m_channel0 = channel0;
+			dec_state.m_channel1 = channel1;
+			dec_state.m_high_quality = high_quality;
+			dec_state.m_from_alpha = from_alpha;
+			dec_state.m_bc7f_flags = bc7f_flags;
+			dec_state.m_pEtc1_pack_state = &etc1_pack_state;
+
+			auto init_func = [](uint32_t num_blocks_x, uint32_t num_blocks_y, uint32_t block_width, uint32_t block_height, bool srgb_decode_profile, float dct_q, bool has_alpha, void* pData)
+			{
+				BASISU_NOTE_UNUSED(srgb_decode_profile);
+				BASISU_NOTE_UNUSED(dct_q);
+				
+				if (basisu::g_debug_printf)
+					basisu::debug_printf("init_func: %u %u %u %u %u %f %u\n", num_blocks_x, num_blocks_y, block_width, block_height, srgb_decode_profile, dct_q, has_alpha);
+
+				decode_state& state = *(decode_state*)pData;
+				if ((block_width != state.m_src_block_width) || (block_height != state.m_src_block_height))
+				{
+					BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_slice: header validation failed (3)\n");
+					return false;
+				}
+				if ((num_blocks_x != state.m_src_num_blocks_x) || (num_blocks_y != state.m_src_num_blocks_y))
+				{
+					BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_slice: header validation failed (4)\n");
+					return false;
+				}
+
+				state.m_used_srgb_astc_decode_mode = srgb_decode_profile;
+				state.m_has_alpha = has_alpha;
+
+				return true;
+			};
+
+			auto src_block_func = [](uint32_t bx, uint32_t by, const astc_helpers::log_astc_block& log_blk, void* pData)
+			{
+				decode_state& state = *(decode_state*)pData;
+				assert((bx < state.m_src_num_blocks_x) && (by < state.m_src_num_blocks_y));
+				assert(state.m_num_src_block_rows_to_buffer == 2); // hardcoded for 6x6
+				const astc_helpers::decode_mode astc_dec_mode = state.m_used_srgb_astc_decode_mode ? astc_helpers::cDecodeModeSRGB8 : astc_helpers::cDecodeModeLDR8;
+
+				const uint32_t buffered_src_block_row_y = (by & 1);
+
+				memcpy(&(*state.m_pBuffered_rows)(bx, buffered_src_block_row_y), &log_blk, sizeof(log_blk));
+
+				// Last block on this src row? If not, exit.
+				if (bx != (state.m_src_num_blocks_x - 1))
+					return true;
+
+				// We've written the final src block for this ASTC src row. 
+				// See if we have enough source rows to create full 4x4 destination blocks.
+				const bool final_src_block_row = (by == (state.m_src_num_blocks_y - 1));
+								
+				if ((buffered_src_block_row_y != (state.m_num_src_block_rows_to_buffer - 1)) && (!final_src_block_row))
+					return true;
+				
+				// We have a full 1-2 rows of ASTC 6x6 blocks to process to BC7.
+
+				// src/destination image Y coordinate of the top of the buffered rows
+				const uint32_t buffered_src_pixel_y = ((by / state.m_num_src_block_rows_to_buffer) * state.m_num_src_block_rows_to_buffer) * state.m_src_block_height;
+				assert((buffered_src_pixel_y & 3) == 0);
+
+				// The total # of valid src block rows we can read.
+				const uint32_t num_buffered_src_block_rows = buffered_src_block_row_y + 1;
+
+				assert((num_buffered_src_block_rows == state.m_num_src_block_rows_to_buffer) || (final_src_block_row));
+
+#if defined(DEBUG) || defined(_DEBUG)
+				// The maximum number of valid buffer pixel scanlines we can fetch from, taking into account the original texture's actual (unpadded) height.
+				const uint32_t override_buffer_height = basisu::minimum(state.m_orig_height - buffered_src_pixel_y, num_buffered_src_block_rows * state.m_src_block_height);
+				assert(override_buffer_height);
+#endif
+
+				// total_dst_block_rows_to_emit=really an upper bound for the final row of src ASTC blocks
+				const uint32_t total_dst_block_rows_to_emit = (num_buffered_src_block_rows * state.m_src_block_height + 3) >> 2;
+								
+				color_rgba unpacked_src_blocks[2][8 * 6]; // [astc_by][pixel]
+				uint8_t upsampled_src_weights[2][8 * 6]; // [astc_by][pixel]
+				color_rgba temp_pixels_16[16];
+			
+				// Process each source ASTC 8x6 block group, 1x2 ASTC blocks at a time
+				for (uint32_t src_bx = 0; src_bx < state.m_src_num_blocks_x; src_bx++)
+				{
+					bool has_unpacked_src_blocks[2] = { }; // [astc_by]
+
+					// Grab pointers to the 1x2 src ASTC blocks we'll be transcoding
+					const astc_helpers::log_astc_block* pSrc_log_blocks[2]; // [astc_by]
+
+					pSrc_log_blocks[0] = &state.m_pBuffered_rows->at(src_bx, 0);
+					pSrc_log_blocks[1] = &state.m_pBuffered_rows->at(src_bx, basisu::minimum<uint32_t>(1, num_buffered_src_block_rows - 1));
+
+					// From here we can always assume 2x2 src ASTC 6x6 blocks, with ASTC block pointers duplicated at the borders if needed.
+
+					const astc_helpers::log_astc_block* pU = pSrc_log_blocks[0];
+					const astc_helpers::log_astc_block* pL = pSrc_log_blocks[1];
+
+					if (blocks_same_solid_colors(*pU, *pL, 0))
+					{
+						// Easy and fast case: All 2 ASTC blocks are solid and the same color, so all 6 BC7 blocks are solid too and the same color.
+						color_rgba sc;
+						sc.r = (uint8_t)(pU->m_solid_color[0] >> 8);
+						sc.g = (uint8_t)(pU->m_solid_color[1] >> 8);
+						sc.b = (uint8_t)(pU->m_solid_color[2] >> 8);
+						sc.a = (uint8_t)(pU->m_solid_color[3] >> 8);
+
+						bc7_block temp_blk;
+						bc7f::pack_mode5_solid((uint8_t*)&temp_blk, sc);
+
+						for (uint32_t dy = 0; dy < total_dst_block_rows_to_emit; dy++) // up to 3 dst block rows
+						{
+							const uint32_t dst_by = (buffered_src_pixel_y >> 2) + dy;
+							if (dst_by >= state.m_dst_num_blocks_y)
+								break;
+
+							for (uint32_t dx = 0; dx < 2; dx++)
+							{
+								const uint32_t dst_bx = (src_bx << 1) + dx;
+								if (dst_bx >= state.m_dst_num_blocks_x)
+									break;
+
+								uint8_t* pDst_block_u8 = (uint8_t*)state.m_pDst_blocks + (dst_by * state.m_output_row_pitch_in_blocks_or_pixels + dst_bx) * state.m_output_block_or_pixel_stride_in_bytes;
+
+								memcpy(pDst_block_u8, &temp_blk, sizeof(bc7_block));
+							} // dx
+						} // dy
+
+						continue;
+					}
+
+					uint32_t num_hard_src_blocks = 0;
+
+					for (uint32_t y = 0; y < 2; y++)
+						num_hard_src_blocks += (pSrc_log_blocks[y]->m_dual_plane || (pSrc_log_blocks[y]->m_num_partitions > 1));
+
+					if (num_hard_src_blocks == 2)
+					{
+						// All src blocks hard, no easy optimizations, so unpack and encode pixels analytically
+						for (uint32_t y = 0; y < 2; y++)
+						{
+							bool status = astc_helpers::decode_block_xuastc_ldr(*pSrc_log_blocks[y], &unpacked_src_blocks[y][0], 8, 6, astc_dec_mode);
+							if (!status)
+							{
+								return false;
+							}
+							state.m_total_src_blocks_unpacked++;
+						}
+
+						for (uint32_t dy = 0; dy < total_dst_block_rows_to_emit; dy++) // up to 3 dst block rows
+						{
+							const uint32_t dst_by = (buffered_src_pixel_y >> 2) + dy;
+							if (dst_by >= state.m_dst_num_blocks_y)
+								break;
+
+							for (uint32_t dx = 0; dx < 2; dx++)
+							{
+								const uint32_t dst_bx = (src_bx << 1) + dx;
+								if (dst_bx >= state.m_dst_num_blocks_x)
+									break;
+
+								for (uint32_t y = 0; y < 4; y++)
+								{
+									const uint32_t sy = dy * 4 + y;
+
+									const uint32_t sy_div6 = sy / 6;
+									const uint32_t src_row_ofs = (sy % 6) * 8;
+
+									for (uint32_t x = 0; x < 4; x++)
+									{
+										const uint32_t sx = dx * 4 + x;
+										temp_pixels_16[x + y * 4] = unpacked_src_blocks[sy_div6][sx + src_row_ofs];
+									} // x
+								} // y
+
+								uint8_t* pDst_block_u8 = (uint8_t*)state.m_pDst_blocks + (dst_by * state.m_output_row_pitch_in_blocks_or_pixels + dst_bx) * state.m_output_block_or_pixel_stride_in_bytes;
+
+								if (state.m_has_alpha)
+									bc7f::fast_pack_bc7_auto_rgba(pDst_block_u8, temp_pixels_16, state.m_bc7f_flags);
+								else
+									bc7f::fast_pack_bc7_auto_rgb(pDst_block_u8, temp_pixels_16, state.m_bc7f_flags);
+
+								state.m_total_blocks_encoded++;
+							} // dx
+						} // dy
+
+						continue;
+					}
+
+					// One or both of the 2 source blocks is solid or 1 subset.
+
+					// For simplicity: First unpack the first plane weight grids (unless solid)
+					for (uint32_t y = 0; y < 2; y++)
+						astc_upsample_grid_weights(*pSrc_log_blocks[y], &upsampled_src_weights[y][0], 8, 6);
+
+					const uint32_t ENDPOINT_TOL = 0;
+
+					// Process each of the up to 6 destination BC7 blocks.
+					for (uint32_t dy = 0; dy < total_dst_block_rows_to_emit; dy++) // up to 3 dst block rows
+					{
+						const uint32_t dst_by = (buffered_src_pixel_y >> 2) + dy;
+						if (dst_by >= state.m_dst_num_blocks_y)
+							break;
+
+						for (uint32_t dx = 0; dx < 2; dx++)
+						{
+							const uint32_t dst_bx = (src_bx << 1) + dx;
+							if (dst_bx >= state.m_dst_num_blocks_x)
+								break;
+
+							uint8_t* pDst_block_u8 = (uint8_t*)state.m_pDst_blocks + (dst_by * state.m_output_row_pitch_in_blocks_or_pixels + dst_bx) * state.m_output_block_or_pixel_stride_in_bytes;
+
+							// BC7 block only overlaps 1 or 2 ASTC blocks.
+							const int top_dy = dy * 4;
+							const int bot_dy = top_dy + 3;
+
+							const int top_by = top_dy / 6;
+							const int bot_by = bot_dy / 6;
+
+							const astc_helpers::log_astc_block* pB0 = pSrc_log_blocks[top_by];
+							const astc_helpers::log_astc_block* pB1 = pSrc_log_blocks[bot_by];
+
+							const bool single_src_block = (top_by == bot_by);
+
+							bool full_encode_flag = false;
+
+							if (pB0->m_dual_plane || pB1->m_dual_plane ||
+								(pB0->m_num_partitions > 1) || (pB1->m_num_partitions > 1))
+							{
+								// Either block is complex, fall back to reencoding
+								full_encode_flag = true;
+							}
+							else if (single_src_block)
+							{
+								assert(pB0 == pB1);
+
+								// BC7 block is at a corner, and only overlaps a single ASTC block - output solid or single subset BC7
+								if (pB0->m_solid_color_flag_ldr)
+								{
+									color_rgba sc;
+									sc.r = (uint8_t)(pB0->m_solid_color[0] >> 8);
+									sc.g = (uint8_t)(pB0->m_solid_color[1] >> 8);
+									sc.b = (uint8_t)(pB0->m_solid_color[2] >> 8);
+									sc.a = (uint8_t)(pB0->m_solid_color[3] >> 8);
+
+									bc7f::pack_mode5_solid(pDst_block_u8, sc);
+								}
+								else
+								{
+									// Output mode 6 BC7
+									bc7f::pack_from_astc_single_subset(pDst_block_u8, *pB0, &upsampled_src_weights[top_by][0], dx * 4, (dy * 4) % 6, 8, 6);
+								}
+
+								state.m_total_blocks_transcoded++;
+							}
+							// must be overlapping 2 ASTC blocks, can't be both solid as we've already checked
+							else if (blocks_same_single_subset_endpoints(*pB0, *pB1, ENDPOINT_TOL))
+							{
+								// BC7 blocks overlaps 2 single subset ASTC blocks, both have the same or very similar endpoints, output mode 6 BC7
+								bc7f::pack_from_astc_to_single_subset_same_endpoints(
+									pDst_block_u8,
+									*pB0, &upsampled_src_weights[top_by][0],
+									*pB1, &upsampled_src_weights[bot_by][0],
+									dx, dy, 
+									8, 6);
+
+								state.m_total_blocks_transcoded++;
+							}
+							else if (!block_has_alpha(*pB0) && !block_has_alpha(*pB1))
+							{
+								bool fallback_encode_flag = false;
+
+								// BC7 block overlaps 2 ASTC blocks with different endpoints (or solid colors) - output 2 subset mode 1 BC7
+								if (!bc7f::pack_from_astc_8x6_to_two_subsets_different_endpoints_hq(
+									pDst_block_u8,
+									*pB0, &upsampled_src_weights[top_by][0],
+									*pB1, &upsampled_src_weights[bot_by][0],
+									dx, dy, state.m_used_srgb_astc_decode_mode, fallback_encode_flag))
+								{
+									full_encode_flag = true;
+								}
+								else
+								{
+									if (fallback_encode_flag)
+										state.m_total_src_blocks_partial_unpacked++;
+									else
+										state.m_total_blocks_transcoded++;
+								}
+							}
+							else
+							{
+								full_encode_flag = true;
+							}
+
+							if (full_encode_flag)
+							{
+								// one or both ASTC blocks are just too complex, unpack and reencode
+								if (!has_unpacked_src_blocks[top_by])
+								{
+									bool status = astc_helpers::decode_block_xuastc_ldr(*pB0, &unpacked_src_blocks[top_by][0], 8, 6, astc_dec_mode, &upsampled_src_weights[top_by][0]);
+									if (!status)
+									{
+										return false;
+									}
+									state.m_total_src_blocks_unpacked++;
+									has_unpacked_src_blocks[top_by] = true;
+								}
+
+								if (!has_unpacked_src_blocks[bot_by])
+								{
+									bool status = astc_helpers::decode_block_xuastc_ldr(*pB1, &unpacked_src_blocks[bot_by][0], 8, 6, astc_dec_mode, &upsampled_src_weights[bot_by][0]);
+									if (!status)
+									{
+										return false;
+									}
+									state.m_total_src_blocks_unpacked++;
+									has_unpacked_src_blocks[bot_by] = true;
+								}
+
+								for (uint32_t y = 0; y < 4; y++)
+								{
+									const uint32_t sy = dy * 4 + y;
+									
+									assert(has_unpacked_src_blocks[sy / 6]);
+
+									const uint32_t sy_div6 = sy / 6;
+									const uint32_t src_row_ofs = (sy % 6) * 8;
+																		
+									for (uint32_t x = 0; x < 4; x++)
+									{
+										const uint32_t sx = dx * 4 + x;
+
+										temp_pixels_16[x + y * 4] = unpacked_src_blocks[sy_div6][sx + src_row_ofs];
+									} // x
+								} // y
+
+								if (state.m_has_alpha)
+									bc7f::fast_pack_bc7_auto_rgba(pDst_block_u8, temp_pixels_16, state.m_bc7f_flags);
+								else
+									bc7f::fast_pack_bc7_auto_rgb(pDst_block_u8, temp_pixels_16, state.m_bc7f_flags);
+
+								state.m_total_blocks_encoded++;
+							}
+
+						} // dx
+					} // dy
+
+				} // src_bx
+
+				return true;
+			};
+
+			xuastc_decoded_image decoded_image;
+
+			const bool decomp_flag = decoded_image.decode(pImage_data, image_data_size, init_func, &dec_state, src_block_func, &dec_state);
+			if (!decomp_flag)
+			{
+				BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_slice: astc_ldr_t::decompress_image() failed\n");
+				return false;
+			}
+
+			if (basisu::g_debug_printf)
+			{
+				basisu::fmt_debug_printf("Total src blocks: {}, Total src blocks fully unpacked to pixels: {}\n",
+					dec_state.m_src_num_blocks_x * dec_state.m_src_num_blocks_y,
+					dec_state.m_total_src_blocks_unpacked);
+
+				basisu::fmt_debug_printf("Total dst blocks: {}, Total blocks transcoded: {}, fully encoded: {}, total partially unpacked/fast mode 6 encoded: {}\n", 
+					dec_state.m_dst_num_blocks_x * dec_state.m_dst_num_blocks_y,
+					dec_state.m_total_blocks_transcoded, dec_state.m_total_blocks_encoded,
+					dec_state.m_total_src_blocks_partial_unpacked);
+			}
+
+			// end of 8x6->4x4 transcoder
+		}
+		else if ((fmt == block_format::cBC7) && (src_block_width == 6) && (src_block_height == 6) &&
+			(enable_fast_bc7_transcoding) && (!high_quality) && (!deblock_filtering))
+		{
+			// src is ASTC LDR 6x6, destination is BC7, no deblocking: buffer 2 rows of ASTC logical blocks, favor fast pure transcode to BC7 whenever possible.
+			// This path is maddenningly tricky, but the speed gains in certain use cases are worth it.
+
+			const uint32_t num_src_block_rows_to_buffer = 2;
+			
+			assert(((num_src_block_rows_to_buffer * src_block_height) & 3) == 0);
+
+			const uint32_t dst_num_blocks_x = (orig_width + dst_fmt_block_width - 1) / dst_fmt_block_width;
+			const uint32_t dst_num_blocks_y = (orig_height + dst_fmt_block_height - 1) / dst_fmt_block_height;
+
+			basisu::vector2D<astc_helpers::log_astc_block> buffered_rows(src_num_blocks_x, num_src_block_rows_to_buffer);
+
+			struct decode_state
+			{
+				uint32_t m_orig_height;
+
+				uint32_t m_src_num_blocks_x;
+				uint32_t m_src_num_blocks_y;
+				uint32_t m_src_block_width;
+				uint32_t m_src_block_height;
+
+				uint32_t m_dst_num_blocks_x;
+				uint32_t m_dst_num_blocks_y;
+
+				void* m_pDst_blocks;
+				uint32_t m_output_row_pitch_in_blocks_or_pixels;
+				uint32_t m_output_block_or_pixel_stride_in_bytes;
+				uint32_t m_output_rows_in_pixels;
+
+				uint32_t m_num_src_block_rows_to_buffer;
+				//uint32_t m_num_dst_block_rows_to_buffer;
+
+				basisu::vector2D<astc_helpers::log_astc_block> *m_pBuffered_rows;
+
+				bool m_used_srgb_astc_decode_mode;
+				bool m_has_alpha;
+
+				uint32_t m_total_src_blocks_unpacked;
+				uint32_t m_total_src_blocks_partial_unpacked;
+				uint32_t m_total_blocks_transcoded;
+				uint32_t m_total_blocks_encoded;
+
+				block_format m_fmt;
+				int m_channel0, m_channel1;
+				bool m_high_quality;
+				bool m_from_alpha;
+				uint32_t m_bc7f_flags;
+				etc1f::pack_etc1_state* m_pEtc1_pack_state;
+			};
+
+			decode_state dec_state;
+			dec_state.m_orig_height = orig_height;
+			dec_state.m_src_num_blocks_x = src_num_blocks_x;
+			dec_state.m_src_num_blocks_y = src_num_blocks_y;
+			dec_state.m_src_block_width = src_block_width;
+			dec_state.m_src_block_height = src_block_height;
+			dec_state.m_dst_num_blocks_x = dst_num_blocks_x;
+			dec_state.m_dst_num_blocks_y = dst_num_blocks_y;
+			dec_state.m_pDst_blocks = pDst_blocks;
+			dec_state.m_output_row_pitch_in_blocks_or_pixels = output_row_pitch_in_blocks_or_pixels;
+			dec_state.m_output_block_or_pixel_stride_in_bytes = output_block_or_pixel_stride_in_bytes;
+			dec_state.m_output_rows_in_pixels = output_rows_in_pixels;
+
+			dec_state.m_num_src_block_rows_to_buffer = num_src_block_rows_to_buffer;
+			//dec_state.m_num_dst_block_rows_to_buffer = num_dst_block_rows_to_buffer;
+
+			dec_state.m_pBuffered_rows = &buffered_rows;
+			dec_state.m_used_srgb_astc_decode_mode = false; // will be set by init from the compressed stream's header
+			dec_state.m_has_alpha = true; // will be set by init from the compressed stream's header
+
+			dec_state.m_total_src_blocks_unpacked = 0;
+			dec_state.m_total_src_blocks_partial_unpacked = 0;
+			dec_state.m_total_blocks_transcoded = 0;
+			dec_state.m_total_blocks_encoded = 0;
+
+			dec_state.m_fmt = fmt;
+			dec_state.m_channel0 = channel0;
+			dec_state.m_channel1 = channel1;
+			dec_state.m_high_quality = high_quality;
+			dec_state.m_from_alpha = from_alpha;
+			dec_state.m_bc7f_flags = bc7f_flags;
+			dec_state.m_pEtc1_pack_state = &etc1_pack_state;
+
+			auto init_func = [](uint32_t num_blocks_x, uint32_t num_blocks_y, uint32_t block_width, uint32_t block_height, bool srgb_decode_profile, float dct_q, bool has_alpha, void* pData)
+			{
+				BASISU_NOTE_UNUSED(srgb_decode_profile);
+				BASISU_NOTE_UNUSED(dct_q);
+				
+				if (basisu::g_debug_printf)
+					basisu::debug_printf("init_func: %u %u %u %u %u %f %u\n", num_blocks_x, num_blocks_y, block_width, block_height, srgb_decode_profile, dct_q, has_alpha);
+
+				decode_state& state = *(decode_state*)pData;
+				if ((block_width != state.m_src_block_width) || (block_height != state.m_src_block_height))
+				{
+					BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_slice: header validation failed (3)\n");
+					return false;
+				}
+				if ((num_blocks_x != state.m_src_num_blocks_x) || (num_blocks_y != state.m_src_num_blocks_y))
+				{
+					BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_slice: header validation failed (4)\n");
+					return false;
+				}
+
+				state.m_used_srgb_astc_decode_mode = srgb_decode_profile;
+				state.m_has_alpha = has_alpha;
+
+				return true;
+			};
+
+			auto src_block_func = [](uint32_t bx, uint32_t by, const astc_helpers::log_astc_block& log_blk, void* pData)
+			{
+				decode_state& state = *(decode_state*)pData;
+				assert((bx < state.m_src_num_blocks_x) && (by < state.m_src_num_blocks_y));
+				assert(state.m_num_src_block_rows_to_buffer == 2); // hardcoded for 6x6
+				const astc_helpers::decode_mode astc_dec_mode = state.m_used_srgb_astc_decode_mode ? astc_helpers::cDecodeModeSRGB8 : astc_helpers::cDecodeModeLDR8;
+
+				const uint32_t buffered_src_block_row_y = (by & 1);
+
+				memcpy(&(*state.m_pBuffered_rows)(bx, buffered_src_block_row_y), &log_blk, sizeof(log_blk));
+
+				// Last block on this src row? If not, exit.
+				if (bx != (state.m_src_num_blocks_x - 1))
+					return true;
+
+				// We've written the final src block for this ASTC src row. 
+				// See if we have enough source rows to create full 4x4 destination blocks.
+				const bool final_src_block_row = (by == (state.m_src_num_blocks_y - 1));
+								
+				if ((buffered_src_block_row_y != (state.m_num_src_block_rows_to_buffer - 1)) && (!final_src_block_row))
+					return true;
+				
+				// We have a full 1-2 rows of ASTC 6x6 blocks to process to BC7.
+
+				// src/destination image Y coordinate of the top of the buffered rows
+				const uint32_t buffered_src_pixel_y = ((by / state.m_num_src_block_rows_to_buffer) * state.m_num_src_block_rows_to_buffer) * state.m_src_block_height;
+				assert((buffered_src_pixel_y & 3) == 0);
+
+				// The total # of valid src block rows we can read.
+				const uint32_t num_buffered_src_block_rows = buffered_src_block_row_y + 1;
+
+				assert((num_buffered_src_block_rows == state.m_num_src_block_rows_to_buffer) || (final_src_block_row));
+
+#if defined(DEBUG) || defined(_DEBUG)
+				// The maximum number of valid buffer pixel scanlines we can fetch from, taking into account the original texture's actual (unpadded) height.
+				const uint32_t override_buffer_height = basisu::minimum(state.m_orig_height - buffered_src_pixel_y, num_buffered_src_block_rows * state.m_src_block_height);
+				assert(override_buffer_height);
+#endif
+
+				// total_dst_block_rows_to_emit=really an upper bound for the final row of src ASTC blocks
+				const uint32_t total_dst_block_rows_to_emit = (num_buffered_src_block_rows * state.m_src_block_height + 3) >> 2;
+								
+				color_rgba unpacked_src_blocks[2][2][6 * 6]; // [x][y][pixel]
+				uint8_t upsampled_src_weights[2][2][6 * 6]; // [x][y][pixel]
+				color_rgba temp_pixels_16[16];
+				
+				// Process each source ASTC 6x6 block group, 2x2 ASTC blocks at a time (12x12 pixels, or 3x3 BC7 blocks)
+				for (uint32_t src_bx = 0; src_bx < state.m_src_num_blocks_x; src_bx += 2)
+				{
+					bool has_unpacked_src_blocks[2][2] = { }; // [x][y]
+
+					// Grab pointers to the 2x2 src ASTC blocks we'll be transcoding
+					const astc_helpers::log_astc_block *pSrc_log_blocks[2][2]; // [x][y]
+
+					pSrc_log_blocks[0][0] = &state.m_pBuffered_rows->at(src_bx, 0);
+					pSrc_log_blocks[1][0] = &state.m_pBuffered_rows->at(basisu::minimum<uint32_t>(src_bx + 1, state.m_src_num_blocks_x - 1), 0);
+
+					pSrc_log_blocks[0][1] = &state.m_pBuffered_rows->at(src_bx, basisu::minimum<uint32_t>(1, num_buffered_src_block_rows - 1));
+					
+					pSrc_log_blocks[1][1] = &state.m_pBuffered_rows->at(
+						basisu::minimum<uint32_t>(src_bx + 1, state.m_src_num_blocks_x - 1), 
+						basisu::minimum<uint32_t>(1, num_buffered_src_block_rows - 1));
+
+					// From here we can always assume 2x2 src ASTC 6x6 blocks, with ASTC block pointers duplicated at the borders if needed.
+
+					const astc_helpers::log_astc_block* pUL = pSrc_log_blocks[0][0];
+
+					// First see if all the astc blocks are the same solid color. Likely a common case on some images.
+					bool all_solid = true;
+					for (uint32_t y = 0; (y < 2) && all_solid; y++)
+					{
+						for (uint32_t x = 0; x < 2; x++)
+						{
+							if (!pSrc_log_blocks[x][y]->m_solid_color_flag_ldr)
+							{
+								all_solid = false;
+								break;
+							}
+
+							if ((pSrc_log_blocks[x][y]->m_solid_color[0] != pUL->m_solid_color[0]) || (pSrc_log_blocks[x][y]->m_solid_color[1] != pUL->m_solid_color[1]) ||
+								(pSrc_log_blocks[x][y]->m_solid_color[2] != pUL->m_solid_color[2]) || (pSrc_log_blocks[x][y]->m_solid_color[3] != pUL->m_solid_color[3]))
+							{
+								all_solid = false;
+								break;
+							}
+						}
+					}
+					
+					if (all_solid)
+					{
+						// Easy and fast case: All 4 ASTC blocks are solid and the same color, so all 9 BC7 blocks are solid too and the same color.
+						color_rgba sc;
+						sc.r = (uint8_t)(pUL->m_solid_color[0] >> 8);
+						sc.g = (uint8_t)(pUL->m_solid_color[1] >> 8);
+						sc.b = (uint8_t)(pUL->m_solid_color[2] >> 8);
+						sc.a = (uint8_t)(pUL->m_solid_color[3] >> 8);
+
+						bc7_block temp_blk;
+						bc7f::pack_mode5_solid((uint8_t *)&temp_blk, sc);
+
+						for (uint32_t dy = 0; dy < total_dst_block_rows_to_emit; dy++) // up to 3 dst block rows
+						{
+							const uint32_t dst_by = (buffered_src_pixel_y >> 2) + dy;
+							if (dst_by >= state.m_dst_num_blocks_y)
+								break;
+
+							for (uint32_t dx = 0; dx < 3; dx++)
+							{
+								const uint32_t dst_bx = ((src_bx * 6) >> 2) + dx;
+								if (dst_bx >= state.m_dst_num_blocks_x)
+									break;
+
+								uint8_t* pDst_block_u8 = (uint8_t*)state.m_pDst_blocks + (dst_by * state.m_output_row_pitch_in_blocks_or_pixels + dst_bx) * state.m_output_block_or_pixel_stride_in_bytes;
+
+								memcpy(pDst_block_u8, &temp_blk, sizeof(bc7_block));
+							}
+						}
+
+						continue;
+					}
+
+					uint32_t num_hard_src_blocks = 0;
+					
+					for (uint32_t y = 0; y < 2; y++)
+						for (uint32_t x = 0; x < 2; x++)
+							num_hard_src_blocks += (pSrc_log_blocks[x][y]->m_dual_plane || (pSrc_log_blocks[x][y]->m_num_partitions > 1));
+
+					if (num_hard_src_blocks == 4)
+					{
+						// All src blocks hard, no easy optimizations, so unpack and encode pixels analytically
+						for (uint32_t y = 0; y < 2; y++)
+						{
+							for (uint32_t x = 0; x < 2; x++)
+							{
+								bool status = astc_helpers::decode_block_xuastc_ldr(*pSrc_log_blocks[x][y], &unpacked_src_blocks[x][y][0], 6, 6, astc_dec_mode);
+								if (!status)
+								{
+									return false;
+								}
+								state.m_total_src_blocks_unpacked++;
+							}
+						}
+
+						for (uint32_t dy = 0; dy < total_dst_block_rows_to_emit; dy++) // up to 3 dst block rows
+						{
+							const uint32_t dst_by = (buffered_src_pixel_y >> 2) + dy;
+							if (dst_by >= state.m_dst_num_blocks_y)
+								break;
+
+							for (uint32_t dx = 0; dx < 3; dx++)
+							{
+								const uint32_t dst_bx = ((src_bx * 6) >> 2) + dx;
+								if (dst_bx >= state.m_dst_num_blocks_x)
+									break;
+									
+								// TODO: Optimize
+								for (uint32_t y = 0; y < 4; y++)
+								{
+									const uint32_t sy = dy * 4 + y;
+									for (uint32_t x = 0; x < 4; x++)
+									{
+										const uint32_t sx = dx * 4 + x;
+										temp_pixels_16[x + y * 4] = unpacked_src_blocks[sx / 6][sy / 6][(sx % 6) + (sy % 6) * 6];
+									} // x
+								} // y
+								
+								uint8_t* pDst_block_u8 = (uint8_t*)state.m_pDst_blocks + (dst_by * state.m_output_row_pitch_in_blocks_or_pixels + dst_bx) * state.m_output_block_or_pixel_stride_in_bytes;
+
+								if (state.m_has_alpha)
+									bc7f::fast_pack_bc7_auto_rgba(pDst_block_u8, temp_pixels_16, state.m_bc7f_flags);
+								else
+									bc7f::fast_pack_bc7_auto_rgb(pDst_block_u8, temp_pixels_16, state.m_bc7f_flags);
+
+								state.m_total_blocks_encoded++;
+							} // dx
+						} // dy
+
+						continue;
+					}
+
+					// One or more of the 4 source blocks is solid or 1 subset.
+
+					// For simplicity: First unpack the first plane weight grids (unless solid)
+					for (uint32_t y = 0; y < 2; y++)
+						for (uint32_t x = 0; x < 2; x++)
+							astc_upsample_grid_weights(*pSrc_log_blocks[x][y], &upsampled_src_weights[x][y][0], 6, 6);
+					
+					//const uint32_t ENDPOINT_TOL = 3;
+					const uint32_t ENDPOINT_TOL = 1;
+
+					// Process each of the 9 destination BC7 blocks.
+					for (uint32_t dy = 0; dy < total_dst_block_rows_to_emit; dy++) // up to 3 dst block rows
+					{
+						const uint32_t dst_by = (buffered_src_pixel_y >> 2) + dy;
+						if (dst_by >= state.m_dst_num_blocks_y)
+							break;
+
+						for (uint32_t dx = 0; dx < 3; dx++)
+						{
+							// skip the central block, which we'll processed last
+							if ((dx == 1) && (dy == 1))
+								continue;
+
+							const uint32_t dst_bx = ((src_bx * 6) >> 2) + dx;
+							if (dst_bx >= state.m_dst_num_blocks_x)
+								break;
+
+							uint8_t* pDst_block_u8 = (uint8_t*)state.m_pDst_blocks + (dst_by * state.m_output_row_pitch_in_blocks_or_pixels + dst_bx) * state.m_output_block_or_pixel_stride_in_bytes;
+																																			
+							// We're NOT at the center BC7 dst block.
+							// BC7 block only overlaps 1 or 2 ASTC blocks.
+							const int top_dx = dx * 4, top_dy = dy * 4;
+							const int bot_dx = top_dx + 3, bot_dy = top_dy + 3;
+
+							const int top_bx = top_dx / 6, top_by = top_dy / 6;
+							const int bot_bx = bot_dx / 6, bot_by = bot_dy / 6;
+
+							const astc_helpers::log_astc_block* pB0 = pSrc_log_blocks[top_bx][top_by];
+							const astc_helpers::log_astc_block* pB1 = pSrc_log_blocks[bot_bx][bot_by];
+
+							// Note: because of row/col duplication at the edges of images, pB0 could equal pB1 even though we're not at a BC7 corner block.
+
+							const bool single_src_block = (top_bx == bot_bx) && (top_by == bot_by);
+
+							bool full_encode_flag = false;
+
+							if (pB0->m_dual_plane || pB1->m_dual_plane ||
+								(pB0->m_num_partitions > 1) || (pB1->m_num_partitions > 1))
+							{
+								// Either block is complex, fall back to reencoding
+								full_encode_flag = true;
+							}
+							else if (single_src_block)
+							{
+								assert(pB0 == pB1);
+
+								// BC7 block is at a corner, and only overlaps a single ASTC block - output solid or single subset BC7
+								if (pB0->m_solid_color_flag_ldr)
+								{
+									color_rgba sc;
+									sc.r = (uint8_t)(pB0->m_solid_color[0] >> 8);
+									sc.g = (uint8_t)(pB0->m_solid_color[1] >> 8);
+									sc.b = (uint8_t)(pB0->m_solid_color[2] >> 8);
+									sc.a = (uint8_t)(pB0->m_solid_color[3] >> 8);
+
+									bc7f::pack_mode5_solid(pDst_block_u8, sc);
+								}
+								else
+								{
+									// Output mode 6 BC7
+									bc7f::pack_from_astc_single_subset(pDst_block_u8, *pB0, &upsampled_src_weights[top_bx][top_by][0], (dx * 4) % 6, (dy * 4) % 6, 6, 6);
+								}
+
+								state.m_total_blocks_transcoded++;
+							}
+							// below here BC7 block always overlaps 2 ASTC 6x6 blocks (1 block case just ruled out)
+							else if (blocks_same_solid_colors(*pB0, *pB1, 0))
+							{
+								// BC7 block overlaps 2 ASTC blocks, both solid colors, both same colors
+
+								color_rgba sc;
+								sc.r = (uint8_t)(pB0->m_solid_color[0] >> 8);
+								sc.g = (uint8_t)(pB0->m_solid_color[1] >> 8);
+								sc.b = (uint8_t)(pB0->m_solid_color[2] >> 8);
+								sc.a = (uint8_t)(pB0->m_solid_color[3] >> 8);
+								bc7f::pack_mode5_solid(pDst_block_u8, sc);
+
+								state.m_total_blocks_transcoded++;
+							}
+							else if (blocks_same_single_subset_endpoints(*pB0, *pB1, ENDPOINT_TOL))
+							{
+								// BC7 blocks overlaps 2 single subset ASTC blocks, both have the same or very similar endpoints, output mode 6 BC7
+								bc7f::pack_from_astc_to_single_subset_same_endpoints(
+									pDst_block_u8,
+									*pB0, &upsampled_src_weights[top_bx][top_by][0],
+									*pB1, &upsampled_src_weights[bot_bx][bot_by][0],
+									dx, dy, 
+									6, 6);
+
+								state.m_total_blocks_transcoded++;
+							}
+							else if (!block_has_alpha(*pB0) && !block_has_alpha(*pB1))
+							{
+								// BC7 block overlaps 2 ASTC blocks with different endpoints (or solid colors) - output 2 subset mode 1 BC7
+								if (!bc7f::pack_from_astc_6x6_to_two_subsets_different_endpoints(
+									pDst_block_u8,
+									*pB0, &upsampled_src_weights[top_bx][top_by][0],
+									*pB1, &upsampled_src_weights[bot_bx][bot_by][0],
+									dx, dy))
+								{
+									full_encode_flag = true;
+								}
+								else
+								{
+									state.m_total_blocks_transcoded++;
+								}
+							}
+							else
+							{
+								full_encode_flag = true;
+							}
+
+							if (full_encode_flag)
+							{
+								// one or both ASTC blocks are just too complex, unpack and reencode
+								if (!has_unpacked_src_blocks[top_bx][top_by])
+								{
+									bool status = astc_helpers::decode_block_xuastc_ldr(*pB0, &unpacked_src_blocks[top_bx][top_by][0], 6, 6, astc_dec_mode, &upsampled_src_weights[top_bx][top_by][0]);
+									if (!status)
+									{
+										return false;
+									}
+									state.m_total_src_blocks_unpacked++;
+									has_unpacked_src_blocks[top_bx][top_by] = true;
+								}
+
+								if (!has_unpacked_src_blocks[bot_bx][bot_by])
+								{
+									bool status = astc_helpers::decode_block_xuastc_ldr(*pB1, &unpacked_src_blocks[bot_bx][bot_by][0], 6, 6, astc_dec_mode, &upsampled_src_weights[bot_bx][bot_by][0]);
+									if (!status)
+									{
+										return false;
+									}
+									state.m_total_src_blocks_unpacked++;
+									has_unpacked_src_blocks[bot_bx][bot_by] = true;
+								}
+
+								// TODO: Optimize
+								for (uint32_t y = 0; y < 4; y++)
+								{
+									const uint32_t sy = dy * 4 + y;
+									for (uint32_t x = 0; x < 4; x++)
+									{
+										const uint32_t sx = dx * 4 + x;
+
+										assert(has_unpacked_src_blocks[sx / 6][sy / 6]);
+
+										temp_pixels_16[x + y * 4] = unpacked_src_blocks[sx / 6][sy / 6][(sx % 6) + (sy % 6) * 6];
+									} // x
+								} // y
+
+								if (state.m_has_alpha)
+									bc7f::fast_pack_bc7_auto_rgba(pDst_block_u8, temp_pixels_16, state.m_bc7f_flags);
+								else
+									bc7f::fast_pack_bc7_auto_rgb(pDst_block_u8, temp_pixels_16, state.m_bc7f_flags);
+
+								state.m_total_blocks_encoded++;
+							}
+
+						} // dx
+					} // dy
+
+					// Now handle the center BC7 block - by this point we may have already decoded 1 or more ASTC 6x6 blocks.
+					const uint32_t dx = 1, dy = 1;
+					const uint32_t dst_bx = ((src_bx * 6) >> 2) + dx;
+					const uint32_t dst_by = (buffered_src_pixel_y >> 2) + dy;
+
+					if ((dst_bx < state.m_dst_num_blocks_x) && (dst_by < state.m_dst_num_blocks_y))
+					{
+						uint8_t* pDst_block_u8 = (uint8_t*)state.m_pDst_blocks + (dst_by * state.m_output_row_pitch_in_blocks_or_pixels + dst_bx) * state.m_output_block_or_pixel_stride_in_bytes;
+
+						bool skip_full_encode = false;
+
+						// the unfortunate middle BC7 block, overlaps all 4 ASTC blocks
+						// The 4 ASTC blocks cannot be all solid, and cannot be all hard.
+						if (num_hard_src_blocks == 0)
+						{
+							// all blocks are simple, see if we can find a simple case to handle quickly
+							bool top_same_solid_color = blocks_same_solid_colors(*pSrc_log_blocks[0][0], *pSrc_log_blocks[1][0], 1);
+							bool bot_same_solid_color = blocks_same_solid_colors(*pSrc_log_blocks[0][1], *pSrc_log_blocks[1][1], 1);
+
+							bool left_same_solid_color = blocks_same_solid_colors(*pSrc_log_blocks[0][0], *pSrc_log_blocks[0][1], 1);
+							bool right_same_solid_color = blocks_same_solid_colors(*pSrc_log_blocks[1][0], *pSrc_log_blocks[1][1], 1);
+
+							bool top_same_endpoints = blocks_same_single_subset_endpoints(*pSrc_log_blocks[0][0], *pSrc_log_blocks[1][0], ENDPOINT_TOL);
+							bool bot_same_endpoints = blocks_same_single_subset_endpoints(*pSrc_log_blocks[0][1], *pSrc_log_blocks[1][1], ENDPOINT_TOL);
+
+							bool left_same_endpoints = blocks_same_single_subset_endpoints(*pSrc_log_blocks[0][0], *pSrc_log_blocks[0][1], ENDPOINT_TOL);
+							bool right_same_endpoints = blocks_same_single_subset_endpoints(*pSrc_log_blocks[1][0], *pSrc_log_blocks[1][1], ENDPOINT_TOL);
+
+							bool top_no_alpha = !block_has_alpha(*pSrc_log_blocks[0][0]) && !block_has_alpha(*pSrc_log_blocks[1][0]);
+							bool bot_no_alpha = !block_has_alpha(*pSrc_log_blocks[0][1]) && !block_has_alpha(*pSrc_log_blocks[1][1]);
+
+							bool left_no_alpha = !block_has_alpha(*pSrc_log_blocks[0][0]) && !block_has_alpha(*pSrc_log_blocks[0][1]);
+							bool right_no_alpha = !block_has_alpha(*pSrc_log_blocks[1][0]) && !block_has_alpha(*pSrc_log_blocks[1][1]);
+
+							bool top_transcodable = (top_same_solid_color || top_same_endpoints) && top_no_alpha;
+							bool bot_transcodable = (bot_same_solid_color || bot_same_endpoints) && bot_no_alpha;
+
+							bool left_transcodable = (left_same_solid_color || left_same_endpoints) && left_no_alpha;
+							bool right_transcodable = (right_same_solid_color || right_same_endpoints) && right_no_alpha;
+
+							if (top_transcodable && bot_transcodable)
+							{
+								// BC7 mode 1
+								bc7f::pack_astc_6x6_to_two_subsets_middle_block(
+									pDst_block_u8,
+									pSrc_log_blocks, upsampled_src_weights,
+									false);
+								state.m_total_blocks_transcoded++;
+								skip_full_encode = true;
+							}
+							else if (left_transcodable && right_transcodable)
+							{
+								// BC7 mode 1
+								bc7f::pack_astc_6x6_to_two_subsets_middle_block(
+									pDst_block_u8,
+									pSrc_log_blocks, upsampled_src_weights,
+									true);
+								state.m_total_blocks_transcoded++;
+								skip_full_encode = true;
+							}
+
+							// TODO: Handle non-exact cases
+						}
+
+						if (!skip_full_encode)
+						{
+							// Center BC7 block scenario is complex, requires full decode+analytical BC7 encode.
+							if (has_unpacked_src_blocks[0][0] && has_unpacked_src_blocks[1][0] && has_unpacked_src_blocks[0][1] && has_unpacked_src_blocks[1][1])
+							{
+								// We've already decoded all the ASTC 6x6 blocks fully, so grab central pixels
+								for (uint32_t y = 0; y < 4; y++)
+								{
+									const uint32_t sy = dy * 4 + y;
+									for (uint32_t x = 0; x < 4; x++)
+									{
+										const uint32_t sx = dx * 4 + x;
+
+										temp_pixels_16[x + y * 4] = unpacked_src_blocks[sx / 6][sy / 6][(sx % 6) + (sy % 6) * 6];
+									} // x
+								} // y
+
+								if (state.m_has_alpha)
+									bc7f::fast_pack_bc7_auto_rgba(pDst_block_u8, temp_pixels_16, state.m_bc7f_flags);
+								else
+									bc7f::fast_pack_bc7_auto_rgb(pDst_block_u8, temp_pixels_16, state.m_bc7f_flags);
+
+								state.m_total_blocks_encoded++;
+							}
+							else
+							{
+								for (uint32_t iby = 0; iby < 2; iby++)
+								{
+									for (uint32_t ibx = 0; ibx < 2; ibx++)
+									{
+										// Do a partial decode of the ASTC block, just to get those central pixels (big savings)
+										uint32_t start_x, start_y, end_x, end_y;
+
+										switch (ibx + iby * 2)
+										{
+										case 0: start_x = 4; end_x = 6; start_y = 4; end_y = 6; break;
+										case 1: start_x = 0; end_x = 2; start_y = 4; end_y = 6; break;
+										case 2: start_x = 4; end_x = 6; start_y = 0; end_y = 2; break;
+										default:
+										case 3: start_x = 0; end_x = 2; start_y = 0; end_y = 2; break;
+										}
+
+										// See if we've already decoded the block
+										if (has_unpacked_src_blocks[ibx][iby])
+										{
+											for (uint32_t py = 0; py < 2; py++)
+											{
+												const uint32_t sy = start_y + py;
+
+												for (uint32_t px = 0; px < 2; px++)
+												{
+													const uint32_t sx = start_x + px;
+
+													temp_pixels_16[(px + ibx * 2) + (py + iby * 2) * 4] = unpacked_src_blocks[ibx][iby][(sx % 6) + (sy % 6) * 6];
+												} // x
+											} // y
+										}
+										else
+										{
+											// Partial decode
+											color_rgba temp_pixels[6 * 6];
+
+											bool status = astc_helpers::decode_block_xuastc_ldr(*pSrc_log_blocks[ibx][iby], temp_pixels, 6, 6, astc_dec_mode,
+												&upsampled_src_weights[ibx][iby][0], start_x, start_y, end_x, end_y);
+											if (!status)
+											{
+												return false;
+											}
+											state.m_total_src_blocks_partial_unpacked++;
+
+											for (uint32_t py = 0; py < 2; py++)
+											{
+												const uint32_t ey = py + iby * 2;
+
+												for (uint32_t px = 0; px < 2; px++)
+												{
+													const uint32_t ex = px + ibx * 2;
+
+													temp_pixels_16[ex + ey * 4] = temp_pixels[(start_x + px) + (start_y + py) * 6];
+												} // x
+											} // y
+										}
+									} // x
+								} // y
+
+								if (state.m_has_alpha)
+									bc7f::fast_pack_bc7_auto_rgba(pDst_block_u8, temp_pixels_16, state.m_bc7f_flags);
+								else
+									bc7f::fast_pack_bc7_auto_rgb(pDst_block_u8, temp_pixels_16, state.m_bc7f_flags);
+
+								state.m_total_blocks_encoded++;
+							}
+
+						} // skip_full_encode
+
+					} // if ((dst_bx < state.m_dst_num_blocks_x) && (dst_by < state.m_dst_num_blocks_y))
+
+				} // src_bx
+
+				return true;
+			};
+
+			xuastc_decoded_image decoded_image;
+
+			const bool decomp_flag = decoded_image.decode(pImage_data, image_data_size, init_func, &dec_state, src_block_func, &dec_state);
+			if (!decomp_flag)
+			{
+				BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_slice: astc_ldr_t::decompress_image() failed\n");
+				return false;
+			}
+
+			if (basisu::g_debug_printf)
+			{
+				basisu::fmt_debug_printf("Total src blocks: {}, Total src blocks unpacked to pixels: {}, total partial unpacks: {}\n",
+					dec_state.m_src_num_blocks_x * dec_state.m_src_num_blocks_y,
+					dec_state.m_total_src_blocks_unpacked, dec_state.m_total_src_blocks_partial_unpacked);
+
+				basisu::fmt_debug_printf("Total dst blocks: {}, Total blocks transcoded: {}, encoded: {}\n", 
+					dec_state.m_dst_num_blocks_x * dec_state.m_dst_num_blocks_y,
+					dec_state.m_total_blocks_transcoded, dec_state.m_total_blocks_encoded);
+			}
+		}
+		else if (((src_block_width == 4) && (src_block_height == 4)) && (!dst_fmt_is_pvrtc1) && (!deblock_filtering))
+		{
+			// src is ASTC LDR 4x4, destination block size must be 4x4, no PVRTC1, no deblocking. Directly pack to target format during transcoding.
+			struct decode_state
+			{
+				uint32_t m_src_num_blocks_x;
+				uint32_t m_src_num_blocks_y;
+
+				void* m_pDst_blocks;
+				uint32_t m_output_row_pitch_in_blocks_or_pixels;
+				uint32_t m_output_block_or_pixel_stride_in_bytes;
+				uint32_t m_output_rows_in_pixels;
+
+				block_format m_fmt;
+				bool m_used_srgb_astc_decode_mode;
+				bool m_has_alpha;
+
+				int m_channel0, m_channel1;
+				bool m_high_quality;
+				bool m_enable_fast_bc7_transcoding;
+				bool m_from_alpha;
+				uint32_t m_bc7f_flags;
+				etc1f::pack_etc1_state* m_pEtc1_pack_state;
+			};
+
+			decode_state dec_state;
+			dec_state.m_src_num_blocks_x = src_num_blocks_x;
+			dec_state.m_src_num_blocks_y = src_num_blocks_y;
+			dec_state.m_pDst_blocks = pDst_blocks;
+			dec_state.m_output_row_pitch_in_blocks_or_pixels = output_row_pitch_in_blocks_or_pixels;
+			dec_state.m_output_block_or_pixel_stride_in_bytes = output_block_or_pixel_stride_in_bytes;
+			dec_state.m_output_rows_in_pixels = output_rows_in_pixels;
+			dec_state.m_fmt = fmt;
+			dec_state.m_used_srgb_astc_decode_mode = false; // will be set by init from the compressed stream's header
+			dec_state.m_has_alpha = true; // will be set by init from the compressed stream's header
+			
+			dec_state.m_channel0 = channel0;
+			dec_state.m_channel1 = channel1;
+			dec_state.m_high_quality = high_quality;
+			dec_state.m_enable_fast_bc7_transcoding = enable_fast_bc7_transcoding;
+			dec_state.m_from_alpha = from_alpha;
+			dec_state.m_bc7f_flags = bc7f_flags;
+			dec_state.m_pEtc1_pack_state = &etc1_pack_state;
+
+			auto init_func = [](uint32_t num_blocks_x, uint32_t num_blocks_y, uint32_t block_width, uint32_t block_height, bool srgb_decode_profile, float dct_q, bool has_alpha, void* pData)
+			{
+				BASISU_NOTE_UNUSED(srgb_decode_profile);
+				BASISU_NOTE_UNUSED(dct_q);
+								
+				if (basisu::g_debug_printf)
+					basisu::debug_printf("init_func: %u %u %u %u %u %f %u\n", num_blocks_x, num_blocks_y, block_width, block_height, srgb_decode_profile, dct_q, has_alpha);
+
+				decode_state& state = *(decode_state*)pData;
+				if ((block_width != 4) || (block_height != 4))
+				{
+					BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_slice: header validation failed (3)\n");
+					return false;
+				}
+				if ((num_blocks_x != state.m_src_num_blocks_x) || (num_blocks_y != state.m_src_num_blocks_y))
+				{
+					BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_slice: header validation failed (4)\n");
+					return false;
+				}
+				
+				state.m_used_srgb_astc_decode_mode = srgb_decode_profile;
+				state.m_has_alpha = has_alpha;
+
+				return true;
+			};
+
+			auto src_block_func = [](uint32_t bx, uint32_t by, const astc_helpers::log_astc_block& log_blk, void* pData)
+			{
+				decode_state& state = *(decode_state*)pData;
+				assert((bx < state.m_src_num_blocks_x) && (by < state.m_src_num_blocks_y));
+
+				uint8_t* pDst_block_u8 = (uint8_t*)state.m_pDst_blocks + (by * state.m_output_row_pitch_in_blocks_or_pixels + bx) * state.m_output_block_or_pixel_stride_in_bytes;
+
+				// Special fast cases for BC7 transcode target given common ASTC configs
+				if (state.m_fmt == block_format::cBC7)
+				{
+					if (log_blk.m_solid_color_flag_ldr)
+					{
+						color_rgba sc;
+						sc.r = (uint8_t)(log_blk.m_solid_color[0] >> 8);
+						sc.g = (uint8_t)(log_blk.m_solid_color[1] >> 8);
+						sc.b = (uint8_t)(log_blk.m_solid_color[2] >> 8);
+						sc.a = (uint8_t)(log_blk.m_solid_color[3] >> 8);
+
+						bc7f::pack_mode5_solid(pDst_block_u8, sc);
+						return true;
+					}
+					else if (!log_blk.m_dual_plane && (log_blk.m_num_partitions == 1) && !state.m_high_quality && state.m_enable_fast_bc7_transcoding)
+					{
+						// TODO: This does cost a tiny amount of PSNR (.1-25 dB or so), but is way faster.
+						bc7f::pack_from_astc_4x4_single_subset(pDst_block_u8, log_blk);
+						return true;
+					}
+				}
+
+				// Fall back to block pixel unpack then analytical encode.
+				color32 block_pixels[4 * 4];
+				bool decode_status = astc_helpers::decode_block_xuastc_ldr(log_blk, block_pixels, 4, 4, state.m_used_srgb_astc_decode_mode ? astc_helpers::cDecodeModeSRGB8 : astc_helpers::cDecodeModeLDR8);
+				if (!decode_status)
+				{
+					BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_slice: astc_helpers::decode_block_xuastc_ldr() failed\n");
+					return false;
+				}
+
+#if defined(_DEBUG) || defined(DEBUG)
+				color32 alt_block_pixels[4 * 4];
+				if (!astc_helpers::decode_block(log_blk, alt_block_pixels, 4, 4, state.m_used_srgb_astc_decode_mode ? astc_helpers::cDecodeModeSRGB8 : astc_helpers::cDecodeModeLDR8))
+				{
+					BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_slice: astc_helpers::decode_block() failed\n");
+					return false;
+				}
+
+				for (uint32_t i = 0; i < 16; i++)
+				{
+					assert(block_pixels[i][0] == alt_block_pixels[i][0]);
+					assert(block_pixels[i][1] == alt_block_pixels[i][1]);
+					assert(block_pixels[i][2] == alt_block_pixels[i][2]);
+					assert(block_pixels[i][3] == alt_block_pixels[i][3]);
+				}
+#endif
+								
+				transcode_4x4_block(
+					state.m_fmt,
+					bx, by,
+					state.m_pDst_blocks, pDst_block_u8,
+					block_pixels,
+					state.m_output_block_or_pixel_stride_in_bytes, state.m_output_row_pitch_in_blocks_or_pixels, state.m_output_rows_in_pixels,
+					state.m_channel0, state.m_channel1,
+					state.m_high_quality, state.m_from_alpha,
+					state.m_bc7f_flags,
+					*state.m_pEtc1_pack_state,
+					state.m_has_alpha ? 1 : 0);
+
+				return true;
+			};
+
+			xuastc_decoded_image decoded_image;
+
+			const bool decomp_flag = decoded_image.decode(pImage_data, image_data_size, init_func, &dec_state, src_block_func, &dec_state);
+			if (!decomp_flag)
+			{
+				BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_slice: astc_ldr_t::decompress_image() failed\n");
+				return false;
+			}
+		}
+		else if ((deblock_filtering) || (dst_fmt_is_pvrtc1))
+		{
+			// Completely general case. Unpack entire 32bpp image into memory (needed for deblocking and PVRTC1).
+			assert((dst_fmt_block_width == 4) && (dst_fmt_block_height == 4));
+			basisu::vector2D<color32> temp_image;
+
+			if (!temp_image.try_resize(src_num_blocks_x * src_block_width, src_num_blocks_y * src_block_height))
+			{
+				BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_slice: out of memory\n");
+				return false;
+			}
+
+			struct decode_state
+			{
+				uint32_t m_src_num_blocks_x;
+				uint32_t m_src_num_blocks_y;
+				uint32_t m_src_block_width;
+				uint32_t m_src_block_height;
+
+				void* m_pDst_blocks;
+				uint32_t m_output_row_pitch_in_blocks_or_pixels;
+				uint32_t m_output_block_or_pixel_stride_in_bytes;
+				uint32_t m_output_rows_in_pixels;
+
+				basisu::vector2D<color32>* m_pTemp_image;
+								
+				bool m_used_srgb_astc_decode_mode;
+				bool m_has_alpha;
+			};
+
+			decode_state dec_state;
+			dec_state.m_src_num_blocks_x = src_num_blocks_x;
+			dec_state.m_src_num_blocks_y = src_num_blocks_y;
+			dec_state.m_src_block_width = src_block_width;
+			dec_state.m_src_block_height = src_block_height;
+			dec_state.m_pDst_blocks = pDst_blocks;
+			dec_state.m_output_row_pitch_in_blocks_or_pixels = output_row_pitch_in_blocks_or_pixels;
+			dec_state.m_output_block_or_pixel_stride_in_bytes = output_block_or_pixel_stride_in_bytes;
+			dec_state.m_output_rows_in_pixels = output_rows_in_pixels;
+			dec_state.m_pTemp_image = &temp_image;
+			dec_state.m_used_srgb_astc_decode_mode = false; // will be set by init from the compressed stream's header
+			dec_state.m_has_alpha = true; // will be set by init from the compressed stream's header
+
+			auto init_func = [](uint32_t num_blocks_x, uint32_t num_blocks_y, uint32_t block_width, uint32_t block_height, bool srgb_decode_profile, float dct_q, bool has_alpha, void* pData)
+			{
+				BASISU_NOTE_UNUSED(srgb_decode_profile);
+				BASISU_NOTE_UNUSED(dct_q);
+				
+				if (basisu::g_debug_printf)
+					basisu::debug_printf("init_func: %u %u %u %u %u %f %u\n", num_blocks_x, num_blocks_y, block_width, block_height, srgb_decode_profile, dct_q, has_alpha);
+
+				decode_state& state = *(decode_state*)pData;
+				if ((block_width != state.m_src_block_width) || (block_height != state.m_src_block_height))
+				{
+					BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_slice: header validation failed (3)\n");
+					return false;
+				}
+				if ((num_blocks_x != state.m_src_num_blocks_x) || (num_blocks_y != state.m_src_num_blocks_y))
+				{
+					BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_slice: header validation failed (4)\n");
+					return false;
+				}
+
+				state.m_used_srgb_astc_decode_mode = srgb_decode_profile;
+				state.m_has_alpha = has_alpha;
+
+				return true;
+			};
+
+			auto src_block_func = [](uint32_t bx, uint32_t by, const astc_helpers::log_astc_block& log_blk, void* pData)
+			{
+				decode_state& state = *(decode_state*)pData;
+				assert((bx < state.m_src_num_blocks_x) && (by < state.m_src_num_blocks_y));
+
+				color32 block_pixels[astc_helpers::MAX_BLOCK_PIXELS];
+				bool decode_status = astc_helpers::decode_block_xuastc_ldr(log_blk, block_pixels, state.m_src_block_width, state.m_src_block_height, state.m_used_srgb_astc_decode_mode ? astc_helpers::cDecodeModeSRGB8 : astc_helpers::cDecodeModeLDR8);
+				if (!decode_status)
+				{
+					BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_slice: astc_helpers::decode_block_xuastc_ldr() failed\n");
+					return false;
+				}
+
+#if defined(_DEBUG) || defined(DEBUG)
+				// sanity check vs. our vanilla/full-featured ASTC decoder
+				color32 alt_block_pixels[astc_helpers::MAX_BLOCK_PIXELS];
+				if (!astc_helpers::decode_block(log_blk, alt_block_pixels, state.m_src_block_width, state.m_src_block_height, state.m_used_srgb_astc_decode_mode ? astc_helpers::cDecodeModeSRGB8 : astc_helpers::cDecodeModeLDR8))
+				{
+					BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_slice: astc_helpers::decode_block() failed\n");
+					return false;
+				}
+
+				for (uint32_t i = 0; i < state.m_src_block_width * state.m_src_block_height; i++)
+				{
+					assert(block_pixels[i][0] == alt_block_pixels[i][0]);
+					assert(block_pixels[i][1] == alt_block_pixels[i][1]);
+					assert(block_pixels[i][2] == alt_block_pixels[i][2]);
+					assert(block_pixels[i][3] == alt_block_pixels[i][3]);
+				}
+#endif
+
+				color32* pSrc_pixels = block_pixels;
+				color32* pDst_pixels = &(*state.m_pTemp_image)(bx * state.m_src_block_width, by * state.m_src_block_height);
+
+				for (uint32_t y = 0; y < state.m_src_block_height; y++)
+				{
+					memcpy(pDst_pixels, pSrc_pixels, state.m_src_block_width * sizeof(color32));
+
+					pSrc_pixels += state.m_src_block_width;
+					pDst_pixels += state.m_pTemp_image->get_width();
+				} // y
+				
+				return true;
+			};
+
+			xuastc_decoded_image decoded_image;
+
+			const bool decomp_flag = decoded_image.decode(pImage_data, image_data_size, init_func, &dec_state, src_block_func, &dec_state);
+			if (!decomp_flag)
+			{
+				BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_slice: astc_ldr_t::decompress_image() failed\n");
+				return false;
+			}
+
+			if (deblock_filtering)
+			{
+				if (!xuastc_deblock_filter(
+					decoded_image.m_actual_block_width, decoded_image.m_actual_block_height,
+					temp_image, temp_image,
+					stronger_deblocking, XUASTC_LDR_DEBLOCK_SKIP_THRESH))
+				{
+					BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_slice: out of memory\n");
+					return false;
+				}
+			}
+
+			const uint32_t dst_num_blocks_x = (orig_width + dst_fmt_block_width - 1) / dst_fmt_block_width;
+			const uint32_t dst_num_blocks_y = (orig_height + dst_fmt_block_height - 1) / dst_fmt_block_height;
+
+			if (dst_fmt_is_pvrtc1)
+			{
+				assert((dst_fmt_block_width == 4) && (dst_fmt_block_height == 4));
+
+				encode_pvrtc1(fmt, pDst_blocks, temp_image, dst_num_blocks_x, dst_num_blocks_y, from_alpha);
+			}
+			else
+			{
+				color32 block_pixels[astc_helpers::MAX_BLOCK_PIXELS];
+
+				for (uint32_t dst_by = 0; dst_by < dst_num_blocks_y; dst_by++)
+				{
+					uint8_t* pDst_block_u8 = (uint8_t*)pDst_blocks + dst_by * output_row_pitch_in_blocks_or_pixels * output_block_or_pixel_stride_in_bytes;
+
+					for (uint32_t dst_bx = 0; dst_bx < dst_num_blocks_x; dst_bx++)
+					{
+						temp_image.extract_block_clamped(block_pixels, dst_bx * 4, dst_by * 4, 4, 4);
+
+						transcode_4x4_block(
+							fmt,
+							dst_bx, dst_by,
+							pDst_blocks, pDst_block_u8,
+							block_pixels,
+							output_block_or_pixel_stride_in_bytes, output_row_pitch_in_blocks_or_pixels, output_rows_in_pixels,
+							channel0, channel1,
+							high_quality, from_alpha,
+							bc7f_flags,
+							etc1_pack_state, 
+							dec_state.m_has_alpha ? 1 : 0);
+
+						pDst_block_u8 += output_block_or_pixel_stride_in_bytes;
+
+					} // dst_bx
+
+				} // dst_by
+
+			} // if (dst_fmt_is_pvrtc1)
+		}
+		else
+		{
+			// No PVRTC1/ASTC, no deblocking. Unpack as few source row blocks into memory as possible needed for transcoding to 4x4. Output block size must be 4x4.
+			assert((dst_fmt_block_width == 4) && (dst_fmt_block_height == 4));
+			
+			// Compute how many source block rows we need to buffer so we have a multiple of 4 scanlines. The max # of scanlines is 20.
+			uint32_t num_src_block_rows_to_buffer = 1;
+			while ((num_src_block_rows_to_buffer * src_block_height) & 3)
+				num_src_block_rows_to_buffer++;
+			assert((num_src_block_rows_to_buffer >= 1) && (num_src_block_rows_to_buffer <= 4));
+
+			// Compute how many 4x4 dest blocks fit into these many source rows.
+			assert(((num_src_block_rows_to_buffer * src_block_height) & 3) == 0);
+			//const uint32_t num_dst_block_rows_to_buffer = (num_src_block_rows_to_buffer * src_block_height) >> 2;
+
+			const uint32_t dst_num_blocks_x = (orig_width + dst_fmt_block_width - 1) / dst_fmt_block_width;
+			const uint32_t dst_num_blocks_y = (orig_height + dst_fmt_block_height - 1) / dst_fmt_block_height;
+
+			basisu::vector2D<color32> buffered_rows(src_num_blocks_x * src_block_width, num_src_block_rows_to_buffer * src_block_height);
+
+			struct decode_state
+			{
+				uint32_t m_orig_height;
+
+				uint32_t m_src_num_blocks_x;
+				uint32_t m_src_num_blocks_y;
+				uint32_t m_src_block_width;
+				uint32_t m_src_block_height;
+
+				uint32_t m_dst_num_blocks_x;
+				uint32_t m_dst_num_blocks_y;
+
+				void* m_pDst_blocks;
+				uint32_t m_output_row_pitch_in_blocks_or_pixels;
+				uint32_t m_output_block_or_pixel_stride_in_bytes;
+				uint32_t m_output_rows_in_pixels;
+
+				uint32_t m_num_src_block_rows_to_buffer;
+				//uint32_t m_num_dst_block_rows_to_buffer;
+
+				basisu::vector2D<color32>* m_pBuffered_rows;
+
+				bool m_used_srgb_astc_decode_mode;
+				bool m_has_alpha;
+
+				block_format m_fmt;
+				int m_channel0, m_channel1;
+				bool m_high_quality;
+				bool m_from_alpha;
+				uint32_t m_bc7f_flags;
+				etc1f::pack_etc1_state* m_pEtc1_pack_state;
+			};
+
+			decode_state dec_state;
+			dec_state.m_orig_height = orig_height;
+			dec_state.m_src_num_blocks_x = src_num_blocks_x;
+			dec_state.m_src_num_blocks_y = src_num_blocks_y;
+			dec_state.m_src_block_width = src_block_width;
+			dec_state.m_src_block_height = src_block_height;
+			dec_state.m_dst_num_blocks_x = dst_num_blocks_x;
+			dec_state.m_dst_num_blocks_y = dst_num_blocks_y;
+			dec_state.m_pDst_blocks = pDst_blocks;
+			dec_state.m_output_row_pitch_in_blocks_or_pixels = output_row_pitch_in_blocks_or_pixels;
+			dec_state.m_output_block_or_pixel_stride_in_bytes = output_block_or_pixel_stride_in_bytes;
+			dec_state.m_output_rows_in_pixels = output_rows_in_pixels;
+
+			dec_state.m_num_src_block_rows_to_buffer = num_src_block_rows_to_buffer;
+			//dec_state.m_num_dst_block_rows_to_buffer = num_dst_block_rows_to_buffer;
+
+			dec_state.m_pBuffered_rows = &buffered_rows;
+			dec_state.m_used_srgb_astc_decode_mode = false; // will be set by init from the compressed stream's header
+			dec_state.m_has_alpha = true; // will be set by init from the compressed stream's header
+
+			dec_state.m_fmt = fmt;
+			dec_state.m_channel0 = channel0;
+			dec_state.m_channel1 = channel1;
+			dec_state.m_high_quality = high_quality;
+			dec_state.m_from_alpha = from_alpha;
+			dec_state.m_bc7f_flags = bc7f_flags;
+			dec_state.m_pEtc1_pack_state = &etc1_pack_state;
+
+			auto init_func = [](uint32_t num_blocks_x, uint32_t num_blocks_y, uint32_t block_width, uint32_t block_height, bool srgb_decode_profile, float dct_q, bool has_alpha, void* pData)
+			{
+				BASISU_NOTE_UNUSED(srgb_decode_profile);
+				BASISU_NOTE_UNUSED(dct_q);
+				
+				if (basisu::g_debug_printf)
+					basisu::debug_printf("init_func: %u %u %u %u %u %f %u\n", num_blocks_x, num_blocks_y, block_width, block_height, srgb_decode_profile, dct_q, has_alpha);
+
+				decode_state& state = *(decode_state*)pData;
+				if ((block_width != state.m_src_block_width) || (block_height != state.m_src_block_height))
+				{
+					BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_slice: header validation failed (3)\n");
+					return false;
+				}
+				if ((num_blocks_x != state.m_src_num_blocks_x) || (num_blocks_y != state.m_src_num_blocks_y))
+				{
+					BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_slice: header validation failed (4)\n");
+					return false;
+				}
+
+				state.m_used_srgb_astc_decode_mode = srgb_decode_profile;
+				state.m_has_alpha = has_alpha;
+
+				return true;
+			};
+
+			auto src_block_func = [](uint32_t bx, uint32_t by, const astc_helpers::log_astc_block& log_blk, void* pData)
+			{
+				decode_state& state = *(decode_state*)pData;
+				assert((bx < state.m_src_num_blocks_x) && (by < state.m_src_num_blocks_y));
+
+				// Unpack ASTC block, distribute to temp output buffer.
+				color32 block_pixels[astc_helpers::MAX_BLOCK_PIXELS];
+				bool decode_status = astc_helpers::decode_block_xuastc_ldr(log_blk, block_pixels, state.m_src_block_width, state.m_src_block_height, state.m_used_srgb_astc_decode_mode ? astc_helpers::cDecodeModeSRGB8 : astc_helpers::cDecodeModeLDR8);
+				if (!decode_status)
+				{
+					BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_slice: astc_helpers::decode_block_xuastc_ldr() failed\n");
+					return false;
+				}
+
+#if defined(_DEBUG) || defined(DEBUG)
+				color32 alt_block_pixels[astc_helpers::MAX_BLOCK_PIXELS];
+				if (!astc_helpers::decode_block(log_blk, alt_block_pixels, state.m_src_block_width, state.m_src_block_height, state.m_used_srgb_astc_decode_mode ? astc_helpers::cDecodeModeSRGB8 : astc_helpers::cDecodeModeLDR8))
+				{
+					BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_slice: astc_helpers::decode_block() failed\n");
+					return false;
+				}
+
+				for (uint32_t i = 0; i < state.m_src_block_width * state.m_src_block_height; i++)
+				{
+					assert(block_pixels[i][0] == alt_block_pixels[i][0]);
+					assert(block_pixels[i][1] == alt_block_pixels[i][1]);
+					assert(block_pixels[i][2] == alt_block_pixels[i][2]);
+					assert(block_pixels[i][3] == alt_block_pixels[i][3]);
+				}
+#endif
+
+				// TODO: For uncompressed outputs, we could write directly to the output buffer, skipping buffering.
+				const uint32_t buffered_src_block_row_y = (by % state.m_num_src_block_rows_to_buffer);
+
+				color32* pSrc_pixels = block_pixels;
+				color32* pDst_pixels = &(*state.m_pBuffered_rows)(bx * state.m_src_block_width, buffered_src_block_row_y * state.m_src_block_height);
+
+				for (uint32_t y = 0; y < state.m_src_block_height; y++)
+				{
+					memcpy(pDst_pixels, pSrc_pixels, state.m_src_block_width * sizeof(color32));
+
+					pSrc_pixels += state.m_src_block_width;
+					pDst_pixels += state.m_pBuffered_rows->get_width();
+				} // y
+
+				// Last block on this src row? If not, exit.
+				if (bx != (state.m_src_num_blocks_x - 1))
+					return true;
+
+				// We've written the final src block for this ASTC src row. 
+				// See if we have enough source rows to create full 4x4 destination blocks.
+				const bool final_src_block_row = (by == (state.m_src_num_blocks_y - 1));
+
+				if ( (buffered_src_block_row_y != (state.m_num_src_block_rows_to_buffer - 1)) && (!final_src_block_row) )
+					return true;
+
+				// src/destination image Y coordinate of the top of the buffered rows
+				const uint32_t buffered_src_pixel_y = ((by / state.m_num_src_block_rows_to_buffer) * state.m_num_src_block_rows_to_buffer) * state.m_src_block_height;
+				assert((buffered_src_pixel_y & 3) == 0);
+
+				// The total # of valid src block rows we can read.
+				const uint32_t num_buffered_src_block_rows = buffered_src_block_row_y + 1;
+
+				assert((num_buffered_src_block_rows == state.m_num_src_block_rows_to_buffer) || (final_src_block_row));
+
+				// The maximum number of valid buffer scanlines we can fetch from, taking into account the original texture's actual (unpadded) height.
+				const uint32_t override_buffer_height = basisu::minimum(state.m_orig_height - buffered_src_pixel_y, num_buffered_src_block_rows * state.m_src_block_height);
+				assert(override_buffer_height);
+				
+				// total_dst_block_rows_to_emit=really an upper bound for the final row of src ASTC blocks
+				const uint32_t total_dst_block_rows_to_emit = (num_buffered_src_block_rows * state.m_src_block_height + 3) >> 2;
+				
+				for (uint32_t dst_ofs_by = 0; dst_ofs_by < total_dst_block_rows_to_emit; dst_ofs_by++)
+				{
+					const uint32_t dst_by = (buffered_src_pixel_y >> 2) + dst_ofs_by;
+					if (dst_by >= state.m_dst_num_blocks_y)
+						break;
+
+					for (uint32_t dst_bx = 0; dst_bx < state.m_dst_num_blocks_x; dst_bx++)
+					{
+						// Extract the 4x4 block pixels from our buffered rows, taking into account the actual # of valid scanlines inside the buffer.
+						state.m_pBuffered_rows->extract_block_clamped(block_pixels, dst_bx * 4, dst_ofs_by * 4, 4, 4, override_buffer_height);
+
+						uint8_t* pDst_block_u8 = (uint8_t*)state.m_pDst_blocks + (dst_by * state.m_output_row_pitch_in_blocks_or_pixels + dst_bx) * state.m_output_block_or_pixel_stride_in_bytes;
+												
+						transcode_4x4_block(
+							state.m_fmt,
+							dst_bx, dst_by,
+							state.m_pDst_blocks, pDst_block_u8,
+							block_pixels,
+							state.m_output_block_or_pixel_stride_in_bytes, state.m_output_row_pitch_in_blocks_or_pixels, state.m_output_rows_in_pixels,
+							state.m_channel0, state.m_channel1,
+							state.m_high_quality, state.m_from_alpha,
+							state.m_bc7f_flags,
+							*state.m_pEtc1_pack_state,
+							state.m_has_alpha ? 1 : 0);
+
+					} // dst_bx
+
+				} // dst_ofs_by
+								
+				return true;
+			};
+
+			xuastc_decoded_image decoded_image;
+
+			const bool decomp_flag = decoded_image.decode(pImage_data, image_data_size, init_func, &dec_state, src_block_func, &dec_state);
+			if (!decomp_flag)
+			{
+				BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_slice: astc_ldr_t::decompress_image() failed\n");
+				return false;
+			}
+		}
+
+	} // if (basis_tex_format_is_astc_ldr(src_format))
+
+	return true;
+#else
+	assert(0);
+	BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_slice: XUASTC support disabled\n");
+	return false;
+#endif // BASISD_SUPPORT_XUASTC
+}
+
+// Container independent transcoding
+bool basisu_lowlevel_xuastc_ldr_transcoder::transcode_image(
+	basis_tex_format src_format, bool use_astc_srgb_decode_profile,
+	transcoder_texture_format target_format,
+	void* pOutput_blocks, uint32_t output_blocks_buf_size_in_blocks_or_pixels,
+	const uint8_t* pCompressed_data, uint32_t compressed_data_length,
+	uint32_t src_num_blocks_x, uint32_t src_num_blocks_y, uint32_t orig_width, uint32_t orig_height, uint32_t level_index,
+	uint64_t slice_offset, uint32_t slice_length,
+	uint32_t decode_flags,
+	bool has_alpha,
+	bool is_video,
+	uint32_t output_row_pitch_in_blocks_or_pixels,
+	basisu_transcoder_state* pState,
+	uint32_t output_rows_in_pixels,
+	int channel0, int channel1)
+{
+	BASISU_NOTE_UNUSED(is_video);
+	BASISU_NOTE_UNUSED(level_index);
+
+#if BASISD_SUPPORT_XUASTC
+
+	if (((uint64_t)slice_offset + slice_length) > (uint64_t)compressed_data_length)
+	{
+		BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_image: source data buffer too small\n");
+		return false;
+	}
+
+	if ((target_format == transcoder_texture_format::cTFPVRTC1_4_RGB) || (target_format == transcoder_texture_format::cTFPVRTC1_4_RGBA))
+	{
+		if ((!basisu::is_pow2(orig_width)) || (!basisu::is_pow2(orig_height)))
+		{
+			// PVRTC1 only supports power of 2 dimensions
+			BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: PVRTC1 only supports power of 2 dimensions\n");
+			return false;
+		}
+	}
+
+	const bool transcode_alpha_data_to_opaque_formats = (decode_flags & cDecodeFlagsTranscodeAlphaDataToOpaqueFormats) != 0;
+	const uint32_t bytes_per_block_or_pixel = basis_get_bytes_per_block_or_pixel(target_format);
+
+	if (!basis_validate_output_buffer_size(target_format, output_blocks_buf_size_in_blocks_or_pixels, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, output_rows_in_pixels))
+	{
+		BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_image: output buffer size too small\n");
+		return false;
+	}
+
+	bool status = false;
+
+	switch (target_format)
+	{
+	case transcoder_texture_format::cTFETC1_RGB:
+	{
+		status = transcode_slice(src_format, use_astc_srgb_decode_profile, pOutput_blocks, src_num_blocks_x, src_num_blocks_y, pCompressed_data + slice_offset, slice_length, block_format::cETC1,
+			bytes_per_block_or_pixel, false, has_alpha, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels, channel0, channel1, decode_flags);
+
+		if (!status)
+		{
+			BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_image: transcode_slice() to ETC1 failed\n");
+		}
+		break;
+	}
+	case transcoder_texture_format::cTFETC2_RGBA:
+	{
+		status = transcode_slice(src_format, use_astc_srgb_decode_profile, pOutput_blocks, src_num_blocks_x, src_num_blocks_y, pCompressed_data + slice_offset, slice_length, block_format::cETC2_RGBA,
+			bytes_per_block_or_pixel, false, has_alpha, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels, channel0, channel1, decode_flags);
+		if (!status)
+		{
+			BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_image: transcode_slice() to ETC2 failed\n");
+		}
+		break;
+	}
+	case transcoder_texture_format::cTFBC1_RGB:
+	{
+		// TODO: ETC1S allows BC1 from alpha channel. That doesn't seem actually useful, though.
+		status = transcode_slice(src_format, use_astc_srgb_decode_profile, pOutput_blocks, src_num_blocks_x, src_num_blocks_y, pCompressed_data + slice_offset, slice_length, block_format::cBC1,
+			bytes_per_block_or_pixel, true, has_alpha, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels, channel0, channel1, decode_flags);
+		if (!status)
+		{
+			BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_image: transcode_slice() to BC1 failed\n");
+		}
+		break;
+	}
+	case transcoder_texture_format::cTFBC3_RGBA:
+	{
+		status = transcode_slice(src_format, use_astc_srgb_decode_profile, pOutput_blocks, src_num_blocks_x, src_num_blocks_y, pCompressed_data + slice_offset, slice_length, block_format::cBC3,
+			bytes_per_block_or_pixel, false, has_alpha, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels, channel0, channel1, decode_flags);
+		if (!status)
+		{
+			BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_image: transcode_slice() to BC3 failed\n");
+		}
+		break;
+	}
+	case transcoder_texture_format::cTFBC4_R:
+	{
+		status = transcode_slice(src_format, use_astc_srgb_decode_profile, pOutput_blocks, src_num_blocks_x, src_num_blocks_y, pCompressed_data + slice_offset, slice_length, block_format::cBC4,
+			bytes_per_block_or_pixel, false, has_alpha, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels,
+			((has_alpha) && (transcode_alpha_data_to_opaque_formats)) ? 3 : 0, -1, decode_flags);
+		if (!status)
+		{
+			BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_image: transcode_slice() to BC4 failed\n");
+		}
+		break;
+	}
+	case transcoder_texture_format::cTFBC5_RG:
+	{
+		status = transcode_slice(src_format, use_astc_srgb_decode_profile, pOutput_blocks, src_num_blocks_x, src_num_blocks_y, pCompressed_data + slice_offset, slice_length, block_format::cBC5,
+			bytes_per_block_or_pixel, false, has_alpha, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels,
+			0, 3, decode_flags);
+		if (!status)
+		{
+			BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_image: transcode_slice() to BC5 failed\n");
+		}
+		break;
+	}
+	case transcoder_texture_format::cTFBC7_RGBA:
+	case transcoder_texture_format::cTFBC7_ALT:
+	{
+		status = transcode_slice(src_format, use_astc_srgb_decode_profile, pOutput_blocks, src_num_blocks_x, src_num_blocks_y, pCompressed_data + slice_offset, slice_length, block_format::cBC7,
+			bytes_per_block_or_pixel, false, has_alpha, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels, -1, -1, decode_flags);
+		if (!status)
+		{
+			BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_image: transcode_slice() to BC7 failed\n");
+		}
+		break;
+	}
+	case transcoder_texture_format::cTFPVRTC1_4_RGB:
+	{
+		status = transcode_slice(src_format, use_astc_srgb_decode_profile, pOutput_blocks, src_num_blocks_x, src_num_blocks_y, pCompressed_data + slice_offset, slice_length, block_format::cPVRTC1_4_RGB,
+			bytes_per_block_or_pixel, false, has_alpha, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels, channel0, channel1, decode_flags);
+
+		if (!status)
+		{
+			BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_image: transcode_slice() to PVRTC1_RGB failed\n");
+		}
+		break;
+	}
+	case transcoder_texture_format::cTFPVRTC1_4_RGBA:
+	{
+		status = transcode_slice(src_format, use_astc_srgb_decode_profile, pOutput_blocks, src_num_blocks_x, src_num_blocks_y, pCompressed_data + slice_offset, slice_length, block_format::cPVRTC1_4_RGBA,
+			bytes_per_block_or_pixel, false, has_alpha, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels, channel0, channel1, decode_flags);
+
+		if (!status)
+		{
+			BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_image: transcode_slice() to PVRTC1_RGBA failed\n");
+		}
+		break;
+	}
+	case transcoder_texture_format::cTFASTC_LDR_4x4_RGBA:
+	case transcoder_texture_format::cTFASTC_LDR_5x4_RGBA:
+	case transcoder_texture_format::cTFASTC_LDR_5x5_RGBA:
+	case transcoder_texture_format::cTFASTC_LDR_6x5_RGBA:
+	case transcoder_texture_format::cTFASTC_LDR_6x6_RGBA:
+	case transcoder_texture_format::cTFASTC_LDR_8x5_RGBA:
+	case transcoder_texture_format::cTFASTC_LDR_8x6_RGBA:
+	case transcoder_texture_format::cTFASTC_LDR_10x5_RGBA:
+	case transcoder_texture_format::cTFASTC_LDR_10x6_RGBA:
+	case transcoder_texture_format::cTFASTC_LDR_8x8_RGBA:
+	case transcoder_texture_format::cTFASTC_LDR_10x8_RGBA:
+	case transcoder_texture_format::cTFASTC_LDR_10x10_RGBA:
+	case transcoder_texture_format::cTFASTC_LDR_12x10_RGBA:
+	case transcoder_texture_format::cTFASTC_LDR_12x12_RGBA:
+	{
+		status = transcode_slice(src_format, use_astc_srgb_decode_profile, pOutput_blocks, src_num_blocks_x, src_num_blocks_y, pCompressed_data + slice_offset, slice_length, xuastc_get_block_format(target_format),
+			bytes_per_block_or_pixel, false, has_alpha, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels, -1, -1, decode_flags);
+		if (!status)
+		{
+			BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_image: transcode_slice() to ASTC 4x4 failed\n");
+		}
+		break;
+	}
+	case transcoder_texture_format::cTFATC_RGB:
+	case transcoder_texture_format::cTFATC_RGBA:
+	{
+		BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_image: UASTC LDR 4x4->ATC currently unsupported\n");
+		return false;
+	}
+	case transcoder_texture_format::cTFFXT1_RGB:
+	{
+		BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_image: UASTC LDR 4x4->FXT1 currently unsupported\n");
+		return false;
+	}
+	case transcoder_texture_format::cTFPVRTC2_4_RGB:
+	{
+		BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_image: UASTC LDR 4x4->PVRTC2 currently unsupported\n");
+		return false;
+	}
+	case transcoder_texture_format::cTFPVRTC2_4_RGBA:
+	{
+		BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_image: UASTC LDR 4x4->PVRTC2 currently unsupported\n");
+		return false;
+	}
+	case transcoder_texture_format::cTFETC2_EAC_R11:
+	{
+		status = transcode_slice(src_format, use_astc_srgb_decode_profile, pOutput_blocks, src_num_blocks_x, src_num_blocks_y, pCompressed_data + slice_offset, slice_length, block_format::cETC2_EAC_R11,
+			bytes_per_block_or_pixel, false, has_alpha, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels,
+			((has_alpha) && (transcode_alpha_data_to_opaque_formats)) ? 3 : 0, -1, decode_flags);
+		if (!status)
+		{
+			BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_image: transcode_slice() to EAC R11 failed\n");
+		}
+		break;
+	}
+	case transcoder_texture_format::cTFETC2_EAC_RG11:
+	{
+		status = transcode_slice(src_format, use_astc_srgb_decode_profile, pOutput_blocks, src_num_blocks_x, src_num_blocks_y, pCompressed_data + slice_offset, slice_length, block_format::cETC2_EAC_RG11,
+			bytes_per_block_or_pixel, false, has_alpha, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels,
+			0, 3, decode_flags);
+		if (!status)
+		{
+			BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_image: transcode_slice() to EAC RG11 failed\n");
+		}
+		break;
+	}
+	case transcoder_texture_format::cTFRGBA32:
+	{
+		status = transcode_slice(src_format, use_astc_srgb_decode_profile, pOutput_blocks, src_num_blocks_x, src_num_blocks_y, pCompressed_data + slice_offset, slice_length, block_format::cRGBA32,
+			bytes_per_block_or_pixel, false, has_alpha, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels, -1, -1, decode_flags);
+		if (!status)
+		{
+			BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_image: transcode_slice() to RGBA32 failed\n");
+		}
+		break;
+	}
+	case transcoder_texture_format::cTFRGB565:
+	{
+		status = transcode_slice(src_format, use_astc_srgb_decode_profile, pOutput_blocks, src_num_blocks_x, src_num_blocks_y, pCompressed_data + slice_offset, slice_length, block_format::cRGB565,
+			bytes_per_block_or_pixel, false, has_alpha, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels, -1, -1, decode_flags);
+		if (!status)
+		{
+			BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_image: transcode_slice() to RGB565 failed\n");
+		}
+		break;
+	}
+	case transcoder_texture_format::cTFBGR565:
+	{
+		status = transcode_slice(src_format, use_astc_srgb_decode_profile, pOutput_blocks, src_num_blocks_x, src_num_blocks_y, pCompressed_data + slice_offset, slice_length, block_format::cBGR565,
+			bytes_per_block_or_pixel, false, has_alpha, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels, -1, -1, decode_flags);
+		if (!status)
+		{
+			BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_image: transcode_slice() to RGB565 failed\n");
+		}
+		break;
+	}
+	case transcoder_texture_format::cTFRGBA4444:
+	{
+		status = transcode_slice(src_format, use_astc_srgb_decode_profile, pOutput_blocks, src_num_blocks_x, src_num_blocks_y, pCompressed_data + slice_offset, slice_length, block_format::cRGBA4444,
+			bytes_per_block_or_pixel, false, has_alpha, orig_width, orig_height, output_row_pitch_in_blocks_or_pixels, pState, output_rows_in_pixels, -1, -1, decode_flags);
+		if (!status)
+		{
+			BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_image: transcode_slice() to RGBA4444 failed\n");
+		}
+		break;
+	}
+	default:
+	{
+		assert(0);
+		BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_image: Invalid format\n");
+		break;
+	}
+	}
+
+	return status;
+#else
+	assert(0);
+	BASISU_DEVEL_ERROR("basisu_lowlevel_xuastc_ldr_transcoder::transcode_image: XUASTC support disabled\n");
+	return false;
+#endif // BASISD_SUPPORT_XUASTC
+}
+
 } // namespace basist
+
