@@ -1758,7 +1758,7 @@ namespace basist
 					return (int)std::round(d / (float)L);
 				}
 
-				// L = quant step, alpha in [0,1.2] (typical 0.7–0.85)
+				// L = quant step, alpha in [0,1.2] (typical 0.7-0.85)
 				if (L <= 0) 
 					return 0;
 
@@ -2123,7 +2123,7 @@ namespace basist
 		enum { TABLE_BITS = 8 };               // 256..1024 entries typical (8..10)
 		enum { TABLE_SIZE = 1 << TABLE_BITS };
 		enum { MANT_BITS = 23 };
-		enum { FRAC_BITS = MANT_BITS - TABLE_BITS };
+		enum { FRAC_BITS = (int)MANT_BITS - (int)TABLE_BITS };
 		enum { FRAC_MASK = (1u << FRAC_BITS) - 1u };
 
 		extern bool g_initialized;
