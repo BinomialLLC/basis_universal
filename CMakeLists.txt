@@ -24,10 +24,10 @@ endif()
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-option(BASISU_STATIC "static linking" FALSE) # NO-OP. basisu_encoder always built as a static library.
+option(BASISU_STATIC "static linking" TRUE) # NO-OP. basisu_encoder always built as a static library.
 option(BASISU_SAN "sanitize" FALSE)
-option(BASISU_EXAMPLES "Include examples in build" TRUE)
-option(BASISU_TOOL "Include basisu tool in build" TRUE)
+option(BASISU_EXAMPLES "build examples" TRUE)
+option(BASISU_TOOL "build basisu tool" TRUE)
 option(BASISU_WASM_THREADING "Enable WASI threading support" OFF)
 option(BASISU_BUILD_PYTHON "Build native Python module via pybind11" OFF)
 
@@ -91,6 +91,7 @@ if (BASISU_BUILD_WASM)
     set(BASISU_OPENCL OFF CACHE BOOL "" FORCE)
 
     # WASM cannot use dynamic linking
+    # TODO: Fix this untrue statement. basisu_encoder always built as a static library.
     set(BASISU_STATIC OFF CACHE BOOL "" FORCE)
 
     # WASM cannot use sanitizers
@@ -305,7 +306,7 @@ target_compile_definitions(basisu_encoder PRIVATE "BASISD_SUPPORT_KTX2_ZSTD=$<IF
 if (BASISU_OPENCL)
     # basisu uses this to confirm the library has been compiled with OpenCL support hence PUBLIC.
     target_compile_definitions(basisu_encoder PUBLIC BASISU_SUPPORT_OPENCL=1)
-    if (NOT WIN32) # True when the target system is Windows.
+    if (NOT WIN32) # True when the target system is not Windows.
         # For Non-Windows builds, use the system OpenCL headers/libs, if cmake found them.
         target_include_directories(basisu_encoder PRIVATE ${OpenCL_INCLUDE_DIRS})
         target_link_libraries(basisu_encoder PRIVATE ${OpenCL_LIBRARIES})
@@ -337,11 +338,11 @@ if (NOT MSVC AND NOT BASISU_BUILD_WASM)
     endif()
 endif()
 
-macro(set_common_executable_properties target add_lib)
+macro(set_common_executable_properties target link_encoder)
     #if (MSVC)
         target_sources(${target} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/basisu.manifest")
     #endif()
-    if (${add_lib})
+    if (${link_encoder})
         target_link_libraries(${target} PRIVATE basisu_encoder)
     endif()
     if (NOT BASISU_STATIC AND NOT EMSCRIPTEN AND NOT WIN32)
@@ -379,7 +380,7 @@ if (BASISU_EXAMPLES)
 
     add_executable(example_transcoding example_transcoding/example_transcoding.cpp example_transcoding/utils.cpp zstd/zstddeclib.c transcoder/basisu_transcoder.cpp)
     set_common_executable_properties(example_transcoding FALSE)
-    # Need to set these because target is not linked to basisu_encoder.
+    # As target is not linked with basisu_encoder, these values won't be imported.
     target_compile_definitions(example_transcoding PRIVATE "BASISD_SUPPORT_KTX2_ZSTD=$<IF:$<BOOL:${BASISU_ZSTD}>,1,0>")
     target_compile_options(example_transcoding PUBLIC
         "$<$<BOOL:${BASISU_BUILD_WASM}>:-fno-exceptions -fno-rtti>"
@@ -427,8 +428,6 @@ if (BASISU_BUILD_WASM)
         -Wl,--stack-first
         -Wl,-z,stack-size=8388608
     )
-    # Already set and exported from basisu_encoder.
-    #target_compile_options(${BASISU_WASM_OUTPUT_NAME} PRIVATE -fno-exceptions -fno-rtti)
 
     set_target_properties(${BASISU_WASM_OUTPUT_NAME} PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY $<1:${CMAKE_CURRENT_SOURCE_DIR}/python/basisu_py/wasm>
