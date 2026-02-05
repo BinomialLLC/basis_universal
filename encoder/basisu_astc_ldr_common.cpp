@@ -878,7 +878,7 @@ namespace astc_ldr
 	}
 #endif
 
-	// TODO: Try two-step Lanczos iteration/Rayleigh–Ritz approximation in a 2-dimensional Krylov subspace method vs. power method.
+	// TODO: Try two-step Lanczos iteration/Rayleigh-Ritz approximation in a 2-dimensional Krylov subspace method vs. power method.
 	static vec4F calc_pca_4D(uint32_t num_pixels, const vec4F* pPixels, const vec4F& mean_f)
 	{
 		float m00 = 0, m01 = 0, m02 = 0, m03 = 0;

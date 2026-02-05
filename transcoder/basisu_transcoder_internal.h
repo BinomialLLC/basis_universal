@@ -1758,7 +1758,7 @@ namespace basist
 					return (int)std::round(d / (float)L);
 				}
 
-				// L = quant step, alpha in [0,1.2] (typical 0.7–0.85)
+				// L = quant step, alpha in [0,1.2] (typical 0.7-0.85)
 				if (L <= 0) 
 					return 0;
 
