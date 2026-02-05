@@ -34,7 +34,7 @@ option(BASISU_BUILD_PYTHON "Build native Python module via pybind11" OFF)
 # Using a generator expression here prevents multi-config generators (VS, Xcode,
 # Ninja Multi-Config) from appending a per-configuration subdirectory. This is
 # a MUCH simpler alternative to specifying RUNTIME_OUTPUT_DIRECTORY_<config>
-# for each target and each config which was previously done, though only for VS.
+# for each target and each config.
 # NOTE: This means the output will be overwritten by a subsequent build for a
 # different but that is true of the alternative too.
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY $<1:${CMAKE_CURRENT_SOURCE_DIR}/bin>)
