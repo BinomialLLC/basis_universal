@@ -1127,7 +1127,7 @@ namespace astc_ldr
 	{
 		BASISU_NOTE_UNUSED(weight_ise_index);
 
-		assert((ccs_index >= 0) && (ccs_index <= 3));
+		assert(ccs_index <= 3);
 		assert((total_weights <= 32) || (total_weights == 65));
 
 		uint64_t total_err = 0;
@@ -4414,7 +4414,7 @@ namespace astc_ldr
 		const cem_encode_params& enc_params, uint32_t flags)
 	{
 		assert(g_initialized);
-		assert((ccs_index >= 0) && (ccs_index <= 3));
+		assert(ccs_index <= 3);
 		assert((ps.m_num_pixels) && (ps.m_num_pixels <= ASTC_LDR_MAX_BLOCK_PIXELS));
 		assert(pWeights0 && pWeights1);
 
@@ -4830,7 +4830,7 @@ namespace astc_ldr
 		uint32_t endpoint_ise_range, uint32_t weight_ise_range,
 		vec4F& low_endpoint, vec4F& high_endpoint, float* pWeights0, float *pWeights1, uint32_t flags)
 	{
-		assert((ccs_index >= 0) && (ccs_index <= 3));
+		assert(ccs_index <= 3);
 		const uint32_t num_endpoint_levels = astc_helpers::get_ise_levels(endpoint_ise_range);
 
 		// astc_helpers::BISE_64_LEVELS=raw weights ([0,64], NOT [0,63])
