@@ -25,6 +25,13 @@ The C/C++ encoder and transcoder libraries can be compiled to native code or Web
 
 Full Python support for encoding/transcoding is now available, supporting native or WASM modules, but is still in the early stages of development.
 
+License
+-------
+
+The transcoder, core encoder libraries, and most specification documents (unless otherwise explictly indicated) are Copyright © 2016–2026 Binomial LLC. All rights reserved except as granted under the [Apache 2.0 LICENSE](https://github.com/BinomialLLC/basis_universal/blob/master/LICENSE). The transcoder utilizes no 3rd party libraries or dependencies, other than Zstd (which is optional but limits the transcoder to non-Zstd utilizing codecs). Also see our [DEP5 file](https://github.com/BinomialLLC/basis_universal/blob/master/.reuse/dep5) for the complete list of software and their licenses in this repo.
+
+The encoder library is Apache 2.0, but it utilizes some open source 3rd party modules (in 'encoder/3rdparty' and in the 'Zstd' directory) to load [.QOI](https://qoiformat.org/), [.DDS](https://github.com/DeanoC/tiny_dds), [.EXR](https://github.com/syoyo/tinyexr) images, to handle [Zstd](https://github.com/facebook/zstd) compression, and to unpack ASTC texture blocks. See the [LICENSES](https://github.com/BinomialLLC/basis_universal/tree/master/LICENSES) and [.reuse](https://github.com/BinomialLLC/basis_universal/blob/master/.reuse/dep5) folders.
+
 Links
 -----
 
@@ -479,13 +486,6 @@ KTX2 Support Status
 Note as of Jan. 2026 we are working with Khronos on the exact details of how we embed UASTC HDR 6x6 intermediate and XUASTC LDR supercompressed texture data into the KTX2 file format. We expect some KTX2 file format changes to be merged in within a month or so. .basis files shouldn't be impacted.
 
 ----
-
-License
--------
-
-The transcoder, core encoder libraries, and most specification documents (unless otherwise explictly indicated) are Copyright © 2016–2026 Binomial LLC. All rights reserved except as granted under the [Apache 2.0 LICENSE](https://github.com/BinomialLLC/basis_universal/blob/master/LICENSE). The transcoder utilizes no 3rd party libraries or dependencies, other than Zstd (which is optional but limits the transcoder to non-Zstd utilizing codecs). Also see our [DEP5 file](https://github.com/BinomialLLC/basis_universal/blob/master/.reuse/dep5) for the complete list of software and their licenses in this repo.
-
-The encoder library is Apache 2.0, but it utilizes some open source 3rd party modules (in 'encoder/3rdparty' and in the 'Zstd' directory) to load [.QOI](https://qoiformat.org/), [.DDS](https://github.com/DeanoC/tiny_dds), [.EXR](https://github.com/syoyo/tinyexr) images, to handle [Zstd](https://github.com/facebook/zstd) compression, and to unpack ASTC texture blocks. See the [LICENSES](https://github.com/BinomialLLC/basis_universal/tree/master/LICENSES) and [.reuse](https://github.com/BinomialLLC/basis_universal/blob/master/.reuse/dep5) folders.
 
 Repository Licensing with REUSE
 -------------------------------
