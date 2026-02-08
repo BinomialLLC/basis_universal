@@ -502,7 +502,7 @@ External Tool Links
 - [Windows HDR + WCG Image Viewer](https://13thsymphony.github.io/hdrimageviewer/) - A true HDR image viewer for Windows. Also see [the github repo](https://github.com/13thsymphony/HDRImageViewer).
 - [AMD Compressonator](https://gpuopen.com/compressonator/)
 - [PVRTexTool](https://www.imgtec.com/developers/powervr-sdk-tools/pvrtextool/)
-- [Microsoft's DirectXTex](https://github.com/microsoft/DirectXTex)
+- [Microsoft's DirectXTex](https://github.com/microsoft/DirectXTex) - Note: may still have issues loading .DDS files with texture dimensions that aren't divisible by 4 texels.
 - [RenderDoc](https://renderdoc.org/) - Can view .DDS files in BC1-7 formats
 - [Mali Texture Compression Tool](https://community.arm.com/support-forums/f/graphics-gaming-and-vr-forum/52390/announcement-mali-texture-compression-tool-end-of-life) - Now deprecated
 - [ARM's astcenc](https://github.com/ARM-software/astc-encoder)
