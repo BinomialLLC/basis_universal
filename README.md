@@ -493,7 +493,7 @@ Repository Licensing with REUSE
 -------------------------------
 
 The repository has been updated to be compliant with the REUSE license
-checking tool (https://reuse.software/). See the `.reuse` subdirectory.
+checking tool (https://reuse.software/). See the [.reuse](https://github.com/BinomialLLC/basis_universal/tree/master/.reuse) subdirectory.
 
 External Tool Links
 -------------------
