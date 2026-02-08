@@ -161,8 +161,6 @@ chmod +x runwt.sh
 ./runwt.sh tough.ktx2
 ```
 
-The [wasmer](https://wasmer.io/) runtime should work too, but we haven't tested it yet.
-
 ----
 
 Building (Native)
