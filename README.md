@@ -507,7 +507,7 @@ External Tool Links
 - [Mali Texture Compression Tool](https://community.arm.com/support-forums/f/graphics-gaming-and-vr-forum/52390/announcement-mali-texture-compression-tool-end-of-life) - Now deprecated.
 - [ARM's astcenc](https://github.com/ARM-software/astc-encoder) - Can unpack ASTC format LDR/HDR .astc and .ktx files to .png etc. for testing.
 
-For more useful links, papers, and tools/libraries, see the end of the [UASTC HDR texture specification](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-HDR-4x4-Texture-Specification-v1.1#papersfurther-reading).
+For more useful links, papers, and tools/libraries, see the end of the [UASTC HDR 4x4 texture specification](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-HDR-4x4-Texture-Specification-v1.1#papersfurther-reading).
 
 ----
 
