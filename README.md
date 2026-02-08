@@ -39,7 +39,7 @@ Links
 
 - [Wiki/Specifications](https://github.com/BinomialLLC/basis_universal/wiki)
 - [Release Notes](https://github.com/BinomialLLC/basis_universal/wiki/Release-Notes)
-- [Live Compression/Transcoding Testbed](https://subquantumtech.com/xu/ktx2_encode_test/) - A WASM64 compatible browser is recommended (such as Chrome/Edge/Firefox)
+- [Live Compression/Transcoding Testbed](https://subquantumtech.com/xu/ktx2_encode_test/) - A WASM64 compatible browser is recommended (such as Chrome/Edge/Firefox), especially for XUASTC LDR compression, but it works under plain WASM too (with resolution limits due to less available memory).
 - [Live WebGL Examples](https://subquantumtech.com/xu/)
 - [JavaScript API/WASM/WebGL info](https://github.com/BinomialLLC/basis_universal/tree/master/webgl)
 - [XUASTC LDR Specification](https://github.com/BinomialLLC/basis_universal/wiki/XUASTC-LDR-Specification-v1.0)
