@@ -505,7 +505,7 @@ External Tool Links
 - [Microsoft's DirectXTex](https://github.com/microsoft/DirectXTex) - Note: may still have issues loading .DDS files with texture dimensions that aren't divisible by 4 texels.
 - [RenderDoc](https://renderdoc.org/) - Can view .DDS files in BC1-7 formats
 - [Mali Texture Compression Tool](https://community.arm.com/support-forums/f/graphics-gaming-and-vr-forum/52390/announcement-mali-texture-compression-tool-end-of-life) - Now deprecated
-- [ARM's astcenc](https://github.com/ARM-software/astc-encoder)
+- [ARM's astcenc](https://github.com/ARM-software/astc-encoder) - Can unpack our output .astc and .ktx files to .png for testing
 
 For more useful links, papers, and tools/libraries, see the end of the [UASTC HDR texture specification](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-HDR-Texture-Specification-v1.0).
 
