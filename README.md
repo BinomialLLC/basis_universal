@@ -32,7 +32,7 @@ The reference encoder library, transcoder, and most specification documents in t
 
 See our [DEP5 file](https://github.com/BinomialLLC/basis_universal/blob/master/.reuse/dep5) for the complete list of software and their licenses in this repo. The encoder library is Apache 2.0, but it utilizes some open source 3rd party modules (in 'encoder/3rdparty' and in the 'Zstd' directory) to load [.QOI](https://qoiformat.org/), [.DDS](https://github.com/DeanoC/tiny_dds), [.EXR](https://github.com/syoyo/tinyexr) images, to handle [Zstd](https://github.com/facebook/zstd) compression, and to unpack ASTC texture blocks. See the [LICENSES](https://github.com/BinomialLLC/basis_universal/tree/master/LICENSES) folder.
 
-Also see our Apache 2.0 [NOTICE file](https://github.com/BinomialLLC/basis_universal/wiki/NOTICE). **If you modify the Basis Universal source code, specifications, or wiki documents and redistribute the files, you must cause any modified files to carry prominent notices stating that you changed the files (see Apache 2.0 §4(b)).**
+Also see our Apache 2.0 [NOTICE file](https://github.com/BinomialLLC/basis_universal/wiki/NOTICE). **If you modify the Basis Universal reference source code, specifications, or wiki documents and redistribute the files, you must cause any modified files to carry prominent notices stating that you changed the files (see Apache 2.0 §4(b)).**
 
 Links
 -----
