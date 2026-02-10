@@ -9,7 +9,7 @@ the center sample blur across block boundaries of ASTC compressed textures.
 
 The example shader is compatible with mipmapping, bilinear filtering, trilinear filtering etc. The 
 shader smoothly lerps between no filtering and edge filtering, and is mipmap-aware by using the pixel shader derivative instructions. 
-The Python sample shows either a textured quad or a cube, with various controls to move the camera, rotate the cube, toggle the deblocking shader on/off, trilinear off/on, etc.
+The Python sample shows either a textured quad or a cube, with various controls to move the object, rotate the cube, toggle the deblocking shader on/off, trilinear off/on, etc.
 
 It was written to be as simple as possible. It's also possible to add adaptivity 
 to this shader, so it doesn't blindly blur across sharp edges - like we do while 
@@ -61,7 +61,7 @@ Many variations and optimizations of this basic idea are possible.
 
 The sample either renders a single textured quad or a cube. Press 'C' to toggle between the quad and the cube. The '1' key toggles shader deblocking (off by default). The '2' key enables edge visualization, which only works when deblocking is enabled. 
 
-Other keys can be used to move around the camera, rotate the cube etc.:
+Other keys can be used to move around the quad, rotate the cube etc.:
 
 ```
 Usage:
