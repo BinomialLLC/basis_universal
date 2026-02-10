@@ -1,8 +1,12 @@
 # Python+GLSL Shader Deblocking Sample
 
-This sample demonstrates how to use a simpler pixel shader to greatly reduce
+This sample demonstrates how to use a simple pixel shader to greatly reduce
 ASTC block artifacts, which can be quite noticeable when the block size goes
-beyond roughly 6x6. The shader determines if it's going to sample near an edge,
+beyond roughly 6x6. The basic idea: instead of always sampling the texture using 
+1 tap, you sample the texture either 1 time or X times (with a simple low pass filter) 
+depending on whether or not the sample location is near a block edge. 
+
+The shader determines if it's going to sample near an edge,
 and if so it samples a small vertical and horizontal region around the center sample
 and applies a small low pass filter. The example shader is compatible with
 mipmapping, bilinear filtering, trilinear filtering etc. 
