@@ -19,7 +19,7 @@ The system supports seven modes (or codecs). In the order they were implemented:
 4. **ASTC HDR 6x6 (with or without RDO)**: Standard ASTC HDR 6x6
 5. **UASTC HDR 6x6 Intermediate ("GPU Photo HDR")**: Supercompressed ASTC HDR 6x6
 6. **ASTC LDR 4x4-12x12 (all 14 standard ASTC block sizes, with or without basic windowed RDO)**: Standard ASTC LDR 4x4-12x12
-7. **XUASTC LDR 4x4-12x12 (all 14 standard ASTC block sizes, "GPU Photo LDR/SDR")**: Latent-space supercompressed ASTC LDR with Weight Grid DCT ([Discrete Cosine Transform](https://grokipedia.com/page/Discrete_cosine_transform)) for very high quality, extreme bitrate scalability, optional adaptive deblocking, three entropy coding profiles (Zstd, arithmetic or hybrid). See [JPEG for ASTC](https://github.com/BinomialLLC/basis_universal/wiki/JPEG-for-ASTC), and the [ASTC and XUASTC LDR Usage Guide](https://github.com/BinomialLLC/basis_universal/wiki/ASTC-and-XUASTC-LDR-Usage-Guide).
+7. **XUASTC LDR 4x4-12x12 (all 14 standard ASTC block sizes, "GPU Photo LDR/SDR")**: Latent-space supercompressed ASTC LDR with Weight Grid DCT ([Discrete Cosine Transform](https://grokipedia.com/page/Discrete_cosine_transform)) for very high quality, extreme bitrate scalability, optional adaptive deblocking (CPU or using a simple GPU pixel shader), three entropy coding profiles (Zstd, arithmetic or hybrid). See [JPEG for ASTC](https://github.com/BinomialLLC/basis_universal/wiki/JPEG-for-ASTC), and the [ASTC and XUASTC LDR Usage Guide](https://github.com/BinomialLLC/basis_universal/wiki/ASTC-and-XUASTC-LDR-Usage-Guide).
 
 The C/C++ encoder and transcoder libraries can be compiled to native code or WebAssembly (web or WASI), and all encoder/transcoder features can be accessed from JavaScript via a C++ wrapper library which optionally supports [WASM multithreading](https://web.dev/articles/webassembly-threads) for fast encoding in the browser. [WASM WASI](https://wasi.dev/) builds, for the command line tool and the encoder/transcoder as a WASI module using a pure C API, are also supported. 
 
@@ -379,6 +379,13 @@ Use the `-no_ktx` and `-etc1_only`/`-format_only` options to unpack to less file
 `-info` and `-validate` will just display file information and not output any files. 
 
 The written mipmapped, cubemap, or texture array .KTX/.DDS files will be in a wide variety of compressed GPU texture formats (PVRTC1 4bpp, ETC1-2, BC1-5, BC7, etc.), and to our knowledge there is unfortunately (as of 2024) still no single .KTX or .DDS viewer tool that correctly and reliably supports every GPU texture format that we support. BC1-5 and BC7 files are viewable using AMD's Compressonator, ETC1/2 using Mali's Texture Compression Tool, and PVRTC1 using Imagination Tech's PVRTexTool. [RenderDoc](https://renderdoc.org/) has a useful texture file viewer for many formats. The macOS Finder supports previewing .EXR and .KTX files in various GPU formats. The Windows 11 Explorer can preview .DDS files. The [online OpenHDR Viewer](https://viewer.openhdr.org/) is useful for viewing .EXR/.HDR image files. 
+
+----
+
+Pixel Shader Deblocking Sample
+------------------------------
+
+The [shader_deblocking sample](https://github.com/BinomialLLC/basis_universal/blob/master/shader_deblocking/README.md) in the repo demonstrates how to use a simple pixel shader to deblock sampled textures of any block size between 4x4-12x12, greatly reducing block artifacts. The sample shader is compatible with mipmapping and bilinear or trilinear filtering. Ultimately, shader deblocking enables the usage of larger ASTC block sizes, reducing bitrate and increasing transcoding speeds. Deblocking is a standard feature of modern image and video codecs, and there's no reason why it can't be used while sampling (or transcoding) GPU textures.
 
 ----
 
