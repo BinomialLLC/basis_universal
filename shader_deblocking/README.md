@@ -68,7 +68,7 @@ Many variations and optimizations of this basic idea are possible.
 
 ---
 
-**Block Edge Visualization:**
+**Block Edge Computation Visualization:**
 ![Edge Vis](screenshots/edge_vis.png)
 ![Edge Vis 2](screenshots/edge_vis2.png)
 
