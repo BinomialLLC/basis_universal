@@ -3,13 +3,14 @@
 This sample demonstrates how to use a simple pixel shader to greatly reduce
 ASTC block artifacts, which can be quite noticeable when the block size goes
 beyond roughly 6x6. The basic idea: instead of always sampling the texture using 
-1 tap, you sample the texture either 1 time or X times (with a simple low pass filter) 
-depending on whether or not the sample location is near a block edge. 
+a single tap, you instead sample the texture either one time or X times with a simple low pass filter,
+depending on whether or not the sample location is near a block edge.
 
 The shader determines if it's going to sample near an edge,
 and if so it samples a small vertical and horizontal region around the center sample
 and applies a small low pass filter. The example shader is compatible with
-mipmapping, bilinear filtering, trilinear filtering etc. 
+mipmapping, bilinear filtering, trilinear filtering etc. The shader smoothly lerps between no filtering and 
+edge filtering, and is mipmap-aware by using the pixel shader derivative instructions.
 
 It was written to be as simple as possible. It's also possible to add adaptivity 
 to this shader, so it doesn't blindly blur across sharp edges - like we do while 
