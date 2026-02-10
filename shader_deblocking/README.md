@@ -1,7 +1,7 @@
 # Python+GLSL Shader Deblocking Sample
 
 This sample demonstrates how to use a simple pixel shader to greatly reduce
-ASTC block artifacts, which can be quite noticeable when the block size goes
+ASTC texture block artifacts, which can be quite noticeable when the block size goes
 beyond roughly 6x6. The basic idea: instead of always sampling the texture using 
 a single tap, you instead sample the texture either one time or X times with a simple low pass filter,
 depending on whether or not the sample location is near a block edge. The multiple filter taps around 
@@ -15,6 +15,8 @@ It was written to be as simple as possible. It's also possible to add adaptivity
 to this shader, so it doesn't blindly blur across sharp edges - like we do while 
 CPU deblocking before transcoding to BC7 or other LDR texture formats. It's also possible
 to add deblocking filter awareness to our ASTC/XUASTC/etc. encoders.
+
+Note: We're amazed the GPU hardware vendors haven't implemented this feature directly in silicon yet. It's obviously extremely useful.
 
 You'll need these Python dependencies to run it:
 ```
