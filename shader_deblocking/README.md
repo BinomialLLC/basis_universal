@@ -16,7 +16,7 @@ to this shader, so it doesn't blindly blur across sharp edges - like we do while
 CPU deblocking before transcoding to BC7 or other LDR texture formats. It's also possible
 to add deblocking filter awareness to our ASTC/XUASTC/etc. encoders.
 
-Note: We're amazed the GPU hardware vendors haven't implemented this feature directly in silicon yet. It's obviously extremely useful.
+Note: We're amazed the GPU hardware vendors haven't implemented this feature directly in silicon yet. It's obviously extremely useful, even necessary at the largest ASTC block sizes.
 
 ## Running the Sample
 
