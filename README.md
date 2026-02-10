@@ -192,7 +192,7 @@ To build with SSE 4.1 support on x86/x64 systems (ETC1S encoding is roughly 15-3
 
 After building, the native command line tool used to create, validate, and transcode/unpack .KTX2/.basis files is `bin/basisu`.
 
-*Note we use C++17 for compiling the software. Anything later is too new for us. Compiling the software with a newer C++ version is not officially supported. (Others are doing this successfully, but we don't support it.)*
+*Note we use C++17 for compiling the software. Anything later is too new for us. Compiling the software with a newer C++ version is not supported by us yet.*
 
 Building (WASM WASI)
 --------------------
