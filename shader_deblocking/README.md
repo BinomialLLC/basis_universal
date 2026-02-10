@@ -7,7 +7,7 @@ a single tap, you instead sample the texture either one time or X times with a s
 depending on whether or not the sample location is near a block edge. The multiple filter taps around 
 the center sample blur across block boundaries of ASTC compressed textures. There are actually two independent filters, for horizontal and vertical block boundaries.
 
-The example shader is compatible with mipmapping, bilinear filtering, trilinear filtering etc. The 
+The example shader is compatible with mipmapping, bilinear filtering, trilinear filtering etc. and is temporally stable. The 
 shader smoothly lerps between no filtering and edge filtering, and is mipmap-aware by using the pixel shader derivative instructions. Crucially, the block lattice is evaluated in the *effective mip space*, not in base texture space, which is why it's mipmap-aware. The Python sample shows either a textured quad or a cube, with various controls to move the object, rotate the cube, toggle the deblocking shader on/off, trilinear off/on, etc.
 
 It was written to be as simple as possible. The idea is compatible with other texture formats with noticeable block artifacts, such as BC1 or ETC1, but 4x4 blocks are so tiny it may be a wash.
