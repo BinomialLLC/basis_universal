@@ -20,7 +20,7 @@ Many variations and optimizations of this basic idea are possible.
 
 ---
 
-# Screenshots
+## Screenshots
 
 **Disabled:**
 ![Screenshot 1: Off](screenshots/1_off.png)
@@ -38,7 +38,7 @@ Many variations and optimizations of this basic idea are possible.
 
 ---
 
-# Usage and Controls
+## Usage and Controls
 
 Usage:
     python testbed.py shader.glsl block_w block_h mip0.png mip1.png [mip2.png ...]
@@ -63,7 +63,7 @@ Controls:
 
 ---
 
-# Credits
+## Credits
 
 The included sunflower image is in the CC0/Public Domain, and was downloaded from here:
 
