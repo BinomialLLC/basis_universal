@@ -59,6 +59,14 @@ Many variations and optimizations of this basic idea are possible.
 
 ---
 
+**Disabled:**
+![Screenshot 3: Off](screenshots/3_off.png)
+
+**Enabled:**
+![Screenshot 3: On](screenshots/3_on.png)
+
+---
+
 ## Usage and Controls
 
 The sample either renders a single textured quad or a cube. Press 'C' to toggle between the quad and the cube. The '1' key toggles shader deblocking (off by default). The '2' key enables edge visualization, which only works when deblocking is enabled. 
