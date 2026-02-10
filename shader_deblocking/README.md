@@ -5,7 +5,7 @@ ASTC texture block artifacts, which can be quite noticeable when the block size 
 beyond roughly 6x6. The basic idea: instead of always sampling the texture using 
 a single tap, you instead sample the texture either one time or X times with a simple low pass filter,
 depending on whether or not the sample location is near a block edge. The multiple filter taps around 
-the center sample blur across block boundaries of ASTC compressed textures.
+the center sample blur across block boundaries of ASTC compressed textures. There are actually two independent filters, for horizontal and vertical block boundaries.
 
 The example shader is compatible with mipmapping, bilinear filtering, trilinear filtering etc. The 
 shader smoothly lerps between no filtering and edge filtering, and is mipmap-aware by using the pixel shader derivative instructions. Crucially, the block lattice is evaluated in the *effective mip space*, not in base texture space, which is why it's mipmap-aware. The Python sample shows either a textured quad or a cube, with various controls to move the object, rotate the cube, toggle the deblocking shader on/off, trilinear off/on, etc.
