@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Mipmap Deblocking Shader Testbed 
+Mipmap Compatible Texture Sampling Deblocking Shader Testbed 
 Copyright (C) 2026 Binomial LLC. 
 LICENSE: Apache 2.0
 
