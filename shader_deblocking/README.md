@@ -8,8 +8,7 @@ depending on whether or not the sample location is near a block edge. The multip
 the center sample blur across block boundaries of ASTC compressed textures.
 
 The example shader is compatible with mipmapping, bilinear filtering, trilinear filtering etc. The 
-shader smoothly lerps between no filtering and edge filtering, and is mipmap-aware by using the pixel shader derivative instructions. 
-The Python sample shows either a textured quad or a cube, with various controls to move the object, rotate the cube, toggle the deblocking shader on/off, trilinear off/on, etc.
+shader smoothly lerps between no filtering and edge filtering, and is mipmap-aware by using the pixel shader derivative instructions. Crucially, the block lattice is evaluated in the *effective mip space*, not in base texture space, which is why it's mipmap-aware. The Python sample shows either a textured quad or a cube, with various controls to move the object, rotate the cube, toggle the deblocking shader on/off, trilinear off/on, etc.
 
 It was written to be as simple as possible. It's also possible to add adaptivity 
 to this shader, so it doesn't blindly blur across sharp edges - like we do while 
