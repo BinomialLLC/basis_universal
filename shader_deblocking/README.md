@@ -1,4 +1,4 @@
-Python+GLSL Shader Deblocking Sample
+# Python+GLSL Shader Deblocking Sample
 
 This sample demonstrates how to use a simpler pixel shader to greatly reduce
 ASTC block artifacts, which can be quite noticeable when the block size goes
@@ -38,6 +38,8 @@ Many variations and optimizations of this basic idea are possible.
 
 ---
 
+# Usage and Controls
+
 Usage:
     python testbed.py shader.glsl block_w block_h mip0.png mip1.png [mip2.png ...]
     block_w, block_h: Block size in texels (e.g. 8 8 for 8x8 DCT blocks)
@@ -61,8 +63,11 @@ Controls:
 
 ---
 
+# Credits
+
 The included sunflower image is in the CC0/Public Domain, and was downloaded from here:
 
 https://www.publicdomainpictures.net/en/view-image.php?image=756601&picture=large-yellow-sunflower
+
 "License: CC0 Public Domain - Lynn Greyling has released this “Large Yellow Sunflower” image under Public Domain license."
 
