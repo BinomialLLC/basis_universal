@@ -51,6 +51,10 @@ Many variations and optimizations of this basic idea are possible.
 
 ## Usage and Controls
 
+The sample either renders a single textured quad or a cube. Press 'C' to toggle between the quad and the cube. The '1' key toggles shader deblocking (off by default). The '2' key enables edge visualization, which only works when deblocking is enabled. 
+
+Other keys can be used to move around the camera, rotate the cube etc.:
+
 ```
 Usage:
     python testbed.py shader.glsl block_w block_h mip0.png mip1.png [mip2.png ...]
