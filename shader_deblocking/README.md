@@ -68,6 +68,13 @@ Many variations and optimizations of this basic idea are possible.
 
 ---
 
+**Edge Visualization:**
+![Edge Vis](screenshots/edge_vis.png)
+
+This screenshot shows how the pixel shader computes texture block boundaries in effective mipmap space. To see this visualization, press '1' to enable deblocking, then '2' to enable block edge visualization.
+
+---
+
 ## Usage and Controls
 
 The sample either renders a single textured quad or a cube. Press 'C' to toggle between the quad and the cube. The '1' key toggles shader deblocking (off by default). The '2' key enables edge visualization, which only works when deblocking is enabled. 
