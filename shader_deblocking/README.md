@@ -3,7 +3,7 @@
 This sample demonstrates how to use a simpler pixel shader to greatly reduce
 ASTC block artifacts, which can be quite noticeable when the block size goes
 beyond roughly 6x6. The shader determines if it's going to sample near an edge,
-and if so it samples a small vertical and horizontal region around the texel
+and if so it samples a small vertical and horizontal region around the center sample
 and applies a small low pass filter. The example shader is compatible with
 mipmapping, bilinear filtering, trilinear filtering etc. It was written to
 be as simple as possible.
