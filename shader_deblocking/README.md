@@ -5,14 +5,19 @@ ASTC block artifacts, which can be quite noticeable when the block size goes
 beyond roughly 6x6. The shader determines if it's going to sample near an edge,
 and if so it samples a small vertical and horizontal region around the texel
 and applies a small low pass filter. The example shader is compatible with
-mipmapping, bilinear filtering, trilinear filtering etc.
+mipmapping, bilinear filtering, trilinear filtering etc. It was written to
+be as simple as possible.
 
 You'll need these Python dependencies to run it:
->pip install numpy Pillow glfw PyOpenGL
+```
+pip install numpy Pillow glfw PyOpenGL
+```
 
 See `run.bat` for the command line on how to run the sample. Or run:
 
->py -3.12 testbed.py shader.glsl 12 12 flower_unpacked_rgb_ASTC_LDR_12X12_RGBA_level_0_face_0_layer_0000.png flower_unpacked_rgb_ASTC_LDR_12X12_RGBA_level_1_face_0_layer_0000.png flower_unpacked_rgb_ASTC_LDR_12X12_RGBA_level_2_face_0_layer_0000.png flower_unpacked_rgb_ASTC_LDR_12X12_RGBA_level_3_face_0_layer_0000.png flower_unpacked_rgb_ASTC_LDR_12X12_RGBA_level_4_face_0_layer_0000.png
+```
+py -3.12 testbed.py shader.glsl 12 12 flower_unpacked_rgb_ASTC_LDR_12X12_RGBA_level_0_face_0_layer_0000.png flower_unpacked_rgb_ASTC_LDR_12X12_RGBA_level_1_face_0_layer_0000.png flower_unpacked_rgb_ASTC_LDR_12X12_RGBA_level_2_face_0_layer_0000.png flower_unpacked_rgb_ASTC_LDR_12X12_RGBA_level_3_face_0_layer_0000.png flower_unpacked_rgb_ASTC_LDR_12X12_RGBA_level_4_face_0_layer_0000.png
+```
 
 The shader can be easily simplified to sample the texture less by using less taps. The current shader uses a total of 9 taps, but 5 are possible.
 
