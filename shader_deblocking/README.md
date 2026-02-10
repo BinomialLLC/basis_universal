@@ -1,23 +1,39 @@
 # Python+GLSL Shader Deblocking Sample
 
-This sample demonstrates how to use a simpler pixel shader to greatly reduce
-ASTC block artifacts, which can be quite noticeable when the block size goes
-beyond roughly 6x6. The shader determines if it's going to sample near an edge,
-and if so it samples a small vertical and horizontal region around the texel
-and applies a small low pass filter. The example shader is compatible with
-mipmapping, bilinear filtering, trilinear filtering etc. It was written to
-be as simple as possible.
+This sample demonstrates how to use a simple pixel shader to greatly reduce
+ASTC texture block artifacts, which can be quite noticeable when the block size goes
+beyond roughly 6x6. The basic idea: instead of always sampling the texture using 
+a single tap, you instead sample the texture either one time or X times with a simple low pass filter,
+depending on whether or not the sample location is near a block edge. The multiple filter taps around 
+the center sample blur across block boundaries of ASTC compressed textures.
+
+The example shader is compatible with mipmapping, bilinear filtering, trilinear filtering etc. The 
+shader smoothly lerps between no filtering and edge filtering, and is mipmap-aware by using the pixel shader derivative instructions. 
+The Python sample shows either a textured quad or a cube, with various controls to move the object, rotate the cube, toggle the deblocking shader on/off, trilinear off/on, etc.
+
+It was written to be as simple as possible. It's also possible to add adaptivity 
+to this shader, so it doesn't blindly blur across sharp edges - like we do while 
+CPU deblocking before transcoding to BC7 or other LDR texture formats. It's also possible
+to add deblocking filter awareness to our ASTC/XUASTC/etc. encoders.
+
+Note: We're amazed the GPU hardware vendors haven't implemented this feature directly in silicon yet. It's obviously extremely useful, even necessary at the largest ASTC block sizes.
+
+## Running the Sample
 
 You'll need these Python dependencies to run it:
 ```
 pip install numpy Pillow glfw PyOpenGL
 ```
 
+You may also want "PyOpenGL_accelerate", and under Linux you may need to also install the system package "libglfw3". We developed this sample under Windows 11.
+
 See `run.bat` for the command line on how to run the sample. Or run:
 
 ```
 py -3.12 testbed.py shader.glsl 12 12 flower_unpacked_rgb_ASTC_LDR_12X12_RGBA_level_0_face_0_layer_0000.png flower_unpacked_rgb_ASTC_LDR_12X12_RGBA_level_1_face_0_layer_0000.png flower_unpacked_rgb_ASTC_LDR_12X12_RGBA_level_2_face_0_layer_0000.png flower_unpacked_rgb_ASTC_LDR_12X12_RGBA_level_3_face_0_layer_0000.png flower_unpacked_rgb_ASTC_LDR_12X12_RGBA_level_4_face_0_layer_0000.png
 ```
+
+Depending on your setup you may need to use 'python' or 'python3' etc.
 
 The shader can be easily simplified to sample the texture less by using less taps. The current shader uses a total of 9 taps, but 5 are possible.
 
@@ -45,6 +61,11 @@ Many variations and optimizations of this basic idea are possible.
 
 ## Usage and Controls
 
+The sample either renders a single textured quad or a cube. Press 'C' to toggle between the quad and the cube. The '1' key toggles shader deblocking (off by default). The '2' key enables edge visualization, which only works when deblocking is enabled. 
+
+Other keys can be used to move around the quad, rotate the cube etc.:
+
+```
 Usage:
     python testbed.py shader.glsl block_w block_h mip0.png mip1.png [mip2.png ...]
     block_w, block_h: Block size in texels (e.g. 8 8 for 8x8 DCT blocks)
@@ -65,6 +86,7 @@ Controls:
     5-8         Toggle shader const1.x/y/z/w (0 <-> 1)
     Space       Reset to initial state
     Esc         Quit
+```
 
 ---
 
