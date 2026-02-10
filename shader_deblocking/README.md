@@ -25,7 +25,7 @@ Many variations and optimizations of this basic idea are possible.
 
 ---
 
-## Screenshots
+## Screenshots - ASTC 12x12 Block Size
 
 **Disabled:**
 ![Screenshot 1: Off](screenshots/1_off.png)
