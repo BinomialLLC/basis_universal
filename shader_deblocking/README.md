@@ -10,8 +10,9 @@ the center sample blur across block boundaries of ASTC compressed textures.
 The example shader is compatible with mipmapping, bilinear filtering, trilinear filtering etc. The 
 shader smoothly lerps between no filtering and edge filtering, and is mipmap-aware by using the pixel shader derivative instructions. Crucially, the block lattice is evaluated in the *effective mip space*, not in base texture space, which is why it's mipmap-aware. The Python sample shows either a textured quad or a cube, with various controls to move the object, rotate the cube, toggle the deblocking shader on/off, trilinear off/on, etc.
 
-It was written to be as simple as possible. It's also possible to add adaptivity 
-to this shader, so it doesn't blindly blur across sharp edges - like we do while 
+It was written to be as simple as possible. The idea is compatible with other texture formats with noticeable block artifacts, such as BC1 or ETC1, but 4x4 blocks are so tiny it may be a wash.
+
+It's also possible to add adaptivity to this shader, so it doesn't blindly blur across sharp edges - like we do while 
 CPU deblocking before transcoding to BC7 or other LDR texture formats. It's also possible
 to add deblocking filter awareness to our ASTC/XUASTC/etc. encoders.
 
