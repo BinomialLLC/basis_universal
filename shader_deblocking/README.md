@@ -18,6 +18,14 @@ The shader can be easily simplified to sample the texture less by using less tap
 
 Many variations and optimizations of this basic idea are possible.
 
+---
+Enabled:
+
+![Screenshot 1: Off](screenshots/1_off.png)
+![Screenshot 1: On](screenshots/1_on.png)
+
+---
+
 Usage:
     python testbed.py shader.glsl block_w block_h mip0.png mip1.png [mip2.png ...]
     block_w, block_h: Block size in texels (e.g. 8 8 for 8x8 DCT blocks)
@@ -44,5 +52,5 @@ Controls:
 The included sunflower image is in the CC0/Public Domain, and was downloaded from here:
 
 https://www.publicdomainpictures.net/en/view-image.php?image=756601&picture=large-yellow-sunflower
-"License: CC0 Public Domain - Lynn Greyling has released this ìLarge Yellow Sunflowerî image under Public Domain license."
+"License: CC0 Public Domain - Lynn Greyling has released this ‚ÄúLarge Yellow Sunflower‚Äù image under Public Domain license."
 
