@@ -5,8 +5,12 @@ ASTC block artifacts, which can be quite noticeable when the block size goes
 beyond roughly 6x6. The shader determines if it's going to sample near an edge,
 and if so it samples a small vertical and horizontal region around the center sample
 and applies a small low pass filter. The example shader is compatible with
-mipmapping, bilinear filtering, trilinear filtering etc. It was written to
-be as simple as possible.
+mipmapping, bilinear filtering, trilinear filtering etc. 
+
+It was written to be as simple as possible. It's also possible to add adaptivity 
+to this shader, so it doesn't blindly blur across sharp edges - like we do while 
+CPU deblocking before transcoding to BC7 or other LDR texture formats. It's also possible
+to add deblocking filter awareness to our ASTC/XUASTC/etc. encoders.
 
 You'll need these Python dependencies to run it:
 ```
