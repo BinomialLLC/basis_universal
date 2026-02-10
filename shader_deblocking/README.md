@@ -51,6 +51,7 @@ Many variations and optimizations of this basic idea are possible.
 
 ## Usage and Controls
 
+```
 Usage:
     python testbed.py shader.glsl block_w block_h mip0.png mip1.png [mip2.png ...]
     block_w, block_h: Block size in texels (e.g. 8 8 for 8x8 DCT blocks)
@@ -71,6 +72,7 @@ Controls:
     5-8         Toggle shader const1.x/y/z/w (0 <-> 1)
     Space       Reset to initial state
     Esc         Quit
+```
 
 ---
 
