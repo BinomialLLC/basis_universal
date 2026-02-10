@@ -19,10 +19,22 @@ The shader can be easily simplified to sample the texture less by using less tap
 Many variations and optimizations of this basic idea are possible.
 
 ---
-Enabled:
 
+# Screenshots
+
+**Disabled:**
 ![Screenshot 1: Off](screenshots/1_off.png)
+
+**Enabled:**
 ![Screenshot 1: On](screenshots/1_on.png)
+
+---
+
+**Disabled:**
+![Screenshot 2: Off](screenshots/2_off.png)
+
+**Enabled:**
+![Screenshot 2: On](screenshots/2_on.png)
 
 ---
 
