@@ -18,6 +18,8 @@ to add deblocking filter awareness to our ASTC/XUASTC/etc. encoders.
 
 Note: We're amazed the GPU hardware vendors haven't implemented this feature directly in silicon yet. It's obviously extremely useful.
 
+## Running the Sample
+
 You'll need these Python dependencies to run it:
 ```
 pip install numpy Pillow glfw PyOpenGL
