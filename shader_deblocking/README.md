@@ -23,6 +23,8 @@ You'll need these Python dependencies to run it:
 pip install numpy Pillow glfw PyOpenGL
 ```
 
+You may also want "PyOpenGL_accelerate", and under Linux you may need to also install the system package "libglfw3". We developed this sample under Windows 11.
+
 See `run.bat` for the command line on how to run the sample. Or run:
 
 ```
