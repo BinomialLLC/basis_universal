@@ -387,6 +387,8 @@ Pixel Shader Deblocking Sample
 
 The [shader_deblocking sample](https://github.com/BinomialLLC/basis_universal/blob/master/shader_deblocking/README.md) in the repo demonstrates how to use a simple pixel shader to deblock sampled textures of any block size between 4x4-12x12, greatly reducing block artifacts. The sample shader is compatible with mipmapping and bilinear or trilinear filtering. Ultimately, shader deblocking enables the usage of larger ASTC block sizes, reducing bitrate and increasing transcoding speeds. Deblocking is a standard feature of modern image and video codecs, and there's no reason why it can't be used while sampling (or transcoding) GPU textures.
 
+XUASTC LDR's transcoder supports adaptive deblocking when transcoding to other (non-ASTC) formats like BC7, and GPU shader deblocking can be used for ASTC, resulting in a complete deblocking system for ASTC.
+
 ----
 
 Python Support
