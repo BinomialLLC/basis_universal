@@ -16,6 +16,8 @@ It's also possible to add adaptivity to this shader, so it doesn't blindly blur 
 CPU deblocking before transcoding to BC7 or other LDR texture formats. It's also possible
 to add deblocking filter awareness to our ASTC/XUASTC/etc. encoders.
 
+Note the shader computes the mipmap LOD index assuming an entire mip chain is present (i.e. down to 1x1 texels). If the mipmap chain is incomplete, the developer should clamp the maximum mipmap LOD in the shader.
+
 Note: We're amazed the GPU hardware vendors haven't implemented this feature directly in silicon yet. It's extremely useful, even necessary at the largest ASTC block sizes.
 This is a form of "GPU texture compression-aware shading" or "GPU format-informed reconstruction".
 
