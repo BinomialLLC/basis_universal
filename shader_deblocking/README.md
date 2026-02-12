@@ -40,7 +40,7 @@ Depending on your setup you may need to use 'python' or 'python3' etc.
 
 The shader can be easily simplified to sample the texture less by using less taps. The current shader uses a total of 9 taps, but 5 are possible.
 
-Many variations and optimizations of this basic idea are possible.
+Many variations and optimizations of this basic idea are possible. *Now shader engineers can directly impact memory consumption.* The better your deblocking shaders are tuned or your specific content, the bigger the ASTC block size you can ship. ASTC texture deblocking pixel shader engineering is now a memory optimization skill. 
 
 ---
 
