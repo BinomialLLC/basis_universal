@@ -76,7 +76,7 @@ Many variations and optimizations of this basic idea are possible. *Now shader e
 
 These screenshots show how the pixel shader computes texture block boundaries in effective mipmap space. To see this visualization, press '1' to enable deblocking, then '2' to enable block edge visualization. Only white areas in this visualization are modified by this shader, leaving the inner block texels unmodified.
 
-Obviously, it's crucial that the block size passed into the shader via constants exactly matches the ASTC texture's block size, or the filtering applied won't align with the actual ASTC block artifacts.
+**Obviously, it's crucial that the block size passed into the shader via constants exactly matches the ASTC texture's block size, or the filtering applied won't align with the actual ASTC block artifacts.**
 
 ---
 
