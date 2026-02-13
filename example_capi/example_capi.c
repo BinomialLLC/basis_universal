@@ -394,7 +394,7 @@ int transcode_ktx2_file(const void* pKTX2_data, size_t ktx2_data_size, const cha
                     uint32_t decode_flags = 0;
 
                     if (!bt_ktx2_transcode_image_level(ktx2_handle, level_index, layer_index, face_index,
-                        transcode_buf_ofs, transcode_buf_size,
+                        transcode_buf_ofs, transcode_buf_size / sizeof(uint32_t), // it wants blocks or pixels, not bytes
                         TF_RGBA32,
                         decode_flags,
                         0, 0, -1, -1, transcode_state_handle))
@@ -429,7 +429,7 @@ int transcode_ktx2_file(const void* pKTX2_data, size_t ktx2_data_size, const cha
                     uint32_t decode_flags = 0;
 
                     if (!bt_ktx2_transcode_image_level(ktx2_handle, level_index, layer_index, face_index,
-                        transcode_buf_ofs, transcode_buf_size,
+						transcode_buf_ofs, transcode_buf_size / 16, // API wants blocks or pixels, not bytes - ASTC is always 16 bytes per block
                         target_transcode_fmt,
                         decode_flags,
                         0, 0, -1, -1, transcode_state_handle))
