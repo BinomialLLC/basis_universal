@@ -328,7 +328,7 @@ class Transcoder:
             ktx2_handle.handle,
             level, layer, face,
             out_ptr,
-            out_size,
+            out_size // 4,
             TranscoderTextureFormat.TF_RGBA32,
             0, 0, 0, -1, -1, 0
         )
@@ -378,7 +378,7 @@ class Transcoder:
             ktx2_handle.handle,
             level, layer, face,
             out_ptr,
-            out_size,
+            out_size // bytes_per_pixel,
             TranscoderTextureFormat.TF_RGBA_HALF,
             0, 0, 0, -1, -1, 0
         )
@@ -446,7 +446,7 @@ class Transcoder:
             ktx2_handle.handle,
             level, layer, face,
             out_ptr,
-            out_size,
+            out_size // self.basis_get_bytes_per_block_or_pixel(tfmt),
             tfmt,
             decode_flags,
             0,
@@ -664,7 +664,7 @@ class Transcoder:
             ktx2_handle.handle,
             level, layer, face,
             out_ptr,
-            out_size,
+            out_size // self.basis_get_bytes_per_block_or_pixel(tfmt),
             tfmt,
             decode_flags,
             0,  # row_pitch_in_blocks_or_pixels
