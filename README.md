@@ -1,5 +1,5 @@
-# basis_universal v2.0: GPU Textures are Infrastructure
-An LDR/HDR portable GPU supercompressed texture transcoding system.
+# basis_universal v2.0
+An LDR/HDR portable GPU supercompressed texture transcoding system. 
 
 [![Build status](https://img.shields.io/appveyor/build/BinomialLLC/basis-universal/master.svg)](https://ci.appveyor.com/project/BinomialLLC/basis-universal)
 
@@ -8,9 +8,11 @@ An LDR/HDR portable GPU supercompressed texture transcoding system.
 Intro
 -----
 
-Basis Universal™ v2.0 is an open source [supercompressed](http://gamma.cs.unc.edu/GST/gst.pdf) LDR/HDR GPU compressed texture interchange system from Binomial LLC that supports two intermediate file formats: the [.KTX2 open standard from the Khronos Group](https://registry.khronos.org/KTX/specs/2.0/ktxspec.v2.html), and our own ".basis" file format. These file formats support rapid transcoding to virtually any compressed [GPU texture format](https://en.wikipedia.org/wiki/Texture_compression) released over the past quarter century.
+Basis Universal™ v2.0 is an open source [supercompressed](http://gamma.cs.unc.edu/GST/gst.pdf) LDR/HDR GPU compressed texture interchange system from Binomial LLC that supports two intermediate file formats: the [.KTX2 open standard from the Khronos Group](https://registry.khronos.org/KTX/specs/2.0/ktxspec.v2.html), and our own ".basis" file format. These file formats support rapid transcoding to virtually any compressed [GPU texture format](https://en.wikipedia.org/wiki/Texture_compression) released over the past quarter century. 
 
-Our overall goal is to simplify the encoding and efficient distribution of *portable* LDR and HDR GPU texture, image, and short [texture video](https://github.com/BinomialLLC/basis_universal/wiki/Encoding-ETC1S-Texture-Video-Tips) content in a way that is compatible with any GPU or rendering/graphics API.
+## GPU Textures are Infrastructure
+
+Our overall goal is to simplify the encoding and efficient distribution of *portable* LDR and HDR GPU texture, image, and short [texture video](https://github.com/BinomialLLC/basis_universal/wiki/Encoding-ETC1S-Texture-Video-Tips) content in a way that is compatible with any GPU or rendering/graphics API. 
 
 The system supports seven modes (or codecs). In the order they were implemented:
 1. **ETC1S**: A supercompressed subset of ETC1 designed for very fast transcoding to other LDR texture formats, low/medium quality but high compression, slightly faster transcoding to other LDR texture formats vs. libjpeg.
