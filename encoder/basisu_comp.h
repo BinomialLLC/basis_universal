@@ -522,7 +522,7 @@ namespace basisu
 		// Ideally call set_format_mode() above instead of directly manipulating the below fields. These individual parameters are for backwards API compatibility. 
 		//   - If m_uastc is false you get ETC1S (the default).
 		//   - If m_uastc is true, and m_hdr is not true, and m_xuastc_or_astc_ldr_basis_tex_format==-1, we generate UASTC 4x4 LDR data (8bpp with or without RDO). 
-		//   - If m_uastc is true, and m_hdr is not true, and m_xuastc_or_astc_ldr_basis_tex_format!=-1, we generate XUASTC 4x4-12x12 or ASTC 4x4-12x12 LDR data.
+		//   - If m_uastc is true, and m_hdr is not true, and m_xuastc_or_astc_ldr_basis_tex_format!=-1, we generate XUASTC 4x4-12x12 or ASTC 4x4-12x12 LDR data, controlled by m_xuastc_or_astc_ldr_basis_tex_format.
 		//   - If m_uastc is true and m_hdr is true, we generate 4x4 or 6x6 HDR data, controlled by m_hdr_mode.
 				
 		// True to generate UASTC .basis/.KTX2 file data, otherwise ETC1S.
