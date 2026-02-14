@@ -5491,9 +5491,7 @@ bool ldr_astc_block_encode_image(
 
 		fmt_debug_printf("Base encoder trial modes: {}, grand total including base+ofs CEM's: {}\n", encoder_trial_modes.size_u32(), total_actual_modes);
 	}
-				
-	uint32_t total_used_bc = 0;
-
+	
 	uint_vec used_rgb_direct_count;
 	used_rgb_direct_count.resize(encoder_trial_modes.size());
 
@@ -7192,6 +7190,8 @@ bool ldr_astc_block_encode_image(
 
 		uint32_t total_blocks_using_subsets = 0;
 
+		uint32_t total_used_bc = 0;
+
 		for (uint32_t by = 0; by < num_blocks_y; by++)
 		{
 			for (uint32_t bx = 0; bx < num_blocks_x; bx++)
@@ -7247,7 +7247,10 @@ bool ldr_astc_block_encode_image(
 					}
 
 					if (used_bc)
+					{
 						cem_used_bc[actual_cem]++;
+						total_used_bc++;
+					}
 
 					if (tm.m_num_parts > 1)
 						cem_used_subsets[actual_cem]++;
