@@ -161,7 +161,7 @@ chmod +x runwt.sh
 ./runwt.sh tough.ktx2
 ```
 
-Unfortunately, 32-bit WASM WASI executables have tradeoffs vs. native executables: Limited memory (serious issue), and slower performance (somewhat mitigatable using WASM threading, which we support). 32-bit WASM WASI memory constraints limit the maximum image/texture size that can be compressed to XUASTC LDR to around 4 megapixels. For web, we can support both WASM and WASM64, which greatly improves the memory situation. As far as we know as of 2/2026, the WASI SDK still [doesn't officially support the wasm64-wasi target](https://github.com/WebAssembly/wasi-sdk/issues/212), but once it does we'll support it.
+Unfortunately, 32-bit WASM WASI executables have tradeoffs vs. native executables: Limited memory, and slower performance (somewhat mitigatable using WASM threading, which we support). 32-bit WASM WASI memory constraints limit the maximum image/texture size that can be compressed to ASTC LDR or XUASTC LDR to around 4 megapixels. (The other codecs have lower memory requirements.) For Web, we support both WASM and WASM64 (with or without threading), which greatly improves the WASM memory situation. As far as we know as of 2/2026, the WASI SDK still [doesn't officially support the wasm64-wasi target](https://github.com/WebAssembly/wasi-sdk/issues/212), but once it does we'll support it.
 
 ----
 
