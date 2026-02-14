@@ -1,5 +1,7 @@
 # Python+GLSL Shader Deblocking Sample
 
+*Block boundaries are predictable.*
+
 This sample demonstrates how to use a simple pixel shader to greatly reduce
 ASTC texture block artifacts, which can be quite noticeable when the block size goes
 beyond roughly 6x6. The basic idea: instead of always sampling the texture using 

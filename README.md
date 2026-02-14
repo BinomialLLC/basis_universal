@@ -1,5 +1,5 @@
 # basis_universal v2.0
-An LDR/HDR portable GPU supercompressed texture transcoding system.
+An LDR/HDR portable GPU supercompressed texture transcoding system. 
 
 [![Build status](https://img.shields.io/appveyor/build/BinomialLLC/basis-universal/master.svg)](https://ci.appveyor.com/project/BinomialLLC/basis-universal)
 
@@ -8,9 +8,11 @@ An LDR/HDR portable GPU supercompressed texture transcoding system.
 Intro
 -----
 
-Basis Universal™ v2.0 is an open source [supercompressed](http://gamma.cs.unc.edu/GST/gst.pdf) LDR/HDR GPU compressed texture interchange system from Binomial LLC that supports two intermediate file formats: the [.KTX2 open standard from the Khronos Group](https://registry.khronos.org/KTX/specs/2.0/ktxspec.v2.html), and our own ".basis" file format. These file formats support rapid transcoding to virtually any compressed [GPU texture format](https://en.wikipedia.org/wiki/Texture_compression) released over the past quarter century.
+Basis Universal™ v2.0 is an open source [supercompressed](http://gamma.cs.unc.edu/GST/gst.pdf) LDR/HDR GPU compressed texture interchange system from Binomial LLC that supports two intermediate file formats: the [.KTX2 open standard from the Khronos Group](https://registry.khronos.org/KTX/specs/2.0/ktxspec.v2.html), and our own ".basis" file format. These file formats support rapid transcoding to virtually any compressed [GPU texture format](https://en.wikipedia.org/wiki/Texture_compression) released over the past quarter century. 
 
-Our overall goal is to simplify the encoding and efficient distribution of *portable* LDR and HDR GPU texture, image, and short [texture video](https://github.com/BinomialLLC/basis_universal/wiki/Encoding-ETC1S-Texture-Video-Tips) content in a way that is compatible with any GPU or rendering/graphics API.
+## GPU Textures are Infrastructure
+
+Our overall goal is to simplify the encoding and efficient distribution of *portable* LDR and HDR GPU texture, image, and short [texture video](https://github.com/BinomialLLC/basis_universal/wiki/Encoding-ETC1S-Texture-Video-Tips) content in a way that is compatible with any GPU or rendering/graphics API. 
 
 The system supports seven modes (or codecs). In the order they were implemented:
 1. **ETC1S**: A supercompressed subset of ETC1 designed for very fast transcoding to other LDR texture formats, low/medium quality but high compression, slightly faster transcoding to other LDR texture formats vs. libjpeg.
@@ -158,6 +160,8 @@ chmod +x runwt.sh
 ./runwt.sh ../test_files/tough.png -xuastc_ldr_6x6 -quality 70 -xuastc_arith
 ./runwt.sh tough.ktx2
 ```
+
+Unfortunately, 32-bit WASM WASI executables have tradeoffs vs. native executables: Limited memory, and slower performance (somewhat mitigatable using WASM threading, which we support). 32-bit WASM WASI memory constraints limit the maximum image/texture size that can be compressed to ASTC LDR or XUASTC LDR to around 4 megapixels. (The other codecs have lower memory requirements.) For Web, we support both WASM and WASM64 (with or without threading), which greatly improves the WASM memory situation. As far as we know as of 2/2026, the WASI SDK still [doesn't officially support the wasm64-wasi target](https://github.com/WebAssembly/wasi-sdk/issues/212), but once it does we'll support it.
 
 ----
 
