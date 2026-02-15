@@ -4912,7 +4912,7 @@ namespace basisu
 		
 		if (comp_params.m_tex_type != basist::basis_texture_type::cBASISTexType2D)
 		{
-			// 2D array, cubemap array, or texture video. Assume any extra images the user has supplied are actually cubemap faces, o4r array layers, or texture video frames.
+			// 2D array, cubemap array, or texture video. Assume any extra images the user has supplied are actually cubemap faces, or array layers, or texture video frames.
 			// We assume the dimensions are correct here and let the compressor validate them.
 			// TODO: This simplified API doesn't allow the user to also specify the mipmap levels here.
 			if (pSource_images)
