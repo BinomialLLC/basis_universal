@@ -268,8 +268,6 @@ More XUASTC LDR specific options (many of these also apply to standard ASTC - se
   - `-stronger_deblocking`: Use stronger deblocking when it's enabled (same performance)
   - `-fast_xuastc_ldr_bc7_transcoding` and `-no_fast_xuastc_ldr_bc7_transcoding`: Controls faster direct XUASTC->BC7 transcoding (defaults to enabled, which is slightly lower quality)
 
-See the [ASTC and XUASTC Usage Guide](https://github.com/BinomialLLC/basis_universal/wiki/ASTC-and-XUASTC-LDR-Usage-Guide) for more information.
-
 - To compress an LDR sRGB image to a standard ASTC LDR 6x6 .KTX2 file, using effort level 4 (valid effort levels 0-10):
 
 `basisu -astc_ldr_6x6 -effort 4 x.png`
