@@ -1,3 +1,6 @@
+# Table of Contents
+- [Tesing and developing locally](#testing-and-developing-locally)
+
 # WebGL Examples
 
 Requires WebAssembly and WebGL support. The WebGL demos are hosted live [here](https://subquantumtech.com/xu/).
@@ -57,7 +60,7 @@ extension that is [currently in development](https://github.com/KhronosGroup/glT
 
 ![Screenshot showing a basis texture rendered as the base color texture for a 3D model in a webpage.](gltf/preview.png)
 
-## Testing locally
+## Testing and developing locally
 
 You can locally host the files under the "webgl" folder. One way is to use [Python to setup a local webserver](https://pythonbasics.org/webserver/) in the 'webgl' directory:
 
