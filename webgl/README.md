@@ -4,15 +4,19 @@ Requires WebAssembly and WebGL support. The WebGL demos are hosted live [here](h
 
 To build the encoder and transcoder WASM libraries using [Emscripten](https://emscripten.org/), see the README.md files in the [webgl/transcoder](https://github.com/BinomialLLC/basis_universal/tree/master/webgl/transcoder) and [webgl/encoder](https://github.com/BinomialLLC/basis_universal/tree/master/webgl/encoder) folders. The JavaScript API wrappers to the C/C++ library are located in [`webgl/transcoder/basis_wrappers.cpp`](https://github.com/BinomialLLC/basis_universal/blob/master/webgl/transcoder/basis_wrappers.cpp).
 
+---
+
 ## KTX2 Compression, Transcoding, Display (ktx2_encode_test)
 
 Live demo: [`ktx2_encode_test/index.html'](https://subquantumtech.com/xu/ktx2_encode_test/)
 
-This demo shows how to use the compressor and transcoder from JavaScript. To use it, select a .PNG file then hit the "Encode!" button. The compressor will dynamically generate a .ktx2 file in memory which will then be immediately transcoded and displayed. Hit the "Download!" button to locally download the generated .ktx2 file.
+This demo shows how to use the compressor and transcoder from JavaScript. To use it, select a .PNG file then hit the "Encode!" button. The compressor will dynamically generate a .ktx2 file in memory which will then be immediately transcoded and rendered as a quad with a WebGL pixel shader used to sample the texture using the GPU. Hit the "Download!" button to locally download the generated .ktx2 file. This sample allows the user to toggle on/off all GPU formats the local device supports and see the results in real-time.
 
 To view the compressor's textual debug output, open your browser's developer debug console (under Developer Tools in Chrome) and enable the Debug checkbox before hitting the "Encode!" button. Multithreading and WASM64 are optionally supported, and a browser supporting both are highly recommended.
 
 ![Screenshot showing the encode_test demo](ktx2_encode_test/preview.png)
+
+---
 
 ## Transcoder (texture_test)
 
