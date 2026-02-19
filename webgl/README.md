@@ -1,6 +1,7 @@
 # Table of Contents
-- [WebGL Examples]()
-- [KTX2 Compression, Transcoding, Display (ktx2_encode_test)](#webgl-examples)
+- [WebGL Examples](#webgl-examples)
+- [KTX2 Compression, Transcoding, Display (ktx2_encode_test)](#ktx2-compression-transcoding-display-ktx2_encode_test)
+- [Texture Video Sample (video-test)](#texture-video-sample-video_test)
 - [Simple Transcoding (texture_test)](#simple-transcoding-texture_test)
 - [glTF 3D Model](#gltf-3d-model)
 - [Tesing and developing locally](#testing-and-developing-locally)
@@ -22,6 +23,14 @@ This demo shows how to use the compressor and transcoder from JavaScript. To use
 To view the compressor's textual debug output, open your browser's developer debug console (under Developer Tools in Chrome) and enable the Debug checkbox before hitting the "Encode!" button. WASM multithreading and WASM64 are optionally supported, and a browser supporting both are recommended.
 
 ![Screenshot showing the encode_test demo](ktx2_encode_test/preview.png)
+
+---
+
+## Texture Video Sample (video_test)
+
+See [this page](https://github.com/BinomialLLC/basis_universal/wiki/Encoding-ETC1S-and-XUASTC-LDR-Texture-Video).
+
+<img width="902" height="419" alt="image" src="https://github.com/user-attachments/assets/e406bc3e-5a4e-4d38-a925-eeb84f52cad8" />
 
 ---
 
