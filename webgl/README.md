@@ -4,6 +4,16 @@ Requires WebAssembly and WebGL support. The WebGL demos are hosted live [here](h
 
 To build the encoder and transcoder WASM libraries using Emscripten, see the various README.md files in the 'webgl/transcoder' and 'webgl/encoder' folders. The Javascript API wrappers to the C/C++ library are located in [`webgl/transcoder/basis_wrappers.cpp`](https://github.com/BinomialLLC/basis_universal/blob/master/webgl/transcoder/basis_wrappers.cpp).
 
+## KTX2 Compression, Transcoding, Display (ktx2_encode_test)
+
+Live demo: [`ktx2_encode_test/index.html'](https://subquantumtech.com/xu/ktx2_encode_test/)
+
+This demo shows how to use the compressor and transcoder from JavaScript. To use it, select a .PNG file then hit the "Encode!" button. The compressor will dynamically generate a .ktx2 file in memory which will then be immediately transcoded and displayed. Hit the "Download!" button to locally download the generated .ktx2 file.
+
+To view the compressor's textual debug output, open your browser's developer debug console (under Developer Tools in Chrome) and enable the Debug checkbox before hitting the "Encode!" button. Multithreading and WASM64 are optionally supported, and a browser supporting both are highly recommended.
+
+![Screenshot showing the encode_test demo](ktx2_encode_test/preview.png)
+
 ## Transcoder (texture_test)
 
 Live demo: [webgl/texture_test/index.html](https://subquantumtech.com/xu/texture_test/)
@@ -20,6 +30,8 @@ Renders a single texture, using the transcoder (compiled to WASM with emscripten
 On browsers that don't support any compressed texture format, there's a low-quality fallback code path for opaque LDR textures, and a HDR half float or LDR 32bpp fallback code path for HDR textures.
 
 ![Screenshot showing a basis texture rendered as a 2D image in a webpage.](texture_test/preview.png)
+
+*Note: This sample doesn't support all ASTC/XUASTC LDR block sizes yet, just 4x4. See the "ktx2_encode_test" or "video_test" samples, which do.*
 
 ## glTF 3D Model
 
@@ -41,16 +53,6 @@ extension that is [currently in development](https://github.com/KhronosGroup/glT
 
 ![Screenshot showing a basis texture rendered as the base color texture for a 3D model in a webpage.](gltf/preview.png)
 
-## Compressor (ktx2_encode_test)
-
-Live demo: [`ktx2_encode_test/index.html'](https://subquantumtech.com/xu/ktx2_encode_test/)
-
-This demo shows how to use the compressor from JavaScript. To use it, select a .PNG file then hit the "Encode!" button. The compressor will dynamically generate a .ktx2 file in memory which will then be immediately transcoded and displayed. Hit the "Download!" button to locally download the generated .ktx2 file.
-
-To view the compressor's textual debug output, open your browser's developer debug console (under Developer Tools in Chrome) and enable the Debug checkbox before hitting the "Encode!" button. Multithreading is not currently supported when the compressor is compiled to WebAssembly, so compression will be slower than using the stand-alone command line tool.
-
-![Screenshot showing the encode_test demo](ktx2_encode_test/preview.png)
-
 ## Testing locally
 
 You can locally host the files under the "webgl" folder. One way is to use [Python to setup a local webserver](https://pythonbasics.org/webserver/) in the 'webgl' directory:
@@ -60,4 +62,4 @@ cd webgl
 python3 -m http.server 8000
 ```
 
-Note: For WASM multithreading to be available and enabled, the server [must be properly configured](https://unlimited3d.wordpress.com/2021/12/21/webassembly-and-multi-threading/). See the `webgl/start_webserver.sh` and `webgl/webserver_cross_origin.py` example scripts.
+**Note: For WASM multithreading to be available and enabled, the server [must be properly configured](https://unlimited3d.wordpress.com/2021/12/21/webassembly-and-multi-threading/). See the `webgl/start_webserver.sh` and `webgl/webserver_cross_origin.py` example scripts.**
