@@ -133,38 +133,6 @@ The system now supports loading basic 2D .DDS files with optional mipmaps, but t
 
 ----
 
-Running the Precompiled WASM WASI Executables
----------------------------------------------
-
-There are precompiled, secure, cross-platform .WASM WASI executables checked into the `bin` directory: `basisu_mt.wasm` (multithreaded) and `basisu_st.wasm` (single threaded). Quick testing - ETC1S/UASTC LDR 4x4 (all platforms) - multithreaded and single threaded, using [wasmtime](https://wasmtime.dev/):
-
-```
-cd bin
-wasmtime run --dir=. --dir=../test_files --wasm threads=yes --wasi threads=yes ./basisu_mt.wasm -test
-wasmtime run --dir=. --dir=../test_files ./basisu_st.wasm -test
-```
-
-See the `runwt.sh`, `runwt.bat`, `runw.sh`, or `runw.bat` scripts for examples on how to run the WASM executables using wasmtime. Windows example for XUASTC LDR 6x6 compression using the arithmetic profile, with Weight Grid DCT level 70:
-
-```
-cd bin
-runwt.bat ../test_files/tough.png -xuastc_ldr_6x6 -quality 70 -xuastc_arith
-runwt.bat tough.ktx2
-```
-
-Linux/macOS:
-
-```
-cd bin
-chmod +x runwt.sh
-./runwt.sh ../test_files/tough.png -xuastc_ldr_6x6 -quality 70 -xuastc_arith
-./runwt.sh tough.ktx2
-```
-
-Unfortunately, 32-bit WASM WASI executables have tradeoffs vs. native executables: Limited memory, and slower performance (somewhat mitigatable using WASM threading, which we support). 32-bit WASM WASI memory constraints limit the maximum image/texture size that can be compressed to ASTC LDR or XUASTC LDR to around 4 megapixels. (The other codecs have lower memory requirements.) For Web, we support both WASM and WASM64 (with or without threading), which greatly improves the WASM memory situation. As far as we know as of 2/2026, the WASI SDK still [doesn't officially support the wasm64-wasi target](https://github.com/WebAssembly/wasi-sdk/issues/212), but once it does we'll support it.
-
-----
-
 Building (Native)
 -----------------
 
@@ -195,6 +163,38 @@ To build with SSE 4.1 support on x86/x64 systems (ETC1S encoding is roughly 15-3
 After building, the native command line tool used to create, validate, and transcode/unpack .KTX2/.basis files is `bin/basisu`.
 
 *Note we use C++17 for compiling the software. Anything later is too new for us. Compiling the software with a newer C++ version is not supported by us yet.*
+
+----
+
+Running the Precompiled WASM WASI Executables
+---------------------------------------------
+
+For smaller images/textures (~4 megatexels or less), there are precompiled, secure, cross-platform 32-bit .WASM WASI executables checked into the `bin` directory: `basisu_mt.wasm` (multithreaded) and `basisu_st.wasm` (single threaded). Quick testing - ETC1S/UASTC LDR 4x4 (all platforms) - multithreaded and single threaded, using [wasmtime](https://wasmtime.dev/):
+
+```
+cd bin
+wasmtime run --dir=. --dir=../test_files --wasm threads=yes --wasi threads=yes ./basisu_mt.wasm -test
+wasmtime run --dir=. --dir=../test_files ./basisu_st.wasm -test
+```
+
+See the `runwt.sh`, `runwt.bat`, `runw.sh`, or `runw.bat` scripts for examples on how to run the WASM executables using wasmtime. Windows example for XUASTC LDR 6x6 compression using the arithmetic profile, with Weight Grid DCT level 70:
+
+```
+cd bin
+runwt.bat ../test_files/tough.png -xuastc_ldr_6x6 -quality 70 -xuastc_arith
+runwt.bat tough.ktx2
+```
+
+Linux/macOS:
+
+```
+cd bin
+chmod +x runwt.sh
+./runwt.sh ../test_files/tough.png -xuastc_ldr_6x6 -quality 70 -xuastc_arith
+./runwt.sh tough.ktx2
+```
+
+Unfortunately, 32-bit WASM WASI executables have tradeoffs vs. native executables: Limited memory, and slower performance (somewhat mitigatable using WASM threading, which we support). **32-bit WASM WASI memory constraints limit the maximum image/texture size that can be compressed to ASTC LDR or XUASTC LDR to around 4 megapixels.** (The other codecs have lower memory requirements.) For Web, we support both WASM and WASM64 (with or without threading), which greatly improves the WASM memory situation. As far as we know as of 2/2026, wasmtime supports WASM64, but the WASI SDK still [doesn't officially support the wasm64-wasi target](https://github.com/WebAssembly/wasi-sdk/issues/212), but once it does we'll support it.
 
 Building (WASM WASI)
 --------------------
