@@ -1,4 +1,8 @@
 # Table of Contents
+- [WebGL Examples]()
+- [KTX2 Compression, Transcoding, Display (ktx2_encode_test)](#ktx2-compression-transcoding-display-ktx2_encode_test)
+- [Simple Transcoding (texture_test)](#simple-transcoding-texture_test)
+- [glTF 3D Model](#gltf-3d-model)
 - [Tesing and developing locally](#testing-and-developing-locally)
 
 # WebGL Examples
@@ -21,7 +25,7 @@ To view the compressor's textual debug output, open your browser's developer deb
 
 ---
 
-## Transcoder (texture_test)
+## Simple Transcoding (texture_test)
 
 Live demo: [webgl/texture_test/index.html](https://subquantumtech.com/xu/texture_test/)
 
