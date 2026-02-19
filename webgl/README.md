@@ -20,6 +20,8 @@ Live demo: [`ktx2_encode_test/index.html'](https://subquantumtech.com/xu/ktx2_en
 
 This demo shows how to use the compressor and transcoder from JavaScript. To use it, select a .PNG file then hit the "Encode!" button. The compressor will dynamically generate a .ktx2 file in memory which will then be immediately transcoded and rendered as a quad with a WebGL pixel shader used to sample the texture using the GPU. Hit the "Download!" button to locally download the generated .ktx2 file. This sample allows the user to toggle on/off all GPU formats the local device supports and see the results in real-time.
 
+This sample's UI exposes a large chunk of the C++ compression and transcoding API to the user.
+
 To view the compressor's textual debug output, open your browser's developer debug console (under Developer Tools in Chrome) and enable the Debug checkbox before hitting the "Encode!" button. WASM multithreading and WASM64 are optionally supported, and a browser supporting both are recommended.
 
 ![Screenshot showing the encode_test demo](ktx2_encode_test/preview.png)
