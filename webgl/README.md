@@ -2,7 +2,7 @@
 
 Requires WebAssembly and WebGL support. The WebGL demos are hosted live [here](https://subquantumtech.com/xu/).
 
-To build the encoder and transcoder WASM libraries using [Emscripten](https://emscripten.org/), see the README.md files in the 'webgl/transcoder' and 'webgl/encoder' folders. The Javascript API wrappers to the C/C++ library are located in [`webgl/transcoder/basis_wrappers.cpp`](https://github.com/BinomialLLC/basis_universal/blob/master/webgl/transcoder/basis_wrappers.cpp).
+To build the encoder and transcoder WASM libraries using [Emscripten](https://emscripten.org/), see the README.md files in the [webgl/transcoder](https://github.com/BinomialLLC/basis_universal/tree/master/webgl/transcoder) and [webgl/encoder](https://github.com/BinomialLLC/basis_universal/tree/master/webgl/encoder) folders. The Javascript API wrappers to the C/C++ library are located in [`webgl/transcoder/basis_wrappers.cpp`](https://github.com/BinomialLLC/basis_universal/blob/master/webgl/transcoder/basis_wrappers.cpp).
 
 ## KTX2 Compression, Transcoding, Display (ktx2_encode_test)
 
