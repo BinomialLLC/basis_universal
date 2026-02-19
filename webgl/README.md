@@ -1,6 +1,6 @@
 # Table of Contents
 - [WebGL Examples]()
-- [KTX2 Compression, Transcoding, Display (ktx2_encode_test)](https://github.com/BinomialLLC/basis_universal/edit/master/webgl/README.md#webgl-examples)
+- [KTX2 Compression, Transcoding, Display (ktx2_encode_test)](#webgl-examples)
 - [Simple Transcoding (texture_test)](#simple-transcoding-texture_test)
 - [glTF 3D Model](#gltf-3d-model)
 - [Tesing and developing locally](#testing-and-developing-locally)
