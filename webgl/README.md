@@ -28,7 +28,7 @@ To view the compressor's textual debug output, open your browser's developer deb
 
 ## Texture Video Sample (video_test)
 
-See [this page](https://github.com/BinomialLLC/basis_universal/wiki/Encoding-ETC1S-and-XUASTC-LDR-Texture-Video).
+See [this wiki page](https://github.com/BinomialLLC/basis_universal/wiki/Encoding-ETC1S-and-XUASTC-LDR-Texture-Video).
 
 <img width="902" height="419" alt="image" src="https://github.com/user-attachments/assets/e406bc3e-5a4e-4d38-a925-eeb84f52cad8" />
 
