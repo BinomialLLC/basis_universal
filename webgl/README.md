@@ -30,7 +30,7 @@ To view the compressor's textual debug output, open your browser's developer deb
 
 See [this wiki page](https://github.com/BinomialLLC/basis_universal/wiki/Encoding-ETC1S-and-XUASTC-LDR-Texture-Video).
 
-<img width="902" height="419" alt="image" src="https://github.com/user-attachments/assets/e406bc3e-5a4e-4d38-a925-eeb84f52cad8" />
+<img width="1185" height="610" alt="image" src="https://github.com/user-attachments/assets/1da64bbe-f74f-4650-8a35-729e2fe74f7c" />
 
 ---
 
