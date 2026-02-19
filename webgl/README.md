@@ -31,7 +31,7 @@ Renders a single texture, using the transcoder (compiled to WASM with emscripten
 * PVRTC 4bpp
 * BC6H, BC7
 
-On browsers that don't support any compressed texture format, there's a low-quality fallback code path for opaque LDR textures, and a HDR half float or LDR 32bpp fallback code path for HDR textures.
+On browsers that don't support any compressed texture formats, there's a low-quality fallback code path for opaque LDR textures, and a HDR half float or LDR 32bpp fallback code path for HDR textures.
 
 ![Screenshot showing a basis texture rendered as a 2D image in a webpage.](texture_test/preview.png)
 
