@@ -292,7 +292,7 @@ Just like XUASTC LDR, all 14 standard ASTC block sizes are supported, from 4x4-1
 
 `basisu x.exr`
 
-- To compress an HDR 6x6 file:
+- To compress a standard ASTC HDR 6x6 file (~3.56 bpp):
 
 ```
 basisu -hdr_6x6 x.exr  
@@ -300,7 +300,7 @@ basisu -hdr_6x6 -lambda 500 x.exr
 basisu -hdr_6x6_level 5 -lambda 500 x.exr
 ```
 
-- To compress an HDR 6x6 file using the compressed intermediate format for smaller files:
+- To compress a UASTC HDR 6x6i file (using the compressed intermediate format) for smaller files (~1.75-3.0 bpp):
 
 ```
 basisu -hdr_6x6i x.exr  
@@ -326,7 +326,7 @@ Note: If you're compressing LDR/SDR image files to an HDR format, the codec's de
 
 - `-linear`: ETC1S defaults to sRGB colorspace metrics, UASTC LDR currently always uses linear metrics, and UASTC HDR defaults to weighted RGB metrics (with 2,3,1 weights). If the input is a normal map, or some other type of non-sRGB (non-photographic) texture content, be sure to use `-linear` to avoid extra unnecessary artifacts. (Angular normal map metrics for UASTC LDR/HDR are definitely doable and on our TODO list.)
 
-- Specifying `-opencl` enables OpenCL mode, which currently only accelerates ETC1S encoding.
+- Specifying `-opencl` enables OpenCL mode, which currently only accelerates ETC1S encoding if it's been enabled at compile time.
 
 - The compressor is multithreaded by default, which can be disabled using the `-no_multithreading` command line option. The transcoder is currently single threaded, although it is thread safe (i.e. it supports decompressing multiple texture slices in parallel).
 
