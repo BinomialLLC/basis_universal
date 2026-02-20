@@ -38,7 +38,9 @@ See `run.bat` for the command line on how to run the sample. Or run:
 python testbed.py shader.glsl 12 12 flower_unpacked_rgb_ASTC_LDR_12X12_RGBA_level_0_face_0_layer_0000.png flower_unpacked_rgb_ASTC_LDR_12X12_RGBA_level_1_face_0_layer_0000.png flower_unpacked_rgb_ASTC_LDR_12X12_RGBA_level_2_face_0_layer_0000.png flower_unpacked_rgb_ASTC_LDR_12X12_RGBA_level_3_face_0_layer_0000.png flower_unpacked_rgb_ASTC_LDR_12X12_RGBA_level_4_face_0_layer_0000.png
 ```
 
-Depending on your setup you may need to use 'python' or 'python3' etc.
+Depending on your setup you may need to use `python3`, or `py -3.12` etc.
+
+Keys: `1` toggles deblocking shader on/off (it defaults to disabled), `2` toggles edges vis (only shows when deblocking is enabled), arrow keys move the object, `W`/`S` keys: forward/backward, `A`/`D`/`Q`/`E`: yaw/pitch, `C`: toggle cube vs. quad. (See the source code remarks for more.)
 
 The shader can be easily simplified to sample the texture less by using less taps. The current shader uses a total of 9 taps, but 5 are possible.
 
