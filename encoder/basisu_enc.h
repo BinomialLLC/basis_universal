@@ -804,31 +804,39 @@ namespace basisu
 		BASISU_NO_EQUALS_OR_COPY_CONSTRUCT(job_pool);
 
 	public:
+		using token = uint32_t;
+
 		// num_threads is the TOTAL number of job pool threads, including the calling thread! So 2=1 new thread, 3=2 new threads, etc.
 		job_pool(uint32_t num_threads);
 		~job_pool();
 				
-		void add_job(const std::function<void()>& job);
-		void add_job(std::function<void()>&& job);
-
-		void wait_for_all();
+		void add_job(std::function<void()> job, token* tok = nullptr);
+		void wait_for_all(token* tok = nullptr);
 
 		size_t get_total_threads() const { return 1 + m_threads.size(); }
 		
 	private:
+		struct item
+		{
+			std::function<void()> fn;
+			token* tok;
+		};
+
 		std::vector<std::thread> m_threads;
-		std::vector<std::function<void()> > m_queue;
+		std::vector<item> m_queue;
 		
 		std::mutex m_mutex;
 		std::condition_variable m_has_work;
-		std::condition_variable m_no_more_jobs;
-		
-		uint32_t m_num_active_jobs;
-		
-		std::atomic<bool> m_kill_flag;
+		std::condition_variable m_job_done;
 
+		uint32_t m_num_pending_jobs;
+
+		std::atomic<bool> m_kill_flag;
 		std::atomic<int> m_num_active_workers;
 
+		bool job_steal(item& job, token* tok, std::unique_lock<std::mutex>& lock);
+		void job_run(item& job, std::unique_lock<std::mutex>& lock);
+		
 		void job_thread(uint32_t index);
 	};
 
@@ -2076,6 +2084,8 @@ namespace basisu
 		basisu::vector<uint_vec> local_clusters[cMaxThreads];
 		basisu::vector<uint_vec> local_parent_clusters[cMaxThreads];
 
+		job_pool::token token{0};
+
 		for (uint32_t thread_iter = 0; thread_iter < max_threads; thread_iter++)
 		{
 			pJob_pool->add_job( [thread_iter, &local_clusters, &local_parent_clusters, &success_flags, &quantizers, &initial_codebook, &q, &limit_clusterizers, &max_codebook_size, &max_threads, &max_parent_codebook_size] {
@@ -2119,11 +2129,11 @@ namespace basisu
 					}
 				}
 
-			} );
+			}, &token);
 
 		} // thread_iter
 
-		pJob_pool->wait_for_all();
+		pJob_pool->wait_for_all(&token);
 
 		uint32_t total_clusters = 0, total_parent_clusters = 0;
 

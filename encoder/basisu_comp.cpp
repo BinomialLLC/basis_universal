@@ -1077,6 +1077,8 @@ namespace basisu
 			const uint32_t num_blocks_y = tex.get_blocks_y();
 			const uint32_t total_blocks = tex.get_total_blocks();
 			const imagef& source_image = m_slice_images_hdr[slice_index];
+
+			job_pool::token token{0};
 						
 			const uint32_t N = 256;
 			for (uint32_t block_index_iter = 0; block_index_iter < total_blocks; block_index_iter += N)
@@ -1226,11 +1228,11 @@ namespace basisu
 								debug_printf("basis_compressor::encode_slices_to_uastc_4x4_hdr: %3.1f%% done\n", percent_done);
 						}
 
-					});
+					}, &token);
 			
 			} // block_index_iter
 
-			m_params.m_pJob_pool->wait_for_all();
+			m_params.m_pJob_pool->wait_for_all(&token);
 
 			if (any_failures)
 				return cECFailedEncodeUASTC;
@@ -1494,6 +1496,8 @@ namespace basisu
 			uint32_t total_blocks_processed = 0;
 			float last_percentage_printed = 0;
 						
+			job_pool::token token{0};
+
 			const uint32_t N = 256;
 			for (uint32_t block_index_iter = 0; block_index_iter < total_blocks; block_index_iter += N)
 			{
@@ -1549,11 +1553,11 @@ namespace basisu
 								debug_printf("basis_compressor::encode_slices_to_uastc_4x4_ldr: %3.1f%% done\n", percent_done);
 						}
 
-					});
+					}, &token);
 
 			} // block_index_iter
 
-			m_params.m_pJob_pool->wait_for_all();
+			m_params.m_pJob_pool->wait_for_all(&token);
 
 			if (m_params.m_rdo_uastc_ldr_4x4)
 			{
@@ -4760,7 +4764,7 @@ namespace basisu
 
 		for (uint32_t pindex = 0; pindex < params_vec.size(); pindex++)
 		{
-			jpool.add_job([pindex, &params_vec, &results_vec, &result, &opencl_failed] {
+			jpool.add_job([pindex, &params_vec, &results_vec, &result, &opencl_failed, &jpool] {
 
 				basis_compressor_params params = params_vec[pindex];
 				parallel_results& results = results_vec[pindex];
@@ -4770,9 +4774,7 @@ namespace basisu
 
 				basis_compressor c;
 				
-				// Dummy job pool
-				job_pool task_jpool(1);
-				params.m_pJob_pool = &task_jpool;
+				params.m_pJob_pool = &jpool;
 				// TODO: Remove this flag entirely
 				params.m_multithreading = true; 
 				
