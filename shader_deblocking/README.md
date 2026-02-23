@@ -32,17 +32,27 @@ pip install numpy Pillow glfw PyOpenGL
 
 You may also want "PyOpenGL_accelerate", and under Linux you may need to also install the system package "libglfw3". We developed this sample under Windows 11.
 
-See `run.bat` for the command line on how to run the sample. Or run:
+Run:
 
 ```
-py -3.12 testbed.py shader.glsl 12 12 flower_unpacked_rgb_ASTC_LDR_12X12_RGBA_level_0_face_0_layer_0000.png flower_unpacked_rgb_ASTC_LDR_12X12_RGBA_level_1_face_0_layer_0000.png flower_unpacked_rgb_ASTC_LDR_12X12_RGBA_level_2_face_0_layer_0000.png flower_unpacked_rgb_ASTC_LDR_12X12_RGBA_level_3_face_0_layer_0000.png flower_unpacked_rgb_ASTC_LDR_12X12_RGBA_level_4_face_0_layer_0000.png
+python testbed.py shader.glsl 12 12 flower_unpacked_rgb_ASTC_LDR_12X12_RGBA_level_0_face_0_layer_0000.png flower_unpacked_rgb_ASTC_LDR_12X12_RGBA_level_1_face_0_layer_0000.png flower_unpacked_rgb_ASTC_LDR_12X12_RGBA_level_2_face_0_layer_0000.png flower_unpacked_rgb_ASTC_LDR_12X12_RGBA_level_3_face_0_layer_0000.png flower_unpacked_rgb_ASTC_LDR_12X12_RGBA_level_4_face_0_layer_0000.png
 ```
 
-Depending on your setup you may need to use 'python' or 'python3' etc.
+Depending on your setup you may need to use `python3`, or `py -3.12` etc.
+
+Keys: `1` toggles deblocking shader on/off (it defaults to disabled), `2` toggles edges vis (only shows when deblocking is enabled), arrow keys move the object, `W`/`S` keys: forward/backward, `A`/`D`/`Q`/`E`: yaw/pitch, `C`: toggle cube vs. quad. (See the source code remarks for more.)
 
 The shader can be easily simplified to sample the texture less by using less taps. The current shader uses a total of 9 taps, but 5 are possible.
 
 Many variations and optimizations of this basic idea are possible. *Now shader engineers can directly impact memory consumption.* The better your deblocking shaders are tuned or your specific content, the bigger the ASTC block size you can ship. ASTC texture deblocking pixel shader engineering is now a memory optimization skill. 
+
+---
+
+## Performance
+
+The deblocking shader itself can be put inside a dynamic `if` conditional, so the extra ALU/texture ops only kick in near block edges (which are the minority of samples at ASTC 12x12). The extra sample taps are spatially always near the center sample, so they'll hit the texture cache most of the time. In texture bandwidth bound rendering scenarios (quite common on mobile platforms), the extra ALU ops for deblocking likely come for "free".
+
+*Another perspective: The alternative to not deblocking is ~2x-8x more GPU memory bandwidth (and increased download size) to use smaller ASTC block sizes which have less noticeable block artifacts.*
 
 ---
 

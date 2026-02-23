@@ -380,14 +380,14 @@ Use the `-no_ktx` and `-etc1_only`/`-format_only` options to unpack to less file
 
 `-info` and `-validate` will just display file information and not output any files. 
 
-The written mipmapped, cubemap, or texture array .KTX/.DDS files will be in a wide variety of compressed GPU texture formats (PVRTC1 4bpp, ETC1-2, BC1-5, BC7, etc.), and to our knowledge there is unfortunately (as of 2024) still no single .KTX or .DDS viewer tool that correctly and reliably supports every GPU texture format that we support. BC1-5 and BC7 files are viewable using AMD's Compressonator, ETC1/2 using Mali's Texture Compression Tool, and PVRTC1 using Imagination Tech's PVRTexTool. [RenderDoc](https://renderdoc.org/) has a useful texture file viewer for many formats. The macOS Finder supports previewing .EXR and .KTX files in various GPU formats. The Windows 11 Explorer can preview .DDS files. The [online OpenHDR Viewer](https://viewer.openhdr.org/) is useful for viewing .EXR/.HDR image files. 
+The written mipmapped, cubemap, or texture array .KTX/.DDS files will be in a wide variety of compressed GPU texture formats (PVRTC1 4bpp, ETC1-2, BC1-5, BC7, etc.), and to our knowledge there is unfortunately (as of 2024) still no single .KTX or .DDS viewer tool that correctly and reliably supports every GPU texture format that we support. BC1-5 and BC7 files are viewable using AMD's Compressonator, ETC1/2 using Mali's Texture Compression Tool, and PVRTC1 using Imagination Tech's PVRTexTool. [RenderDoc](https://renderdoc.org/) has a useful texture file viewer for many formats. The macOS *Finder* app supports previewing .EXR, .ASTC and .KTX files in various GPU formats, including ASTC LDR/ HDR. The Windows 11 Explorer can preview .DDS files. The [online OpenHDR Viewer](https://viewer.openhdr.org/) is useful for viewing .EXR/.HDR image files. 
 
 ----
 
 Pixel Shader Deblocking Sample: CPU + GPU Deblocking Everywhere
 ---------------------------------------------------------------
 
-The [shader_deblocking sample](https://github.com/BinomialLLC/basis_universal/blob/master/shader_deblocking/README.md) in the repo demonstrates how to use a simple pixel shader to deblock sampled textures of any block size between 4x4-12x12, greatly reducing block artifacts. The sample shader is compatible with mipmapping and bilinear or trilinear filtering. Ultimately, shader deblocking enables the usage of larger ASTC block sizes, reducing bitrate and increasing transcoding speeds. Deblocking is a standard feature of modern image and video codecs, and there's no reason why it can't be used while sampling (or transcoding) GPU textures.
+The [shader_deblocking sample](https://github.com/BinomialLLC/basis_universal/blob/master/shader_deblocking/README.md) in the repo demonstrates how to use a simple pixel shader to deblock sampled textures of any block size between 4x4-12x12, greatly reducing block artifacts. The sample shader is compatible with mipmapping and bilinear or trilinear filtering. Ultimately, shader deblocking enables the usage of larger ASTC block sizes, reducing bitrate and increasing transcoding speeds. Deblocking is a standard feature of modern image and video codecs, and there's no reason why it can't be used while sampling (or transcoding) GPU textures. Using larger ASTC block sizes can significantly reduce GPU memory bandwidth. If bandwidth is the bottleneck — as it often is — the modest ALU and texture sampling cost of deblocking can be effectively free.
 
 XUASTC LDR's transcoder supports adaptive deblocking when transcoding to other (non-ASTC) formats like BC7, and GPU shader deblocking can be used for ASTC, resulting in a complete deblocking system for ASTC.
 
@@ -511,14 +511,15 @@ checking tool (https://reuse.software/). See the [.reuse](https://github.com/Bin
 External Tool Links
 -------------------
 
+- [ARM's astcenc](https://github.com/ARM-software/astc-encoder) - Crucial official tool from ARM which can unpack ASTC format LDR/HDR .astc and .ktx files to .png or .exr for testing and verification purposes.
 - [Online .EXR and .HDR Image File Viewer](https://viewer.openhdr.org/) - With strong tone mapping, auto-exposure, HDR histogram.
 - [Windows HDR + WCG Image Viewer](https://13thsymphony.github.io/hdrimageviewer/) - A true HDR image viewer for Windows which works on HDR monitors. Also see [the github repo](https://github.com/13thsymphony/HDRImageViewer).
+- [KTX-Software](https://github.com/KhronosGroup/KTX-Software) - A suite of tools for examining, compressing and unpacking KTX2 files (including in our various codec formats) from the Khronos Group.
 - [AMD Compressonator](https://gpuopen.com/compressonator/) - .DDS viewer, can view .KTX files in some formats.
 - [PVRTexTool](https://www.imgtec.com/developers/powervr-sdk-tools/pvrtextool/) - Can view .ASTC and .KTX files in some formats. (Note: .DDS viewer seems busted for BC1, doesn't support BC7 at all.)
 - [Microsoft's DirectXTex](https://github.com/microsoft/DirectXTex) - Samples contain a basic .DDS viewer. (Note: May still have issues loading .DDS files with texture dimensions that aren't divisible by 4 texels.)
 - [RenderDoc](https://renderdoc.org/) - Reliable viewer for LDR/HDR .DDS files in BC1-7 formats.
 - [Mali Texture Compression Tool](https://community.arm.com/support-forums/f/graphics-gaming-and-vr-forum/52390/announcement-mali-texture-compression-tool-end-of-life) - Now deprecated.
-- [ARM's astcenc](https://github.com/ARM-software/astc-encoder) - Can unpack ASTC format LDR/HDR .astc and .ktx files to .png etc. for testing.
 
 For more useful links, papers, and tools/libraries, see the end of the [UASTC HDR 4x4 texture specification](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-HDR-4x4-Texture-Specification-v1.1#papersfurther-reading).
 
