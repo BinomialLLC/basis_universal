@@ -809,6 +809,7 @@
       setCanvasSize(alignedWidth, alignedHeight);
 
       // Now create the WebGL texture object.
+	  // TODO: Update to support sRGB vs. linear ASTC textures here.
 
       if ((format === BASIS_FORMAT.cTFASTC_4x4) || (format === BASIS_FORMAT.cTFASTC_HDR_4x4_RGBA))
          tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_4x4_KHR);
