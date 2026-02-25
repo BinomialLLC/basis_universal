@@ -88,7 +88,7 @@ int write_tga_image(const char* pFilename, int w, int h, int has_alpha, const ui
         return -6; // overflow bogus dimensions
 
     /* allocate one scanline for BGRA/BGR output */
-    size_t row_bytes = (size_t)w * bytes_per_pixel;
+    size_t row_bytes = (size_t)((size_t)w * bytes_per_pixel);
     uint8_t* pRow = (uint8_t*)malloc(row_bytes);
     if (!pRow) 
     {
@@ -539,11 +539,11 @@ int test_2D()
     }
 
     // Write the data to disk
-    write_blob_to_file("test.ktx2", pComp_data, comp_size);
+    write_blob_to_file("test.ktx2", pComp_data, (size_t)comp_size);
     printf("Wrote file test.ktx2\n");
 
     // Now inspect and transcode the .KTX2 data to png/astc files
-    if (!transcode_ktx2_file(pComp_data, comp_size, "2D"))
+    if (!transcode_ktx2_file(pComp_data, (size_t)comp_size, "2D"))
     {
         fprintf(stderr, "transcode_ktx2_file() failed\n");
         return EXIT_FAILURE;
@@ -646,11 +646,11 @@ int test_2D_array(BOOL tex_video_flag, int L, BOOL mipmap_flag)
 
     // Write the data to disk
     snprintf(filename_buf, sizeof(filename_buf), "test_%s.ktx2", pDesc);
-    write_blob_to_file(filename_buf, pComp_data, comp_size);
+    write_blob_to_file(filename_buf, pComp_data, (size_t)comp_size);
     printf("Wrote file %s\n", filename_buf);
 
     // Now inspect and transcode the .KTX2 data to png/astc files
-    if (!transcode_ktx2_file(pComp_data, comp_size, pDesc))
+    if (!transcode_ktx2_file(pComp_data, (size_t)comp_size, pDesc))
     {
         fprintf(stderr, "transcode_ktx2_file() failed\n");
         return EXIT_FAILURE;

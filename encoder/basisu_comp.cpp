@@ -787,15 +787,20 @@ namespace basisu
 			}
 			else 
 			{
+				// ASTC 6x6 HDR/UASTC HDR 6x6i
 				assert((m_params.m_hdr_mode == hdr_modes::cASTC_HDR_6X6) || (m_params.m_hdr_mode == hdr_modes::cUASTC_HDR_6X6_INTERMEDIATE));
-
-				// ASTC 6x6 HDR
+								
 				if (m_params.m_status_output)
 				{
 					fmt_printf("Mode: ASTC 6x6 HDR {}, Base Effort Level (0-4): {}, Highest Effort Level (0-4): {}, Lambda: {}, REC 2020: {}\n",
 						(m_params.m_hdr_mode == hdr_modes::cUASTC_HDR_6X6_INTERMEDIATE) ? "Intermediate" : "",
 						m_params.m_astc_hdr_6x6_options.m_master_comp_level, m_params.m_astc_hdr_6x6_options.m_highest_comp_level,
 						m_params.m_astc_hdr_6x6_options.m_lambda, m_params.m_astc_hdr_6x6_options.m_rec2020_bt2100_color_gamut);
+
+					if (m_params.m_hdr_mode == hdr_modes::cUASTC_HDR_6X6_INTERMEDIATE)
+					{
+						fmt_printf("Writing v{} compatible UASTC HDR 6x6i bitstream\n", m_params.m_astc_hdr_6x6_options.m_write_basisu_1_6_compatible_files ? "1.60" : "2.00+");
+					}
 				}
 
 				error_code ec = encode_slices_to_astc_6x6_hdr();
@@ -1729,6 +1734,7 @@ namespace basisu
 		const uint32_t width = src_img.get_width();
 		const uint32_t height = src_img.get_height();
 
+		// Find max used value
 		float max_used_val = 0.0f;
 		for (uint32_t y = 0; y < height; y++)
 		{
@@ -1741,6 +1747,8 @@ namespace basisu
 		}
 
 		double hdr_image_scale = 1.0f;
+
+		// If the max value can't be encoded safely to ASTC HDR, we'll have to rescale the source image.
 		if (max_used_val > basist::ASTC_HDR_MAX_VAL)
 		{
 			hdr_image_scale = max_used_val / basist::ASTC_HDR_MAX_VAL;
@@ -1761,15 +1769,16 @@ namespace basisu
 			printf("Warning: The input HDR image's maximum used float value was %f, which is too high to encode as ASTC HDR. The image's components have been linearly scaled so the maximum used value is %f, by multiplying by %f.\n",
 				max_used_val, basist::ASTC_HDR_MAX_VAL, inv_hdr_image_scale);
 
-			printf("The decoded ASTC HDR texture will have to be scaled up by %f.\n", hdr_image_scale);
+			printf("The decoded/sampled ASTC HDR texture will have to be scaled up by %f. See the \"HDRScale\" KTX2 key value field.\n", hdr_image_scale);
 		}
 
-		// TODO: Determine a constant scale factor, apply if > MAX_HALF_FLOAT
+		// Remember the scale factor so it can be written to the output file.
+		m_hdr_image_scale = (float)hdr_image_scale;
+						
+		// Final check of the input pixels for anything bad that could cause downstream encoding problems.
 		if (!src_img.clean_astc_hdr_pixels(basist::ASTC_HDR_MAX_VAL))
 			printf("Warning: clean_astc_hdr_pixels() had to modify the input image to encode to ASTC HDR - see previous warning(s).\n");
-
-		m_hdr_image_scale = (float)hdr_image_scale;
-
+				
 		float lowest_nonzero_val = 1e+30f;
 		float lowest_val = 1e+30f;
 		float highest_val = -1e+30f;
@@ -3852,7 +3861,7 @@ namespace basisu
 		0x2,0x0,0x28,0x0,		// 2 descriptorBlockSize/versionNumber
 		0xA3,0x1,0x2,0x0,		// 3 flags, transferFunction, colorPrimaries, colorModel (KTX2_KDF_DF_MODEL_UASTC_HDR_6X6_INTERMEDIATE)
 		0x3,0x3,0x0,0x0,		// 4 texelBlockDimension0-texelBlockDimension3
-		0x0,0x0,0x0,0x0,		// 5 bytesPlane0-bytesPlane3
+		0x8,0x0,0x0,0x0,		// 5 bytesPlane0-bytesPlane3
 		0x0,0x0,0x0,0x0,		// 6 bytesPlane4-bytesPlane7
 		0x0,0x0,0x3F,0x0,		// 7 bitOffset/bitLength/channelType and Qualifer flags (KHR_DF_SAMPLE_DATATYPE_FLOAT etc.)
 		0x0,0x0,0x0,0x0,		// 8 samplePosition0-samplePosition3
@@ -3867,7 +3876,7 @@ namespace basisu
 		0x2,0x0,0x38,0x0,
 		0xA3,0x1,0x2,0x0,
 		0x3,0x3,0x0,0x0,
-		0x0,0x0,0x0,0x0,
+		0x8,0x0,0x0,0x0,
 		0x0,0x0,0x0,0x0,
 		0x0,0x0,0x3F,0x0,
 		0x0,0x0,0x0,0x0,
@@ -3939,9 +3948,9 @@ namespace basisu
 		0x5,0x5,0x0,0x0,		// 4 texelBlockDimension0-texelBlockDimension3
 		0x10,0x0,0x0,0x0,		// 5 bytesPlane0-bytesPlane3
 		0x0,0x0,0x0,0x0,		// 6 bytesPlane4-bytesPlane7
-		0x0,0x0,0x7F,0x80,		// 7 bitOffset/bitLength/channelType and Qualifer flags (KHR_DF_SAMPLE_DATATYPE_FLOAT etc.)
+		0x0,0x0,0x7F,0x80 | 0x40, // 7 bitOffset/bitLength/channelType and Qualifer flags (KHR_DF_SAMPLE_DATATYPE_FLOAT etc.)
 		0x0,0x0,0x0,0x0,		// 8 samplePosition0-samplePosition3
-		0x0,0x0,0x0,0x0,		// 9 sampleLower (0.0)
+		0x0, 0x0, 0x80, 0xBF,	// 9 sampleLower (-1.0), to match KTX-Software expected value
 		0x00, 0x00, 0x80, 0x3F  // 10 sampleHigher (1.0)
 	};
 
@@ -3997,6 +4006,8 @@ namespace basisu
 					
 	bool basis_compressor::get_dfd(uint8_vec &dfd, const basist::ktx2_header &header)
 	{
+		BASISU_NOTE_UNUSED(header);
+
 		const uint8_t* pDFD = nullptr;
 		uint32_t dfd_len = 0;
 
@@ -4129,6 +4140,8 @@ namespace basisu
 		basisu::write_le_dword(dfd.data() + 3 * sizeof(uint32_t), dfd_bits);
 
 		// If supercompressed, manipulate the plane bits to match the khronos ktx2 tool's output
+		// 2/13/2026: for ETC1S, UASTC HDR 6x6i, UASTC LDR 4x4, and possibly other formats this differs now. Looks like we need to write valid plane sizes, Zstd supercompression or not.
+#if 0
 		if (header.m_supercompression_scheme != basist::KTX2_SS_NONE)
 		{
 			uint32_t plane_bits = basisu::read_le_dword(dfd.data() + 5 * sizeof(uint32_t));
@@ -4137,6 +4150,7 @@ namespace basisu
 
 			basisu::write_le_dword(dfd.data() + 5 * sizeof(uint32_t), plane_bits);
 		}
+#endif
 
 		// Fix up the DFD channel(s)
 		uint32_t dfd_chan0 = basisu::read_le_dword(dfd.data() + 7 * sizeof(uint32_t));
@@ -4181,6 +4195,7 @@ namespace basisu
 		bool can_use_zstd = false;
 		bool is_xuastc_ldr = false;
 		bool is_astc_ldr = false;
+		bool is_hdr_6x6i = false;
 
 		switch (m_fmt_mode)
 		{
@@ -4207,6 +4222,7 @@ namespace basisu
 		case basist::basis_tex_format::cUASTC_HDR_6x6_INTERMEDIATE:
 		{
 			//needs_global_data = true;
+			is_hdr_6x6i = true;
 			break;
 		}
 		case basist::basis_tex_format::cXUASTC_LDR_4x4:
@@ -4495,10 +4511,11 @@ namespace basisu
 
 			header.m_supercompression_scheme = basist::KTX2_SS_BASISLZ;
 		}
-		else if ((m_fmt_mode == basist::basis_tex_format::cUASTC_HDR_6x6_INTERMEDIATE) || (is_xuastc_ldr))
+		else if ((is_hdr_6x6i) || (is_xuastc_ldr))
 		{
-			// The global data for UASTC HDR 6x6 INTERMEDIATE and XUASTC LDR is an array of ktx2_slice_offset_len_desc's, which the transcoder needs to locate the variable length compressed slice data.
-			basisu::vector<basist::ktx2_slice_offset_len_desc> slice_offset_len_descs(total_levels * total_layers * total_faces);
+			// The global data for UASTC HDR 6x6 INTERMEDIATE and XUASTC LDR is an array of ktx2_slice_offset_len_desc_std's, which the transcoder needs to locate the variable length compressed slice data.
+			// Note: The original v2.0 release used ktx2_slice_offset_len_desc_orig's
+			basisu::vector<basist::ktx2_slice_offset_len_desc_std> slice_offset_len_descs(total_levels * total_layers * total_faces);
 			memset((void *)slice_offset_len_descs.data(), 0, slice_offset_len_descs.size_in_bytes());
 
 			for (uint32_t slice_index = 0; slice_index < m_slice_descs.size(); slice_index++)
@@ -4520,11 +4537,39 @@ namespace basisu
 				slice_offset_len_descs[output_image_index].m_slice_byte_length = m_uastc_backend_output.m_slice_image_data[slice_index].size();
 				slice_offset_len_descs[output_image_index].m_slice_byte_offset = slice_level_offsets[slice_index];
 
+				uint32_t profile = 0;
+				if (is_hdr_6x6i)
+				{
+					assert(m_uastc_backend_output.m_slice_image_data[slice_index].size() >= 2);
+
+					if (m_uastc_backend_output.m_slice_image_data[slice_index].size() >= 2)
+					{
+						// First LE16 is the marker/profile version
+						profile = m_uastc_backend_output.m_slice_image_data[slice_index][0] | (m_uastc_backend_output.m_slice_image_data[slice_index][1] << 8);
+					}
+				}
+				else
+				{
+					assert(is_xuastc_ldr);
+					assert(m_uastc_backend_output.m_slice_image_data[slice_index].size() >= 1);
+
+					if (m_uastc_backend_output.m_slice_image_data[slice_index].size() >= 1)
+					{
+						// First byte is always the profile index (Zstd, hybrid, arithmetic etc.)
+						profile = m_uastc_backend_output.m_slice_image_data[slice_index][0] | (0x01 << 8); // TODO high byte is the XUASTC LDR codec variant index, currently hardcoded to 1 until we have an internal query/introspection API for this
+					}
+				}
+
+				slice_offset_len_descs[output_image_index].m_profile = profile;
+
 			} // slice_index
 
 			append_vector(ktx2_global_data, (const uint8_t*)slice_offset_len_descs.data(), slice_offset_len_descs.size_in_bytes());
+			
+			// Note v2.0 would always write BASISLZ for the supercompression scheme. KTX-Software changes this, and we need to be compatible.
+			//header.m_supercompression_scheme = basist::KTX2_SS_BASISLZ;
 
-			header.m_supercompression_scheme = basist::KTX2_SS_BASISLZ;
+			header.m_supercompression_scheme = is_hdr_6x6i ? basist::KTX2_SS_UASTC_HDR_6x6I : basist::KTX2_SS_XUASTC_LDR;
 		}
 		
 		// Key values
@@ -4535,10 +4580,38 @@ namespace basisu
 		if (m_params.m_hdr)
 		{
 			if (m_upconverted_any_ldr_images)
+			{
 				basist::ktx2_add_key_value(key_values, "LDRUpconversionMultiplier", fmt_string("{}", m_ldr_to_hdr_upconversion_nit_multiplier));
 
-			if (m_params.m_ldr_hdr_upconversion_srgb_to_linear)
-				basist::ktx2_add_key_value(key_values, "LDRUpconversionSRGBToLinear", "1");
+				if (m_params.m_ldr_hdr_upconversion_srgb_to_linear)
+					basist::ktx2_add_key_value(key_values, "LDRUpconversionSRGBToLinear", "1");
+			}
+						
+			// Always write the scale to simplify testing.
+			//if (m_hdr_image_scale != 1.0f)
+			{
+				// add "KTXmapRange" key value
+				struct ktx_map_range 
+				{
+					packed_uint<4> m_scale;
+					packed_uint<4> m_offset;
+				};
+
+				ktx_map_range val;
+				val.m_scale = *reinterpret_cast<const uint32_t *>(&m_hdr_image_scale);
+				val.m_offset = 0;
+								
+				auto* pNew_key = key_values.enlarge(1);
+				
+				const char* pKey_name = "KTXmapRange";
+				size_t key_name_len = strlen(pKey_name) + 1;
+
+				pNew_key->m_key.resize(key_name_len);
+				memcpy(pNew_key->m_key.data(), pKey_name, key_name_len);
+
+				pNew_key->m_value.resize(sizeof(val));
+				memcpy(pNew_key->m_value.data(), &val, sizeof(val));
+			}
 		}
 
 		key_values.sort();

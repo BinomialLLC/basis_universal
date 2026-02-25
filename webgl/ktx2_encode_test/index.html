@@ -19,8 +19,8 @@
 //      var div = document.createElement('div');
 //      div.innerHTML = s;
 //      document.getElementById('log-panel').appendChild(div);
-	 
-	  var div = document.createElement('div');
+     
+      var div = document.createElement('div');
       div.innerHTML = s;
       document.getElementById('log-panel').appendChild(div);
    }
@@ -143,13 +143,13 @@
    COMPRESSED_RGBA_ASTC_8x6_KHR = 0x93B6;
    COMPRESSED_RGBA_ASTC_10x5_KHR = 0x93B8;
    COMPRESSED_RGBA_ASTC_10x6_KHR = 0x93B9;
-   COMPRESSED_RGBA_ASTC_10x8_KHR = 0x93BA;
    COMPRESSED_RGBA_ASTC_8x8_KHR = 0x93B7;  // note the WebGL block order is not the standard ASTC block order
+   COMPRESSED_RGBA_ASTC_10x8_KHR = 0x93BA;
    COMPRESSED_RGBA_ASTC_10x10_KHR = 0x93BB;
    COMPRESSED_RGBA_ASTC_12x10_KHR = 0x93BC;
    COMPRESSED_RGBA_ASTC_12x12_KHR = 0x93BD;
 
-   // ASTC sRGB variants
+   // ASTC sRGB variants - 0x20 higher
    COMPRESSED_SRGBA_ASTC_4x4_KHR = 0x93D0;
    COMPRESSED_SRGBA_ASTC_5x4_KHR = 0x93D1;
    COMPRESSED_SRGBA_ASTC_5x5_KHR = 0x93D2;
@@ -439,9 +439,9 @@
    function transcodeTexture(data, uri)
    {
       updateErrorLine("");
-	  	  
-	  log('------');
-	  log('transcodeTexture(): Done loading .KTX2 file, decoded header:');
+          
+      log('------');
+      log('transcodeTexture(): Done loading .KTX2 file, decoded header:');
 
       const { KTX2File, initializeBasis, encodeBasisTexture } = Module;
 
@@ -699,10 +699,10 @@
          descString += ' from UASTC LDR 4x4';
       else
          descString += ' from ETC1S';
-		 
-	  // Start transcoding first before calling dumpKTX2FileDesc() so isVideo()) is always set correctly. 
-	  // (That flag depends on KTX2 global supercompression fields that are only unpacked when startTranscoding() is called.)
-	  if (!ktx2File.startTranscoding())
+         
+      // Start transcoding first before calling dumpKTX2FileDesc() so isVideo()) is always set correctly. 
+      // (That flag depends on KTX2 global supercompression fields that are only unpacked when startTranscoding() is called.)
+      if (!ktx2File.startTranscoding())
       {
          updateErrorLine('startTranscoding failed');
 
@@ -764,6 +764,8 @@
       const elapsed = performance.now() - startTime;
 
       g_transcodingTime = elapsed;
+      
+      descString += '\nTexture Size: ' + width + 'x' + height + ', Levels: ' + levels + ', Layers: ' + layers + ', Faces: ' + faces + ', sRGB: ' + tex_is_srgb + ', alpha: ' + tex_has_alpha;
 
       descString += '\nTranscode time: ' + g_transcodingTime.toFixed(3) + 'ms';
 
@@ -809,36 +811,81 @@
       setCanvasSize(alignedWidth, alignedHeight);
 
       // Now create the WebGL texture object.
-	  // TODO: Update to support sRGB vs. linear ASTC textures here.
+      
+      var force_srgb_sampling = false;
 
+      // For ASTC LDR and XUASTC LDR, select the right format depending on the transfer function in the DFD (as reported by the transcoder API).
+	  // It's important for the GPU to decompress the texture using the same decode profile as what the encoder used.
       if ((format === BASIS_FORMAT.cTFASTC_4x4) || (format === BASIS_FORMAT.cTFASTC_HDR_4x4_RGBA))
-         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_4x4_KHR);
+      {
+         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_4x4_KHR + (tex_is_srgb ? 0x20 : 0));
+         force_srgb_sampling = tex_is_srgb;
+      }
       else if ((format === BASIS_FORMAT.cTFASTC_LDR_6x6_RGBA) || (format === BASIS_FORMAT.cTFASTC_HDR_6x6_RGBA))
-         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_6x6_KHR);
+      {
+         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_6x6_KHR + (tex_is_srgb ? 0x20 : 0));
+         force_srgb_sampling = tex_is_srgb;
+      }
       else if (format === BASIS_FORMAT.cTFASTC_LDR_5x4_RGBA)
-         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_5x4_KHR);
+      {
+         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_5x4_KHR + (tex_is_srgb ? 0x20 : 0));
+         force_srgb_sampling = tex_is_srgb; 
+      }
       else if (format === BASIS_FORMAT.cTFASTC_LDR_5x5_RGBA)
-         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_5x5_KHR);
+      {
+         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_5x5_KHR + (tex_is_srgb ? 0x20 : 0));
+         force_srgb_sampling = tex_is_srgb;
+      }
       else if (format === BASIS_FORMAT.cTFASTC_LDR_6x5_RGBA)
-         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_6x5_KHR);
+      {
+         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_6x5_KHR + (tex_is_srgb ? 0x20 : 0));
+         force_srgb_sampling = tex_is_srgb;
+      }
       else if (format === BASIS_FORMAT.cTFASTC_LDR_8x5_RGBA)
-         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_8x5_KHR);
+      {
+         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_8x5_KHR + (tex_is_srgb ? 0x20 : 0));
+         force_srgb_sampling = tex_is_srgb;
+      }
       else if (format === BASIS_FORMAT.cTFASTC_LDR_8x6_RGBA)
-         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_8x6_KHR);
+      {
+         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_8x6_KHR + (tex_is_srgb ? 0x20 : 0));
+         force_srgb_sampling = tex_is_srgb;
+      }
       else if (format === BASIS_FORMAT.cTFASTC_LDR_10x5_RGBA)
-         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_10x5_KHR);
+      {
+         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_10x5_KHR + (tex_is_srgb ? 0x20 : 0));
+         force_srgb_sampling = tex_is_srgb;
+      }
       else if (format === BASIS_FORMAT.cTFASTC_LDR_10x6_RGBA)
-         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_10x6_KHR);
+      {
+         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_10x6_KHR + (tex_is_srgb ? 0x20 : 0));
+         force_srgb_sampling = tex_is_srgb;
+      }
       else if (format === BASIS_FORMAT.cTFASTC_LDR_8x8_RGBA)
-         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_8x8_KHR);
+      {
+         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_8x8_KHR + (tex_is_srgb ? 0x20 : 0));
+         force_srgb_sampling = tex_is_srgb;
+      }
       else if (format === BASIS_FORMAT.cTFASTC_LDR_10x8_RGBA)
-         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_10x8_KHR);
+      {
+         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_10x8_KHR + (tex_is_srgb ? 0x20 : 0));
+         force_srgb_sampling = tex_is_srgb;
+      }
       else if (format === BASIS_FORMAT.cTFASTC_LDR_10x10_RGBA)
-         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_10x10_KHR);
+      {
+         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_10x10_KHR + (tex_is_srgb ? 0x20 : 0));
+         force_srgb_sampling = tex_is_srgb;
+      }
       else if (format === BASIS_FORMAT.cTFASTC_LDR_12x10_RGBA)
-         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_12x10_KHR);
+      {
+         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_12x10_KHR + (tex_is_srgb ? 0x20 : 0));
+         force_srgb_sampling = tex_is_srgb;
+      }
       else if (format === BASIS_FORMAT.cTFASTC_LDR_12x12_RGBA)
-         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_12x12_KHR);
+      {
+         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_12x12_KHR + (tex_is_srgb ? 0x20 : 0));
+         force_srgb_sampling = tex_is_srgb;
+      }
       else if ((format === BASIS_FORMAT.cTFBC3) || (format === BASIS_FORMAT.cTFBC1) || (format == BASIS_FORMAT.cTFBC7))
       {
          tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, DXT_FORMAT_MAP[format]);
@@ -935,7 +982,7 @@
          tex = renderer.createRgb565Texture(dstTex, width, height);
       }
 
-      linearToSRGBFlag = is_hdr;
+      linearToSRGBFlag = (is_hdr != 0) || (force_srgb_sampling != 0);
 
       elem('linear_to_srgb').innerText = linearToSRGBFlag ? 'Enabled' : 'Disabled';
 
@@ -1070,10 +1117,10 @@
    function compressImage(data, uri)
    {
       updateErrorLine("");
-	
-	  logClear();
+    
+      logClear();
 
-	  log('------');
+      log('------');
       log('compressImage(): URI: ' + uri);
 
       const { BasisFile, BasisEncoder, initializeBasis, encodeBasisTexture } = Module;
@@ -1306,18 +1353,18 @@
          log('Encoding to XUASTC LDR 4x4-12x12');
       else
          log('Encoding to ETC1S quality level ' + etc1SQualityLevel);
-		 
+         
       // See if they've enabled the new-style unified effort and quality levels. 
-	  // If so, set them now, which will override some of the codec-specific lower level options set previously.
-	  if (elem('use_new_style_quality_effort').checked)		 
-	  {
-		 const unified_effort_level = parseInt(document.getElementById("unified-effort-slider").value, 10);
-		 const unified_quality_level = parseInt(document.getElementById("unified-quality-slider").value, 10);
-		 		 		 
-	  	 basisEncoder.setFormatModeAndQualityEffort(desiredBasisTexFormat, unified_quality_level, unified_effort_level, true);
-		 
-		 log('Encoding to unified effort level ' + unified_effort_level + ', unified quality level ' + unified_quality_level);
-	  }
+      // If so, set them now, which will override some of the codec-specific lower level options set previously.
+      if (elem('use_new_style_quality_effort').checked)      
+      {
+         const unified_effort_level = parseInt(document.getElementById("unified-effort-slider").value, 10);
+         const unified_quality_level = parseInt(document.getElementById("unified-quality-slider").value, 10);
+                         
+         basisEncoder.setFormatModeAndQualityEffort(desiredBasisTexFormat, unified_quality_level, unified_effort_level, true);
+         
+         log('Encoding to unified effort level ' + unified_effort_level + ', unified quality level ' + unified_quality_level);
+      }
 
       showBusyModal();
 
@@ -1357,8 +1404,8 @@
 
             if (num_output_bytes != 0)
             {
-			   //log('HERE');
-			   
+               //log('HERE');
+               
                transcodeTexture(actualKTX2FileData);
             }
 
@@ -1441,7 +1488,7 @@
    {
       // Force retranscoding with the changed flags
       if (curLoadedKTX2Data != null) 
-	  {
+      {
          logClear();
          transcodeTexture(curLoadedKTX2Data, curLoadedKTX2URI);
       }
@@ -1967,7 +2014,7 @@
               xuastcLDRDCTValue.textContent = this.value;
           }
       }
-	 
+     
       {
         document.getElementById("unified-effort-slider").oninput = function() 
         {
@@ -1979,7 +2026,7 @@
             document.getElementById("unified-quality-value").textContent = this.value;
         }
       }
-	  
+      
       runLoadFile();
    }
 
@@ -2058,7 +2105,7 @@
 
     <br>
     <div style="font-size: 24pt; font-weight: bold">
-    Basis Universal .KTX2 Supercompressed GPU Texture Encoding/Transcoding Testbed v2.01
+    Basis Universal .KTX2 Supercompressed GPU Texture Encoding/Transcoding Testbed v2.10
     </div>
 
     <br>This simple demo uses the <a href="https://github.com/BinomialLLC/basis_universal/">Basis Universal</a> C++ transcoder (compiled to WebAssembly using Emscripten) to transcode a .ktx2 file to:
@@ -2090,7 +2137,7 @@
     <input type="checkbox" id="multithreaded_encoding" checked>Use Multithreading (if available)
 
     <br>Additional Worker Threads (Max 18):
-    <input type="number" id="num_worker_threads" value="7" size="18" min="0" max="18">
+    <input type="number" id="num_worker_threads" value="4" size="18" min="0" max="18">
     <br><br>
 
     <br>
@@ -2167,7 +2214,7 @@
     <input type="button" value="Download Encoded .KTX2 File" onclick="downloadEncodedFile()">
 
     <hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">
-	
+    
     <b>KTX2 Texture Format to Encode:</b>
     <select id="basis-tex-format">
     <option value="0">ETC1S</option>
@@ -2207,43 +2254,43 @@
     <option value="32">ASTC LDR 12x12</option>
 
     </select>
-	
-	<br>
+    
+    <br>
     <hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">
-	
-	<b>Primary compression quality/effort options:</b>
+    
+    <b>Primary compression quality/effort options:</b>
 
     <br>
     Use unified quality/effort options (overrides below low-level options):
-	<input type="checkbox" id="use_new_style_quality_effort" checked></input>	
+    <input type="checkbox" id="use_new_style_quality_effort" checked></input>   
 
     <br>
-	<label for="unified-effort-slider"><b>Effort:</b></label>
-	<input type="range"
+    <label for="unified-effort-slider"><b>Effort:</b></label>
+    <input type="range"
        id="unified-effort-slider"
        min="0"
        max="10"
        step="1"
        value="2"
        style="width: 300px;">
-	<span id="unified-effort-value">2</span>
+    <span id="unified-effort-value">2</span>
 
-	<br><br>
+    <br><br>
 
-	<label for="unified-quality-slider"><b>Quality:</b></label>
-	<input type="range"
+    <label for="unified-quality-slider"><b>Quality:</b></label>
+    <input type="range"
        id="unified-quality-slider"
        min="1"
        max="100"
        step="1"
        value="80"
        style="width: 300px;">
-	<span id="unified-quality-value">80</span>
+    <span id="unified-quality-value">80</span>
 
     <br>
-	<hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">    
-	
-	<b>Transcoder Options (Decode Flags):</b>
+    <hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">    
+    
+    <b>Transcoder Options (Decode Flags):</b>
 
     <br>
     ETC1S: No BC7 Chroma Artifact Filtering (faster transcoding):
@@ -2271,11 +2318,11 @@
     <input type="checkbox" id="highquality_transcoding" onclick="highQualityTranscodingClicked()">
 
     <br>
-	<hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">    
-	
-	<b>Display/Visualization Options:</b>
-	<br>
-	
+    <hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">    
+    
+    <b>Display/Visualization Options:</b>
+    <br>
+    
     <input type="button" value="Alpha blend" onclick="alphaBlend()"></input>
     <input type="button" value="View RGB" onclick="viewRGB()"></input>
     <input type="button" value="View Alpha" onclick="viewAlpha()"></input>
@@ -2427,7 +2474,7 @@
     <b>Other Options:</b>
 
     <br>
-    Use sRGB/perceptual metrics:
+    Image is sRGB/use sRGB perceptual metrics:
     <input type="checkbox" id="SRGB">
 
     <br>
@@ -2448,7 +2495,7 @@
     <hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">
 
     <b>Log Output:</b>
-	<div id="log-panel" class="log-panel">
+    <div id="log-panel" class="log-panel">
     </div>
 
     <div id="busy-modal" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); z-index: 9999; justify-content: center; align-items: center; font-size: 24px; color: white; display: none;">
@@ -2627,24 +2674,24 @@ document.addEventListener('DOMContentLoaded', () => {
           const arrayBuffer = e.target.result;
 
           // Assume you have a function to process the file
-		  log('------');
+          log('------');
           log(`Loaded file: ${file.name}`);
           log(`File size: ${file.size} bytes`);
-		  
-		  const lowerName = file.name.toLowerCase();
+          
+          const lowerName = file.name.toLowerCase();
 
-		  if (lowerName.endsWith(".ktx2")) 
-		  {
+          if (lowerName.endsWith(".ktx2")) 
+          {
               curLoadedKTX2Data  = arrayBuffer;
               curLoadedKTX2URI   = file.name;
 
               transcodeTexture(arrayBuffer, file.name);
               return;
           }
-		  else
-		  {
+          else
+          {
               compressImage(arrayBuffer, file.name);
-		  }
+          }
 
           elem('imagefile').value = '<externally loaded>';
       };

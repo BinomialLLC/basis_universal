@@ -22,8 +22,8 @@
 #include "basisu_astc_hdr_6x6_enc.h"
 #include "basisu_astc_ldr_encode.h"
 
-#define BASISU_LIB_VERSION 200
-#define BASISU_LIB_VERSION_STRING "2.00"
+#define BASISU_LIB_VERSION 210
+#define BASISU_LIB_VERSION_STRING "2.10"
 
 #ifndef BASISD_SUPPORT_KTX2
 	#error BASISD_SUPPORT_KTX2 is undefined
@@ -695,8 +695,9 @@ namespace basisu
 		// For XUASTC LDR, it's also still used when generating .basis files vs. .KTX2.
 		bool_param<true> m_ktx2_and_basis_srgb_transfer_function; // false = linear transfer function, true = sRGB transfer function
 
+		// HDR codec specific options
 		uastc_hdr_4x4_codec_options m_uastc_hdr_4x4_options;
-		astc_6x6_hdr::astc_hdr_6x6_global_config m_astc_hdr_6x6_options;
+		astc_6x6_hdr::astc_hdr_6x6_global_config m_astc_hdr_6x6_options; // also UASTC HDR 6x6i
 
 		// True to try transcoding the generated output after compression to a few formats.
 		bool_param<false> m_validate_output_data;
@@ -870,7 +871,7 @@ namespace basisu
 		
 		// The upconversion multiplier used to load LDR images in HDR mode.
 		float m_ldr_to_hdr_upconversion_nit_multiplier;
-		
+				
 		// True if any loaded source images were LDR and upconverted to HDR.
 		bool m_upconverted_any_ldr_images;
 

@@ -108,7 +108,7 @@ namespace basist
 		const uint32_t TOTAL_BLOCK_MODE_DECS = 75;
 		extern const block_mode_desc g_block_mode_descs[TOTAL_BLOCK_MODE_DECS];
 
-		const uint32_t UASTC_6x6_HDR_SIG0 = 0xABCD; // original release
+		const uint32_t UASTC_6x6_HDR_SIG0 = 0xABCD; // original release (v1.6)
 		const uint32_t UASTC_6x6_HDR_SIG1 = 0xABCE; // 2x2->4x4 weight grid upsampling change, not backwards compatible with older decoders
 
 		void copy_weight_grid(bool dual_plane, uint32_t grid_x, uint32_t grid_y, const uint8_t* transcode_weights, astc_helpers::log_astc_block& decomp_blk, bool orig_behavior);

@@ -2800,6 +2800,11 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
     .function("setASTC_HDR_6x6_BruteForcePats", optional_override([](basis_encoder& self, bool flag) {
         self.m_params.m_astc_hdr_6x6_options.m_brute_force_partition_matching = flag;
     }))
+	
+    // ASTC HDR 6x6: Write v1.6 compatible UASTC HDR 6x6i files (the current default, but eventually this will be changed to default to false, requiring v2.0 or later transcoders)
+    .function("setASTC_HDR_6x6_WriteBasisU16CompatibleFiles", optional_override([](basis_encoder& self, bool flag) {
+        self.m_params.m_astc_hdr_6x6_options.m_write_basisu_1_6_compatible_files = flag;
+    }))
 
     // ASTC HDR 6x6: Control gaussian filtering on very hard blocks
     .function("setASTC_HDR_6x6_SetGaussian1", optional_override([](basis_encoder& self, float strength) {

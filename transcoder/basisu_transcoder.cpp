@@ -19504,13 +19504,21 @@ namespace basist
 			return false;
 		}
 
-		if (m_header.m_supercompression_scheme > KTX2_SS_ZSTANDARD)
+		if ((m_header.m_supercompression_scheme == KTX2_SS_UASTC_HDR_6x6I) ||
+			(m_header.m_supercompression_scheme == KTX2_SS_XUASTC_LDR))
+		{
+			// standard UASTC HDR 6x6i file (as adopted by khronos, not our initial v1.6/v2.0 release), or XUASTC LDR - DFD colormodels unchanged however
+		}
+		else if (m_header.m_supercompression_scheme > KTX2_SS_ZSTANDARD)
 		{
 			BASISU_DEVEL_ERROR("ktx2_transcoder::init: Invalid/unsupported supercompression or file is corrupted or invalid\n");
 			return false;
 		}
 
-		if (m_header.m_supercompression_scheme == KTX2_SS_BASISLZ)
+		// Sanity check SGD offset/length
+		if ((m_header.m_supercompression_scheme == KTX2_SS_BASISLZ) ||
+			(m_header.m_supercompression_scheme == KTX2_SS_UASTC_HDR_6x6I) ||
+			(m_header.m_supercompression_scheme == KTX2_SS_XUASTC_LDR))
 		{
 			if (m_header.m_sgd_byte_offset.get_uint64() < sizeof(ktx2_header))
 			{
@@ -19569,16 +19577,20 @@ namespace basist
 				return false;
 			}
 
-			if (m_header.m_supercompression_scheme == KTX2_SS_BASISLZ)
+			if ((m_header.m_supercompression_scheme == KTX2_SS_BASISLZ) ||
+				(m_header.m_supercompression_scheme == KTX2_SS_UASTC_HDR_6x6I) ||
+				(m_header.m_supercompression_scheme == KTX2_SS_XUASTC_LDR))
 			{
+				// Our supercompressed codec formats: Uncompressed length should be 0
 				if (m_levels[i].m_uncompressed_byte_length.get_uint64())
 				{
 					BASISU_DEVEL_ERROR("ktx2_transcoder::init: Invalid uncompressed length (0)\n");
 					return false;
 				}
 			}
-			else if (m_header.m_supercompression_scheme >= KTX2_SS_ZSTANDARD)
+			else if (m_header.m_supercompression_scheme == KTX2_SS_ZSTANDARD)
 			{
+				// Uses Zstandard supercompression, ensure uncompressed length is valid.
 				if (!m_levels[i].m_uncompressed_byte_length.get_uint64())
 				{
 					BASISU_DEVEL_ERROR("ktx2_transcoder::init: Invalid uncompressed length (1)\n");
@@ -19775,6 +19787,8 @@ namespace basist
 		}
 		else if (m_dfd_color_model == KTX2_KDF_DF_MODEL_UASTC_HDR_6X6_INTERMEDIATE)
 		{
+			// Note: The supercompression scheme may be BASISLZ if it's an old format (v1.6/v2.0) file
+			
 			// Custom variable block size ASTC HDR 6x6 texture data.
 			if (m_header.m_vk_format != basist::KTX2_VK_FORMAT_UNDEFINED)
 			{
@@ -19902,6 +19916,8 @@ namespace basist
 			return false;
 		}
 
+		// In standard KTX2 file, KTX2_SS_BASISLZ would ONLY be ETC1S, but in v1.6 and v2.0 it could also mean UASTC HDR 6x6i or XUASTC LDR. 
+		// We support our older files, too.
 		if (m_header.m_supercompression_scheme == KTX2_SS_BASISLZ) 
 		{
 			if (m_format == basis_tex_format::cETC1S)
@@ -19933,13 +19949,14 @@ namespace basist
 					}
 				}
 			}
+			// check for old-style (non-standard) KTX2 files written by v1.6/v2.0
 			else if ( (m_format == basis_tex_format::cUASTC_HDR_6x6_INTERMEDIATE) || basis_tex_format_is_xuastc_ldr(m_format) )
 			{
 				// UASTC HDR 6x6 and XUASTC LDR 4x4-12x12 require an array of slice offset/len structs to determine where the compressed data starts for each independent compressed texture slice.
 				if (m_slice_offset_len_descs.size())
 					return true;
 
-				if (!read_slice_offset_len_global_data())
+				if (!read_slice_offset_len_global_data(false))
 				{
 					BASISU_DEVEL_ERROR("ktx2_transcoder::start_transcoding: read_slice_offset_len_global_data() failed\n");
 					return false;
@@ -19948,6 +19965,18 @@ namespace basist
 			else
 			{
 				BASISU_DEVEL_ERROR("ktx2_transcoder::start_transcoding: Invalid supercompression scheme and/or format\n");
+				return false;
+			}
+		}
+		else if ((m_header.m_supercompression_scheme == KTX2_SS_UASTC_HDR_6x6I) || (m_header.m_supercompression_scheme == KTX2_SS_XUASTC_LDR))
+		{
+			// UASTC HDR 6x6 and XUASTC LDR 4x4-12x12 require an array of slice offset/len structs to determine where the compressed data starts for each independent compressed texture slice.
+			if (m_slice_offset_len_descs.size())
+				return true;
+
+			if (!read_slice_offset_len_global_data(true))
+			{
+				BASISU_DEVEL_ERROR("ktx2_transcoder::start_transcoding: read_slice_offset_len_global_data() failed\n");
 				return false;
 			}
 		}
@@ -20143,7 +20172,7 @@ namespace basist
 		}
 		else if (m_format == basist::basis_tex_format::cUASTC_HDR_6x6_INTERMEDIATE)
 		{
-			// UASTC HDR 6x6
+			// UASTC HDR 6x6i
 			if (!m_slice_offset_len_descs.size())
 			{
 				BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_level: must call start_transcoding() first\n");
@@ -20165,7 +20194,7 @@ namespace basist
 				return false;
 			}
 
-			const ktx2_slice_offset_len_desc& image_desc = m_slice_offset_len_descs[image_index];
+			const ktx2_slice_offset_len_desc_orig& image_desc = m_slice_offset_len_descs[image_index];
 						
 			if (!m_astc_hdr_6x6_intermediate_transcoder.transcode_image(fmt,
 				pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels,
@@ -20301,7 +20330,7 @@ namespace basist
 				return false;
 			}
 
-			const ktx2_slice_offset_len_desc& image_desc = m_slice_offset_len_descs[image_index];
+			const ktx2_slice_offset_len_desc_orig& image_desc = m_slice_offset_len_descs[image_index];
 
 			// XUASTC LDR has its own tiny header at the start of the compressed data with this profile bit, so it'll use that for decoding if needed.
 			bool uses_astc_src_decode_profile = true;
@@ -20436,22 +20465,43 @@ namespace basist
 		return true;
 	}
 
-	bool ktx2_transcoder::read_slice_offset_len_global_data()
+	bool ktx2_transcoder::read_slice_offset_len_global_data(bool read_std_structs)
 	{
 		const uint32_t image_count = basisu::maximum<uint32_t>(m_header.m_layer_count, 1) * m_header.m_face_count * m_header.m_level_count;
 		assert(image_count);
-
+		
 		const uint8_t* pSrc = m_pData + m_header.m_sgd_byte_offset.get_uint64();
 
-		if (m_header.m_sgd_byte_length.get_uint64() != image_count * sizeof(ktx2_slice_offset_len_desc))
-		{
-			BASISU_DEVEL_ERROR("ktx2_transcoder::read_slice_offset_len_global_data: Invalid global data length\n");
-			return false;
-		}
-
 		m_slice_offset_len_descs.resize(image_count);
-		
-		memcpy((void *)m_slice_offset_len_descs.data(), pSrc, sizeof(ktx2_slice_offset_len_desc) * image_count);
+
+		// SGD offset/length already sanity checked to be inside the file and after the KTX2 header.
+		if (read_std_structs)
+		{
+			if (m_header.m_sgd_byte_length.get_uint64() != image_count * sizeof(ktx2_slice_offset_len_desc_std))
+			{
+				BASISU_DEVEL_ERROR("ktx2_transcoder::read_slice_offset_len_global_data: Invalid global data length (0)\n");
+				return false;
+			}
+
+			const ktx2_slice_offset_len_desc_std* pSrc_std_descs = reinterpret_cast<const ktx2_slice_offset_len_desc_std*>(pSrc);
+
+			for (uint32_t i = 0; i < image_count; i++)
+			{
+				// TODO: Ignoring type (profile) for now, but we could check it 
+				m_slice_offset_len_descs[i].m_slice_byte_offset = pSrc_std_descs[i].m_slice_byte_offset;
+				m_slice_offset_len_descs[i].m_slice_byte_length = pSrc_std_descs[i].m_slice_byte_length;
+			}
+		}
+		else
+		{
+			if (m_header.m_sgd_byte_length.get_uint64() != image_count * sizeof(ktx2_slice_offset_len_desc_orig))
+			{
+				BASISU_DEVEL_ERROR("ktx2_transcoder::read_slice_offset_len_global_data: Invalid global data length (1)\n");
+				return false;
+			}
+						
+			memcpy((void*)m_slice_offset_len_descs.data(), pSrc, sizeof(ktx2_slice_offset_len_desc_orig) * image_count);
+		}
 
 		// Sanity check the image descs
 		for (uint32_t i = 0; i < image_count; i++)
@@ -22952,52 +23002,7 @@ namespace basist
 		static const int FAST_BC6H_STD_DEV_THRESH = 256;
 		static const int FAST_BC6H_COMPLEX_STD_DEV_THRESH = 512;
 		static const int FAST_BC6H_VERY_COMPLEX_STD_DEV_THRESH = 2048;
-
-		static void assign_weights_simple_4(
-			const basist::half_float* pPixels,
-			uint8_t* pWeights,
-			int min_r, int min_g, int min_b,
-			int max_r, int max_g, int max_b, int64_t block_max_var)
-		{
-			BASISU_NOTE_UNUSED(block_max_var);
-			
-			float fmin_r = fast_half_to_float_pos_not_inf_or_nan((basist::half_float)min_r);
-			float fmin_g = fast_half_to_float_pos_not_inf_or_nan((basist::half_float)min_g);
-			float fmin_b = fast_half_to_float_pos_not_inf_or_nan((basist::half_float)min_b);
-
-			float fmax_r = fast_half_to_float_pos_not_inf_or_nan((basist::half_float)max_r);
-			float fmax_g = fast_half_to_float_pos_not_inf_or_nan((basist::half_float)max_g);
-			float fmax_b = fast_half_to_float_pos_not_inf_or_nan((basist::half_float)max_b);
-
-			float fdir_r = fmax_r - fmin_r;
-			float fdir_g = fmax_g - fmin_g;
-			float fdir_b = fmax_b - fmin_b;
-
-			float l = inv_sqrt(fdir_r * fdir_r + fdir_g * fdir_g + fdir_b * fdir_b);
-			if (l != 0.0f)
-			{
-				fdir_r *= l;
-				fdir_g *= l;
-				fdir_b *= l;
-			}
-
-			float lr = ftoh(fmin_r * fdir_r + fmin_g * fdir_g + fmin_b * fdir_b);
-			float hr = ftoh(fmax_r * fdir_r + fmax_g * fdir_g + fmax_b * fdir_b);
-
-			float frr = (hr == lr) ? 0.0f : (14.93333f / (float)(hr - lr));
-
-			lr = (-lr * frr) + 0.53333f;
-			for (uint32_t i = 0; i < 16; i++)
-			{
-				const float r = fast_half_to_float_pos_not_inf_or_nan(pPixels[i * 3 + 0]);
-				const float g = fast_half_to_float_pos_not_inf_or_nan(pPixels[i * 3 + 1]);
-				const float b = fast_half_to_float_pos_not_inf_or_nan(pPixels[i * 3 + 2]);
-				const float w = ftoh(r * fdir_r + g * fdir_g + b * fdir_b);
-
-				pWeights[i] = (uint8_t)basisu::clamp((int)(w * frr + lr), 0, 15);
-			}
-		}
-		
+						
 		static double assign_weights_4(
 			const vec3F* pFloat_pixels, const float* pPixel_scales,
 			uint8_t* pWeights,
@@ -23185,6 +23190,80 @@ namespace basist
 			}
 
 			return total_err;
+		}
+
+		static void assign_weights_simple_4(
+			const basist::half_float* pPixels,
+			uint8_t* pWeights,
+			int min_r, int min_g, int min_b,
+			int max_r, int max_g, int max_b, int64_t block_max_var, 
+			const fast_bc6h_params& params)
+		{
+			BASISU_NOTE_UNUSED(block_max_var);
+
+			float fmin_r = fast_half_to_float_pos_not_inf_or_nan((basist::half_float)min_r);
+			float fmin_g = fast_half_to_float_pos_not_inf_or_nan((basist::half_float)min_g);
+			float fmin_b = fast_half_to_float_pos_not_inf_or_nan((basist::half_float)min_b);
+
+			float fmax_r = fast_half_to_float_pos_not_inf_or_nan((basist::half_float)max_r);
+			float fmax_g = fast_half_to_float_pos_not_inf_or_nan((basist::half_float)max_g);
+			float fmax_b = fast_half_to_float_pos_not_inf_or_nan((basist::half_float)max_b);
+
+			float fdir_r = fmax_r - fmin_r;
+			float fdir_g = fmax_g - fmin_g;
+			float fdir_b = fmax_b - fmin_b;
+
+			float l = inv_sqrt(fdir_r * fdir_r + fdir_g * fdir_g + fdir_b * fdir_b);
+			if (l != 0.0f)
+			{
+				fdir_r *= l;
+				fdir_g *= l;
+				fdir_b *= l;
+			}
+
+			float lf = fmin_r * fdir_r + fmin_g * fdir_g + fmin_b * fdir_b;
+			float hf = fmax_r * fdir_r + fmax_g * fdir_g + fmax_b * fdir_b;
+
+			if ((lf >= basist::MAX_HALF_FLOAT) || (hf >= basist::MAX_HALF_FLOAT))
+			{
+				// v2.1: Can't use the faster half float based tricks below, need some sort of backup
+				vec3F float_pixels[16];
+				float pixel_scales[16];
+
+				for (uint32_t i = 0; i < 16; i++)
+				{
+					float_pixels[i].c[0] = fast_half_to_float_pos_not_inf_or_nan(pPixels[i * 3 + 0]);
+					float_pixels[i].c[1] = fast_half_to_float_pos_not_inf_or_nan(pPixels[i * 3 + 1]);
+					float_pixels[i].c[2] = fast_half_to_float_pos_not_inf_or_nan(pPixels[i * 3 + 2]);
+					
+					pixel_scales[i] = 1.0f / (basisu::squaref(float_pixels[i].c[0]) + basisu::squaref(float_pixels[i].c[1]) + basisu::squaref(float_pixels[i].c[2]) + (float)MIN_HALF_FLOAT);
+				}
+
+				assign_weights_4(
+					float_pixels, pixel_scales,
+					pWeights,
+					min_r, min_g, min_b,
+					max_r, max_g, max_b, block_max_var, false,
+					params);
+				
+				return;
+			}
+
+			float lr = ftoh(lf);
+			float hr = ftoh(hf);
+
+			float frr = (hr == lr) ? 0.0f : (14.93333f / (float)(hr - lr));
+
+			lr = (-lr * frr) + 0.53333f;
+			for (uint32_t i = 0; i < 16; i++)
+			{
+				const float r = fast_half_to_float_pos_not_inf_or_nan(pPixels[i * 3 + 0]);
+				const float g = fast_half_to_float_pos_not_inf_or_nan(pPixels[i * 3 + 1]);
+				const float b = fast_half_to_float_pos_not_inf_or_nan(pPixels[i * 3 + 2]);
+				const float w = ftoh(r * fdir_r + g * fdir_g + b * fdir_b);
+
+				pWeights[i] = (uint8_t)basisu::clamp((int)(w * frr + lr), 0, 15);
+			}
 		}
 
 		static void assign_weights3(uint8_t trial_weights[16],
@@ -23947,8 +24026,8 @@ namespace basist
 
 				bc6h_quant_dequant_endpoints(min_r, min_g, min_b, max_r, max_g, max_b, 10);
 
-				assign_weights_simple_4(pPixels, log_blk.m_weights, min_r, min_g, min_b, max_r, max_g, max_b, block_max_var);
-
+				assign_weights_simple_4(pPixels, log_blk.m_weights, min_r, min_g, min_b, max_r, max_g, max_b, block_max_var, params);
+				
 				log_blk.m_endpoints[0][0] = basist::bc6h_half_to_blog((basist::half_float)min_r, 10);
 				log_blk.m_endpoints[0][1] = basist::bc6h_half_to_blog((basist::half_float)max_r, 10);
 

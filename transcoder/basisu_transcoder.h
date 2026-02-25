@@ -886,10 +886,19 @@ namespace basist
 		basisu::packed_uint<4> m_alpha_slice_byte_length;
 	};
 
-	struct ktx2_slice_offset_len_desc
+	// The initial v1.6 release (for backwards compatibility only with our older .KTX2 files)
+	struct ktx2_slice_offset_len_desc_orig
 	{
-		basisu::packed_uint<4> m_slice_byte_offset;
+		basisu::packed_uint<4> m_slice_byte_offset; // byte offset relative to the KTX2 mipmap level
 		basisu::packed_uint<4> m_slice_byte_length;
+	};
+
+	// The Khronos KTX2 spec standard
+	struct ktx2_slice_offset_len_desc_std
+	{
+		basisu::packed_uint<4> m_slice_byte_offset; // byte offset relative to the KTX2 mipmap level
+		basisu::packed_uint<4> m_slice_byte_length;
+		basisu::packed_uint<4> m_profile;
 	};
 
 	struct ktx2_animdata
@@ -944,9 +953,11 @@ namespace basist
 	enum ktx2_supercompression
 	{
 		KTX2_SS_NONE = 0,
-		KTX2_SS_BASISLZ = 1,
+		KTX2_SS_BASISLZ = 1, // actually ETC1S
 		KTX2_SS_ZSTANDARD = 2,
-		KTX2_SS_BASIS
+		KTX2_SS_DEFLATE = 3, // currently unsupported by us
+		KTX2_SS_UASTC_HDR_6x6I = 4, // UASTC HDR 6x6i (picked by Khronos, in KTX-Software as of 2/19/2026)
+		KTX2_SS_XUASTC_LDR = 5 // XUASTC LDR 4x4-12x12 (coordinate with Khronos, not in KTX-Software yet as of 2/19/2026)
 	};
 
 	extern const uint8_t g_ktx2_file_identifier[12];
@@ -1083,7 +1094,7 @@ namespace basist
 	// This class is quite similar to basisu_transcoder. It treats KTX2 files as a simple container for ETC1S/UASTC texture data.
 	// It does not support 1D or 3D textures.
 	// It only supports 2D and cubemap textures, with or without mipmaps, texture arrays of 2D/cubemap textures, and texture video files. 
-	// It only supports raw non-supercompressed UASTC, ETC1S, UASTC+Zstd, or UASTC+zlib compressed files.
+	// It only supports our codec formats: ETC1S, UASTC LDR 4x4, UASTC HDR 4x4, etc.
 	// DFD (Data Format Descriptor) parsing is purposely as simple as possible. 
 	// If you need to know how to interpret the texture channels you'll need to parse the DFD yourself after calling get_dfd().
 	class ktx2_transcoder
@@ -1224,7 +1235,7 @@ namespace basist
 		// Returns the array of ETC1S image descriptors, which is only valid after get_etc1s_image_descs() is called.
 		const basisu::vector<ktx2_etc1s_image_desc>& get_etc1s_image_descs() const { return m_etc1s_image_descs; }
 
-		const basisu::vector<ktx2_slice_offset_len_desc>& get_slice_offset_len_descs() const { return m_slice_offset_len_descs; }
+		const basisu::vector<ktx2_slice_offset_len_desc_orig>& get_slice_offset_len_descs() const { return m_slice_offset_len_descs; }
 
 		// Must have called startTranscoding() first
 		uint32_t get_etc1s_image_descs_image_flags(uint32_t level_index, uint32_t layer_index, uint32_t face_index) const;
@@ -1268,7 +1279,7 @@ namespace basist
 		
 		ktx2_etc1s_global_data_header m_etc1s_header;
 		basisu::vector<ktx2_etc1s_image_desc> m_etc1s_image_descs;
-		basisu::vector<ktx2_slice_offset_len_desc> m_slice_offset_len_descs;
+		basisu::vector<ktx2_slice_offset_len_desc_orig> m_slice_offset_len_descs;
 
 		basist::basis_tex_format m_format;
 					
@@ -1296,7 +1307,7 @@ namespace basist
 		float m_ldr_hdr_upconversion_nit_multiplier;
 
 		bool decompress_level_data(uint32_t level_index, basisu::uint8_vec& uncomp_data);
-		bool read_slice_offset_len_global_data();
+		bool read_slice_offset_len_global_data(bool read_std_structs);
 		bool decompress_etc1s_global_data();
 		bool read_key_values();
 	};

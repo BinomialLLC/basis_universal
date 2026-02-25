@@ -57,7 +57,7 @@
 using namespace basisu;
 using namespace buminiz;
 
-#define BASISU_TOOL_VERSION "2.00.0"
+#define BASISU_TOOL_VERSION "2.10.0"
 
 #if defined(DEBUG)
 #pragma message("DEBUG defined")
@@ -538,13 +538,25 @@ class command_line_params
 			m_comp_params.m_astc_hdr_6x6_options.m_rec2020_bt2100_color_gamut = true;
 			return true;
 		}
+		else if (strcasecmp(pArg, "-hdr_6x6i_16_compatibility") == 0)
+		{
+			// UASTC HDR 6x6i: Write v1.60 compatible files vs. 2.0.
+			m_comp_params.m_astc_hdr_6x6_options.m_write_basisu_1_6_compatible_files = true;
+			return true;
+		}
+		else if (strcasecmp(pArg, "-hdr_6x6i_20_compatibility") == 0)
+		{
+			// UASTC HDR 6x6i: Write v2.00 compatible files vs. 2.0.
+			m_comp_params.m_astc_hdr_6x6_options.m_write_basisu_1_6_compatible_files = false;
+			return true;
+		}
 		else if ((strcasecmp(pArg, "-hdr_6x6") == 0) || (strcasecmp(pArg, "-astc_hdr_6x6") == 0))
 		{
 			// max quality (if -lambda=0) or RDO UASTC HDR 6x6
 			m_comp_params.set_format_mode(basist::basis_tex_format::cASTC_HDR_6x6);
 			return true;
 		}
-		else if ((strcasecmp(pArg, "-hdr_6x6i") == 0) || (strcasecmp(pArg, "-uastc_hdr_6x6") == 0))
+		else if ((strcasecmp(pArg, "-hdr_6x6i") == 0) || (strcasecmp(pArg, "-uastc_hdr_6x6") == 0) || (strcasecmp(pArg, "-uastc_hdr_6x6i") == 0))
 		{
 			// intermediate format UASTC HDR 6x6
 			m_comp_params.set_format_mode(basist::basis_tex_format::cUASTC_HDR_6x6_INTERMEDIATE);
@@ -2087,19 +2099,22 @@ static bool unpack_and_validate_ktx2_file(
 		return false;
 	}
 	}
-
-	printf("Supercompression Format: %s\n", pFmt_str);
-	
-	printf("Supercompression Scheme: ");
+			
+	printf("KTX2 Supercompression Scheme: ");
 	switch (dec.get_header().m_supercompression_scheme)
 	{
 	case basist::KTX2_SS_NONE: printf("NONE\n"); break;
 	case basist::KTX2_SS_BASISLZ: printf("BASISLZ\n"); break;
 	case basist::KTX2_SS_ZSTANDARD: printf("ZSTANDARD\n"); break;
+	case basist::KTX2_SS_DEFLATE: printf("DEFLATE\n"); break;
+	case basist::KTX2_SS_UASTC_HDR_6x6I: printf("UASTC_HDR_6x6I\n"); break;
+	case basist::KTX2_SS_XUASTC_LDR: printf("XUASTC_LDR\n"); break;
 	default:
 		error_printf("Invalid/unknown/unsupported\n");
 		return false;
 	}
+
+	printf("Library Supercompression Format: %s\n", pFmt_str);
 
 	printf("Has Alpha: %u\n", (uint32_t)dec.get_has_alpha());
 	
@@ -2170,9 +2185,9 @@ static bool unpack_and_validate_ktx2_file(
 		for (uint32_t j = 0; j < dec.get_key_values()[i].m_value.size(); j++)
 		{
 			uint8_t c = dec.get_key_values()[i].m_value[j];
-			if (!( 
-				((c >= ' ') && (c < 0x80)) || 
-				((j == dec.get_key_values()[i].m_value.size() - 1) && (!c))
+			if (!(
+				(!c) ||
+				((c >= ' ') && (c < 0x80))  
 				))
 			{
 				is_ascii = false;
@@ -5646,6 +5661,8 @@ static bool peek_astc_file(const char* pFilename)
 	};
 
 	basisu::hash_map<astc_helpers::log_astc_block, uint32_t, basist::bit_hasher<astc_helpers::log_astc_block>, log_astc_block_config_cmp_t > unique_config_histogram;
+
+	uint32_t total_subsets = 0;
 	
 	for (uint32_t by = 0; by < blocks.get_height(); by++)
 	{
@@ -5726,6 +5743,8 @@ static bool peek_astc_file(const char* pFilename)
 
 				uint32_t cur_endpoint_ofs = 0;
 				bool has_unequal_cems = false;
+
+				total_subsets += log_blk.m_num_partitions;
 
 				for (uint32_t p = 0; p < log_blk.m_num_partitions; p++)
 				{
@@ -5839,6 +5858,7 @@ static bool peek_astc_file(const char* pFilename)
 
 	fmt_printf("Total blocks: {}, total void extent LDR: {}, total void extent HDR: {}, total normal: {}\n", total_blocks, total_solid_blocks_ldr, total_solid_blocks_hdr, total_normal_blocks);
 	fmt_printf("Total dual plane: {} {3.2}%\n", total_dp, total_dp * 100.0f / (float)total_blocks);
+	fmt_printf("Total subsets across all blocks: {}, Avg. subsets per block: {}\n", total_subsets, (float)total_subsets / (float)total_blocks);
 
 	fmt_printf("Min weight grid dimensions: {}x{}\n", min_weight_grid_width, min_weight_grid_height);
 	fmt_printf("Max weight grid width: {}, height: {}\n", max_weight_grid_width, max_weight_grid_height);
@@ -5847,13 +5867,13 @@ static bool peek_astc_file(const char* pFilename)
 	for (uint32_t i = 0; i < 4; i++)
 		fmt_printf("{}: {} {3.2}%\n", i + 1, part_hist[i], (float)part_hist[i] * 100.0f / (float)total_blocks);
 
-	fmt_printf("\nCEM usage histogram:\n");
+	fmt_printf("\nCEM usage histogram (percentages relative to total overall subsets used in texture):\n");
 	for (uint32_t i = 0; i < 15; i++)
 	{
 		fmt_printf("{}: {} {3.2}%, total BC: {} {3.2}%, total DP: {} {3.2}%\n", i,
-			cem_hist[i], (float)cem_hist[i] * 100.0f / (float)total_blocks,
-			cem_used_bc_hist[i], (float)cem_used_bc_hist[i] * 100.0f / (float)total_blocks,
-			cem_dp_hist[i], (float)cem_dp_hist[i] * 100.0f / (float)total_blocks);
+			cem_hist[i], (float)cem_hist[i] * 100.0f / (float)total_subsets,
+			cem_used_bc_hist[i], (float)cem_used_bc_hist[i] * 100.0f / (float)total_subsets,
+			cem_dp_hist[i], (float)cem_dp_hist[i] * 100.0f / (float)total_subsets);
 	}
 
 	fmt_printf("\nUsed endpoint ISE levels:\n");

@@ -22,10 +22,11 @@
 
 // v1.50: Added UASTC HDR 4x4 support
 // v1.60: Added RDO ASTC HDR 6x6 and intermediate support
-// v1.65: Added ASTC LDR 4x4-12x12 and XUASTC LDR 4x4-12x12
+// v1.65: Added ASTC LDR 4x4-12x12 and XUASTC LDR 4x4-12x12 (not publically released)
 // v2.00: Added unified effort/quality options across all formats, fast direct transcoding of XUASTC 4x4/6x6/8x6 to BC7, adaptive deblocking, ZStd or arithmetic profiles, weight grid DCT
-#define BASISD_LIB_VERSION 200
-#define BASISD_VERSION_STRING "02.00"
+// v2.10: Khronos modifications to KTX2 file format for UASTC HDR 6x6i support for KTX-Software compatiblity (we're also modifying how XUASTC LDR files use KTX2 to be compatible)
+#define BASISD_LIB_VERSION 210
+#define BASISD_VERSION_STRING "02.10"
 
 #ifdef _DEBUG
 #define BASISD_BUILD_DEBUG

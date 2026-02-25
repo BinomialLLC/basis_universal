@@ -3234,6 +3234,10 @@ namespace astc_helpers
 							// See latest spec with recent (2023-2024) fixes: 
 							// https://raw.githubusercontent.com/KhronosGroup/DataFormat/refs/heads/main/astc.txt
 							// "For _LDR endpoint modes_, each color component C is calculated from the corresponding 8 - bit endpoint components C~0~and C~1~as follows" - does this mean alpha too? I guess so. (8/15/2025.)
+
+							// 2/22/2026: See ARM errata 3922301 "ASTC decompression incorrectly rounds linear color endpoints when using unorm8 decode mode". (We currently always assume unorm8 decode mode.)
+							// Our ASTC/XUASTC encoders default to the sRGB decode profile, not linear, so at least our default behavior isn't impacted by this.
+							// https://documentation-service.arm.com/static/67ca1a5ece2747241fced502?utm_source=chatgpt.com
 							if (dec_mode == cDecodeModeSRGB8)
 							{
 								le = (le << 8) | 0x80;
