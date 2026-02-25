@@ -1,4 +1,4 @@
-# basis_universal v2.0
+# basis_universal v2.1
 An LDR/HDR portable GPU supercompressed texture transcoding system. 
 
 [![Build status](https://img.shields.io/appveyor/build/BinomialLLC/basis-universal/master.svg)](https://ci.appveyor.com/project/BinomialLLC/basis-universal)
