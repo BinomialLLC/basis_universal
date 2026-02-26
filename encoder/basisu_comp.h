@@ -53,12 +53,17 @@ namespace basisu
 	const float BASISU_DEFAULT_HYBRID_SEL_CB_QUALITY_THRESH = 2.0f;
 
 	const uint32_t BASISU_MAX_IMAGE_DIMENSION = 16384;
-	const uint32_t BASISU_QUALITY_MIN = 1;
+	
+	// The original ETC1S specific (non-unified) quality level
+	const uint32_t BASISU_QUALITY_MIN = 1; // note 0 is also technically valid in the code/API for ETC1S; the difference in quality is tiny (both result in very small codebooks)
 	const uint32_t BASISU_QUALITY_MAX = 255;
-	const uint32_t BASISU_XUASTC_QUALITY_MIN = 1;
-	const uint32_t BASISU_XUASTC_QUALITY_MAX = 100;
+		
 	const uint32_t BASISU_MAX_ENDPOINT_CLUSTERS = basisu_frontend::cMaxEndpointClusters;
 	const uint32_t BASISU_MAX_SELECTOR_CLUSTERS = basisu_frontend::cMaxSelectorClusters;
+
+	// [1,100] are also the valid unified quality levels
+	const uint32_t BASISU_XUASTC_QUALITY_MIN = 1;
+	const uint32_t BASISU_XUASTC_QUALITY_MAX = 100;
 
 	const uint32_t BASISU_MAX_SLICES = 0xFFFFFF;
 

@@ -865,7 +865,7 @@ namespace basisu
 		{
 			// ETC1S
 			if (m_params.m_status_output)
-				printf("Mode: ETC1S Quality (1-255): %i, Comp Level (Effort, 0-6): %i\n", m_params.m_quality_level, (int)m_params.m_etc1s_compression_level);
+				printf("Mode: ETC1S Quality (0-255): %i, Comp Level (Effort, 0-6): %i\n", m_params.m_quality_level, (int)m_params.m_etc1s_compression_level);
 			
 			if (!process_frontend())
 				return cECFailedFrontEnd;
