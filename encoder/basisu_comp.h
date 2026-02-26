@@ -652,7 +652,9 @@ namespace basisu
 		uint32_t m_etc1s_max_endpoint_clusters;
 		uint32_t m_etc1s_max_selector_clusters;
 
-		// Quality level (bitrate vs. distortion tradeoff) control for ETC1S or XUASTC LDR 4x4-12x12 (must not be -1 for DCT to be used in XUASTC LDR 4x4 mode)
+		// Quality level (bitrate vs. distortion tradeoff) control for ETC1S or XUASTC LDR 4x4-12x12. 
+		// ETC1S: Must set to [1,255] or [BASISU_QUALITY_MIN, BASISU_QUALITY_MAX] to control quality vs. bitrate. If -1 (the default!), quality is controlled by m_etc1s_max_endpoint_clusters and m_etc1s_max_selector_clusters directly.
+		// XUASTC LDR: Must not be -1 for DCT.
 		int m_quality_level; 
 		
 		// m_tex_type, m_userdata0, m_userdata1, m_framerate - These fields go directly into the .basis file header.
@@ -683,7 +685,7 @@ namespace basisu
 		const basist::basisu_lowlevel_etc1s_transcoder *m_pGlobal_codebooks;
 
 		// KTX2 specific parameters.
-		// Internally, the compressor always creates a .basis file then it converts that lossless to KTX2.
+		// Internally, the compressor always creates a .basis file then it converts that losslessly to KTX2.
 		bool_param<false> m_create_ktx2_file;
 		basist::ktx2_supercompression m_ktx2_uastc_supercompression;
 		basist::ktx2_transcoder::key_value_vec m_ktx2_key_values;
