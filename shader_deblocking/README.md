@@ -46,6 +46,8 @@ The shader can be easily simplified to sample the texture less by using less tap
 
 Many variations and optimizations of this basic idea are possible. *Now shader engineers can directly impact memory consumption.* The better your deblocking shaders are tuned or your specific content, the bigger the ASTC block size you can ship. ASTC texture deblocking pixel shader engineering is now a memory optimization skill. 
 
+A simpler, [faster 5 tap filter variant is here](https://pastebin.com/jsF6nUZg). In practice, this usually looks just as good on most textures/images.
+
 ---
 
 ## Performance
