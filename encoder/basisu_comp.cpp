@@ -1367,9 +1367,9 @@ namespace basisu
 			else
 			{
 				// No DCT quality level specified, but they wanted DCT - display warning
-				if (cfg.m_use_dct)
+				if (m_params.m_xuastc_ldr_use_dct)
 				{
-					printf("Warning: m_use_dct enabled, but m_quality_level was -1 (not set). Not using DCT. Quality level must range from 1-100.\n");
+					printf("Warning: m_xuastc_ldr_use_dct enabled, but m_quality_level was -1 (not set). Not using DCT. Quality level must range from 1-100.\n");
 				}
 			}
 		}
