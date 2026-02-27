@@ -652,7 +652,7 @@ namespace basisu
 		param<int> m_mip_smallest_dimension;
 						
 		// ETC1S codebook size (quality) control. 
-		// If m_etc1s_quality_level != -1, it controls the quality level. It ranges from [1,255] or [BASISU_QUALITY_MIN, BASISU_QUALITY_MAX].
+		// If m_quality_level (previously named m_etc1s_quality_level) != -1, it controls the quality level. It ranges from [1,255] or [BASISU_QUALITY_MIN, BASISU_QUALITY_MAX].
 		// Otherwise m_max_endpoint_clusters/m_max_selector_clusters controls the codebook sizes directly.
 		uint32_t m_etc1s_max_endpoint_clusters;
 		uint32_t m_etc1s_max_selector_clusters;
