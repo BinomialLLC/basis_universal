@@ -8,7 +8,7 @@ An LDR/HDR portable GPU supercompressed texture transcoding system.
 Intro
 -----
 
-Basis Universal™ v2.1 is an open source [supercompressed](http://gamma.cs.unc.edu/GST/gst.pdf) LDR/HDR GPU compressed texture interchange system from Binomial LLC that supports two intermediate file formats: the [.KTX2 open standard from the Khronos Group](https://registry.khronos.org/KTX/specs/2.0/ktxspec.v2.html), and our own ".basis" file format. These file formats support rapid transcoding to virtually any compressed [GPU texture format](https://en.wikipedia.org/wiki/Texture_compression) released over the past quarter century. 
+Basis Universal™ v2.1 is an open source [supercompressed](http://gamma.cs.unc.edu/GST/gst.pdf) LDR/HDR GPU compressed texture interchange system from Binomial LLC that supports two intermediate file formats: the [.KTX2 open standard from the Khronos Group](https://registry.khronos.org/KTX/specs/2.0/ktxspec.v2.html), and our own ".basis" file format. These file formats support rapid transcoding to virtually any compressed [GPU texture format](https://grokipedia.com/page/texture_compression) released over the past quarter century. 
 
 ## GPU Textures are Infrastructure
 
@@ -49,7 +49,7 @@ Links
 - [UASTC HDR 4x4 Example Images](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-HDR-Examples)
 - [UASTC HDR 6x6 Example Images](https://github.com/BinomialLLC/basis_universal/wiki/ASTC-HDR-6x6-Example-Images)
 - [UASTC HDR 6x6 Support Notes](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-HDR-6x6-Support-Notes)
-- [Quick comparison of ARM's astcenc HDR 6x6 encoder vs. ours](https://github.com/richgel999/junkdrawer/wiki/ASTC-6x6-HDR:-astcenc-%E2%80%90thorough-%E2%80%90exhaustive-vs.-basis-universal-comp_level-3)
+- [Quick comparison of ARM's astcenc HDR 6x6 encoder vs. ours](https://github.com/richgel999/junkdrawer/wiki/ASTC-HDR-6x6-Encoder-Comparisons)
 
 ----
 
@@ -88,7 +88,7 @@ This mode supports an optional [Rate-Distortion Optimized (RDO)](https://en.wiki
 
 Here is the [UASTC LDR 4x4 specification document](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-LDR-4x4-Texture-Specification).
 
-3. **[UASTC HDR 4x4](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-HDR-4x4-Texture-Specification-v1.0)**: An 8 bits/pixel HDR high quality mode. This is a 24 mode subset of the standard [ASTC HDR](https://en.wikipedia.org/wiki/Adaptive_scalable_texture_compression) 4x4 (8bpp) texture format. It's designed to be high quality, supporting the 27 partition patterns in common between BC6H and ASTC, and fast to transcode with very little loss (typically a fraction of a dB PSNR) to the BC6H HDR texture format. Notably, **UASTC HDR 4x4 data is 100% standard ASTC texture data**, so no transcoding at all is required on devices or APIs that support ASTC HDR. This mode can also be transcoded to various 32-64bpp uncompressed HDR texture/image formats.
+3. **[UASTC HDR 4x4](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-HDR-4x4-Texture-Specification)**: An 8 bits/pixel HDR high quality mode. This is a 24 mode subset of the standard [ASTC HDR](https://en.wikipedia.org/wiki/Adaptive_scalable_texture_compression) 4x4 (8bpp) texture format. It's designed to be high quality, supporting the 27 partition patterns in common between BC6H and ASTC, and fast to transcode with very little loss (typically a fraction of a dB PSNR) to the BC6H HDR texture format. Notably, **UASTC HDR 4x4 data is 100% standard ASTC texture data**, so no transcoding at all is required on devices or APIs that support ASTC HDR. This mode can also be transcoded to various 32-64bpp uncompressed HDR texture/image formats.
 
 Here is the [UASTC HDR 4x4 specification document](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-HDR-4x4-Texture-Specification-v1.0), and here are some compressed [example images](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-HDR-Examples).
 
@@ -98,13 +98,13 @@ The ASTC HDR decoder, used in the transcoder module, supports the entire ASTC HD
 
 5. **UASTC HDR 6x6 Intermediate ("GPU Photo HDR")**: A custom compressed intermediate format that can be rapidly transcoded to ASTC HDR 6x6, BC6H, and various uncompressed HDR formats. The custom compressed file format is [described here](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-HDR-6x6-Intermediate-File-Format-(Basis-GPU-Photo-6x6)). The format supports 75 unique ASTC configurations, weight grid upsampling, 1-3 subsets, single or dual planes, CEM's 7 and 11, and all unique ASTC partition patterns. One of the first HDR GPU texture codecs supporting the [delta E ITP (ICtCp) colorspace metric](https://www.portrait.com/resource-center/about-deltae-e/) and perceptual saliency maps.
 
-6. **Standard ASTC LDR-4x4-12x12**. Supports all standard 14 ASTC block sizes. Transcodable from any ASTC block size to any other supported LDR texture format with adaptive deblocking, including BC7 using the [bc7f "one-shot" analytical BC7 encoder](https://github.com/BinomialLLC/basis_universal/wiki/Transcoder-Internals-%E2%80%90-Analytical-Real%E2%80%90Time-Encoders) (supporting all BC7 modes/features) and ETC1 (using etc1f, which also supports the entire ETC1 format).
+6. **Standard ASTC LDR-4x4-12x12**. Supports all standard 14 ASTC block sizes. Transcodable from any ASTC block size to any other supported LDR texture format with adaptive deblocking, including BC7 using the [bc7f "one-shot" analytical BC7 encoder](https://github.com/BinomialLLC/basis_universal/wiki/Transcoder-Internals-Analytical-Real-Time-Encoders) (supporting all BC7 modes/features) and ETC1 (using etc1f, which also supports the entire ETC1 format).
 
 The ASTC LDR decoder, used in the transcoder module, supports the entire standard ASTC LDR format (i.e. not just ASTC texture blocks generated using our encoder). The ASTC LDR transcoder can transcode any block size ASTC (4x4 - 12x12) to the other LDR texture formats.
  
 7. **XUASTC LDR 4x4-12x12 ("GPU Photo LDR/SDR")**: Supercompressed ASTC with **Weight Grid DCT**, supporting all 14 standard ASTC block sizes, with adaptive deblocking when transcoding to other texture/pixel formats. Bitrates range from approximately 0.3–5.7 bpp, depending on content, profile, block size, windowed RDO, and Weight Grid DCT quality settings. Typical XUASTC LDR 4×4 (**8 bpp in memory**) transmission/on-disk bitrate with Weight Grid DCT (where it is least effective) is **1.15–3.5 bpp (typical ≈2.25 bpp)**, with larger block sizes achieving even lower usable bitrates, down to approximately 0.3 bpp. Like ASTC LDR, the XUASTC LDR transcoder can transcode any block size ASTC (4x4 - 12x12) to the other LDR texture formats, but with additional block-size specific optimizations.
 
-Supports three profiles: context-based range/arithmetic coding (for higher compression ratios), Zstd (for faster and simpler transcoding), or a hybrid profile using both approaches. Transcodable to all other supported LDR texture formats, including fully featured (all 8 modes, all dual-plane channel configurations, all mode settings) BC7. Certain common block sizes (4×4, 6×6, and 8×6) have specializations for particularly fast transcoding directly to BC7, bypassing analytical BC7 encoding (using [bc7f](https://github.com/BinomialLLC/basis_universal/wiki/Transcoder-Internals-%E2%80%90-Analytical-Real%E2%80%90Time-Encoders)) entirely for the most common ASTC configurations (solid color and single-subset CEMs).
+Supports three profiles: context-based range/arithmetic coding (for higher compression ratios), Zstd (for faster and simpler transcoding), or a hybrid profile using both approaches. Transcodable to all other supported LDR texture formats, including fully featured (all 8 modes, all dual-plane channel configurations, all mode settings) BC7. Certain common block sizes (4×4, 6×6, and 8×6) have specializations for particularly fast transcoding directly to BC7, bypassing analytical BC7 encoding (using [bc7f](https://github.com/BinomialLLC/basis_universal/wiki/Transcoder-Internals-Analytical-Real-Time-Encoders)) entirely for the most common ASTC configurations (solid color and single-subset CEMs).
 
 Weight Grid DCT can be disabled; however, supercompression remains available with optional, configurable windowed RDO. Compatible with all major image and texture content types, including photographic images, lightmaps, albedo/specular textures, various types of normal maps, luminance-only maps, and geospatial mapping signals.
 
@@ -521,7 +521,7 @@ External Tool Links
 - [RenderDoc](https://renderdoc.org/) - Reliable viewer for LDR/HDR .DDS files in BC1-7 formats.
 - [Mali Texture Compression Tool](https://community.arm.com/support-forums/f/graphics-gaming-and-vr-forum/52390/announcement-mali-texture-compression-tool-end-of-life) - Now deprecated.
 
-For more useful links, papers, and tools/libraries, see the end of the [UASTC HDR 4x4 texture specification](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-HDR-4x4-Texture-Specification-v1.1#papersfurther-reading).
+For more useful links, papers, and tools/libraries, see the end of the [UASTC HDR 4x4 texture specification](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-HDR-4x4-Texture-Specification#papersfurther-reading).
 
 ----
 
