@@ -48,6 +48,8 @@ Many variations and optimizations of this basic idea are possible. *Now shader e
 
 A simpler, [faster 5 tap filter variant is here](https://pastebin.com/jsF6nUZg). (This shader isn't quite compatible with the currently checked in Python sample, as it uses a new `maxLod` uniform to limit the max fetched mipmap level.) In practice, this simple shader usually looks just as good on most textures/images. ` textureQueryLod()` and `textureSize()` could also be used (with some API's) to simplify the shader further.
 
+*Note: both of these shaders can be slightly improved by subtracting a half texel offset before computing `blockPos`: `vec2 blockPos = mod(texelPos - vec2(.5, .5), blockSize);`. The next version of this sample will have this improvement.*
+
 ---
 
 ## Performance
