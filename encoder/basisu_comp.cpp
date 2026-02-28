@@ -892,6 +892,7 @@ namespace basisu
 		return cECSuccess;
 	}
 
+	// This is both ASTC HDR 6x6 and UASTC HDR 6x6i.
 	basis_compressor::error_code basis_compressor::encode_slices_to_astc_6x6_hdr()
 	{
 		debug_printf("basis_compressor::encode_slices_to_astc_6x6_hdr\n");
