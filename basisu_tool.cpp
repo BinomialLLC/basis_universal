@@ -1367,7 +1367,7 @@ public:
 		{
 			if (m_used_old_style_codec_config_param)
 			{
-				fmt_printf("WARNING: Mixing old and new-style (-effort and/or -quality) codec configuration parameters.\nNew-style parameters may overwrite your old-style codec configuration settings.\nPrefer using -effort X and -quality X.");
+				fmt_printf("WARNING: Mixing old and new-style (-effort and/or -quality) codec configuration parameters.\nNew-style parameters may overwrite your old-style codec configuration settings.\nPrefer using -effort X and -quality X.\n");
 			}
 
 			const bool lossy_supercompression_changed = m_comp_params.m_xuastc_ldr_use_lossy_supercompression.was_changed();
