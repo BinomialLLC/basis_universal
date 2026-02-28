@@ -1830,7 +1830,7 @@ static bool compress_mode(command_line_params &opts)
 				case basis_compressor::cECFailedFrontEnd:
 					error_printf("Compressor frontend stage failed!\n");
 					break;
-				case basis_compressor::cECFailedFontendExtract:
+				case basis_compressor::cECFailedFrontendExtract:
 					error_printf("Compressor frontend data extraction failed!\n");
 					break;
 				case basis_compressor::cECFailedBackend:

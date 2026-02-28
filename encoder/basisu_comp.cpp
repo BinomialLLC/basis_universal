@@ -871,7 +871,7 @@ namespace basisu
 				return cECFailedFrontEnd;
 
 			if (!extract_frontend_texture_data())
-				return cECFailedFontendExtract;
+				return cECFailedFrontendExtract;
 
 			if (!process_backend())
 				return cECFailedBackend;

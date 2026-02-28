@@ -779,7 +779,7 @@ namespace basisu
 			cECFailedValidating,
 			cECFailedEncodeUASTC,
 			cECFailedFrontEnd,
-			cECFailedFontendExtract,
+			cECFailedFrontendExtract,
 			cECFailedBackend,
 			cECFailedCreateBasisFile,
 			cECFailedWritingOutput,
