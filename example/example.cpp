@@ -202,8 +202,8 @@ static bool encode_uastc_hdr()
     
 #if 1
     // Create a job pool containing 7 total threads (the calling thread plus 6 additional threads).
-    // A job pool must be created, even if threading is disabled. It's fine to pass in 0 for NUM_THREADS.
-	const uint32_t NUM_THREADS = 6;
+    // A job pool must be created, even if threading is disabled.
+	const uint32_t NUM_THREADS = 7;
 	job_pool jp(NUM_THREADS);
 	params.m_pJob_pool = &jp;
 	params.m_multithreading = true;
