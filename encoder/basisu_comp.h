@@ -250,8 +250,8 @@ namespace basisu
 			m_endpoint_rdo_thresh(BASISU_DEFAULT_ENDPOINT_RDO_THRESH, 0.0f, 1e+10f),
 			m_mip_scale(1.0f, .000125f, 4.0f),
 			m_mip_smallest_dimension(1, 1, 16384),
-			m_etc1s_max_endpoint_clusters(512),
-			m_etc1s_max_selector_clusters(512),
+			m_etc1s_max_endpoint_clusters(0),
+			m_etc1s_max_selector_clusters(0),
 			m_quality_level(-1),
 			m_pack_uastc_ldr_4x4_flags(cPackUASTCLevelDefault),
 			m_rdo_uastc_ldr_4x4_quality_scalar(1.0f, 0.001f, 50.0f),
@@ -719,9 +719,9 @@ namespace basisu
 		bool_param<true> m_ldr_hdr_upconversion_srgb_to_linear;
 		
 		// m_ldr_hdr_upconversion_nit_multiplier is only used when loading SDR/LDR images and compressing to an HDR output format.
-		// By default m_ldr_hdr_upconversion_nit_multiplier is 0. It's an override for the default.
-		// When loading LDR images, a default multiplier of 1.0 will be used in UASTC 4x4 HDR mode. Partially for backwards compatibility with previous library releases, and also because it doesn't really matter with this encoder what the multiplier is.
-		// With the 6x6 HDR encoder it does matter because it expects inputs in absolute nits, so the LDR upconversion luminance multiplier default will be 100 nits. (Most SDR monitors were/are 80-100 nits or so.)
+		// By default m_ldr_hdr_upconversion_nit_multiplier is 0. It's an override for the default, which is now 100.0 nits (LDR_TO_HDR_NITS).
+		// UASTC HDR 4x4: The default multiplier of 1.0 was previously used in this codec's original release. Note this encoder isn't dependent on absolute nits, unlike the ASTC 6x6 HDR encoder.
+		// RDO ASTC HDR 6x6/UASTC HDR 6x6i: These encoders expect inputs in absolute nits, so the LDR upconversion luminance multiplier default will be 100 nits. (Most SDR monitors were/are 80-100 nits or so.)
 		param<float> m_ldr_hdr_upconversion_nit_multiplier;
 
 		// The optional sRGB space bias to use during LDR->HDR upconversion. Should be between [0,.49] or so. Only applied on black (0.0) color components.
