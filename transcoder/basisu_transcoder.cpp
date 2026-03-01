@@ -19606,7 +19606,7 @@ namespace basist
 			return false;
 		}
 
-		if (((m_header.m_dfd_byte_offset + m_header.m_dfd_byte_length) > m_data_size) || (m_header.m_dfd_byte_offset < sizeof(ktx2_header)))
+		if (((m_header.m_dfd_byte_offset.get_uint64() + m_header.m_dfd_byte_length.get_uint64()) > m_data_size) || (m_header.m_dfd_byte_offset < sizeof(ktx2_header)))
 		{
 			BASISU_DEVEL_ERROR("ktx2_transcoder::init: Invalid DFD offset and/or length\n");
 			return false;
@@ -20627,7 +20627,7 @@ namespace basist
 			return false;
 		}
 
-		if ((m_header.m_kvd_byte_offset + m_header.m_kvd_byte_length) > m_data_size)
+		if ((m_header.m_kvd_byte_offset.get_uint64() + m_header.m_kvd_byte_length.get_uint64()) > m_data_size)
 		{
 			BASISU_DEVEL_ERROR("ktx2_transcoder::read_key_values: Invalid KVD byte offset and/or length\n");
 			return false;
