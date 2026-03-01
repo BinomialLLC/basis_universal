@@ -24141,7 +24141,8 @@ namespace basist
 			max_g = pPixels[max_idx * 3 + 1];
 			max_b = pPixels[max_idx * 3 + 2];
 
-			assert((max_r < MAX_HALF_FLOAT_AS_INT_BITS) && (max_g < MAX_HALF_FLOAT_AS_INT_BITS) && (max_b < MAX_HALF_FLOAT_AS_INT_BITS));
+			//assert((max_r < MAX_HALF_FLOAT_AS_INT_BITS) && (max_g < MAX_HALF_FLOAT_AS_INT_BITS) && (max_b < MAX_HALF_FLOAT_AS_INT_BITS));
+			assert((max_r <= MAX_HALF_FLOAT_AS_INT_BITS) && (max_g <= MAX_HALF_FLOAT_AS_INT_BITS) && (max_b <= MAX_HALF_FLOAT_AS_INT_BITS));
 
 			bc6h_quant_dequant_endpoints(min_r, min_g, min_b, max_r, max_g, max_b, 10);
 
