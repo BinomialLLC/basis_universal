@@ -3832,6 +3832,8 @@ namespace basisu
 
 	bool is_image_filename_hdr(const char* pFilename);
 
+	void convert_ldr_to_hdr_image(imagef& img, const image& ldr_img, bool ldr_srgb_to_linear, float linear_nit_multiplier = 1.0f, float ldr_black_bias = 0.0f);
+
 	// Supports .HDR and most (but not all) .EXR's (see TinyEXR).
 	bool load_image_hdr(const char* pFilename, imagef& img, bool ldr_srgb_to_linear = true, float linear_nit_multiplier = 1.0f, float ldr_black_bias = 0.0f);
 	

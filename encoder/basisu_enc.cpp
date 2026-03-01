@@ -573,7 +573,7 @@ namespace basisu
 		return false;
 	}
 
-	static void convert_ldr_to_hdr_image(imagef &img, const image &ldr_img, bool ldr_srgb_to_linear, float linear_nit_multiplier = 1.0f, float ldr_black_bias = 0.0f)
+	void convert_ldr_to_hdr_image(imagef &img, const image &ldr_img, bool ldr_srgb_to_linear, float linear_nit_multiplier, float ldr_black_bias)
 	{
 		img.resize(ldr_img.get_width(), ldr_img.get_height());
 
