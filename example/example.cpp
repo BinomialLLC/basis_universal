@@ -1649,11 +1649,93 @@ static bool test_compress_xuastc_ldr_texture_video()
     return true;
 }
 
+static bool test_compress_uastc_hdr_6x6i_array_custom_mipmap()
+{
+    printf("test_compress_uastc_hdr_6x6i_array_custom_mipmap:\n");
+
+    const uint32_t ARRAY_SIZE = 2;
+    const uint32_t W = 384, H = 256;
+
+    basis_compressor_params params;
+
+    // Set the format to UASTC HDR 6x6i using the recommended unified method.
+    params.set_format_mode_and_quality_effort(basist::basis_tex_format::cUASTC_HDR_6x6_INTERMEDIATE, 75, 3);
+
+    // Input is sRGB
+    params.set_srgb_options(true);
+
+    // Create the array slices
+    for (uint32_t array_index = 0; array_index < ARRAY_SIZE; array_index++)
+    {
+        int cur_w = W, cur_h = H;
+        int mip_index = 0;
+
+        // Create the mipmaps
+        params.m_source_images_hdr.enlarge(1);
+        params.m_source_mipmap_images_hdr.enlarge(1);
+
+        do
+        {
+            image img(cur_w, cur_h);
+
+            img.debug_text(0, 10, 1, 1, g_white_color, &g_black_color, false, fmt_string("{} {} {}x{}", array_index, mip_index, cur_w, cur_h).c_str());
+
+            // Upconvert LDR to HDR
+            imagef hdr_img;
+            convert_ldr_to_hdr_image(hdr_img, img, true, 100.0f, 0.0f);
+
+			// Add the source image for this mip level. The first mip level goes in m_source_images, and the remaining mip levels go in m_source_mipmap_images.
+            if (!mip_index)
+                params.m_source_images_hdr[array_index] = hdr_img;
+            else
+                params.m_source_mipmap_images_hdr[array_index].push_back(hdr_img);
+
+            ++mip_index;
+
+            cur_w = maximum(1, cur_w / 2);
+            cur_h = maximum(1, cur_h / 2);
+
+        } while ((cur_w > 1) || (cur_h > 1));
+
+    } // array_index
+        
+    // Enable debug/status output and statistics.
+    params.m_debug = true;
+    params.m_status_output = true;
+    params.m_compute_stats = true;
+
+    // Set the texture type to video frames, which will cause the compressor to treat the images as a texture video sequence (using skip blocks).
+    params.m_tex_type = basist::basis_texture_type::cBASISTexType2DArray;
+
+    // Write a .ktx2 file to disk.
+    params.m_create_ktx2_file = true;
+    params.m_write_output_basis_or_ktx2_files = true;
+    params.m_out_filename = "test_uastc_hdr_6x6i_array_custom_mips.ktx2";
+
+    // Create a job pool. A job pool MUST always be created, even if threading is disabled.
+    // num_total_threads is the TOTAL thread count: 1 = calling thread only, 7 = calling thread + 6 extra.
+    const uint32_t NUM_THREADS = 7;
+    job_pool jp(NUM_THREADS);
+    params.m_pJob_pool = &jp;
+    params.m_multithreading = true;
+
+    // Initialize and run the compressor.
+    basis_compressor comp;
+    if (!comp.init(params))
+        return false;
+
+    basisu::basis_compressor::error_code ec = comp.process();
+    if (ec != basisu::basis_compressor::cECSuccess)
+        return false;
+
+    return true;
+}
+
 static bool lowlevel_compression_tests()
 {
     // basisu_encoder_init() MUST have been called before this point.
     basisu_encoder_init();
-
+            
     if (!test_compress_etc1s())
         return false;
 
@@ -1681,6 +1763,9 @@ static bool lowlevel_compression_tests()
     if (!test_compress_xuastc_ldr_texture_video())
         return false;
 
+    if (!test_compress_uastc_hdr_6x6i_array_custom_mipmap())
+        return false;
+        
     printf("lowlevel_compression_tests: Compression OK\n");
 
     return true;
