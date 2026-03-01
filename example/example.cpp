@@ -1661,8 +1661,8 @@ static bool test_compress_uastc_hdr_6x6i_array_custom_mipmap()
     // Set the format to UASTC HDR 6x6i using the recommended unified method.
     params.set_format_mode_and_quality_effort(basist::basis_tex_format::cUASTC_HDR_6x6_INTERMEDIATE, 75, 3);
 
-    // Input is sRGB
-    params.set_srgb_options(true);
+    // Input is linear
+    params.set_srgb_options(false);
 
     // Create the array slices
     for (uint32_t array_index = 0; array_index < ARRAY_SIZE; array_index++)
@@ -1735,7 +1735,7 @@ static bool lowlevel_compression_tests()
 {
     // basisu_encoder_init() MUST have been called before this point.
     basisu_encoder_init();
-            
+                        
     if (!test_compress_etc1s())
         return false;
 
@@ -1765,7 +1765,7 @@ static bool lowlevel_compression_tests()
 
     if (!test_compress_uastc_hdr_6x6i_array_custom_mipmap())
         return false;
-        
+                
     printf("lowlevel_compression_tests: Compression OK\n");
 
     return true;
