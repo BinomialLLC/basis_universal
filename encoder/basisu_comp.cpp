@@ -2510,10 +2510,21 @@ namespace basisu
 				slice_desc.m_mip_index = mip_indices[slice_index];
 
 				slice_desc.m_alpha = is_alpha_slice;
+				
 				slice_desc.m_iframe = false;
+
 				if (m_params.m_tex_type == basist::cBASISTexTypeVideoFrames)
 				{
-					slice_desc.m_iframe = (source_file_index == 0);
+					if (m_params.m_uastc)
+					{
+						// If it's not ETC1S, all slices are currently i-frames.					
+						slice_desc.m_iframe = true;
+					}
+					else
+					{
+						// ETC1S: only the first frame is currently an iframe. (TODO: We can easily fix this so ETC1S has periodic i-frames.)
+						slice_desc.m_iframe = (source_file_index == 0);
+					}
 				}
 
 				m_total_blocks += slice_desc.m_num_blocks_x * slice_desc.m_num_blocks_y;
