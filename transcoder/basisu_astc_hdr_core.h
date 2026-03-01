@@ -198,6 +198,9 @@ namespace basist
 			}
 		};
 
+		// Encodes to BC6H (unsigned variant).
+		// pPixels: pointer to 16 RGB half-float/FP16 values (48 total half-floats), in raster order. 
+		// Max encodable value is (in float) basist::MAX_HALF_FLOAT.
 		void fast_encode_bc6h(const basist::half_float* pPixels, basist::bc6h_block* pBlock, const fast_bc6h_params &params);
 
 		bool decode_6x6_hdr(const uint8_t* pComp_data, uint32_t comp_data_size, basisu::vector2D<astc_helpers::astc_block>& decoded_blocks, uint32_t& width, uint32_t& height);
