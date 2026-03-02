@@ -1731,11 +1731,75 @@ static bool test_compress_uastc_hdr_6x6i_array_custom_mipmap()
     return true;
 }
 
+// Creates a KTX2 ETC1S cubemap texture file
+static bool test_compress_etc1s_cubemap()
+{
+    printf("test_compress_etc1s_cubemap:\n");
+        
+    // In KTX2, cubemap faces must be square.
+    const uint32_t W = 256, H = 256;
+
+    basis_compressor_params params;
+
+    // Set the format to ETC1S using the recommended unified method.
+    params.set_format_mode_and_quality_effort(basist::basis_tex_format::cETC1S, 75, 3);
+
+    // Input is sRGB
+    params.set_srgb_options(true);
+
+    // Standard face order
+    static const char* s_pFace_names[6] = { "+X", "-X", "+Y", "-Y", "+Z", "-Z" };
+        
+    // Create the 6 faces to compress (for arrays, feed in 6*X)
+    for (uint32_t face_index = 0; face_index < 6; face_index++)
+    {
+        image img(W, H);
+                                
+        img.debug_text(0, 10, 1, 1, g_white_color, &g_black_color, false, fmt_string("Face {} {}", face_index, s_pFace_names[face_index]).c_str());
+
+        // Provide the HDR source image.
+        params.m_source_images.push_back(img);
+    }
+
+    // Enable debug/status output and statistics.
+    params.m_debug = true;
+    params.m_status_output = true;
+    params.m_compute_stats = true;
+
+    // Set the texture type to cubemap/cubemap array
+    params.m_tex_type = basist::basis_texture_type::cBASISTexTypeCubemapArray;
+
+    params.m_mip_gen = true;
+
+    // Write a .basis file to disk. (.KTX2 supports texture video too, but our current texture video WebGL sample only supports .basis.)
+    params.m_write_output_basis_or_ktx2_files = true;
+    params.m_create_ktx2_file = true;
+    params.m_out_filename = "test_etc1s_cubemap.ktx2";
+
+    // Create a job pool. A job pool MUST always be created, even if threading is disabled.
+    // num_total_threads is the TOTAL thread count: 1 = calling thread only, 7 = calling thread + 6 extra.
+    const uint32_t NUM_THREADS = 7;
+    job_pool jp(NUM_THREADS);
+    params.m_pJob_pool = &jp;
+    params.m_multithreading = true;
+
+    // Initialize and run the compressor.
+    basis_compressor comp;
+    if (!comp.init(params))
+        return false;
+
+    basisu::basis_compressor::error_code ec = comp.process();
+    if (ec != basisu::basis_compressor::cECSuccess)
+        return false;
+
+    return true;
+}
+
 static bool lowlevel_compression_tests()
 {
     // basisu_encoder_init() MUST have been called before this point.
     basisu_encoder_init();
-                        
+                                
     if (!test_compress_etc1s())
         return false;
 
@@ -1764,6 +1828,9 @@ static bool lowlevel_compression_tests()
         return false;
 
     if (!test_compress_uastc_hdr_6x6i_array_custom_mipmap())
+        return false;
+
+    if (!test_compress_etc1s_cubemap())
         return false;
                 
     printf("lowlevel_compression_tests: Compression OK\n");
