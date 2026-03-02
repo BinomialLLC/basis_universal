@@ -527,6 +527,7 @@ External Tool Links
 - [PVRTexTool](https://www.imgtec.com/developers/powervr-sdk-tools/pvrtextool/) - Can view .ASTC and .KTX files in some formats. (Note: .DDS viewer seems busted for BC1, doesn't support BC7 at all.)
 - [Microsoft's DirectXTex](https://github.com/microsoft/DirectXTex) - Samples contain a basic .DDS viewer. (Note: May still have issues loading .DDS files with texture dimensions that aren't divisible by 4 texels.)
 - [RenderDoc](https://renderdoc.org/) - Reliable viewer for LDR/HDR .DDS files in BC1-7 formats.
+- [Paint.NET](https://www.getpaint.net/) - Windows app: .DDS file loader, supports BC1-7 and cubemaps
 - [Mali Texture Compression Tool](https://community.arm.com/support-forums/f/graphics-gaming-and-vr-forum/52390/announcement-mali-texture-compression-tool-end-of-life) - Now deprecated.
 
 For more useful links, papers, and tools/libraries, see the end of the [UASTC HDR 4x4 texture specification](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-HDR-4x4-Texture-Specification#papersfurther-reading).
