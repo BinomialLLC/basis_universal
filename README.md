@@ -171,10 +171,18 @@ Running the Precompiled WASM WASI Executables
 
 For smaller images/textures (~4 megatexels or less), there are precompiled, secure, cross-platform 32-bit .WASM WASI executables checked into the `bin` directory: `basisu_mt.wasm` (multithreaded) and `basisu_st.wasm` (single threaded). Quick testing - ETC1S/UASTC LDR 4x4 (all platforms) - multithreaded and single threaded, using [wasmtime](https://wasmtime.dev/):
 
+Tested with wasmtime v39.0.0:
+
 ```
 cd bin
 wasmtime run --dir=. --dir=../test_files --wasm threads=yes --wasi threads=yes ./basisu_mt.wasm -test
 wasmtime run --dir=. --dir=../test_files ./basisu_st.wasm -test
+```
+
+For newer versions of wasmtime such as v42.0.1 add `--wasm shared-memory=yes`:
+
+```
+wasmtime run --dir=. --dir=../test_files --wasm threads=yes --wasm shared-memory=yes --wasi threads=yes ./basisu_mt.wasm -test
 ```
 
 See the `runwt.sh`, `runwt.bat`, `runw.sh`, or `runw.bat` scripts for examples on how to run the WASM executables using wasmtime. Windows example for XUASTC LDR 6x6 compression using the arithmetic profile, with Weight Grid DCT level 70:
