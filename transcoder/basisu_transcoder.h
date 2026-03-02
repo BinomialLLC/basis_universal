@@ -431,6 +431,7 @@ namespace basist
 	};
 #endif
 
+	// This is both ASTC LDR 4x4-12x12 and XUASTC LDR 4x4-12x12.
 	class basisu_lowlevel_xuastc_ldr_transcoder
 	{
 		friend class basisu_transcoder;
