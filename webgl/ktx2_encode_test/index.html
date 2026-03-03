@@ -2166,7 +2166,7 @@
    function showBusyModal()
    {
       //console.log("Showing modal");
-      document.getElementById('busy-modal').style.display = 'flex';
+      document.getElementById('busy-modal').style.display = 'block';
    }
 
    function hideBusyModal()
@@ -2371,7 +2371,7 @@
 
     <br>
     <div style="font-size: 24pt; font-weight: bold">
-    Basis Universal .KTX2 Supercompressed GPU Texture Encoding/Transcoding Testbed v2.13
+    Basis Universal .KTX2 Supercompressed GPU Texture Encoding/Transcoding Testbed v2.14
     </div>
 
     <br>This simple demo uses the <a href="https://github.com/BinomialLLC/basis_universal/">Basis Universal</a> C++ transcoder (compiled to WebAssembly using Emscripten) to transcode a .ktx2 file to:
@@ -2839,7 +2839,7 @@
     <div id="log-panel" class="log-panel">
     </div>
 
-    <div id="busy-modal" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); z-index: 9999; justify-content: center; align-items: center; font-size: 24px; color: white; display: none;">
+    <div id="busy-modal" style="position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background-color: rgba(0,0,0,0.85); z-index: 9999; font-size: 18px; color: white; display: none; padding: 20px 40px; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.5);">
     Encoding... Please wait.
     </div>
 
