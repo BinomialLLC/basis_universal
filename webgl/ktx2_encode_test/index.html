@@ -16,13 +16,14 @@
 
    function log(s)
    {
-//      var div = document.createElement('div');
-//      div.innerHTML = s;
-//      document.getElementById('log-panel').appendChild(div);
-     
+      var panel = document.getElementById('log-panel');
+
+      if (panel.childElementCount >= 750)
+         panel.innerHTML = '';
+
       var div = document.createElement('div');
       div.innerHTML = s;
-      document.getElementById('log-panel').appendChild(div);
+      panel.appendChild(div);
    }
 
    function logClear()
@@ -256,6 +257,7 @@
    var ldrHDRUpconversionScale = 1.0;
    var linearToSRGBFlag = false;
    var drawUseBilinearFiltering = false;
+   var displayZoom = 1.0;
 
    var tex, width, height, is_hdr, layers, levels, faces, tex_has_alpha, tex_is_srgb;
    var alignedWidth, alignedHeight, format, displayWidth, displayHeight;
@@ -271,6 +273,22 @@
    {
       if (!width)
          return;
+
+      // Keep the WebGL buffer at native resolution; use CSS to zoom the display.
+      var canvas = elem('canvas');
+      if (canvas.width !== displayWidth || canvas.height !== displayHeight)
+      {
+         canvas.width = displayWidth;
+         canvas.height = displayHeight;
+      }
+
+      var cssW = Math.round(displayWidth * displayZoom);
+      var cssH = Math.round(displayHeight * displayZoom);
+      canvas.style.width  = cssW + 'px';
+      canvas.style.height = cssH + 'px';
+
+      // Match CSS upscaling to the bilinear filtering setting.
+      canvas.style.imageRendering = drawUseBilinearFiltering ? 'auto' : 'pixelated';
 
       renderer.drawTexture(tex, displayWidth, displayHeight, drawMode, drawScale * ldrHDRUpconversionScale, linearToSRGBFlag, drawUseBilinearFiltering);
    }
@@ -460,8 +478,8 @@
          return;
       }
 
-      width = ktx2File.getWidth();
-      height = ktx2File.getHeight();
+      var baseWidth = ktx2File.getWidth();
+      var baseHeight = ktx2File.getHeight();
       var srcBlockWidth = ktx2File.getBlockWidth();
       var srcBlockHeight = ktx2File.getBlockHeight();
 
@@ -477,6 +495,48 @@
       faces = ktx2File.getFaces();
       tex_has_alpha = ktx2File.getHasAlpha();
       tex_is_srgb = ktx2File.isSRGB();
+
+      updateMipmapSliderRange(levels);
+
+      // Read the desired mipmap level from the slider, validate, and clamp if needed.
+      var selectedLevel = parseInt(document.getElementById('mipmap-level-slider').value, 10);
+      if (isNaN(selectedLevel) || selectedLevel < 0 || selectedLevel >= levels)
+      {
+         selectedLevel = 0;
+         document.getElementById('mipmap-level-slider').value = 0;
+         document.getElementById('mipmap-level-value').textContent = '0';
+      }
+
+      updateCubemapFaceRange(faces);
+
+      // Read the desired cubemap face from the slider, validate, and clamp if needed.
+      var selectedFace = parseInt(document.getElementById('cubemap-face-slider').value, 10);
+      if (isNaN(selectedFace) || selectedFace < 0 || selectedFace >= faces)
+      {
+         selectedFace = 0;
+         document.getElementById('cubemap-face-slider').value = 0;
+         document.getElementById('cubemap-face-value').textContent = '0';
+      }
+
+      // For array textures, layers==0 means non-arrayed (treat as 1 layer at index 0).
+      var effectiveLayers = Math.max(1, layers);
+      updateArrayLayerRange(effectiveLayers);
+
+      // Read the desired array layer from the slider, validate, and clamp if needed.
+      var selectedLayer = parseInt(document.getElementById('array-layer-slider').value, 10);
+      if (isNaN(selectedLayer) || selectedLayer < 0 || selectedLayer >= effectiveLayers)
+      {
+         selectedLayer = 0;
+         document.getElementById('array-layer-slider').value = 0;
+         document.getElementById('array-layer-value').textContent = '0';
+         document.getElementById('array-layer-input').value = 0;
+      }
+
+      // Set width/height to the selected mip level's original (unpadded) dimensions.
+      // This way all downstream code (alignment, transcoding, texture creation) works unchanged.
+      var imageLevelInfo = ktx2File.getImageLevelInfo(selectedLevel, selectedLayer, selectedFace);
+      width = imageLevelInfo.origWidth;
+      height = imageLevelInfo.origHeight;
 
       // If a HDR KTX2 file was upconverted from LDR/SDR content by us, it'll have a key indicating the Nit scale that was appplied.
       // We can use that to make viewing the file work out of the box.
@@ -716,16 +776,17 @@
 
       var total_texels = dumpKTX2FileDesc(ktx2File);
       var bpp = (data.byteLength * 8.0) / total_texels;
-      descString += ` (${bpp.toFixed(3)} bits/pixel).`;
+      var fileSizeKB = data.byteLength / 1024.0;
+      descString += ` (${bpp.toFixed(3)} bits/pixel, ${fileSizeKB.toFixed(2)} KB).`;
 
       elem('format').innerText = descString;
             
-      const dstSize = ktx2File.getImageTranscodedSizeInBytes(0, 0, 0, format);
+      const dstSize = ktx2File.getImageTranscodedSizeInBytes(selectedLevel, selectedLayer, selectedFace, format);
       const dst = new Uint8Array(dstSize);
 
-      const levelIndex =0;
-      const layerIndex = 0;
-      const faceIndex = 0;
+      const levelIndex = selectedLevel;
+      const layerIndex = selectedLayer;
+      const faceIndex = selectedFace;
 
       var flags = elem('highquality_transcoding').checked ? Module.basisu_decode_flags.cDecodeFlagsHighQuality.value : 0;
 
@@ -765,7 +826,9 @@
 
       g_transcodingTime = elapsed;
       
-      descString += '\nTexture Size: ' + width + 'x' + height + ', Levels: ' + levels + ', Layers: ' + layers + ', Faces: ' + faces + ', sRGB: ' + tex_is_srgb + ', alpha: ' + tex_has_alpha;
+      descString += '\nTexture Size: ' + baseWidth + 'x' + baseHeight + ', Levels: ' + levels + ', Layers: ' + layers + ', Faces: ' + faces + ', sRGB: ' + tex_is_srgb + ', alpha: ' + tex_has_alpha;
+
+      descString += '\nViewing: Mip ' + selectedLevel + ' (' + width + 'x' + height + ') Face ' + selectedFace + ' Layer ' + selectedLayer;
 
       descString += '\nTranscode time: ' + g_transcodingTime.toFixed(3) + 'ms';
 
@@ -799,6 +862,8 @@
       log('faces: ' + faces);
 
       log('ldrHDRUpconversionNitMultiplier: ' + ldrHDRUpconversionNitMultiplier);
+
+      log('selectedLevel: ' + selectedLevel + ' (' + width + 'x' + height + '), face: ' + selectedFace + ', layer: ' + selectedLayer);
 
       logTime('transcoding time', elapsed.toFixed(3));
 
@@ -1332,6 +1397,12 @@
       basisEncoder.setRDOUASTCQualityScalar(getUASTCLDRRDOQuality());
 
       basisEncoder.setMipGen(elem('Mipmaps').checked);
+      basisEncoder.setMipFilter(parseInt(elem('mip-filter-select').value, 10));
+      basisEncoder.setMipScale(parseFloat(elem('mip-scale-input').value) || 1.0);
+      basisEncoder.setMipSmallestDimension(parseInt(elem('mip-smallest-dim-input').value, 10) || 1);
+      basisEncoder.setMipRenormalize(elem('MipRenormalize').checked);
+      basisEncoder.setMipWrapping(elem('MipWrapping').checked);
+
       basisEncoder.setYFlip(elem('YFlip').checked);
 
       basisEncoder.setETC1SCompressionLevel(getETC1SCompLevel());
@@ -1423,12 +1494,21 @@
    function runLoadFile()
    {
       //logClear();
+      resetMipmapSliderToZero();
+      resetCubemapFaceToZero();
+      resetArrayLayerToZero();
+      resetDisplayZoom();
+      resetExposure();
       loadArrayBufferFromURI(elem('file').value, transcodeTexture, dataLoadError);
    }
 
    function runEncodeImageFile()
    {
       //logClear();
+
+      resetMipmapSliderToZero();
+      resetCubemapFaceToZero();
+      resetArrayLayerToZero();
 
       if ((elem('imagefile').value === '<externally loaded>') && (curLoadedImageData != null))
       {
@@ -1452,6 +1532,12 @@
 
       if (selectedFilename)
       {
+         resetMipmapSliderToZero();
+         resetCubemapFaceToZero();
+         resetArrayLayerToZero();
+         resetDisplayZoom();
+         resetExposure();
+
          elem('imagefile').value = selectedFilename;
 
          //logClear();
@@ -1523,6 +1609,185 @@
       document.getElementById('scale-value').textContent = v.toFixed(4);
       drawScale = v;
       redraw();
+   }
+
+   function updateMipmapLevel(value)
+   {
+      var v = parseInt(value, 10);
+      document.getElementById('mipmap-level-value').textContent = v;
+
+      // Re-transcode the current texture at the selected mip level.
+      if (curLoadedKTX2Data != null)
+      {
+         transcodeTexture(curLoadedKTX2Data, curLoadedKTX2URI);
+      }
+   }
+
+   function updateDisplayZoom(value)
+   {
+      // Slider steps: 0=0.5x, 1=1x, 2=2x, ... 8=8x
+      var v = parseInt(value, 10);
+      displayZoom = (v === 0) ? 0.5 : v;
+      document.getElementById('display-zoom-value').textContent = displayZoom + 'x';
+      redraw();
+   }
+
+   function toggleBilinearFiltering()
+   {
+      drawUseBilinearFiltering = document.getElementById('bilinear-filtering').checked;
+      redraw();
+   }
+
+   function resetDisplayZoom()
+   {
+      displayZoom = 1.0;
+      document.getElementById('display-zoom-slider').value = 1;
+      document.getElementById('display-zoom-value').textContent = '1x';
+   }
+
+   function resetExposure()
+   {
+      drawScale = 1.0;
+      document.getElementById('scale-slider').value = 0.5;
+      document.getElementById('scale-value').textContent = '1.0000';
+   }
+
+   // Updates the slider range to match the current texture's mip count.
+   // Preserves the current slider value if it's still in range; otherwise clamps to 0.
+   function updateMipmapSliderRange(numLevels)
+   {
+      var slider = document.getElementById('mipmap-level-slider');
+      var label = document.getElementById('mipmap-level-value');
+
+      var maxLevel = Math.max(0, numLevels - 1);
+
+      slider.min = 0;
+      slider.max = maxLevel;
+      slider.disabled = (maxLevel === 0);
+
+      // Clamp current value to the new valid range.
+      var curVal = parseInt(slider.value, 10);
+      if (isNaN(curVal) || curVal < 0 || curVal > maxLevel)
+      {
+         slider.value = 0;
+         label.textContent = '0';
+      }
+   }
+
+   // Resets the slider to level 0 (for when a new file is loaded).
+   function resetMipmapSliderToZero()
+   {
+      var slider = document.getElementById('mipmap-level-slider');
+      var label = document.getElementById('mipmap-level-value');
+
+      slider.value = 0;
+      label.textContent = '0';
+   }
+
+   function updateCubemapFace(value)
+   {
+      var v = parseInt(value, 10);
+      document.getElementById('cubemap-face-value').textContent = v;
+
+      if (curLoadedKTX2Data != null)
+      {
+         transcodeTexture(curLoadedKTX2Data, curLoadedKTX2URI);
+      }
+   }
+
+   function updateCubemapFaceRange(numFaces)
+   {
+      var slider = document.getElementById('cubemap-face-slider');
+      var label = document.getElementById('cubemap-face-value');
+
+      var maxFace = Math.max(0, numFaces - 1);
+
+      slider.min = 0;
+      slider.max = maxFace;
+      slider.disabled = (maxFace === 0);
+
+      var curVal = parseInt(slider.value, 10);
+      if (isNaN(curVal) || curVal < 0 || curVal > maxFace)
+      {
+         slider.value = 0;
+         label.textContent = '0';
+      }
+   }
+
+   function resetCubemapFaceToZero()
+   {
+      var slider = document.getElementById('cubemap-face-slider');
+      var label = document.getElementById('cubemap-face-value');
+
+      slider.value = 0;
+      label.textContent = '0';
+   }
+
+   function updateArrayLayer(value)
+   {
+      var v = parseInt(value, 10);
+      document.getElementById('array-layer-value').textContent = v;
+      document.getElementById('array-layer-input').value = v;
+
+      if (curLoadedKTX2Data != null)
+      {
+         transcodeTexture(curLoadedKTX2Data, curLoadedKTX2URI);
+      }
+   }
+
+   function updateArrayLayerFromInput(value)
+   {
+      var v = parseInt(value, 10);
+      var slider = document.getElementById('array-layer-slider');
+      var maxLayer = parseInt(slider.max, 10);
+
+      if (isNaN(v) || v < 0) v = 0;
+      if (v > maxLayer) v = maxLayer;
+
+      slider.value = v;
+      document.getElementById('array-layer-value').textContent = v;
+      document.getElementById('array-layer-input').value = v;
+
+      if (curLoadedKTX2Data != null)
+      {
+         transcodeTexture(curLoadedKTX2Data, curLoadedKTX2URI);
+      }
+   }
+
+   function updateArrayLayerRange(numLayers)
+   {
+      var slider = document.getElementById('array-layer-slider');
+      var label = document.getElementById('array-layer-value');
+      var input = document.getElementById('array-layer-input');
+
+      var maxLayer = Math.max(0, numLayers - 1);
+
+      slider.min = 0;
+      slider.max = maxLayer;
+      slider.disabled = (maxLayer === 0);
+
+      input.min = 0;
+      input.max = maxLayer;
+      input.disabled = (maxLayer === 0);
+
+      var curVal = parseInt(slider.value, 10);
+      if (isNaN(curVal) || curVal < 0 || curVal > maxLayer)
+      {
+         slider.value = 0;
+         input.value = 0;
+         label.textContent = '0';
+      }
+   }
+
+   function resetArrayLayerToZero()
+   {
+      var slider = document.getElementById('array-layer-slider');
+      var label = document.getElementById('array-layer-value');
+      var input = document.getElementById('array-layer-input');
+
+      slider.value = 0;
+      input.value = 0;
+      label.textContent = '0';
    }
 
 
@@ -2052,10 +2317,11 @@
     /* NEW: make the flex row fill the viewport and respect padding */
     height: 100vh;
     box-sizing: border-box;
+    overflow: hidden;
   }
 
-  /* Fixed-width controls column (never shrinks) */
-  .controls { flex: 0 0 600px; width: 600px; }
+  /* Fixed-width controls column (never shrinks), scrolls independently */
+  .controls { flex: 0 0 600px; width: 600px; overflow-y: auto; max-height: calc(100vh - 24px); }
 
   /* Viewer takes the remaining space and scrolls when texture is huge */
   /* EDIT: cap height so vertical scrolling appears inside the viewer */
@@ -2071,8 +2337,8 @@
 
   /* Small screens: stack vertically so it’s still usable */
   @media (max-width: 1100px){
-    .wrap{ flex-direction:column; height:auto; }
-    .controls{ flex: 0 0 auto; width:auto; }
+    .wrap{ flex-direction:column; height:auto; overflow:auto; }
+    .controls{ flex: 0 0 auto; width:auto; max-height:none; overflow-y:visible; }
     .viewer{ flex: 1 1 auto; max-height:none; }
   }
   
@@ -2105,7 +2371,7 @@
 
     <br>
     <div style="font-size: 24pt; font-weight: bold">
-    Basis Universal .KTX2 Supercompressed GPU Texture Encoding/Transcoding Testbed v2.10
+    Basis Universal .KTX2 Supercompressed GPU Texture Encoding/Transcoding Testbed v2.11
     </div>
 
     <br>This simple demo uses the <a href="https://github.com/BinomialLLC/basis_universal/">Basis Universal</a> C++ transcoder (compiled to WebAssembly using Emscripten) to transcode a .ktx2 file to:
@@ -2289,8 +2555,60 @@
 
     <br>
     <hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">    
+            
+    <b>Display/Visualization Options:</b>
+    <br>
     
-    <b>Transcoder Options (Decode Flags):</b>
+    <input type="button" value="Alpha blend" onclick="alphaBlend()"></input>
+    <input type="button" value="View RGB" onclick="viewRGB()"></input>
+    <input type="button" value="View Alpha" onclick="viewAlpha()"></input>
+
+    <br>
+
+    <br>
+    <input type="button" value="LinearToSRGB" onclick="linearToSRGB()"></input> <b id='linear_to_srgb'>Disabled</b>
+
+    <br>
+
+    <label for="scale-slider">Exposure:</label>
+    <input type="range" id="scale-slider" min="0" max="1" step=".01" value=".5" style="width: 300px;" oninput="updateScale(this.value)">
+    <span id="scale-value">1.0000</span>
+        
+    <br>
+
+    <label for="mipmap-level-slider">Mipmap Level:</label>
+    <input type="range" id="mipmap-level-slider" min="0" max="0" step="1" value="0" style="width: 300px;" oninput="updateMipmapLevel(this.value)" disabled>
+    <span id="mipmap-level-value">0</span>
+
+    <br>
+
+    <label for="cubemap-face-slider">Cubemap Face:</label>
+    <input type="range" id="cubemap-face-slider" min="0" max="0" step="1" value="0" style="width: 300px;" oninput="updateCubemapFace(this.value)" disabled>
+    <span id="cubemap-face-value">0</span>
+
+    <br>
+
+    <label for="array-layer-slider">Array Layer:</label>
+    <input type="range" id="array-layer-slider" min="0" max="0" step="1" value="0" style="width: 300px;" oninput="updateArrayLayer(this.value)" disabled>
+    <span id="array-layer-value">0</span>
+    <input type="number" id="array-layer-input" min="0" max="0" value="0" style="width: 60px; margin-left: 8px;" onchange="updateArrayLayerFromInput(this.value)" disabled>
+
+    <br>
+
+    <label for="display-zoom-slider">Display Zoom:</label>
+    <input type="range" id="display-zoom-slider" min="0" max="8" step="1" value="1" style="width: 300px;" oninput="updateDisplayZoom(this.value)">
+    <span id="display-zoom-value">1x</span>
+
+    <br>
+
+    Bilinear Filtering:
+    <input type="checkbox" id="bilinear-filtering" onclick="toggleBilinearFiltering()">
+
+    <br>
+
+    <hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">
+	
+	<b>Transcoder Options (Decode Flags):</b>
 
     <br>
     ETC1S: No BC7 Chroma Artifact Filtering (faster transcoding):
@@ -2318,29 +2636,8 @@
     <input type="checkbox" id="highquality_transcoding" onclick="highQualityTranscodingClicked()">
 
     <br>
+	
     <hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">    
-    
-    <b>Display/Visualization Options:</b>
-    <br>
-    
-    <input type="button" value="Alpha blend" onclick="alphaBlend()"></input>
-    <input type="button" value="View RGB" onclick="viewRGB()"></input>
-    <input type="button" value="View Alpha" onclick="viewAlpha()"></input>
-
-    <br>
-
-    <br>
-    <input type="button" value="LinearToSRGB" onclick="linearToSRGB()"></input> <b id='linear_to_srgb'>Disabled</b>
-
-    <br>
-
-    <label for="scale-slider">Exposure:</label>
-    <input type="range" id="scale-slider" min="0" max="1" step=".01" value="1" style="width: 300px;" oninput="updateScale(this.value)">
-    <span id="scale-value">1</span>
-        
-    <br>
-
-    <hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">
 
     <b>Low-level ETC1S LDR Options:</b>
     <br>
@@ -2478,10 +2775,6 @@
     <input type="checkbox" id="SRGB">
 
     <br>
-    Generate mipmap levels:
-    <input type="checkbox" id="Mipmaps">
-
-    <br>
     Y flip source image:
     <input type="checkbox" id="YFlip">
 
@@ -2491,6 +2784,54 @@
     <input type="checkbox" id="Debug">
     Compute Stats (slower encoding):
     <input type="checkbox" id="ComputeStats" checked>
+
+    <hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">
+
+    <b>Mipmap Generation Options:</b>
+    <br>
+
+    Generate mipmap levels:
+    <input type="checkbox" id="Mipmaps">
+
+    <br>
+
+    <label for="mip-filter-select">Mip Filter:</label>
+    <select id="mip-filter-select">
+      <option value="0">box</option>
+      <option value="1">tent</option>
+      <option value="2">bell</option>
+      <option value="3">b-spline</option>
+      <option value="4">mitchell</option>
+      <option value="5">blackman</option>
+      <option value="6">lanczos3</option>
+      <option value="7">lanczos4</option>
+      <option value="8">lanczos6</option>
+      <option value="9">lanczos12</option>
+      <option value="10" selected>kaiser</option>
+      <option value="11">gaussian</option>
+      <option value="12">catmullrom</option>
+      <option value="13">quadratic_interp</option>
+      <option value="14">quadratic_approx</option>
+      <option value="15">quadratic_mix</option>
+    </select>
+
+    <br>
+
+    <label for="mip-scale-input">Mip Scale:</label>
+    <input type="number" id="mip-scale-input" value="1.0" min="0.000125" max="4.0" step="0.1" style="width: 80px;">
+
+    <br>
+
+    <label for="mip-smallest-dim-input">Smallest Mip Dimension:</label>
+    <input type="number" id="mip-smallest-dim-input" value="1" min="1" max="16384" step="1" style="width: 80px;">
+
+    <br>
+
+    Mip Renormalize:
+    <input type="checkbox" id="MipRenormalize">
+
+    Mip Wrapping:
+    <input type="checkbox" id="MipWrapping" checked>
 
     <hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">
 
@@ -2666,6 +3007,12 @@ document.addEventListener('DOMContentLoaded', () => {
   {
       if (!file)
          return;
+
+      resetMipmapSliderToZero();
+      resetCubemapFaceToZero();
+      resetArrayLayerToZero();
+      resetDisplayZoom();
+      resetExposure();
 
       const reader = new FileReader();
 
