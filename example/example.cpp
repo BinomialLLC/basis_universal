@@ -1534,7 +1534,7 @@ static bool test_compress_xuastc_ldr_6x6()
 }
 
 // View the resulting texture video .basis file using the webgl/video_test WebGL sample.
-static bool test_compress_etc1s_texture_video()
+static bool test_compress_etc1s_texture_video(bool write_ktx2_flag, bool gen_mips_flag)
 {
     printf("test_compress_etc1s_texture_video:\n");
 
@@ -1548,6 +1548,8 @@ static bool test_compress_etc1s_texture_video()
 
     // Input is sRGB
     params.set_srgb_options(true);
+
+    params.m_mip_gen = gen_mips_flag;
 
     // Create the frames to compress
     for (uint32_t frame_index = 0; frame_index < NUM_FRAMES; frame_index++)
@@ -1570,7 +1572,15 @@ static bool test_compress_etc1s_texture_video()
     
     // Write a .basis file to disk. (.KTX2 supports texture video too, but our current texture video WebGL sample only supports .basis.)
     params.m_write_output_basis_or_ktx2_files = true;
-    params.m_out_filename = "test_etc1s_texture_video.basis";
+    if (write_ktx2_flag)
+    {
+        params.m_create_ktx2_file = true;
+        params.m_out_filename = gen_mips_flag ? "test_etc1s_texture_video_mips.ktx2" : "test_etc1s_texture_video.ktx2";
+    }
+    else
+    {
+        params.m_out_filename = gen_mips_flag ? "test_etc1s_texture_video_mips.basis" : "test_etc1s_texture_video.basis";
+    }
 
     // Create a job pool. A job pool MUST always be created, even if threading is disabled.
     // num_total_threads is the TOTAL thread count: 1 = calling thread only, 7 = calling thread + 6 extra.
@@ -1592,7 +1602,7 @@ static bool test_compress_etc1s_texture_video()
 }
 
 // View the resulting texture video .basis file using the webgl/video_test WebGL sample.
-static bool test_compress_xuastc_ldr_texture_video()
+static bool test_compress_xuastc_ldr_texture_video(bool write_ktx2_flag, bool gen_mips_flag)
 {
     printf("test_compress_xuastc_ldr_texture_video:\n");
 
@@ -1606,6 +1616,8 @@ static bool test_compress_xuastc_ldr_texture_video()
 
     // Input is sRGB
     params.set_srgb_options(true);
+
+    params.m_mip_gen = gen_mips_flag;
 
     // Create the frames to compress
     for (uint32_t frame_index = 0; frame_index < NUM_FRAMES; frame_index++)
@@ -1628,7 +1640,15 @@ static bool test_compress_xuastc_ldr_texture_video()
 
     // Write a .basis file to disk. (.KTX2 supports texture video too, but our current texture video WebGL sample only supports .basis.)
     params.m_write_output_basis_or_ktx2_files = true;
-    params.m_out_filename = "test_xuastc_ldr_texture_video.basis";
+    if (write_ktx2_flag)
+    {
+        params.m_create_ktx2_file = true;
+        params.m_out_filename = gen_mips_flag ? "test_xuastc_ldr_texture_video_mips.ktx2" : "test_xuastc_ldr_texture_video.ktx2";
+    }
+    else
+    {
+        params.m_out_filename = gen_mips_flag ?  "test_xuastc_ldr_texture_video_mips.basis" : "test_xuastc_ldr_texture_video.basis";
+    }
 
     // Create a job pool. A job pool MUST always be created, even if threading is disabled.
     // num_total_threads is the TOTAL thread count: 1 = calling thread only, 7 = calling thread + 6 extra.
@@ -1732,7 +1752,7 @@ static bool test_compress_uastc_hdr_6x6i_array_custom_mipmap()
 }
 
 // Creates a KTX2 ETC1S cubemap texture file
-static bool test_compress_etc1s_cubemap()
+static bool test_compress_etc1s_cubemap(bool tex_array_flag)
 {
     printf("test_compress_etc1s_cubemap:\n");
         
@@ -1749,16 +1769,21 @@ static bool test_compress_etc1s_cubemap()
 
     // Standard face order
     static const char* s_pFace_names[6] = { "+X", "-X", "+Y", "-Y", "+Z", "-Z" };
+
+	const uint32_t num_layers = tex_array_flag ? 3 : 1;
         
     // Create the 6 faces to compress (for arrays, feed in 6*X)
-    for (uint32_t face_index = 0; face_index < 6; face_index++)
+    for (uint32_t layer_index = 0; layer_index < num_layers; layer_index++)
     {
-        image img(W, H);
-                                
-        img.debug_text(0, 10, 1, 1, g_white_color, &g_black_color, false, fmt_string("Face {} {}", face_index, s_pFace_names[face_index]).c_str());
+        for (uint32_t face_index = 0; face_index < 6; face_index++)
+        {
+            image img(W, H);
 
-        // Provide the HDR source image.
-        params.m_source_images.push_back(img);
+            img.debug_text(0, 10, 1, 1, g_white_color, &g_black_color, false, fmt_string("Layer {}, Face {} {}", layer_index, face_index, s_pFace_names[face_index]).c_str());
+
+            // Provide the HDR source image.
+            params.m_source_images.push_back(img);
+        }
     }
 
     // Enable debug/status output and statistics.
@@ -1774,7 +1799,7 @@ static bool test_compress_etc1s_cubemap()
     // Write a .basis file to disk. (.KTX2 supports texture video too, but our current texture video WebGL sample only supports .basis.)
     params.m_write_output_basis_or_ktx2_files = true;
     params.m_create_ktx2_file = true;
-    params.m_out_filename = "test_etc1s_cubemap.ktx2";
+    params.m_out_filename = tex_array_flag ? "test_etc1s_cubemap_array.ktx2" : "test_etc1s_cubemap.ktx2";
 
     // Create a job pool. A job pool MUST always be created, even if threading is disabled.
     // num_total_threads is the TOTAL thread count: 1 = calling thread only, 7 = calling thread + 6 extra.
@@ -1821,20 +1846,31 @@ static bool lowlevel_compression_tests()
     if (!test_compress_xuastc_ldr_6x6())
         return false;
 
-    if (!test_compress_etc1s_texture_video())
-        return false;
+    for (uint32_t ktx2_iter = 0; ktx2_iter < 2; ktx2_iter++)
+    {
+        for (uint32_t mips_iter = 0; mips_iter < 2; mips_iter++)
+        {
+            if (!test_compress_etc1s_texture_video(ktx2_iter != 0, mips_iter != 0))
+                return false;
 
-    if (!test_compress_xuastc_ldr_texture_video())
-        return false;
+            if (!test_compress_xuastc_ldr_texture_video(ktx2_iter != 0, mips_iter != 0))
+                return false;
+        
+        } // mips_iter
+
+    } // ktx2_iter
 
     if (!test_compress_uastc_hdr_6x6i_array_custom_mipmap())
         return false;
 
-    if (!test_compress_etc1s_cubemap())
+    if (!test_compress_etc1s_cubemap(false))
+        return false;
+
+    if (!test_compress_etc1s_cubemap(true))
         return false;
                 
     printf("lowlevel_compression_tests: Compression OK\n");
-
+        
     return true;
 }
 
