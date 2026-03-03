@@ -5604,6 +5604,8 @@ bool ldr_astc_block_encode_image(
 		if (enc_cfg.m_debug_output)
 			fmt_debug_printf("ASTC packing superpass: {}\n", 1 + superpass_index);
 
+		job_pool::token token{0};
+
 		uint32_t total_blocks_done = 0;
 		float last_printed_progress_val = -100.0f;
 
@@ -6651,7 +6653,7 @@ bool ldr_astc_block_encode_image(
 
 						} // if (superpass_index == ...)
 
-					});
+					}, &token);
 
 				if (encoder_failed_flag)
 					break;
@@ -6669,7 +6671,7 @@ bool ldr_astc_block_encode_image(
 			return false;
 		}
 
-		job_pool.wait_for_all();
+		job_pool.wait_for_all(&token);
 
 		if (encoder_failed_flag)
 		{
