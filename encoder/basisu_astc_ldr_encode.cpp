@@ -7364,7 +7364,7 @@ bool ldr_astc_block_encode_image(
 		debug_printf("\nTotal final encoded ASTC blocks using blue contraction: %u (%.2f%%)\n", total_used_bc, 100.0f * (float)total_used_bc / (float)total_blocks);
 
 		fmt_debug_printf("Total final encoded ASTC blocks using dual planes: {} {3.2}%\n", total_dp, (float)total_dp * 100.0f / (float)total_blocks);
-		fmt_debug_printf("Total final encoded ASTC blocks using base+ofs: {} {3.2}%\n", total_dp, (float)total_base_ofs * 100.0f / (float)total_blocks);
+		fmt_debug_printf("Total final encoded ASTC blocks using base+ofs: {} {3.2}%\n", total_base_ofs, (float)total_base_ofs * 100.0f / (float)total_blocks);
 		fmt_debug_printf("Total final encoded ASTC blocks using subsets: {} {3.2}%\n", total_blocks_using_subsets, (float)total_blocks_using_subsets * 100.0f / (float)total_blocks);
 
 		debug_printf("\nSubset usage histogram:\n");
