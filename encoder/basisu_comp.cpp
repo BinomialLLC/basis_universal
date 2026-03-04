@@ -5096,15 +5096,17 @@ namespace basisu
 			// Valid XUASTC LDR weight grid DCT quality levels are 1-100.
 			if (basist::basis_tex_format_is_xuastc_ldr(mode) && (uastc_rdo_or_dct_quality != 0.0f))
 			{
-				// TODO: change this so 100=no DCT to simplify the non-unified API, right now they must set 0=no DCT
-				if ((uastc_rdo_or_dct_quality >= (float)BASISU_XUASTC_QUALITY_MIN) && (uastc_rdo_or_dct_quality < (float)BASISU_XUASTC_QUALITY_MAX)) 
+				if ((uastc_rdo_or_dct_quality >= (float)BASISU_XUASTC_QUALITY_MIN) && (uastc_rdo_or_dct_quality <= (float)BASISU_XUASTC_QUALITY_MAX)) 
 				{
-					// Enable weight grid DCT usage, set quality level.
-					comp_params.m_xuastc_ldr_use_dct = true;
-					comp_params.m_quality_level = (int)uastc_rdo_or_dct_quality;
-					
-					// Also enable bounded lossy distortion mode in the normally lossless supercompressor for extra savings.
-					comp_params.m_xuastc_ldr_use_lossy_supercompression = true;
+					if (uastc_rdo_or_dct_quality < (float)BASISU_XUASTC_QUALITY_MAX)
+					{
+						// Enable weight grid DCT usage, set quality level.
+						comp_params.m_xuastc_ldr_use_dct = true;
+						comp_params.m_quality_level = (int)uastc_rdo_or_dct_quality;
+
+						// Also enable bounded lossy distortion mode in the normally lossless supercompressor for extra savings.
+						comp_params.m_xuastc_ldr_use_lossy_supercompression = true;
+					}
 				}
 				else
 				{
