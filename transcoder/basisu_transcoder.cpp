@@ -23260,7 +23260,7 @@ namespace basist
 				const float r = fast_half_to_float_pos_not_inf_or_nan(pPixels[i * 3 + 0]);
 				const float g = fast_half_to_float_pos_not_inf_or_nan(pPixels[i * 3 + 1]);
 				const float b = fast_half_to_float_pos_not_inf_or_nan(pPixels[i * 3 + 2]);
-				const float w = ftoh(r * fdir_r + g * fdir_g + b * fdir_b);
+				const float w = ftoh(basisu::minimumf(r * fdir_r + g * fdir_g + b * fdir_b, basist::MAX_HALF_FLOAT));
 
 				pWeights[i] = (uint8_t)basisu::clamp((int)(w * frr + lr), 0, 15);
 			}

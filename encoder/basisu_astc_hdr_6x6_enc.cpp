@@ -1868,14 +1868,16 @@ static bool encode_block_3_subsets(
 		uint8_t blk_weights[NUM_SUBSETS][BLOCK_W * BLOCK_H];
 		uint32_t best_submode[NUM_SUBSETS];
 
+		bool failed_flag = false;
 		double e = 0.0f;
 		for (uint32_t part_iter = 0; part_iter < NUM_SUBSETS; part_iter++)
 		{
 			assert(part_total_pixels[part_iter]);
 
+			double part_e;
 			if (cem == 7)
 			{
-				e += encode_astc_hdr_block_mode_7(
+				part_e = encode_astc_hdr_block_mode_7(
 					part_total_pixels[part_iter],
 					(basist::half_float(*)[3])part_half_pixels[part_iter], (vec4F*)part_pixels_q16[part_iter],
 					best_log_blk.m_weight_ise_range,
@@ -1890,7 +1892,7 @@ static bool encode_block_3_subsets(
 			{
 				assert(cem == 11);
 
-				e += encode_astc_hdr_block_mode_11(
+				part_e = encode_astc_hdr_block_mode_11(
 					part_total_pixels[part_iter],
 					(basist::half_float(*)[3])part_half_pixels[part_iter], (vec4F*)part_pixels_q16[part_iter],
 					best_log_blk.m_weight_ise_range,
@@ -1903,7 +1905,16 @@ static bool encode_block_3_subsets(
 					FIRST_MODE11_SUBMODE_INDEX, MAX_MODE11_SUBMODE_INDEX, false, mode11_opt_mode);
 			}
 
+			if (part_e == BIG_FLOAT_VAL)
+			{
+				failed_flag = true;
+				break;
+			}
+			e += part_e;
 		} // part_iter
+
+		if (failed_flag)
+			continue;
 
 		uint8_t ise_weights[BLOCK_W * BLOCK_H];
 
