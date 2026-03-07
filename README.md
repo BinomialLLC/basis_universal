@@ -522,7 +522,6 @@ External Tool Links
 - [ARM's astcenc](https://github.com/ARM-software/astc-encoder) - Crucial official tool from ARM which can unpack ASTC format LDR/HDR .astc and .ktx files to .png or .exr for testing and verification purposes.
 - [Online .EXR and .HDR Image File Viewer](https://viewer.openhdr.org/) - With strong tone mapping, auto-exposure, HDR histogram.
 - [Windows HDR + WCG Image Viewer](https://13thsymphony.github.io/hdrimageviewer/) - A true HDR image viewer for Windows which works on HDR monitors. Also see [the github repo](https://github.com/13thsymphony/HDRImageViewer).
-- [KTX-Software](https://github.com/KhronosGroup/KTX-Software) - A suite of tools for examining, compressing and unpacking KTX2 files (including in our various codec formats) from the Khronos Group.
 - [AMD Compressonator](https://gpuopen.com/compressonator/) - .DDS viewer, can view .KTX files in some formats.
 - [PVRTexTool](https://www.imgtec.com/developers/powervr-sdk-tools/pvrtextool/) - Can view .ASTC and .KTX files in some formats. (Note: .DDS viewer seems busted for BC1, doesn't support BC7 at all.)
 - [Microsoft's DirectXTex](https://github.com/microsoft/DirectXTex) - Samples contain a basic .DDS viewer. (Note: May still have issues loading .DDS files with texture dimensions that aren't divisible by 4 texels.)
