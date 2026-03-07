@@ -504,9 +504,7 @@ See our wiki page: [Project Policies: PRs, compiler warnings, release cadence et
 KTX2 Support Status
 -------------------
 
-Note as of Jan. 2026 we are working with Khronos on the exact details of how we embed UASTC HDR 6x6 intermediate and XUASTC LDR supercompressed texture data into the KTX2 file format. We expect some KTX2 file format changes to be merged in within a month or so. Our plan is to keep full compatiblity with our previously generated .KTX2 files.
-
-.basis files shouldn't be impacted.
+Note as of March 2026 we are working with Khronos on the exact details of how we embed XUASTC LDR supercompressed texture data into the KTX2 file format. KTX2 texture files using our previous codecs (including the recently added UASTC HDR 4x4 and UASTC HDR 6x6i formats) can now be interchanged with KTX-Software.
 
 ----
 
