@@ -519,7 +519,7 @@ checking tool (https://reuse.software/). See the [.reuse](https://github.com/Bin
 External Tool Links
 -------------------
 
-- [btx - KTX2 Command Line Tool](https://github.com/BinomialLLC/KTX-Software-Binomial-Fork) - Our fork of KTX-Software with bug fixes, working HDR quality controls, new options, and new codec integrations. This tool can validate, extract, and compress KTX2 files compatible with our project.
+- [btx - KTX2 Command Line Tool](https://github.com/BinomialLLC/KTX-Software-Binomial-Fork) - Our fork of KTX-Software with bug fixes, working HDR quality/effort controls, new options, and new codec integrations. This tool can validate, extract, and compress KTX2 files compatible with our project.
 - [ARM's astcenc](https://github.com/ARM-software/astc-encoder) - Crucial official tool from ARM which can unpack ASTC format LDR/HDR .astc and .ktx files to .png or .exr for testing and verification purposes.
 - [Online .EXR and .HDR Image File Viewer](https://viewer.openhdr.org/) - With strong tone mapping, auto-exposure, HDR histogram.
 - [Windows HDR + WCG Image Viewer](https://13thsymphony.github.io/hdrimageviewer/) - A true HDR image viewer for Windows which works on HDR monitors. Also see [the github repo](https://github.com/13thsymphony/HDRImageViewer).
