@@ -27,10 +27,10 @@ The C/C++ encoder and transcoder libraries can be compiled to native code or Web
 
 Full Python support for encoding/transcoding is now available, supporting native or WASM modules, but is still in the early stages of development.
 
-License
--------
+License/Legal
+-------------
 
-The reference encoder library, transcoder, and most specification documents in this repo (unless otherwise explictly indicated) are Copyright © 2016–2026 Binomial LLC. All rights reserved except as granted under the [Apache 2.0 LICENSE](https://github.com/BinomialLLC/basis_universal/blob/master/LICENSE). "Basis Universal" is a trademark of Binomial LLC. KTX™ is a trademark of [The Khronos Group Inc.](https://www.khronos.org/ktx/) See our Apache 2.0 [NOTICE file](https://github.com/BinomialLLC/basis_universal/wiki/NOTICE). If you modify the Basis Universal reference source code, specifications, or wiki documents and redistribute the files, you must cause any modified files to carry prominent notices stating that you changed the files (see Apache 2.0 §4(b)).
+The reference encoder library, transcoder, and most specification documents in this repo (unless otherwise explictly indicated) are Copyright © 2016–2026 Binomial LLC. All rights reserved except as granted under the [Apache 2.0 LICENSE](https://github.com/BinomialLLC/basis_universal/blob/master/LICENSE). Basis Universal™ is a trademark of Binomial LLC. KTX™ is a trademark of [The Khronos Group Inc.](https://www.khronos.org/ktx/) See our Apache 2.0 [NOTICE file](https://github.com/BinomialLLC/basis_universal/wiki/NOTICE). If you modify the Basis Universal reference source code, specifications, or wiki documents and redistribute the files, you must cause any modified files to carry prominent notices stating that you changed the files (see Apache 2.0 §4(b)).
 
 See our [DEP5 file](https://github.com/BinomialLLC/basis_universal/blob/master/.reuse/dep5) for the complete list of software and their licenses in this repo. The encoder library is Apache 2.0, but it utilizes some open source 3rd party modules (in 'encoder/3rdparty' and in the 'Zstd' directory) to load [.QOI](https://qoiformat.org/), [.DDS](https://github.com/DeanoC/tiny_dds), [.EXR](https://github.com/syoyo/tinyexr) images, to handle [Zstd](https://github.com/facebook/zstd) compression, and to unpack ASTC texture blocks. See the [LICENSES](https://github.com/BinomialLLC/basis_universal/tree/master/LICENSES) folder. The transcoder utilizes no 3rd party libraries or dependencies, other than Zstd (which is optional but limits the transcoder to non-Zstd utilizing codecs).
 
