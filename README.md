@@ -519,8 +519,8 @@ Repository Licensing with REUSE
 The repository has been updated to be compliant with the REUSE license
 checking tool (https://reuse.software/). See the [.reuse](https://github.com/BinomialLLC/basis_universal/tree/master/.reuse) subdirectory.
 
-External Tool Links
--------------------
+External Links
+--------------
 
 - [btx - KTX2 Command Line Tool](https://github.com/BinomialLLC/KTX-Software-Binomial-Fork) - Our fork of KTX-Software with bug fixes, working HDR quality/effort controls, new options, and new codec integrations. This tool can validate, extract, and compress KTX2 files compatible with our project.
 - [ARM's astcenc](https://github.com/ARM-software/astc-encoder) - Crucial official tool from ARM which can unpack ASTC format LDR/HDR .astc and .ktx files to .png or .exr for testing and verification purposes.
