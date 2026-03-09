@@ -532,7 +532,8 @@ External Tool Links
 - [RenderDoc](https://renderdoc.org/) - Reliable viewer for LDR/HDR .DDS files in BC1-7 formats.
 - [Paint.NET](https://www.getpaint.net/) - Windows app: built-in [.DDS file loading](https://github.com/0xC0000054/pdn-ddsfiletype-plus), supports BC1-7 and [cubemaps](https://github.com/0xC0000054/pdn-ddsfiletype-plus/wiki/Cube-Maps)
 - [Mali Texture Compression Tool](https://community.arm.com/support-forums/f/graphics-gaming-and-vr-forum/52390/announcement-mali-texture-compression-tool-end-of-life) - Now deprecated.
-
+- [Our GitHub wiki content statically mirrored as HTML (will lag the live GitHub wiki)](https://subquantumtech.com/basisu_wiki/Home.html)
+ 
 For more useful links, papers, and tools/libraries, see the end of the [UASTC HDR 4x4 texture specification](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-HDR-4x4-Texture-Specification#papersfurther-reading).
 
 ----
