@@ -1,3 +1,6 @@
+<!-- Copyright 2016-2026 Binomial LLC -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+
 # basis_universal v2.1
 An LDR/HDR portable GPU supercompressed texture transcoding system. 
 
