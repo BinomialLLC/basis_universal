@@ -538,6 +538,13 @@ For more useful links, papers, and tools/libraries, see the end of the [UASTC HD
 
 ----
 
+Security Note
+-------------
+
+The Basis Universal codecs integrated into this repo fall under Binomial's responsibility for security reports and fixes. See the GitHub Security tab above, or the file [SECURITY.md](SECURITY.md) for reporting information.
+
+----
+
 E-mail: info @ binomial dot info, or contact us on [Twitter](https://twitter.com/_binomial)
 
 Here's the [Sponsors](https://github.com/BinomialLLC/basis_universal/wiki/Sponsors-and-Supporters) wiki page.
