@@ -47,6 +47,32 @@
 	#endif
 #endif
 
+#if defined(__arm__) || defined(__aarch64__) || defined(__SSSE3__)
+#define	BASISD_ASTC_SIMD	//	287 => 240
+#define	BASISD_UASTC_SIMD	//	240 => 222 (231 without BASISD_USE_UNALIGNED_WORD_READS)
+#define	BASISD_ASTC_24WRITE	//	200 !!!
+
+#if defined(BASISD_ASTC_SIMD) || defined(BASISD_UASTC_SIMD)
+#undef	BASISD_USE_UNALIGNED_WORD_READS
+#define BASISD_USE_UNALIGNED_WORD_READS (1)
+#if defined(_MSC_VER)
+	#include	<immintrin.h>
+    #define	BREAK_EXECUTION()	__debugbreak();
+	#define	CLASSALIGN(n) __declspec(align(n))
+#else	//	!defined(_MSC_VER)
+	#if defined(__arm__) || defined(__aarch64__)
+		#include	<arm_neon.h>
+		#include	<arm_acle.h>
+	#else
+		#include	<x86intrin.h>
+	#endif
+    #define	BREAK_EXECUTION()	__builtin_trap();
+	#define	CLASSALIGN(n) __attribute__ ((aligned(n)))
+#endif	//	!defined(_MSC_VER)
+#endif	//	defined(BASISD_ASTC_SIMD)
+
+#endif	//	defined(__arm__) || defined(__aarch64__) || defined(__SSSE3__)
+
 // Using unaligned loads and stores causes errors when using UBSan. Jam it off.
 #if defined(__has_feature)
 #if __has_feature(undefined_behavior_sanitizer)
@@ -5425,13 +5451,28 @@ namespace basist
 		191, 223, 124, 125, 126 };
 
 	// Extracts bits [low,high]
+//	ronan
+#if 0
 	static inline uint32_t astc_extract_bits(uint32_t bits, int low, int high)
 	{
 		return (bits >> low) & ((1 << (high - low + 1)) - 1);
 	}
+#else
+	template<const int low, const int high>
+	inline uint32_t astc_extract_bits(uint32_t bits)	{	return (bits >> low) & ((1 << (high - low + 1)) - 1);	}
+#endif
 
-	// Writes bits to output in an endian safe way
 	static inline void astc_set_bits(uint32_t* pOutput, int& bit_pos, uint32_t value, uint32_t total_bits)
+#if defined(BASISD_ASTC_24WRITE)
+	{
+		assert( total_bits <= 24U );
+		uint8_t* pBytes = reinterpret_cast<uint8_t*>(pOutput);
+		pBytes += (bit_pos >> 3);
+		*((uint32_t*)pBytes) |= (value << (bit_pos & 7));
+		bit_pos += total_bits;
+	}
+#else
+	// Writes bits to output in an endian safe way
 	{
 		uint8_t* pBytes = reinterpret_cast<uint8_t*>(pOutput);
 
@@ -5446,13 +5487,14 @@ namespace basist
 			value >>= bits_to_write;
 		}
 	}
-
+#endif
 	// Encodes 5 values to output, usable for any range that uses trits and bits
 	static void astc_encode_trits(uint32_t* pOutput, const uint8_t* pValues, int& bit_pos, int n)
 	{
 		// First extract the trits and the bits from the 5 input values
 		int trits = 0, bits[5];
 		const uint32_t bit_mask = (1 << n) - 1;
+
 		for (int i = 0; i < 5; i++)
 		{
 			static const int s_muls[5] = { 1, 3, 9, 27, 81 };
@@ -5470,10 +5512,10 @@ namespace basist
 		const int T = g_astc_trit_encode[trits];
 
 		// Now interleave the 8 encoded trit bits with the bits to form the encoded output. See table 94.
-		astc_set_bits(pOutput, bit_pos, bits[0] | (astc_extract_bits(T, 0, 1) << n) | (bits[1] << (2 + n)), n * 2 + 2);
+		astc_set_bits(pOutput, bit_pos, bits[0] | (astc_extract_bits<0,1>(T) << n) | (bits[1] << (2 + n)), n * 2 + 2);
 
-		astc_set_bits(pOutput, bit_pos, astc_extract_bits(T, 2, 3) | (bits[2] << 2) | (astc_extract_bits(T, 4, 4) << (2 + n)) | (bits[3] << (3 + n)) | (astc_extract_bits(T, 5, 6) << (3 + n * 2)) |
-			(bits[4] << (5 + n * 2)) | (astc_extract_bits(T, 7, 7) << (5 + n * 3)), n * 3 + 6);
+		astc_set_bits(pOutput, bit_pos, astc_extract_bits<2,3>(T) | (bits[2] << 2) | (astc_extract_bits<4,4>(T) << (2 + n)) | (bits[3] << (3 + n)) | (astc_extract_bits<5,6>(T) << (3 + n * 2)) |
+			(bits[4] << (5 + n * 2)) | (astc_extract_bits<7,7>(T) << (5 + n * 3)), n * 3 + 6);
 	}
 #endif // #if BASISD_SUPPORT_UASTC || BASISD_SUPPORT_ASTC
 
@@ -10128,7 +10170,6 @@ namespace basist
 			for (uint32_t block_y = 0; block_y < num_blocks_y; ++block_y)
 			{
 				void* pDst_block = (uint8_t*)pDst_blocks + block_y * output_row_pitch_in_blocks_or_pixels * output_block_or_pixel_stride_in_bytes;
-								
 				for (uint32_t block_x = 0; block_x < num_blocks_x; ++block_x, ++pSource_block, pDst_block = (uint8_t *)pDst_block + output_block_or_pixel_stride_in_bytes)
 				{
 					switch (fmt)
@@ -12301,7 +12342,7 @@ namespace basist
 
 		return true;
 	}
-		
+
 	bool basisu_transcoder::start_transcoding(const void* pData, uint32_t data_size)
 	{
 		if (!validate_header_quick(pData, data_size))
@@ -12411,7 +12452,6 @@ namespace basist
 		}
 		
 		m_ready_to_transcode = true;
-
 		return true;
 	}
 
@@ -14606,8 +14646,8 @@ namespace basist
 		const int T = g_astc_quint_encode[quints];
 
 		// Now interleave the 7 encoded quint bits with the bits to form the encoded output. See table 95-96.
-		astc_set_bits(pOutput, bit_pos, bits[0] | (astc_extract_bits(T, 0, 2) << n) | (bits[1] << (3 + n)) | (astc_extract_bits(T, 3, 4) << (3 + n * 2)) |
-			(bits[2] << (5 + n * 2)) | (astc_extract_bits(T, 5, 6) << (5 + n * 3)), 7 + n * 3);
+		astc_set_bits(pOutput, bit_pos, bits[0] | (astc_extract_bits<0,2>(T) << n) | (bits[1] << (3 + n)) | (astc_extract_bits<3,4>(T) << (3 + n * 2)) |
+			(bits[2] << (5 + n * 2)) | (astc_extract_bits<5,6>(T) << (5 + n * 3)), 7 + n * 3);
 	}
 
 	// Packs values using ASTC's BISE to output buffer.
@@ -14652,6 +14692,358 @@ namespace basist
 		pDst[2] |= temp[2]; pDst[3] |= temp[3];
 	}
 
+	void	pack_astc_block_weights( uint8_t* pDst_bytes, const uint8_t* pBlockWeights, int bits_per_weight, int blockNum )
+	{
+		#if defined(BASISD_ASTC_SIMD)
+		#else	//	C
+		memset(pDst_bytes + 2, 0, 16 - 2);
+		#endif	//	C
+
+		switch (bits_per_weight)
+		{
+		case 1:
+		{
+			#if defined(BASISD_ASTC_SIMD) && ( defined(__arm__) || defined(__aarch64__) )
+			static const uint8_t CLASSALIGN(16) s_reverse_bits1[16] = { 0x80, 0x40, 0x20, 0x10, 0x08, 0x04, 0x02, 0x01, 0x80, 0x40, 0x20, 0x10, 0x08, 0x04, 0x02, 0x01 };
+			uint8x16_t	revmask1 = vld1q_u8( s_reverse_bits1 );
+			uint8x8_t	rev8;
+			if	( blockNum == 0 )
+			{
+ 				uint8x16_t	src1 = vld1q_u8( pBlockWeights );								//	load 16x1
+				uint8x16_t	test1 = vceqq_u8( src1, vdupq_n_u8(0) );						//	mask if x == 0
+				uint8x16_t	rev1 = vandq_u8( revmask1, vmvnq_u8(test1) );					//	final byte shifted value
+				uint8x8_t	rev2 = vpadd_u8( vget_high_u8(rev1), vget_low_u8(rev1) );		//	swap(hi,lo) & merge 2 bits
+				uint8x8_t	rev4 = vpadd_u8( rev2, vdup_n_u8(0) );							//	merge 4 bits
+							rev8 = vpadd_u8( rev4, vdup_n_u8(0) );							//	merge 8 bits
+							rev8 = vext_u8( vdup_n_u8(0), rev8, 6 );						//	shl64(6)
+			}
+			else
+			{
+ 				uint8x16_t	src1_0 = vld1q_u8( pBlockWeights );								//	load 16x1
+ 				uint8x16_t	src1_1 = vld1q_u8( pBlockWeights + 16 );						//	load 16x1
+				uint8x16_t	test1_0 = vceqq_u8( src1_0, vdupq_n_u8(0) );					//	mask if x == 0
+				uint8x16_t	test1_1 = vceqq_u8( src1_1, vdupq_n_u8(0) );					//	mask if x == 0
+				uint8x16_t	rev1_0 = vandq_u8( revmask1, vmvnq_u8(test1_0) );				//	final byte shifted value
+				uint8x16_t	rev1_1 = vandq_u8( revmask1, vmvnq_u8(test1_1) );				//	final byte shifted value
+				uint8x8_t	rev2_0 = vpadd_u8( vget_high_u8(rev1_0), vget_low_u8(rev1_0) );	//	swap(hi,lo) & merge 2 bits
+				uint8x8_t	rev2_1 = vpadd_u8( vget_high_u8(rev1_1), vget_low_u8(rev1_1) );	//	swap(hi,lo) & merge 2 bits
+				uint8x8_t	rev4 = vpadd_u8( rev2_1, rev2_0 );								//	swap(hi,lo) & merge 4 buts
+							rev8 = vpadd_u8( rev4, vdup_n_u8(0) );							//	merge 8 bits
+							rev8 = vext_u8( vdup_n_u8(0), rev8, 4 );						//	shl64(4)
+			}
+			vst1_u8( pDst_bytes + 8, rev8 );												//	store [8,15]
+			vst1_u8( pDst_bytes + 0, vdup_n_u8(0) );										//	store [0,8]
+			#elif defined(BASISD_ASTC_SIMD) && defined(__SSSE3__)
+			static const uint8_t CLASSALIGN(16) s_reverse_bits1[16] = { 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0 };
+			__m128i	bitsmask1 = _mm_load_si128( (const __m128i *) s_reverse_bits1 );
+			if	( blockNum == 0 )
+			{
+				__m128i		src1 = _mm_loadu_si128( ((const __m128i *)pBlockWeights) + 0 );			//	load 16x8
+				__m128i		rev1 = _mm_shuffle_epi8( src1, bitsmask1 );								//	byte reverse
+				uint32_t	rev16 = (uint32_t) _mm_movemask_epi8( _mm_slli_epi32( rev1, 7 ) );		//	move to high bit and get mask
+				*((uint32_t*)(pDst_bytes + 12)) = (rev16 << 16U);									//	store [12,15]
+			}
+			else
+			{
+				__m128i		src1_0 = _mm_loadu_si128( ((const __m128i *)pBlockWeights) + 0 );		//	load 16x8
+				__m128i		src1_1 = _mm_loadu_si128( ((const __m128i *)pBlockWeights) + 1 );		//	load 16x8
+				__m128i		rev1_0 = _mm_shuffle_epi8( src1_0, bitsmask1 );							//	byte reverse
+				__m128i		rev1_1 = _mm_shuffle_epi8( src1_1, bitsmask1 );							//	byte reverse
+				uint32_t	rev16_0 = (uint32_t) _mm_movemask_epi8( _mm_slli_epi32( rev1_0, 7 ) );	//	move to high bit and get mask
+				uint32_t	rev16_1 = (uint32_t) _mm_movemask_epi8( _mm_slli_epi32( rev1_1, 7 ) );	//	move to high bit and get mask
+				*((uint32_t*)(pDst_bytes + 12)) = (rev16_0 << 16U) | rev16_1;						//	store [12,15]
+			}
+			*((uint32_t*)(pDst_bytes + 8)) = 0U;													//	store [8,11]
+			*((uint64_t*)(pDst_bytes + 0)) = 0ULL;													//	store [0,7]
+			#else
+			{
+				const uint32_t N = 1;
+				for (int i = 0; i < ((blockNum + 1) << 4); i++)
+				{
+					const uint32_t ofs = 128 - N - i;
+					assert((ofs >> 3) < 16);
+					pDst_bytes[ofs >> 3] |= (pBlockWeights[i] << (ofs & 7));
+				}
+			}
+			#endif
+			break;
+		}
+		case 2:
+		{
+			#if defined(BASISD_ASTC_SIMD) && ( defined(__arm__) || defined(__aarch64__) )
+			if	( blockNum == 0 )
+			{
+				uint8x16_t	src2 = vld1q_u8( pBlockWeights );
+				uint16x8_t	src2hi = vshrq_n_u16( vreinterpretq_u16_u8(src2), 6 );					//	shr16(8-2) to get in u16[2,3]
+				uint16x8_t	src2lo = vandq_u16( vreinterpretq_u16_u8(src2), vdupq_n_u16(0x00FF) );	//	have to mask remainder to avoid bit collision
+				uint16x8_t	src4lohi = vorrq_u16( src2hi, src2lo );									//	4bits in 8 u16[0,3]
+				uint8x8_t	src4 = vqmovn_u16( src4lohi );											//	4bits in 8 u8[0,3]
+				uint16x4_t	rev4hi = vshr_n_u16( vreinterpret_u16_u8(src4), 4 );					//	shr16(8-4) to get in u16[4,7]
+				uint16x4_t	rev4lo = vand_u16( vreinterpret_u16_u8(src4), vdup_n_u16(0x00FF) );		//	have to mask remainder to avoid bit collision
+				uint16x4_t	rev8lohi = vorr_u16( rev4hi, rev4lo );									//	8bits in 4 u16[0,7]
+				uint8x8_t	rev8 = vqmovn_u16( vcombine_u16( rev8lohi, vdup_n_u8(0) ) );			//	8bits in 4 u8 (clear lower 32)
+				#if defined(__aarch64__)
+				uint8x8_t	rev64 = vrev64_u8( vrbit_u8( rev8 ) );									//	bit reverse
+				vst1_u8( pDst_bytes + 8, rev64 );													//	store [8,15]
+				#else	//	!defined(__aarch64__)
+				uint32_t	rev32 = vget_lane_u32( vreinterpret_u32_u8(rev8), 0 );					//	get the 32 bits
+							rev32 = __rbit( rev32 );												//	reverse
+				*((uint32_t*)(pDst_bytes + 12)) = rev32;											//	store [12,15]
+				*((uint32_t*)(pDst_bytes + 8)) = 0U;												//	store [8,11]
+				#endif	//	!defined(__aarch64__)
+			}
+			else
+			{
+				uint8x16_t	src2_0 = vld1q_u8( pBlockWeights );
+				uint8x16_t	src2_1 = vld1q_u8( pBlockWeights + 16 );
+				uint16x8_t	src2hi_0 = vshrq_n_u16( vreinterpretq_u16_u8(src2_0), 6 );					//	shr16(8-2) to get in u16[2,3]
+				uint16x8_t	src2hi_1 = vshrq_n_u16( vreinterpretq_u16_u8(src2_1), 6 );					//	shr16(8-2) to get in u16[2,3]
+				uint16x8_t	src2lo_0 = vandq_u16( vreinterpretq_u16_u8(src2_0), vdupq_n_u16(0x00FF) );	//	have to mask remainder to avoid bit collision
+				uint16x8_t	src2lo_1 = vandq_u16( vreinterpretq_u16_u8(src2_1), vdupq_n_u16(0x00FF) );	//	have to mask remainder to avoid bit collision
+				uint16x8_t	src4lohi_0 = vorrq_u16( src2hi_0, src2lo_0 );								//	4bits in 8 u16[0,3]
+				uint16x8_t	src4lohi_1 = vorrq_u16( src2hi_1, src2lo_1 );								//	4bits in 8 u16[0,3]
+				uint16x4_t	src4_0 = vreinterpret_u16_u8( vqmovn_u16( src4lohi_0 ) );					//	4bits in 8 u8[0,3]
+				uint16x4_t	src4_1 = vreinterpret_u16_u8( vqmovn_u16( src4lohi_1 ) );					//	4bits in 8 u8[0,3]
+				uint16x8_t	src4 = vcombine_u16( src4_0, src4_1 );										//	4bits in 8 u16[0,3]
+				uint16x8_t	rev4hi = vshrq_n_u16( src4, 4 );											//	shr16(8-4) to get in u16[4,7]
+				uint16x8_t	rev4lo = vandq_u16( src4, vdupq_n_u16(0x00FF) );							//	have to mask remainder
+				uint16x8_t	rev8lohi = vorrq_u16( rev4hi, rev4lo );										//	8bits in 8 u16[0,7]
+				uint8x8_t	rev8 = vqmovn_u16( rev8lohi );												//	8bits in 8 u8[0,7]
+				#if defined(__aarch64__)
+				uint8x8_t	rev64 = vrev64_u8( vrbit_u8( rev8 ) );										//	bit reverse
+				vst1_u8( pDst_bytes + 8, rev64 );														//	store result
+				#else	//	!defined(__aarch64__)
+				uint64_t	rev64 = vget_lane_u64( vreinterpret_u64_u8(rev8), 0 );						//	get the 64 bits
+							rev64 = __rbitll( rev64 );													//	bit reverse
+				*((uint64_t*)(pDst_bytes + 8)) = rev64;													//	store [8,15]
+				#endif	//	!defined(__aarch64__)
+			}
+			vst1_u8( pDst_bytes + 0, vdup_n_u8(0) );													//	store [0,7]
+			#elif defined(BASISD_ASTC_SIMD) && defined(__SSSE3__)
+			__m128i	bitsmask2 = _mm_cvtsi32_si128( 0x03010200 );	//	{ 0, 2, 1, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+			if	( blockNum == 0 )
+			{
+				__m128i	src8 = _mm_loadu_si128( ((const __m128i *)pBlockWeights) );
+				__m128i	rev8 = _mm_shuffle_epi8( bitsmask2, src8 );			//	bit reverse
+				__m128i	rev8lo = _mm_slli_epi16( rev8, 10 );				//	shl16(8+2) to get lo2 in u16[10,11]
+				__m128i	rev8lohi = _mm_or_si128( rev8lo, rev8 );			//	4bits in 8 u16[8,11]
+				__m128i	rev16lo = _mm_slli_epi32( rev8lohi, 20 );			//	shl32(16+4) to get lo4 in u32[20,23]
+				__m128i	rev16lohi = _mm_or_si128( rev8lohi, rev16lo );		//	8bits in 8 u32[16,23]
+				static const uint8_t CLASSALIGN(16) s_reverse_bytes2[16] = { 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x0F, 0x0B, 0x07, 0x03 };
+				__m128i	bytesmask2 = _mm_load_si128( (const __m128i *) s_reverse_bytes2 );
+				__m128i	rev32 = _mm_shuffle_epi8( rev16lohi, bytesmask2 );	//	32bits in u128[96,127]
+				_mm_store_si128( (__m128i*)pDst_bytes, rev32 );				//	store [0,15]
+			}
+			else	//	assume only 2 blocks
+			{
+				__m128i	src8_0 = _mm_loadu_si128( ((const __m128i *)pBlockWeights) + 0 );
+				__m128i	src8_1 = _mm_loadu_si128( ((const __m128i *)pBlockWeights) + 1 );
+				__m128i	rev8_0 = _mm_shuffle_epi8( bitsmask2, src8_0 );			//	bit reverse
+				__m128i	rev8_1 = _mm_shuffle_epi8( bitsmask2, src8_1 );			//	bit reverse
+				__m128i	rev8lo_0 = _mm_slli_epi16( rev8_0, 10 );				//	shl16(8+2) to get lo2 in u16[10,11]
+				__m128i	rev8lo_1 = _mm_slli_epi16( rev8_1, 10 );				//	shl16(8+2) to get lo2 in u16[10,11]
+				__m128i	rev8lohi_0 = _mm_or_si128( rev8lo_0, rev8_0 );			//	4bits in 8 u16[8,11]
+				__m128i	rev8lohi_1 = _mm_or_si128( rev8lo_1, rev8_1 );			//	4bits in 8 u16[8,11]
+				__m128i	rev16lo_0 = _mm_slli_epi32( rev8lohi_0, 20 );			//	shl32(16+4) to get lo4 in u32[20,23]
+				__m128i	rev16lo_1 = _mm_slli_epi32( rev8lohi_1, 20 );			//	shl32(16+4) to get lo4 in u32[20,23]
+				__m128i	rev16lohi_0 = _mm_or_si128( rev8lohi_0, rev16lo_0 );	//	8bits in 8 u32[16,23]
+				__m128i	rev16lohi_1 = _mm_or_si128( rev8lohi_1, rev16lo_1 );	//	8bits in 8 u32[16,23]
+				//	try to avoid these 2 instructions
+				__m128i	rev32_0 = _mm_srli_epi32( rev16lohi_0, 24 );			//	srl32(24) to get 8bits in u32[0,7]
+				__m128i	rev32_1 = _mm_srli_epi32( rev16lohi_1, 24 );			//	srl32(24) to get 8bits in u32[0,7]
+				__m128i	rev64 = _mm_packs_epi32( rev32_1, rev32_0 );			//	8bits in u16[0,7]
+				static const uint8_t CLASSALIGN(16) s_reverse_bytes2[16] = { 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x06, 0x04, 0x02, 0x00, 0x0E, 0x0C, 0x0A, 0x08 };
+				__m128i	bytesmask2 = _mm_load_si128( (const __m128i *) s_reverse_bytes2 );
+				__m128i	dst = _mm_shuffle_epi8( rev64, bytesmask2 );			//	64bits high byte in reverse order
+				_mm_store_si128( (__m128i*)pDst_bytes, dst );					//	store [0,15]
+			}
+			#else	//	C
+			{
+				const uint32_t N = 2;
+				for (int i = 0; i < ((blockNum + 1) << 4); i++)
+				{
+					static const uint8_t s_reverse_bits2[4] = { 0, 2, 1, 3 };
+					const uint32_t ofs = 128 - N - (i * N);
+					assert((ofs >> 3) < 16);
+					pDst_bytes[ofs >> 3] |= (s_reverse_bits2[pBlockWeights[i]] << (ofs & 7));
+				}
+			}
+			#endif	//	C
+			break;
+		}
+		case 3:	//	295 => 285
+		{
+			assert(blockNum == 0);
+			#if defined(BASISD_ASTC_SIMD) && ( defined(__arm__) || defined(__aarch64__) )
+			uint8x16_t	src3 = vld1q_u8( pBlockWeights );
+			uint16x8_t	src3hi = vshrq_n_u16( vreinterpretq_u16_u8(src3), 5 );							//	shr16(8-3) to get hi3 in u16[3,5]
+			uint16x8_t	src3lo = vandq_u16( vreinterpretq_u16_u8(src3), vdupq_n_u16(0x007) );			//	have to mask remainder to avoid bit collision
+			uint16x8_t	src3lohi = vorrq_u16( src3hi, src3lo );											//	6bits in 8 u16[0,5]
+			uint8x8_t	src6 = vqmovn_u16( src3lohi );													//	6bits in 8 u8[0,5]
+			uint16x4_t	src6hi = vshr_n_u16( vreinterpret_u16_u8(src6), 2 );							//	shr16(8-2) to get hi6 in u16[6,11]
+			uint16x4_t	src12 = vbsl_u16( vdup_n_u16(0x003F), vreinterpret_u16_u8(src6), src6hi );		//	12bits in 4 u16[0,11]
+			uint32x2_t	src12hi = vshr_n_u32( vreinterpret_u32_u16(src12), 4 );							//	shr32(16-12) to get in hi12 u32[12,23]
+			uint32x2_t	src24 = vbsl_u32( vdup_n_u32(0x0FFF), vreinterpret_u32_u16(src12), src12hi );	//	24bits in 2 u32[0,23]
+			uint32_t	src24lo = vget_lane_u32( src24, 0 );											//	lo 8.24
+			uint32_t	src24hi = vget_lane_u32( src24, 1 );											//	hi 8.24
+			uint32_t	rev24hi = __rbit( src24lo );													//	hi rev 24.8
+			uint32_t	rev24lo = __rbit( src24hi );													//	lo rev 24.8
+			uint32_t	rev32hi = (rev24hi) | (rev24lo >> 24U);											//	[32,63]
+			uint32_t	rev32lo = (rev24lo << 8U);														//	[0,31]
+			*((uint32_t*)(pDst_bytes + 12)) = rev32hi;													//	store [12,15]
+			*((uint32_t*)(pDst_bytes + 8)) = rev32lo;													//	store [8,11]
+			vst1_u8( pDst_bytes + 0, vdup_n_u8(0) );													//	store [0,7]
+			#elif defined(BASISD_ASTC_SIMD) && defined(__SSSE3__)
+			static const uint8_t CLASSALIGN(16) s_reverse_bits3[16] = { 0, 4, 2, 6, 1, 5, 3, 7, 0, 0, 0, 0, 0, 0, 0, 0 };
+			__m128i	bitsmask3 = _mm_load_si128( (const __m128i *) s_reverse_bits3 );
+			__m128i	src3 = _mm_loadu_si128( ((const __m128i *)pBlockWeights) );
+			__m128i	rev3 = _mm_shuffle_epi8( bitsmask3, src3 );						//	bit reverse
+			__m128i	rev3lo = _mm_slli_epi16( rev3, 11 );							//	shl16(8+3) to get lo3 in u16[11,13]
+			__m128i	rev3hi = _mm_and_si128( rev3, _mm_set1_epi32(0x07000700) );		//	have to mask remainder to avoid bit collision
+			__m128i	rev6 = _mm_or_si128( rev3hi, rev3lo );							//	6bits in 8 u16[8,13] : BA,DC,FE,HG,JI,LK,NM,PO
+			__m128i	rev6hi = _mm_srli_epi32( rev6, 24 );							//	shr32(24) to get hi6[24,29] in u32[0,5]
+			__m128i	rev6lo = _mm_srli_epi32( rev6, 2 );								//	shr32(2) to get lo6[8,13] in u32[6,11]
+			__m128i	rev12 = _mm_or_si128( rev6hi, rev6lo );							//	12bits in 4 u32[0,11] + garbage in u32[22,31]
+			__m128i	rev24lo = _mm_slli_epi64( rev12, 44 );							//	shl64(32+12) to get lo12 in u64[44,55]
+			__m128i	rev24hi = _mm_and_si128( rev12, _mm_set1_epi32(0x0000FFFF) );	//	clean garbage in u32[22,31]
+			__m128i	rev24 = _mm_or_si128( rev24hi, rev24lo );						//	24bits in 2 u64[32,55]
+			static const uint8_t CLASSALIGN(16) s_reverse_bytes3[16] = { 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x0C, 0x0D, 0x0E, 0x04, 0x05, 0x06 };
+			__m128i	bytesmask3 = _mm_load_si128( (const __m128i *) s_reverse_bytes3 );	
+			__m128i	rev48 = _mm_shuffle_epi8( rev24, bytesmask3 );					//	48bits in u128[80,127]
+			_mm_store_si128( (__m128i*)pDst_bytes, rev48 );							//	store [0,15]
+			#else	//	C
+			const uint32_t N = 3;
+			for (int i = 0; i < ((blockNum + 1) << 4); i++)
+			{
+				static const uint8_t s_reverse_bits3[8] = { 0, 4, 2, 6, 1, 5, 3, 7 };
+
+				const uint32_t ofs = 128 - N - (i * N);
+				const uint32_t rev = s_reverse_bits3[pBlockWeights[i]] << (ofs & 7);
+
+				uint32_t index = ofs >> 3;
+				assert(index < 16);
+				pDst_bytes[index++] |= rev & 0xFF;
+				if (index < 16)
+					pDst_bytes[index++] |= (rev >> 8);
+			}
+			#endif	//	C
+			break;
+		}
+		case 4:
+		{
+			assert(blockNum == 0);
+			#if defined(BASISD_ASTC_SIMD) && ( defined(__arm__) || defined(__aarch64__) )
+			uint8x16_t	src4 = vld1q_u8( pBlockWeights );
+			uint16x8_t	src8hi = vshrq_n_u16( vreinterpretq_u16_u8(src4), 4 );					//	shr16(8-4) to get hi4 in u16[4,7]
+			uint16x8_t	src8lo = vandq_u16( vreinterpretq_u16_u8(src4), vdupq_n_u16(0x00FF) );	//	have to mask remainder to avoid bit collision
+			uint16x8_t	src8lohi = vorrq_u16( src8hi, src8lo );									//	8bits in 8 u16[0,7]
+//			uint16x8_t	src8lohi = vbslq_u16( vdupq_n_u16(0x0F), vreinterpretq_u16_u8(src4), src8hi );	//	slower than (and + or)
+			uint8x8_t	src8 = vqmovn_u16( src8lohi );											//	8bits in 8 u8[0,7]
+			#if defined(__aarch64__)
+			uint8x8_t	rev64 = vrev64_u8( vrbit_u8( src8 ) );									//	bit reverse
+			vst1_u8( pDst_bytes + 8, rev64 );													//	store [8,15]
+			#else	//	!defined(__aarch64__)
+			uint64_t	rev64 = vget_lane_u64( vreinterpret_u64_u8(src8), 0 );					//	get the 64 bits
+						rev64 = __rbitll( rev64 );												//	bit reverse
+			*((uint64_t*)(pDst_bytes + 8)) = rev64;												//	store [8,15]
+			#endif	//	!defined(__aarch64__)
+			vst1_u8( pDst_bytes + 0, vdup_n_u8(0) );											//	store [0,7]
+			#elif defined(BASISD_ASTC_SIMD) && defined(__SSSE3__)
+			static const uint8_t CLASSALIGN(16) s_reverse_bits4[16] = { 0, 8, 4, 12, 2, 10, 6, 14, 1, 9, 5, 13, 3, 11, 7, 15 };
+			__m128i	bitsmask4 = _mm_load_si128( (const __m128i *) s_reverse_bits4 );
+			__m128i	src8 = _mm_loadu_si128( ((const __m128i *)pBlockWeights) );				//	load 16x8
+			__m128i	rev8 = _mm_shuffle_epi8( bitsmask4, src8 );								//	bit reverse
+			__m128i	rev8lo = _mm_slli_epi16( rev8, 12 );									//	shr16(8+4) to get lo in u16[12,15]
+			__m128i	rev8lohi = _mm_or_si128( rev8lo, rev8 );								//	8bits in 8 u16[8,15]
+			static const uint8_t CLASSALIGN(16) s_reverse_bytes4[16] = { 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x0F, 0x0D, 0x0B, 0x09, 0x07, 0x05, 0x03, 0x01 };
+			__m128i	bytesmask4 = _mm_load_si128( (const __m128i *) s_reverse_bytes4 );
+			__m128i	rev64 = _mm_shuffle_epi8( rev8lohi, bytesmask4 );						//	extract bytes in reverse order
+			_mm_store_si128( (__m128i*)pDst_bytes, rev64 );									//	store [0,15]
+			#else	//	C
+			{
+				const uint32_t N = 4;
+				for (int i = 0; i < ((blockNum + 1) << 4); i++)
+				{
+					static const uint8_t s_reverse_bits4[16] = { 0, 8, 4, 12, 2, 10, 6, 14, 1, 9, 5, 13, 3, 11, 7, 15 };
+					const int ofs = 128 - N - (i * N);
+					assert(ofs >= 0 && (ofs >> 3) < 16);
+					pDst_bytes[ofs >> 3] |= (s_reverse_bits4[pBlockWeights[i]] << (ofs & 7));
+				}
+			}
+			#endif	//	C
+			break;
+		}
+		case 5:
+		{
+			assert(blockNum == 0);
+			#if defined(BASISD_ASTC_SIMD) && ( defined(__arm__) || defined(__aarch64__) )
+			uint8x16_t	src5 = vld1q_u8( pBlockWeights );
+			uint16x8_t	src5hi = vshrq_n_u16( vreinterpretq_u16_u8(src5), 3 );								//	shiftRight 8-5 to get in u16[5,9]
+			uint16x8_t	src10 = vbslq_u16( vdupq_n_u16(0x01F), vreinterpretq_u16_u8(src5), src5hi );		//	10bits in 8 u16[0,9]
+			uint32x4_t	src10hi = vshrq_n_u32( vreinterpretq_u32_u16(src10), 6 );							//	shiftRight 16-10 to get in u32[10,19]
+			uint32x4_t	src20 = vbslq_u32( vdupq_n_u32(0x03FF), vreinterpretq_u32_u16(src10), src10hi );	//	20bits in 4 u32[0,19]
+			uint64x2_t	src20hi = vshrq_n_u64( vreinterpretq_u64_u32(src20), 12 );							//	shiftRight 32-20 to get in u64[20,39]
+			uint64x2_t	src40 = vbslq_u64( vdupq_n_u64(0x0FFFFF), vreinterpretq_u64_u32(src20), src20hi );	//	40bits in 2 u64[0,39]
+			uint64x1_t	src40hilo = vshl_n_u64( vget_high_u64(src40), 40 );						//	[40..64]
+			uint64x1_t	src40lo = vorr_u64( vget_low_u64(src40), src40hilo );					//	[0..63]
+			uint64x1_t	src40hi = vshr_n_u64( vget_high_u64(src40), 24 );						//	[64..79]
+//	try to use vrev32_u8( vrbit_u8( rev8 ) )
+			uint32_t	src80lo = vget_lane_u32( vreinterpret_u32_u64(src40lo), 0 );			//	[0..31]
+			uint32_t	src80mid = vget_lane_u32( vreinterpret_u32_u64(src40lo), 1 );			//	[32..63]
+			uint32_t	src80hi = vget_lane_u32( vreinterpret_u32_u64(src40hi), 0 );			//	[64..79]
+			uint32_t	rev80hi = __rbit( src80lo );											//	[48..79]
+			uint32_t	rev80mid = __rbit( src80mid );											//	[16..47]
+			uint32_t	rev80lo = __rbit( src80hi );											//	[16][0..15]
+			*((uint32_t*)(pDst_bytes + 12)) = rev80hi;											//	store [12,15]
+			*((uint32_t*)(pDst_bytes + 8)) = rev80mid;											//	store [8,11]
+			*((uint32_t*)(pDst_bytes + 4)) = rev80lo;											//	store [4,7]
+			*((uint32_t*)(pDst_bytes + 0)) = 0U;												//	store [0,3]
+			#elif defined(BASISD_ASTC_SIMD) && defined(__SSSE3__)
+			__m128i	src5 = _mm_loadu_si128( ((const __m128i *)pBlockWeights) );		//	load 16x8
+			__m128i	src4 = _mm_and_si128( _mm_set1_epi32(0x0F0F0F0F), src5 );		//	get 4 bits for shuffle
+			__m128i	src54 = _mm_andnot_si128( _mm_set1_epi32(0x0F0F0F0F), src5 );	//	keep 5th bit
+			static const uint8_t CLASSALIGN(16) s_reverse_bits5[16] = { 0x00, 0x10, 0x08, 0x18, 0x04, 0x14, 0x0C, 0x1C, 0x02, 0x12, 0x0A, 0x1A, 0x06, 0x16, 0x0E, 0x1E };
+			__m128i	bitsmask5 = _mm_load_si128( (const __m128i *) s_reverse_bits5 );
+			__m128i	rev4 = _mm_shuffle_epi8( bitsmask5, src4 );						//	bit reverse
+			__m128i	rev0 = _mm_srli_epi16( src54, 4 );								//	shr16(4) because shl8 doesn't exist => put bit[0] at right position
+			__m128i	rev5 = _mm_or_si128( rev0, rev4 );								//	5bits in 16 u8[0,4]
+			__m128i	rev5lo = _mm_slli_epi16( rev5, 8 );								//	shl16(8) to get lo5[0,4] in u16[8,12]
+			__m128i	rev5hi = _mm_srli_epi16( rev5, 5 );								//	shr16(5) to get hi5[8,12] in u16[3,7]
+			__m128i	rev10 = _mm_or_si128( rev5hi, rev5lo );							//	10bits in 8 u16[3,12]
+			__m128i	rev10lo = _mm_slli_epi32( rev10, 13 );							//	shl32(13) to get lo10[3,12] in u32[16,25]
+			__m128i	rev10hi = _mm_srli_epi32( rev10, 13 );							//	shr32(13) to get hi10[35,44] in u32[6,15]
+			__m128i	rev20 = _mm_or_si128( rev10hi, rev10lo );						//	20bits in 4 u32[6,25]
+			__m128i	rev20lo = _mm_slli_epi64( rev20, 14 );							//	shl64(14) to get lo20[6,25] in u64[20,39] garbage in [52,63]
+			__m128i	rev20hi = _mm_srli_epi64( rev20, 38 );							//	shr64(38) to get hi20[38,57] in u64[0,19]
+			__m128i	rev40 = _mm_or_si128( rev20hi, rev20lo );						//	40bits in 2 u64[0,39] garbage in [52,63]
+			static const uint8_t CLASSALIGN(16) s_reverse_bytes5[16] = { 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x00, 0x01, 0x02, 0x03, 0x04 };
+			__m128i	bytesmask5 = _mm_load_si128( (const __m128i *) s_reverse_bytes5 );
+			__m128i	rev80 = _mm_shuffle_epi8( rev40, bytesmask5 );					//	swizzle bytes to store (can do a single store if done first)
+			_mm_store_si128( (__m128i*)pDst_bytes, rev80 );							//	store [0,15]
+			#else	//	C
+			const uint32_t N = 5;
+			for (int i = 0; i < ((blockNum + 1) << 4); i++)
+			{
+				static const uint8_t s_reverse_bits5[32] = { 0, 16, 8, 24, 4, 20, 12, 28, 2, 18, 10, 26, 6, 22, 14, 30, 1, 17, 9, 25, 5, 21, 13, 29, 3, 19, 11, 27, 7, 23, 15, 31 };
+
+				const uint32_t ofs = 128 - N - (i * N);
+				const uint32_t rev = s_reverse_bits5[pBlockWeights[i]] << (ofs & 7);
+
+				uint32_t index = ofs >> 3;
+				assert(index < 16);
+				pDst_bytes[index++] |= rev & 0xFF;
+				if (index < 16)
+					pDst_bytes[index++] |= (rev >> 8);
+			}
+			#endif	//	C
+			break;
+		}
+		default:
+			assert(0);
+			break;
+		}
+	}
+
 	const uint32_t ASTC_BLOCK_MODE_BITS = 11;
 	const uint32_t ASTC_PART_BITS = 2;
 	const uint32_t ASTC_CEM_BITS = 4;
@@ -14666,19 +15058,20 @@ namespace basist
 		uint8_t* pDst_bytes = reinterpret_cast<uint8_t*>(pDst);
 
 		const int total_weights = pBlock->m_dual_plane ? 32 : 16;
+		const int bits_per_weight = g_astc_bise_range_table[pBlock->m_weight_range][0];
+
+		//	will clear pDst_bytes[16]
+		pack_astc_block_weights( pDst_bytes, pBlock->m_weights, bits_per_weight, pBlock->m_dual_plane ? 1 : 0 );
 
 		// Set mode bits - see Table 146-147
 		uint32_t mode = g_uastc_mode_astc_block_mode[uastc_mode];
 		pDst_bytes[0] = (uint8_t)mode;
 		pDst_bytes[1] = (uint8_t)(mode >> 8);
 
-		memset(pDst_bytes + 2, 0, 16 - 2);
-
 		int bit_pos = ASTC_BLOCK_MODE_BITS;
 
 		// We only support 1-5 bit weight indices
 		assert(!g_astc_bise_range_table[pBlock->m_weight_range][1] && !g_astc_bise_range_table[pBlock->m_weight_range][2]);
-		const int bits_per_weight = g_astc_bise_range_table[pBlock->m_weight_range][0];
 
 		// See table 143 - PART
 		astc_set_bits_1_to_9(pDst, bit_pos, pBlock->m_subsets - 1, ASTC_PART_BITS);
@@ -14711,85 +15104,6 @@ namespace basist
 
 		astc_pack_bise(pDst, pBlock->m_endpoints, bit_pos, num_cem_pairs * 2, g_uastc_mode_endpoint_ranges[uastc_mode]);
 
-		// Write the weight bits in reverse bit order.
-		switch (bits_per_weight)
-		{
-		case 1:
-		{
-			const uint32_t N = 1;
-			for (int i = 0; i < total_weights; i++)
-			{
-				const uint32_t ofs = 128 - N - i;
-				assert((ofs >> 3) < 16);
-				pDst_bytes[ofs >> 3] |= (pBlock->m_weights[i] << (ofs & 7));
-			}
-			break;
-		}
-		case 2:
-		{
-			const uint32_t N = 2;
-			for (int i = 0; i < total_weights; i++)
-			{
-				static const uint8_t s_reverse_bits2[4] = { 0, 2, 1, 3 };
-				const uint32_t ofs = 128 - N - (i * N);
-				assert((ofs >> 3) < 16);
-				pDst_bytes[ofs >> 3] |= (s_reverse_bits2[pBlock->m_weights[i]] << (ofs & 7));
-			}
-			break;
-		}
-		case 3:
-		{
-			const uint32_t N = 3;
-			for (int i = 0; i < total_weights; i++)
-			{
-				static const uint8_t s_reverse_bits3[8] = { 0, 4, 2, 6, 1, 5, 3, 7 };
-
-				const uint32_t ofs = 128 - N - (i * N);
-				const uint32_t rev = s_reverse_bits3[pBlock->m_weights[i]] << (ofs & 7);
-
-				uint32_t index = ofs >> 3;
-				assert(index < 16);
-				pDst_bytes[index++] |= rev & 0xFF;
-				if (index < 16)
-					pDst_bytes[index++] |= (rev >> 8);
-			}
-			break;
-		}
-		case 4:
-		{
-			const uint32_t N = 4;
-			for (int i = 0; i < total_weights; i++)
-			{
-				static const uint8_t s_reverse_bits4[16] = { 0, 8, 4, 12, 2, 10, 6, 14, 1, 9, 5, 13, 3, 11, 7, 15 };
-				const int ofs = 128 - N - (i * N);
-				assert(ofs >= 0 && (ofs >> 3) < 16);
-				pDst_bytes[ofs >> 3] |= (s_reverse_bits4[pBlock->m_weights[i]] << (ofs & 7));
-			}
-			break;
-		}
-		case 5:
-		{
-			const uint32_t N = 5;
-			for (int i = 0; i < total_weights; i++)
-			{
-				static const uint8_t s_reverse_bits5[32] = { 0, 16, 8, 24, 4, 20, 12, 28, 2, 18, 10, 26, 6, 22, 14, 30, 1, 17, 9, 25, 5, 21, 13, 29, 3, 19, 11, 27, 7, 23, 15, 31 };
-
-				const uint32_t ofs = 128 - N - (i * N);
-				const uint32_t rev = s_reverse_bits5[pBlock->m_weights[i]] << (ofs & 7);
-
-				uint32_t index = ofs >> 3;
-				assert(index < 16);
-				pDst_bytes[index++] |= rev & 0xFF;
-				if (index < 16)
-					pDst_bytes[index++] |= (rev >> 8);
-			}
-
-			break;
-		}
-		default:
-			assert(0);
-			break;
-		}
 
 		return true;
 	}
@@ -14913,6 +15227,463 @@ namespace basist
 			return (w >> byte_bit_offset) & ((1U << codesize) - 1U);
 		}
 	}
+
+#if defined(BASISD_UASTC_SIMD)
+
+
+class	unpack_uastc_weights
+{
+private:
+
+//	1 block
+#define D_unpack_uast_caseMono( _base, _bitnum, _anchor )	k##_bitnum##_##_base, 
+//	2 blocks
+#define D_unpack_uast_caseDual( _base, _bitnum, _anchor )	k##_bitnum##_##_base, k##_bitnum##_##_base##_1, 
+//	19 anchors combinaisons distinct cases, bit 0 always set, highest bit = 12
+#define D_unpack_uast_casePack( _base, _bitnum )	\
+k##_bitnum##_##_base, k##_bitnum##_##_base##_1, k##_bitnum##_##_base##_2, k##_bitnum##_##_base##_3,		\
+k##_bitnum##_##_base##_4, k##_bitnum##_##_base##_5, k##_bitnum##_##_base##_6, k##_bitnum##_##_base##_7,		\
+k##_bitnum##_##_base##_8, k##_bitnum##_##_base##_9, k##_bitnum##_##_base##_10, k##_bitnum##_##_base##_11,	\
+k##_bitnum##_##_base##_12, k##_bitnum##_##_base##_13, k##_bitnum##_##_base##_14, k##_bitnum##_##_base##_15,	\
+k##_bitnum##_##_base##_16, k##_bitnum##_##_base##_17, k##_bitnum##_##_base##_18, 
+
+	enum param_case : uint16_t
+	{
+		D_unpack_uast_caseDual(66,2, 3)	//	mode == 6 and 11
+		D_unpack_uast_caseDual(94,1, 3)	//	mode == 13
+		D_unpack_uast_caseDual(61,2, 3)	//	mode == 17
+
+		D_unpack_uast_caseMono(65,4, 1)	//	mode == 0 and 10
+		D_unpack_uast_caseMono(69,2, 1)	//	mode == 1
+		D_unpack_uast_caseMono(62,4, 1)	//	mode == 4 and 15
+		D_unpack_uast_caseMono(68,3, 1)	//	mode == 5
+		D_unpack_uast_caseMono(81,3, 1)	//	mode == 12
+		D_unpack_uast_caseMono(92,2, 1)	//	mode == 14
+		D_unpack_uast_caseMono(49,5, 1)	//	mode == 18
+
+		D_unpack_uast_casePack(73,3)
+		D_unpack_uast_casePack(89,2)
+		D_unpack_uast_casePack(97,2)
+		D_unpack_uast_casePack(98,2)
+		kLast
+	};
+
+//	19 anchors combinaisons distinct cases, bit 0 always set, highest bit = 12
+	enum	anchorArrayCasesName : uint8_t
+	{	k0001, k0003, k0005, k0007, k0009, k000B, k000D, k0011, k0045, k0081,
+		k0101, k0111, k0201, k0203, k0501, k0801, k1001, k1011, k1101	};
+
+	struct	CLASSALIGN(16) param
+	{	uint16_t	m_ByteShiftByteMask[16];	};
+
+	struct	CLASSALIGN(16) partition
+	{	uint8_t	m_Byte[16];	};
+
+
+	static	constexpr	uint8_t	min8( uint8_t a, uint8_t b )	{	return	(a > b) ? b : a;	}
+
+	static	constexpr	bool	unpack_uastc_isAnchor( uint8_t _index, uint32_t _anchor )
+	{	return	((1U << _index) & _anchor) != 0U;	}
+
+	static	constexpr	uint8_t	unpack_uastc_bitMask( uint8_t _bitnum, uint8_t _index, uint32_t _anchor )
+	{	return	unpack_uastc_isAnchor( _index, _anchor ) ? (_bitnum - 1U) : _bitnum;	}
+
+	static	constexpr	uint8_t	unpack_uastc_bitSizeSum( uint8_t _bitnum, uint8_t _index, uint32_t _anchor )
+	{	return	((_index > 0U) ? unpack_uastc_bitSizeSum( _bitnum, _index - 1U, _anchor ) : 0U) + _bitnum - ( unpack_uastc_isAnchor( _index, _anchor ) ? 1U : 0U);	}
+
+	static	constexpr	uint8_t	unpack_uastc_bitOffset( uint8_t _base, uint8_t _bitnum, uint8_t _index, uint32_t _anchor )
+	{	return	_base + ((_index > 0U) ? unpack_uastc_bitSizeSum( _bitnum, _index - 1U, _anchor ) : 0U);	}
+
+	static	constexpr	uint8_t	unpack_uastc_bitBase( uint8_t _base, uint8_t _bitnum, uint8_t _index, uint32_t _anchor )
+	{	return	unpack_uastc_bitOffset( _base, _bitnum, _index, _anchor ) & 7U;	}
+
+	static	constexpr	uint8_t	unpack_uastc_bitShift( uint8_t _base, uint8_t _bitnum, uint8_t _index, uint32_t _anchor )
+	{
+		uint8_t	bitBase = unpack_uastc_bitBase( _base, _bitnum, _index, _anchor );
+	#if ( defined(__arm__) || defined(__aarch64__) )	//	ARM has shrv
+		return	bitBase;	}
+	#elif defined(__SSSE3__)							//	Intel : convert shrv to mulhi
+	//	(bit & 7U) > 0 => byte0 = (bit >> 3U) ; byte1 = ((bit >> 3U) + 1) & 15U ; mulhi = 1U << (8U + 8U - (bit & 7U))
+	//	(bit & 7U) = 0 => byte0 = (bit >> 3U) ; byte1 = ((bit >> 3U) + 0) & 15U ; mulhi = 1U << 8U
+		return	(bitBase == 0U) ? 0U : (8U - bitBase);	}	//	real value is 1U << (v + 8U)
+	#endif
+
+	static	constexpr	uint16_t	byteOffset( uint8_t _base, uint8_t _bitnum, uint8_t _index, uint32_t _anchor )
+	{
+		uint8_t	bitOffset = unpack_uastc_bitOffset( _base, _bitnum, _index, _anchor );
+		uint8_t	lo = (bitOffset >> 3U);													//	4bits
+		uint8_t	hi = min8( 15U, lo + (((bitOffset & 7U) == 0) ? 0U : 1U) );				//	may use only 1bit
+				lo |= (unpack_uastc_bitShift( _base, _bitnum, _index, _anchor ) << 4U);	//	3bits
+				hi |= (unpack_uastc_bitMask( _bitnum, _index, _anchor ) << 4U);			//	3bits
+		return	(((uint16_t)hi) << 8U) | ((uint16_t)lo);
+	}
+
+	static const anchorArrayCasesName	ms_anchorArrayDict[ 1 + TOTAL_ASTC_BC7_COMMON_PARTITIONS3 + TOTAL_BC7_3_ASTC2_COMMON_PARTITIONS + TOTAL_ASTC_BC7_COMMON_PARTITIONS2 ];
+
+	static const partition	ms_PartitionDict[ 1 + TOTAL_ASTC_BC7_COMMON_PARTITIONS3 + TOTAL_BC7_3_ASTC2_COMMON_PARTITIONS + TOTAL_ASTC_BC7_COMMON_PARTITIONS2 ];
+
+	static const param ms_param_group[param_case::kLast];
+
+	static	unpack_uastc_weights	ms_last;	//	to monitor unhandled cases
+
+	static	void	compute( const param * _param, const uint8_t * _src, const partition * _pattern, uint8_t * _dst, uint8_t _weight_mask8, uint8_t _invert_subset_mask8 )
+	{
+		#if ( defined(__arm__) || defined(__aarch64__) )
+		const uint8_t *	param = (const uint8_t *)_param;
+		uint8x16_t	bitLoad = vld1q_u8( _src );											//	load 8x16
+		uint8x8x2_t	bitSrc{ vget_low_u8( bitLoad ), vget_high_u8( bitLoad ) };
+
+		uint8x16_t	bitByte0 = vld1q_u8( param + 0 );
+		uint8x16_t	bitByte1 = vld1q_u8( param + 16 );
+		uint16x8_t	bitCtrl0 = vreinterpretq_u16_u8( vshrq_n_u8( bitByte0, 4 ) );		//	remove bytePos
+		uint16x8_t	bitCtrl1 = vreinterpretq_u16_u8( vshrq_n_u8( bitByte1, 4 ) );		//	remove bytePos
+					bitByte0 = vandq_u8( bitByte0, vdupq_n_u8(0x0F) );					//	filter bytePos
+					bitByte1 = vandq_u8( bitByte1, vdupq_n_u8(0x0F) );					//	filter bytePos
+		uint8x8_t	word03 = vtbl2_u8( bitSrc, vget_low_u8( bitByte0 ) );				//	translate 8x8
+		uint8x8_t	word47 = vtbl2_u8( bitSrc, vget_high_u8( bitByte0 ) );				//	translate 8x8
+		uint16x8_t	word07 = vreinterpretq_u16_u8( vcombine_u8( word03, word47 ) );		//	get word 16x8
+		uint8x8_t	word8B = vtbl2_u8( bitSrc, vget_low_u8( bitByte1 ) );				//	translate 8x8
+		uint8x8_t	wordCF = vtbl2_u8( bitSrc, vget_high_u8( bitByte1 ) );				//	translate 8x8
+		uint16x8_t	word8F = vreinterpretq_u16_u8( vcombine_u8( word8B, wordCF ) );		//	get word 16x8
+		uint16x8_t	bitShift0 = vandq_u16( bitCtrl0, vdupq_n_u16( 0x000F ) );			//	filter Shift
+		uint16x8_t	bitShift1 = vandq_u16( bitCtrl1, vdupq_n_u16( 0x000F ) );			//	filter Shift
+		int16x8_t	shr0 = vnegq_s16( vreinterpretq_s16_u16( bitShift0 ) );				//	neg shift 16x8
+		int16x8_t	shr1 = vnegq_s16( vreinterpretq_s16_u16( bitShift1 ) );				//	neg shift 16x8
+					word07 = vshlq_u16( word07, shr0 );									//	align 16x8
+					word8F = vshlq_u16( word8F, shr1 );									//	align 16x8
+		uint16x8_t	bitNum0 = vshrq_n_u16( bitCtrl0, 8 );								//	filter bitNum
+		uint16x8_t	bitNum1 = vshrq_n_u16( bitCtrl1, 8 );								//	filter bitNum
+		uint16x8_t	bitMask0 = vshlq_u16( vdupq_n_u16(1), bitNum0 );					//	bitMask = (1U << n) - 1U
+		uint16x8_t	bitMask1 = vshlq_u16( vdupq_n_u16(1), bitNum1 );					//	bitMask = (1U << n) - 1U
+					bitMask0 = vsubq_u16( bitMask0, vdupq_n_u16(1) );					//	bitMask = (1U << n) - 1U
+					bitMask1 = vsubq_u16( bitMask1, vdupq_n_u16(1) );					//	bitMask = (1U << n) - 1U
+					word07 = vandq_u16( word07, bitMask0 );								//	mask 16x8
+					word8F = vandq_u16( word8F, bitMask1 );								//	mask 16x8
+		uint8x16_t	weight = vcombine_u8( vqmovn_u16(word07), vqmovn_u16(word8F) );		//	pack to 8x16
+		uint8x16_t	pattern = vld1q_u8( (const uint8_t *)_pattern );					//	load 8x16
+		uint8x16_t	test = vtstq_u8( pattern, vdupq_n_u8(_invert_subset_mask8) );		//	mask if any
+					test = vandq_u8( test, vdupq_n_u8(_weight_mask8) );					//	weightMask if set
+					weight = veorq_u8( weight, test );									//	weightMask - weight
+					vst1q_u8( _dst, weight );											//	store 8x16
+		#elif defined(__SSSE3__)
+		const __m128i *	param = (const __m128i *)_param;				//	msvc seems to compile worst with load aligned
+		__m128i	bitSrc = _mm_loadu_si128( (const __m128i *)_src );						//	load 8x16
+		__m128i	bitByte0 = _mm_load_si128( param + 0 );									//	load 16x8
+		__m128i	bitByte1 = _mm_load_si128( param + 1 );									//	load 16x8
+		__m128i	bitCtrl0 = _mm_srli_epi16( bitByte0, 4 );								//	remove bytePos
+		__m128i	bitCtrl1 = _mm_srli_epi16( bitByte1, 4 );								//	remove bytePos
+				bitByte0 = _mm_and_si128( bitByte0, _mm_set1_epi32( 0x0F0F0F0F ) );		//	filter bytePos
+				bitByte1 = _mm_and_si128( bitByte1, _mm_set1_epi32( 0x0F0F0F0F ) );		//	filter bytePos
+		__m128i	word07 = _mm_shuffle_epi8( bitSrc, bitByte0 );							//	get word 16x8
+		__m128i	word8F = _mm_shuffle_epi8( bitSrc, bitByte1 );							//	get word 16x8
+		__m128i	bitShift0 = _mm_and_si128( bitCtrl0, _mm_set1_epi32( 0x000F000F ) );	//	filter Shift
+		__m128i	bitShift1 = _mm_and_si128( bitCtrl1, _mm_set1_epi32( 0x000F000F ) );	//	filter Shift
+		__m128i	bitShift = _mm_packus_epi16( bitShift0, bitShift1 );					//	pack to 8x16
+		__m128i	bitNum0 = _mm_srli_epi16( bitCtrl0, 8 );								//	filter bitNum
+		__m128i	bitNum1 = _mm_srli_epi16( bitCtrl1, 8 );								//	filter bitNum
+		__m128i	bitNum = _mm_packus_epi16( bitNum0, bitNum1 );							//	pack to 8x16
+		__m128i	shiftToMul = _mm_setr_epi8( 0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, -128, 0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, -128 );	//	8 used values
+		__m128i	bitMul = _mm_shuffle_epi8( shiftToMul, bitShift );						//	mulhi[8] = shuffle( shiftToMul, bitShift )
+		__m128i	bitMul0 = _mm_unpacklo_epi8( _mm_setzero_si128(), bitMul );				//	mulhi[16] = (1U << (shift + 8U))
+		__m128i	bitMul1 = _mm_unpackhi_epi8( _mm_setzero_si128(), bitMul );				//	mulhi[16] = (1U << (shift + 8U))
+				word07 = _mm_mulhi_epu16( word07, bitMul0 );							//	align 16x8 (shrv unavailable)
+				word8F = _mm_mulhi_epu16( word8F, bitMul1 );							//	align 16x8 (shrv unavailable)
+		__m128i	numToMask = _mm_setr_epi8( 0x00, 0x01, 0x03, 0x07, 0x0F, 0x1F, 0x3F, 0x7F, 0x00, 0x01, 0x03, 0x07, 0x0F, 0x1F, 0x3F, 0x7F );	//	8 used values
+		__m128i	bitMask = _mm_shuffle_epi8( numToMask, bitNum );						//	could use : mask = shuffle( shiftToMul, bitNum ) - 1U
+		__m128i	bitMask0 = _mm_unpacklo_epi8( bitMask, _mm_setzero_si128() );			//	zeroExtend to u16
+		__m128i	bitMask1 = _mm_unpackhi_epi8( bitMask, _mm_setzero_si128() );			//	zeroExtend to u16
+				word07 = _mm_and_si128( word07, bitMask0 );								//	mask 16x8
+				word8F = _mm_and_si128( word8F, bitMask1 );								//	mask 16x8
+		__m128i	weight = _mm_packus_epi16( word07, word8F );							//	pack to 8x16
+		__m128i	pattern = _mm_load_si128( (const __m128i *)_pattern );					//	load 8x16
+		__m128i	test = _mm_and_si128( pattern, _mm_set1_epi8(_invert_subset_mask8) );	//	weightMask bit
+				test = _mm_cmpeq_epi8( test, _mm_setzero_si128() );						//	weightMask propagate
+				test = _mm_andnot_si128( test, _mm_set1_epi8(_weight_mask8) );			//	weightMask if set
+				weight = _mm_xor_si128( weight, test );									//	weightMask - weight
+				_mm_storeu_si128( (__m128i*)_dst, weight );								//	store 8x16
+		#else	//	error
+			#error "undefined architecture"
+		#endif	//	error
+	}
+
+	static const anchorArrayCasesName	getAnchorDict( uint8_t index )	{	return	ms_anchorArrayDict[index];	}
+
+	uint8_t get_anchorTableIndex() const
+	{
+		uint8_t index = 0U;
+
+		if (m_subsets >= 2)
+		{
+			if (m_subsets == 3)
+				index = 1U + m_pattern;
+			else if (m_mode == 7)
+				index = 1U + TOTAL_ASTC_BC7_COMMON_PARTITIONS3 + m_pattern;
+			else
+				index = 1U + TOTAL_ASTC_BC7_COMMON_PARTITIONS3 + TOTAL_BC7_3_ASTC2_COMMON_PARTITIONS + m_pattern;
+		}
+		return	index;
+	}
+
+	uint8_t	m_bit_ofs;				//	7
+	uint8_t	m_total_planes;			//	1
+	uint8_t	m_weight_bits;			//	5
+	uint8_t	m_invert_subset_mask8;	//	3
+	uint8_t	m_mode;					//	5
+	uint8_t	m_subsets;				//	2
+	uint8_t	m_pattern;				//	5
+	uint8_t	m_pad;
+
+public:
+
+	unpack_uastc_weights() = default;
+	unpack_uastc_weights( uint8_t _total_planes, uint8_t _invert_subset_mask8, uint8_t weight_bits, uint8_t bit_ofs, uint8_t subsets, uint8_t _mode, uint8_t _pattern )
+	:	m_bit_ofs( bit_ofs )
+	,	m_total_planes( _total_planes )
+	,	m_weight_bits( weight_bits )
+	,	m_invert_subset_mask8( _invert_subset_mask8 )
+	,	m_mode( _mode )
+	,	m_subsets( subsets )
+	,	m_pattern( _pattern )
+	,	m_pad( 0U )
+	{}
+	~unpack_uastc_weights() = default;
+
+	void	run( const uint8_t * _src, uint8_t * _dst ) const
+	{
+		ms_last = *this;	//	to monitor unhandled cases
+
+		uint8_t	paramIndex = get_anchorTableIndex();
+		
+		uint16_t	packCase = unpack_uastc_weights::param_case::kLast;
+		bool	dual = false;
+		if (m_mode == 18)
+			packCase = unpack_uastc_weights::param_case::k5_49;
+		else
+		{
+			if (m_total_planes == 2)
+			{
+				if	( m_bit_ofs == 61 )
+					packCase = unpack_uastc_weights::param_case::k2_61;
+				else if	( m_bit_ofs == 66 )
+					packCase = unpack_uastc_weights::param_case::k2_66;
+				else if	( m_bit_ofs == 94 )
+					packCase = unpack_uastc_weights::param_case::k1_94;
+				else
+					BREAK_EXECUTION();
+			}
+			else
+			{
+				if (m_subsets == 1)
+				{
+					if (m_weight_bits == 4)
+					{
+						if	( m_bit_ofs == 65 )
+							packCase = unpack_uastc_weights::param_case::k4_65;
+						else if	( m_bit_ofs == 62 )
+							packCase = unpack_uastc_weights::param_case::k4_62;
+						else
+							BREAK_EXECUTION();
+					}
+					else
+					{
+						if (m_weight_bits == 3)
+						{
+							if	( ( m_bit_ofs == 68 ) && ( m_mode == 5 ) )
+								packCase = unpack_uastc_weights::param_case::k3_68;
+							else if ( ( m_bit_ofs == 81 ) && ( m_mode == 12 ) )
+								packCase = unpack_uastc_weights::param_case::k3_81;
+							else
+								BREAK_EXECUTION();
+						}
+						else if (m_weight_bits == 2)
+						{
+							if	( ( m_bit_ofs == 92 ) && ( m_mode == 14 ) )
+								packCase = unpack_uastc_weights::param_case::k2_92;
+							else if	( ( m_bit_ofs == 69 ) && ( m_mode == 1 ) )
+								packCase = unpack_uastc_weights::param_case::k2_69;
+							else
+								BREAK_EXECUTION();
+						}
+						else if (m_weight_bits == 1)
+						{
+							BREAK_EXECUTION();
+						}
+					}
+				}
+				else
+				{
+					if ( (m_weight_bits == 3) && ( m_bit_ofs == 73 ) && ( m_mode == 2 ) )
+						packCase = unpack_uastc_weights::param_case::k3_73 + getAnchorDict(paramIndex);
+					else if ( (m_weight_bits == 3) && ( m_bit_ofs == 73 ) && ( m_mode == 3 ) )
+						packCase = unpack_uastc_weights::param_case::k3_73 + getAnchorDict(paramIndex);
+					else if ( (m_weight_bits == 2) && ( m_bit_ofs == 89 ) && ( m_mode == 3 ) )
+						packCase = unpack_uastc_weights::param_case::k2_89 + getAnchorDict(paramIndex);
+					else if ( (m_weight_bits == 2) && ( m_bit_ofs == 89 ) && ( m_mode == 4 ) )
+						packCase = unpack_uastc_weights::param_case::k2_89 + getAnchorDict(paramIndex);
+					else if ( (m_weight_bits == 2) && ( m_bit_ofs == 89 ) && ( m_mode == 7 ) )
+						packCase = unpack_uastc_weights::param_case::k2_89 + getAnchorDict(paramIndex);
+					else if ( (m_weight_bits == 2) && ( m_bit_ofs == 97 ) && ( m_mode == 9 ) )
+						packCase = unpack_uastc_weights::param_case::k2_97 + getAnchorDict(paramIndex);
+					else if ( (m_weight_bits == 2) && ( m_bit_ofs == 98 ) && ( m_mode == 16 ) )
+						packCase = unpack_uastc_weights::param_case::k2_98 + getAnchorDict(paramIndex);
+					else
+						BREAK_EXECUTION();
+				}
+			}
+		}
+
+		if	( packCase != unpack_uastc_weights::param_case::kLast )
+		{
+			const uint8_t weight_mask8 = (1U << m_weight_bits) - 1;
+			compute( &ms_param_group[packCase], _src, &ms_PartitionDict[paramIndex], _dst + 0, weight_mask8, m_invert_subset_mask8 );
+			if	(m_total_planes == 2)
+				compute( &ms_param_group[packCase + 1], _src, &ms_PartitionDict[paramIndex], _dst + 16, weight_mask8, m_invert_subset_mask8 );
+		}
+		else
+			BREAK_EXECUTION();
+	}
+
+	void	testPattern( const uint8_t * pPartition_pattern ) const
+	{
+		uint8_t	paramIndex = get_anchorTableIndex();
+		for (uint32_t i = 0; i < 16; i++)
+			if	( (1U << pPartition_pattern[i]) != ms_PartitionDict[paramIndex].m_Byte[i] )
+				BREAK_EXECUTION();
+	}
+
+};	//	class	unpack_uastc_weights
+
+
+
+//	block constructor (16 items)
+#define	D_unpack_uastc_byteOffset( _base, _bitnum, _anchor, _start )	\
+{	unpack_uastc_weights::byteOffset( _base, _bitnum, _start + 0, _anchor ),	\
+	unpack_uastc_weights::byteOffset( _base, _bitnum, _start + 1, _anchor ),	\
+	unpack_uastc_weights::byteOffset( _base, _bitnum, _start + 2, _anchor ),	\
+	unpack_uastc_weights::byteOffset( _base, _bitnum, _start + 3, _anchor ),	\
+	unpack_uastc_weights::byteOffset( _base, _bitnum, _start + 4, _anchor ),	\
+	unpack_uastc_weights::byteOffset( _base, _bitnum, _start + 5, _anchor ),	\
+	unpack_uastc_weights::byteOffset( _base, _bitnum, _start + 6, _anchor ),	\
+	unpack_uastc_weights::byteOffset( _base, _bitnum, _start + 7, _anchor ),	\
+	unpack_uastc_weights::byteOffset( _base, _bitnum, _start + 8, _anchor ),	\
+	unpack_uastc_weights::byteOffset( _base, _bitnum, _start + 9, _anchor ),	\
+	unpack_uastc_weights::byteOffset( _base, _bitnum, _start + 10, _anchor ),	\
+	unpack_uastc_weights::byteOffset( _base, _bitnum, _start + 11, _anchor ),	\
+	unpack_uastc_weights::byteOffset( _base, _bitnum, _start + 12, _anchor ),	\
+	unpack_uastc_weights::byteOffset( _base, _bitnum, _start + 13, _anchor ),	\
+	unpack_uastc_weights::byteOffset( _base, _bitnum, _start + 14, _anchor ),	\
+	unpack_uastc_weights::byteOffset( _base, _bitnum, _start + 15, _anchor )	},
+
+//	1 block
+#define	D_unpack_uast_paramMono( _base, _bitnum, _anchor )	D_unpack_uastc_byteOffset( _base, _bitnum, _anchor, 0 )
+//	2 blocks
+#define	D_unpack_uast_paramDual( _base, _bitnum, _anchor )	D_unpack_uastc_byteOffset( _base, _bitnum, _anchor, 0 ) D_unpack_uastc_byteOffset( _base, _bitnum, _anchor, 16 )
+//	19 anchors combinaisons distinct cases, bit 0 always set, highest bit = 12
+#define	D_unpack_uast_paramPack( _base, _bitnum )	\
+D_unpack_uast_paramMono(_base, _bitnum, 0x0001)	\
+D_unpack_uast_paramMono(_base, _bitnum, 0x0003)	\
+D_unpack_uast_paramMono(_base, _bitnum, 0x0005)	\
+D_unpack_uast_paramMono(_base, _bitnum, 0x0007)	\
+D_unpack_uast_paramMono(_base, _bitnum, 0x0009)	\
+D_unpack_uast_paramMono(_base, _bitnum, 0x000B)	\
+D_unpack_uast_paramMono(_base, _bitnum, 0x000D)	\
+D_unpack_uast_paramMono(_base, _bitnum, 0x0011)	\
+D_unpack_uast_paramMono(_base, _bitnum, 0x0045)	\
+D_unpack_uast_paramMono(_base, _bitnum, 0x0081)	\
+D_unpack_uast_paramMono(_base, _bitnum, 0x0101)	\
+D_unpack_uast_paramMono(_base, _bitnum, 0x0111)	\
+D_unpack_uast_paramMono(_base, _bitnum, 0x0201)	\
+D_unpack_uast_paramMono(_base, _bitnum, 0x0203)	\
+D_unpack_uast_paramMono(_base, _bitnum, 0x0501)	\
+D_unpack_uast_paramMono(_base, _bitnum, 0x0801)	\
+D_unpack_uast_paramMono(_base, _bitnum, 0x1001)	\
+D_unpack_uast_paramMono(_base, _bitnum, 0x1011)	\
+D_unpack_uast_paramMono(_base, _bitnum, 0x1101)
+
+
+//	19 anchors combinaisons distinct cases : dictonnary
+const unpack_uastc_weights::anchorArrayCasesName	unpack_uastc_weights::ms_anchorArrayDict[ 1 + TOTAL_ASTC_BC7_COMMON_PARTITIONS3 + TOTAL_BC7_3_ASTC2_COMMON_PARTITIONS + TOTAL_ASTC_BC7_COMMON_PARTITIONS2 ]
+{
+//	default
+//		{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+k0001,
+//	const uint8_t g_astc_bc7_pattern3_anchors[TOTAL_ASTC_BC7_COMMON_PARTITIONS3][3] =
+//		{ 0, 8, 10 },	{ 8, 0, 12 }, { 4, 0, 12 }, { 8, 0, 4 }, { 3, 0, 2 }, { 0, 1, 3 }, { 0, 2, 1 }, { 1, 9, 0 }, { 1, 2, 0 }, { 4, 0, 8 }, { 0, 6, 2 }
+k0501, k1101, k1011, k0111, k000D, k000B, k0007, k0203, k0007, k0111, k0045,
+//	const uint8_t g_bc7_3_astc2_patterns2_anchors[TOTAL_BC7_3_ASTC2_COMMON_PARTITIONS][3] =
+//		{ 0, 4 }, { 0, 2 }, { 2, 0 }, { 0, 7 }, { 8, 0 }, { 0, 1 }, { 0, 3 }, { 0, 1 },
+k0011, k0005, k0005, k0081, k0101, k0003, k0009, k0003,
+//		{ 2, 0 }, { 0, 1 }, { 0, 8 }, { 2, 0 }, { 0, 1 }, { 0, 7 }, { 12, 0 }, { 2, 0 },
+k0005, k0003, k0101, k0005, k0003, k0081, k1001, k0005,
+//		{ 9, 0 }, { 0, 2 }, { 4, 0 }
+k0201, k0005, k0011,
+//	const uint8_t g_astc_bc7_pattern2_anchors[TOTAL_ASTC_BC7_COMMON_PARTITIONS2][3] =
+//		{ 0, 2 }, { 0, 3 }, { 1, 0 }, { 0, 3 }, { 7, 0 }, { 0, 2 }, { 3, 0 }, { 7, 0 },
+k0005, k0009, k0003, k0009, k0081, k0005, k0009, k0081, 
+//		{ 0, 11 }, { 2, 0 }, { 0, 7 }, { 11, 0 }, { 3, 0 }, { 8, 0 }, { 0, 4 }, { 12, 0 },
+k0801, k0005, k0081, k0801, k0009, k0101, k0011, k1001,
+//		{ 1, 0 }, { 8, 0 }, { 0, 1 }, { 0, 2 }, { 0, 4 }, { 8, 0 }, { 1, 0 }, { 0, 2 },
+k0003, k0101, k0003, k0005, k0011, k0101, k0003, k0005,
+//		{ 4, 0 }, { 0, 1 }, { 4, 0 }, { 1, 0 }, { 4, 0 }, { 1, 0 }
+k0011, k0003, k0011, k0003, k0011, k0003,
+};
+
+
+#define BPF( _B15, _B14, _B13, _B12, _B11, _B10, _B9, _B8, _B7, _B6, _B5, _B4, _B3, _B2, _B1, _B0) \
+{ 1<<_B15, 1<<_B14, 1<<_B13, 1<<_B12, 1<<_B11, 1<<_B10, 1<<_B9, 1<<_B8, 1<<_B7, 1<<_B6, 1<<_B5, 1<<_B4, 1<<_B3, 1<<_B2, 1<<_B1, 1<<_B0 }
+//	pixel partitions converted to bitfield
+const unpack_uastc_weights::partition	unpack_uastc_weights::ms_PartitionDict[ 1 + TOTAL_ASTC_BC7_COMMON_PARTITIONS3 + TOTAL_BC7_3_ASTC2_COMMON_PARTITIONS + TOTAL_ASTC_BC7_COMMON_PARTITIONS2 ]
+{
+//	default
+	BPF( 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ),
+//	const uint8_t g_astc_bc7_patterns3[TOTAL_ASTC_BC7_COMMON_PARTITIONS3][16] =
+	BPF( 0,0,0,0,0,0,0,0,1,1,2,2,1,1,2,2 ), BPF( 1,1,1,1,1,1,1,1,0,0,0,0,2,2,2,2 ), BPF( 1,1,1,1,0,0,0,0,0,0,0,0,2,2,2,2 ),	BPF( 1,1,1,1,2,2,2,2,0,0,0,0,0,0,0,0 ),
+	BPF( 1,1,2,0,1,1,2,0,1,1,2,0,1,1,2,0 ), BPF( 0,1,1,2,0,1,1,2,0,1,1,2,0,1,1,2 ), BPF( 0,2,1,1,0,2,1,1,0,2,1,1,0,2,1,1 ),	BPF( 2,0,0,0,2,0,0,0,2,1,1,1,2,1,1,1 ),
+	BPF( 2,0,1,2,2,0,1,2,2,0,1,2,2,0,1,2 ), BPF( 1,1,1,1,0,0,0,0,2,2,2,2,1,1,1,1 ), BPF( 0,0,2,2,0,0,1,1,0,0,1,1,0,0,2,2 ),
+//	const uint8_t g_bc7_3_astc2_patterns2[TOTAL_BC7_3_ASTC2_COMMON_PARTITIONS][16] =
+	BPF( 0,0,0,0,1,1,1,1,0,0,0,0,0,0,0,0 ), BPF( 0,0,1,0,0,0,1,0,0,0,1,0,0,0,1,0 ), BPF( 1,1,0,0,1,1,0,0,1,0,0,0,0,0,0,0 ),	BPF( 0,0,0,0,0,0,0,1,0,0,1,1,0,0,1,1 ),
+	BPF( 1,1,1,1,1,1,1,1,0,0,0,0,1,1,1,1 ), BPF( 0,1,0,0,0,1,0,0,0,1,0,0,0,1,0,0 ), BPF( 0,0,0,1,0,0,1,1,1,1,1,1,1,1,1,1 ),	BPF( 0,1,1,1,0,0,1,1,0,0,1,1,0,0,1,1 ),
+	BPF( 1,1,0,0,0,0,0,0,0,0,1,1,1,1,0,0 ), BPF( 0,1,1,1,0,1,1,1,0,0,0,0,0,0,0,0 ), BPF( 0,0,0,0,0,0,0,0,1,1,1,0,1,1,1,0 ),	BPF( 1,1,0,0,0,0,0,0,0,0,0,0,1,1,0,0 ),
+	BPF( 0,1,1,1,0,0,1,1,0,0,0,0,0,0,0,0 ), BPF( 0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1 ), BPF( 1,1,1,1,1,1,1,1,1,1,1,1,0,1,1,0 ),	BPF( 1,1,0,0,1,1,0,0,1,1,0,0,1,0,0,0 ),
+	BPF( 1,1,1,1,1,1,1,1,1,0,0,0,1,0,0,0 ), BPF( 0,0,1,1,0,1,1,0,1,1,0,0,1,0,0,0 ), BPF( 1,1,1,1,0,1,1,1,0,0,0,0,0,0,0,0 ),
+//	const uint8_t g_astc_bc7_patterns2[TOTAL_ASTC_BC7_COMMON_PARTITIONS2][16] =
+	BPF( 0,0,1,1,0,0,1,1,0,0,1,1,0,0,1,1 ), BPF( 0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,1 ), BPF( 1,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0 ), BPF( 0,0,0,1,0,0,1,1,0,0,1,1,0,1,1,1 ),
+	BPF( 1,1,1,1,1,1,1,0,1,1,1,0,1,1,0,0 ), BPF( 0,0,1,1,0,1,1,1,0,1,1,1,1,1,1,1 ), BPF( 1,1,1,0,1,1,0,0,1,0,0,0,0,0,0,0 ), BPF( 1,1,1,1,1,1,1,0,1,1,0,0,1,0,0,0 ),
+	BPF( 0,0,0,0,0,0,0,0,0,0,0,1,0,0,1,1 ), BPF( 1,1,0,0,1,0,0,0,0,0,0,0,0,0,0,0 ), BPF( 0,0,0,0,0,0,0,1,0,1,1,1,1,1,1,1 ), BPF( 1,1,1,1,1,1,1,1,1,1,1,0,1,0,0,0 ),
+	BPF( 1,1,1,0,1,0,0,0,0,0,0,0,0,0,0,0 ), BPF( 1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0 ), BPF( 0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1 ), BPF( 1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0 ),
+	BPF( 1,0,0,0,1,1,1,0,1,1,1,1,1,1,1,1 ), BPF( 1,1,1,1,1,1,1,1,0,1,1,1,0,0,0,1 ), BPF( 0,1,1,1,0,0,1,1,0,0,0,1,0,0,0,0 ), BPF( 0,0,1,1,0,0,0,1,0,0,0,0,0,0,0,0 ),
+	BPF( 0,0,0,0,1,0,0,0,1,1,0,0,1,1,1,0 ), BPF( 1,1,1,1,1,1,1,1,0,1,1,1,0,0,1,1 ), BPF( 1,0,0,0,1,1,0,0,1,1,0,0,1,1,1,0 ), BPF( 0,0,1,1,0,0,0,1,0,0,0,1,0,0,0,0 ),
+	BPF( 1,1,1,1,0,1,1,1,0,1,1,1,0,0,1,1 ), BPF( 0,1,1,0,0,1,1,0,0,1,1,0,0,1,1,0 ), BPF( 1,1,1,1,0,0,0,0,0,0,0,0,1,1,1,1 ), BPF( 1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0 ),
+	BPF( 1,1,1,1,0,0,0,0,1,1,1,1,0,0,0,0 ), BPF( 1,0,0,1,0,0,1,1,0,1,1,0,1,1,0,0 )
+};
+
+
+
+const unpack_uastc_weights::param unpack_uastc_weights::ms_param_group[unpack_uastc_weights::param_case::kLast] {
+D_unpack_uast_paramDual(66,2, 3)	//	mode == 6 and 11
+D_unpack_uast_paramDual(94,1, 3)	//	mode == 13
+D_unpack_uast_paramDual(61,2, 3)	//	mode == 17
+
+D_unpack_uast_paramMono(65,4, 1)	//	mode == 0 and 10
+D_unpack_uast_paramMono(69,2, 1)	//	mode == 1
+D_unpack_uast_paramMono(62,4, 1)	//	mode == 4 and 15
+D_unpack_uast_paramMono(68,3, 1)	//	mode == 5
+D_unpack_uast_paramMono(81,3, 1)	//	mode == 12
+D_unpack_uast_paramMono(92,2, 1)	//	mode == 14
+D_unpack_uast_paramMono(49,5, 1)	//	mode == 18
+
+D_unpack_uast_paramPack(73,3)
+D_unpack_uast_paramPack(89,2)
+D_unpack_uast_paramPack(97,2)
+D_unpack_uast_paramPack(98,2)
+
+//		if (mode == UASTC_MODE_INDEX_SOLID_COLOR)	//	mode == 8
+};
+
+unpack_uastc_weights	unpack_uastc_weights::ms_last;	//	to monitor unhandled cases
+
+#endif	//	defined(BASISD_UASTC_SIMD)
+
 
 	bool unpack_uastc(const uastc_block& blk, unpacked_uastc_block& unpacked, bool blue_contract_check, bool read_hints)
 	{
@@ -15093,19 +15864,10 @@ namespace basist
 		const uint32_t ep_quints = g_astc_bise_range_table[endpoint_range][2];
 
 		uint32_t total_tqs = 0;
-		uint32_t bundle_size = 0, mul = 0;
 		if (ep_trits)
-		{
 			total_tqs = (total_values + 4) / 5;
-			bundle_size = 5;
-			mul = 3;
-		}
 		else if (ep_quints)
-		{
 			total_tqs = (total_values + 2) / 3;
-			bundle_size = 3;
-			mul = 5;
-		}
 
 		uint32_t tq_values[8];
 		for (uint32_t i = 0; i < total_tqs; i++)
@@ -15113,7 +15875,8 @@ namespace basist
 			uint32_t num_bits = ep_trits ? 8 : 7;
 			if (i == (total_tqs - 1))
 			{
-				uint32_t num_remaining = total_values - (total_tqs - 1) * bundle_size;
+//	compiler knows how to fast-mul by 3 & 5
+				uint32_t num_remaining = total_values - (total_tqs - 1) * ((ep_trits) ? 5U : 3U);
 				if (ep_trits)
 				{
 					switch (num_remaining)
@@ -15153,12 +15916,20 @@ namespace basist
 				{
 					assert(next_tq_index < total_tqs);
 					accum = tq_values[next_tq_index++];
-					accum_remaining = bundle_size;
+					accum_remaining = ((ep_trits) ? 5U : 3U);
 				}
-
-				// TODO: Optimize with tables
-				uint32_t v = accum % mul;
-				accum /= mul;
+//	compiler knows how to fast-divide by 3 & 5
+				uint32_t v;
+				if	( ep_trits )
+				{
+					v = (uint32_t) (((uint8_t)accum) % 3);
+					accum = (uint32_t) (((uint8_t)accum) / 3);
+				}
+				else
+				{
+					v = (uint32_t) (((uint8_t)accum) % 5);
+					accum = (uint32_t) (((uint8_t)accum) / 5);
+				}
 				accum_remaining--;
 
 				value |= (v << ep_bits);
@@ -15167,7 +15938,7 @@ namespace basist
 			unpacked.m_astc.m_endpoints[i] = (uint8_t)value;
 		}
 
-		const uint8_t* pPartition_pattern;
+		const uint8_t* pPartition_pattern;		//	used to invert weights
 		const uint8_t* pSubset_anchor_indices = get_anchor_indices(subsets, mode, unpacked.m_common_pattern, pPartition_pattern);
 
 #ifdef _DEBUG
@@ -15209,6 +15980,35 @@ namespace basist
 		}
 #endif
 
+		uint8_t invert_subset_mask8 = 0U;
+		if ((blue_contract_check) && (total_comps >= 3))
+		{
+			// We only need to disable ASTC Blue Contraction when we'll be packing to ASTC. The other transcoders don't care.
+
+			for (uint32_t subset_index = 0; subset_index < subsets; subset_index++)
+			{
+				const int s0 = g_astc_unquant[endpoint_range][unpacked.m_astc.m_endpoints[subset_index * total_comps * 2 + 0]].m_unquant +
+					g_astc_unquant[endpoint_range][unpacked.m_astc.m_endpoints[subset_index * total_comps * 2 + 2]].m_unquant +
+					g_astc_unquant[endpoint_range][unpacked.m_astc.m_endpoints[subset_index * total_comps * 2 + 4]].m_unquant;
+
+				const int s1 = g_astc_unquant[endpoint_range][unpacked.m_astc.m_endpoints[subset_index * total_comps * 2 + 1]].m_unquant +
+					g_astc_unquant[endpoint_range][unpacked.m_astc.m_endpoints[subset_index * total_comps * 2 + 3]].m_unquant +
+					g_astc_unquant[endpoint_range][unpacked.m_astc.m_endpoints[subset_index * total_comps * 2 + 5]].m_unquant;
+
+				if (s1 < s0)
+				{
+					for (uint32_t c = 0; c < total_comps; c++)
+						std::swap(unpacked.m_astc.m_endpoints[subset_index * total_comps * 2 + c * 2 + 0], unpacked.m_astc.m_endpoints[subset_index * total_comps * 2 + c * 2 + 1]);
+
+					invert_subset_mask8 |= 1U << subset_index;
+				}
+			}
+		}
+#if defined(BASISD_UASTC_SIMD)
+		unpack_uastc_weights	job( (uint8_t)total_planes, invert_subset_mask8, (uint8_t)weight_bits, (uint8_t)bit_ofs, (uint8_t)subsets, (uint8_t)mode, (uint8_t)unpacked.m_common_pattern );
+//		job.testPattern( pPartition_pattern );
+		job.run( blk.m_bytes, unpacked.m_astc.m_weights );
+#else	//	!defined(BASISD_UASTC_SIMD)
 		if (mode == 18)
 		{
 			// Mode 18 is the only mode with more than 64 weight bits.
@@ -15248,7 +16048,6 @@ namespace basist
 			if (total_planes == 2)
 			{
 				// Dual plane modes always have a single subset, and the first 2 weights are anchors.
-
 				unpacked.m_astc.m_weights[0] = (uint8_t)((uint32_t)(bits >> bit_ofs) & anchor_mask);
 				bit_ofs += (weight_bits - 1);
 				
@@ -15325,50 +16124,26 @@ namespace basist
 			}
 		}
 
-		if ((blue_contract_check) && (total_comps >= 3))
+		if (invert_subset_mask8 != 0U)
 		{
-			// We only need to disable ASTC Blue Contraction when we'll be packing to ASTC. The other transcoders don't care.
-			bool invert_subset[3] = { false, false, false };
-			bool any_flag = false;
+			const uint32_t weight_mask = (1 << weight_bits) - 1;
 
-			for (uint32_t subset_index = 0; subset_index < subsets; subset_index++)
+			for (uint32_t i = 0; i < 16; i++)
 			{
-				const int s0 = g_astc_unquant[endpoint_range][unpacked.m_astc.m_endpoints[subset_index * total_comps * 2 + 0]].m_unquant +
-					g_astc_unquant[endpoint_range][unpacked.m_astc.m_endpoints[subset_index * total_comps * 2 + 2]].m_unquant +
-					g_astc_unquant[endpoint_range][unpacked.m_astc.m_endpoints[subset_index * total_comps * 2 + 4]].m_unquant;
+				uint32_t subset = pPartition_pattern[i];
 
-				const int s1 = g_astc_unquant[endpoint_range][unpacked.m_astc.m_endpoints[subset_index * total_comps * 2 + 1]].m_unquant +
-					g_astc_unquant[endpoint_range][unpacked.m_astc.m_endpoints[subset_index * total_comps * 2 + 3]].m_unquant +
-					g_astc_unquant[endpoint_range][unpacked.m_astc.m_endpoints[subset_index * total_comps * 2 + 5]].m_unquant;
-
-				if (s1 < s0)
+				if ( (invert_subset_mask8 & (1U << subset)) != 0U )
 				{
-					for (uint32_t c = 0; c < total_comps; c++)
-						std::swap(unpacked.m_astc.m_endpoints[subset_index * total_comps * 2 + c * 2 + 0], unpacked.m_astc.m_endpoints[subset_index * total_comps * 2 + c * 2 + 1]);
+					unpacked.m_astc.m_weights[i * total_planes] = (uint8_t)(weight_mask - unpacked.m_astc.m_weights[i * total_planes]);
 
-					invert_subset[subset_index] = true;
-					any_flag = true;
-				}
-			}
-
-			if (any_flag)
-			{
-				const uint32_t weight_mask = (1 << weight_bits) - 1;
-
-				for (uint32_t i = 0; i < 16; i++)
-				{
-					uint32_t subset = pPartition_pattern[i];
-
-					if (invert_subset[subset])
-					{
-						unpacked.m_astc.m_weights[i * total_planes] = (uint8_t)(weight_mask - unpacked.m_astc.m_weights[i * total_planes]);
-
-						if (total_planes == 2)
-							unpacked.m_astc.m_weights[i * total_planes + 1] = (uint8_t)(weight_mask - unpacked.m_astc.m_weights[i * total_planes + 1]);
-					}
+					if (total_planes == 2)
+						unpacked.m_astc.m_weights[i * total_planes + 1] = (uint8_t)(weight_mask - unpacked.m_astc.m_weights[i * total_planes + 1]);
 				}
 			}
 		}
+#endif	//	!defined(BASISD_UASTC_SIMD)
+
+
 
 		return true;
 	}
