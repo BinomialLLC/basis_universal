@@ -45,10 +45,7 @@ namespace bu_math
 	{
 	public:
 		typedef T scalar_type;
-		enum
-		{
-			num_elements = N
-		};
+		static constexpr uint32_t num_elements = N;
 
 		inline vec()
 		{
@@ -1196,15 +1193,8 @@ namespace bu_math
 	{
 	public:
 		typedef T scalar_type;
-		static const uint32_t num_rows = R;
-		static const uint32_t num_cols = C;
-#if 0
-		enum
-		{
-			num_rows = R,
-			num_cols = C
-		};
-#endif
+		static constexpr uint32_t num_rows = R;
+		static constexpr uint32_t num_cols = C;
 
 		typedef vec<R, T> col_vec;
 		typedef vec < (R > 1) ? (R - 1) : 0, T > subcol_vec;
@@ -1875,10 +1865,10 @@ namespace bu_math
 		static inline subcol_vec transform_point(const subcol_vec& a, const matrix& b)
 		{
 			subcol_vec result(0);
-			for (int r = 0; r < static_cast<int>(R); r++)
+			for (uint32_t r = 0; r < R; r++)
 			{
 				const T s = (r < subcol_vec::num_elements) ? a[r] : 1.0f;
-				for (int c = 0; c < static_cast<int>(C - 1); c++)
+				for (uint32_t c = 0; c < (C - 1); c++)
 					result[c] += b[r][c] * s;
 			}
 			return result;
@@ -1931,10 +1921,10 @@ namespace bu_math
 		{
 			static_assert(R == C);
 			subcol_vec result(0);
-			for (int r = 0; r < R; r++)
+			for (uint32_t r = 0; r < R; r++)
 			{
 				const T s = (r < subcol_vec::num_elements) ? a[r] : 1.0f;
-				for (int c = 0; c < (C - 1); c++)
+				for (uint32_t c = 0; c < (C - 1); c++)
 					result[c] += b[c][r] * s;
 			}
 			return result;
