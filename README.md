@@ -42,8 +42,8 @@ Links
 
 - [Wiki/Specifications](https://github.com/BinomialLLC/basis_universal/wiki)
 - [Release Notes](https://github.com/BinomialLLC/basis_universal/wiki/Release-Notes)
-- [Live Compression/Transcoding Testbed](https://subquantumtech.com/xu/ktx2_encode_test/) - A WASM64 compatible browser is recommended (such as Chrome/Edge/Firefox), especially for XUASTC LDR compression, but it works under plain WASM too (with resolution limits due to less available memory).
-- [Live WebGL Examples](https://subquantumtech.com/xu/)
+- [Live Compression/Transcoding Testbed](https://binomial.biz/ktx2_encode_test/) - A WASM64 compatible browser is recommended (such as Chrome/Edge/Firefox), especially for XUASTC LDR compression, but it works under plain WASM too (with resolution limits due to less available memory).
+- [Live WebGL Examples](https://binomial.biz/)
 - [JavaScript API/WASM/WebGL info](https://github.com/BinomialLLC/basis_universal/tree/master/webgl)
 - [XUASTC LDR Specification](https://github.com/BinomialLLC/basis_universal/wiki/XUASTC-LDR-Specification-v1.0)
 
@@ -442,7 +442,7 @@ Hello from basisu_wasm_api.cpp version 200
 WebGL Examples
 --------------
 
-The 'WebGL' directory contains several simple WebGL demos that use the transcoder and compressor compiled to [WASM](https://webassembly.org/) with [Emscripten](https://emscripten.org/). These demos are online [here](https://subquantumtech.com/xu/). See more details in the readme file [here](webgl/README.md).
+The 'WebGL' directory contains several simple WebGL demos that use the transcoder and compressor compiled to [WASM](https://webassembly.org/) with [Emscripten](https://emscripten.org/). These demos are online [here](https://binomial.biz/). See more details in the readme file [here](webgl/README.md).
 
 ![Screenshot of 'texture' example running in a browser.](webgl/texture_test/preview.png)
 ![Screenshot of 'gltf' example running in a browser.](webgl/gltf/preview.png)
@@ -471,7 +471,7 @@ emcmake cmake ..
 make
 ```
 
-There are several simple encoding/transcoding web demos, located in `webgl/ktx2_encode_test` and `webgl/texture_test`, that show how to use the encoder's and transcoder's JavaScript wrapper APIs. They are [live on the web here](https://subquantumtech.com/xu/).
+There are several simple encoding/transcoding web demos, located in `webgl/ktx2_encode_test` and `webgl/texture_test`, that show how to use the encoder's and transcoder's JavaScript wrapper APIs. They are [live on the web here](https://binomial.biz/).
 
 ----
 
