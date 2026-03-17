@@ -8,7 +8,7 @@
 
 # WebGL Examples
 
-Requires WebAssembly and WebGL support. The WebGL demos are hosted live [here](https://subquantumtech.com/xu/).
+Requires WebAssembly and WebGL support. The WebGL demos are hosted live [here](https://binomial.biz/).
 
 To build the encoder and transcoder WASM libraries using [Emscripten](https://emscripten.org/), see the README.md files in the [webgl/transcoder](https://github.com/BinomialLLC/basis_universal/tree/master/webgl/transcoder) and [webgl/encoder](https://github.com/BinomialLLC/basis_universal/tree/master/webgl/encoder) folders. The JavaScript API wrappers to the C/C++ library are located in [`webgl/transcoder/basis_wrappers.cpp`](https://github.com/BinomialLLC/basis_universal/blob/master/webgl/transcoder/basis_wrappers.cpp). The JavaScript API is a thin wrapper layered above our C++ API (however not our C API).
 
@@ -16,7 +16,7 @@ To build the encoder and transcoder WASM libraries using [Emscripten](https://em
 
 ## KTX2 Compression, Transcoding, Display (ktx2_encode_test)
 
-Live demo: [`ktx2_encode_test/index.html'](https://subquantumtech.com/xu/ktx2_encode_test/)
+Live demo: [`ktx2_encode_test/index.html'](https://binomial.biz/ktx2_encode_test/)
 
 This demo shows how to use the compressor and transcoder from JavaScript. To use it, select a .PNG file then hit the "Encode!" button. The compressor will dynamically generate a .ktx2 file in memory which will then be immediately transcoded and rendered as a quad with a WebGL pixel shader used to sample the texture using the GPU. Hit the "Download!" button to locally download the generated .ktx2 file. This sample allows the user to toggle on/off all GPU formats the local device supports and see the results in real-time.
 
@@ -38,7 +38,7 @@ See [this wiki page](https://github.com/BinomialLLC/basis_universal/wiki/Encodin
 
 ## Simple Transcoding (texture_test)
 
-Live demo: [webgl/texture_test/index.html](https://subquantumtech.com/xu/texture_test/)
+Live demo: [webgl/texture_test/index.html](https://binomial.biz/texture_test/)
 
 Renders a single texture, using the transcoder (compiled to WASM with emscripten) to generate one of the following compressed texture formats:
 
@@ -57,7 +57,7 @@ On browsers that don't support any compressed texture formats, there's a low-qua
 
 ## glTF 3D Model
 
-Live demo: [`gltf/index.html`](https://subquantumtech.com/xu/gltf/)
+Live demo: [`gltf/index.html`](https://binomial.biz/gltf/)
 
 Renders a glTF 3D model with `.basis` texture files, transcoded into one of the following compressed texture formats:
 
