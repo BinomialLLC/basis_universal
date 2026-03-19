@@ -1811,6 +1811,49 @@
       }
    }
 
+   function saveFramebufferAsPNG()
+   {
+      if (!width || !displayWidth || !displayHeight)
+         return;
+
+      // Ensure the canvas contents are fresh.
+      redraw();
+
+      var canvas = elem('canvas');
+      var gl = canvas.getContext('webgl');
+
+      // Read the framebuffer. WebGL readPixels returns rows bottom-to-top.
+      var pixels = new Uint8Array(displayWidth * displayHeight * 4);
+      gl.readPixels(0, 0, displayWidth, displayHeight, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+
+      // Flip vertically into a temporary canvas via putImageData.
+      var tmpCanvas = document.createElement('canvas');
+      tmpCanvas.width = displayWidth;
+      tmpCanvas.height = displayHeight;
+      var ctx = tmpCanvas.getContext('2d');
+      var imageData = ctx.createImageData(displayWidth, displayHeight);
+
+      for (var y = 0; y < displayHeight; y++)
+      {
+         var srcRow = (displayHeight - 1 - y) * displayWidth * 4;
+         var dstRow = y * displayWidth * 4;
+         imageData.data.set(pixels.subarray(srcRow, srcRow + displayWidth * 4), dstRow);
+      }
+
+      ctx.putImageData(imageData, 0, 0);
+
+      // Convert to PNG blob and trigger download.
+      tmpCanvas.toBlob(function(blob) {
+         var url = URL.createObjectURL(blob);
+         var a = document.createElement('a');
+         a.href = url;
+         a.download = 'framebuffer.png';
+         document.body.appendChild(a);
+         a.click();
+         document.body.removeChild(a);
+         URL.revokeObjectURL(url);
+      }, 'image/png');
+   }
    function disabledFormatsChanged()
    {
       updateSupportedFormats();
@@ -2392,7 +2435,7 @@
 
     <br>
     <div style="font-size: 24pt; font-weight: bold">
-    Basis Universal .KTX2 Supercompressed GPU Texture Encoding/Transcoding Testbed v2.17
+    Basis Universal .KTX2 Supercompressed GPU Texture Encoding/Transcoding Testbed v2.18
     </div>
 
     <br>This simple demo uses the <a href="https://github.com/BinomialLLC/basis_universal/">Basis Universal</a> C++ transcoder (compiled to WebAssembly using Emscripten) to transcode a .ktx2 file to:
@@ -2499,6 +2542,7 @@
     <br>
 
     <input type="button" value="Download Encoded .KTX2 File" onclick="downloadEncodedFile()">
+    <input type="button" value="Save Framebuffer as .PNG" onclick="saveFramebufferAsPNG()">
 
     <hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">
     
