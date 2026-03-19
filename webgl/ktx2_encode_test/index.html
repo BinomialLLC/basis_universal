@@ -2330,6 +2330,11 @@
     min-width: 0;
     overflow: auto;
     max-height: calc(100vh - 24px); /* 24px = 12px top + 12px bottom padding in .wrap */
+    cursor: grab;
+  }
+  .viewer.dragging {
+    cursor: grabbing;
+    user-select: none;
   }
 
   /* IMPORTANT: do NOT scale the canvas with CSS; let JS size it 1:1 */
@@ -2371,7 +2376,7 @@
 
     <br>
     <div style="font-size: 24pt; font-weight: bold">
-    Basis Universal .KTX2 Supercompressed GPU Texture Encoding/Transcoding Testbed v2.15
+    Basis Universal .KTX2 Supercompressed GPU Texture Encoding/Transcoding Testbed v2.16
     </div>
 
     <br>This simple demo uses the <a href="https://github.com/BinomialLLC/basis_universal/">Basis Universal</a> C++ transcoder (compiled to WebAssembly using Emscripten) to transcode a .ktx2 file to:
@@ -3053,6 +3058,35 @@ document.addEventListener('DOMContentLoaded', () => {
 
 </script>
 
+<script>
+// Drag-to-scroll: hold left mouse button and drag to pan the texture view.
+document.addEventListener('DOMContentLoaded', () => {
+  const viewer = document.querySelector('.viewer');
+  let isDragging = false;
+  let startX, startY, scrollLeftStart, scrollTopStart;
+  viewer.addEventListener('mousedown', e => {
+    // Only left button
+    if (e.button !== 0) return;
+    isDragging = true;
+    viewer.classList.add('dragging');
+    startX = e.clientX;
+    startY = e.clientY;
+    scrollLeftStart = viewer.scrollLeft;
+    scrollTopStart = viewer.scrollTop;
+    e.preventDefault();
+  });
+  window.addEventListener('mousemove', e => {
+    if (!isDragging) return;
+    viewer.scrollLeft = scrollLeftStart - (e.clientX - startX);
+    viewer.scrollTop  = scrollTopStart  - (e.clientY - startY);
+  });
+  window.addEventListener('mouseup', e => {
+    if (!isDragging) return;
+    isDragging = false;
+    viewer.classList.remove('dragging');
+  });
+});
+</script>
 </body>
 
 </html>
