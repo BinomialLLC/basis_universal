@@ -1084,6 +1084,7 @@
    function resetDrawSettings()
    {
       drawMode = 0;
+      updateViewModeButtons();
 
       linearToSRGBFlag = false;
       elem('linear_to_srgb').innerText = linearToSRGBFlag ? 'Enabled' : 'Disabled';
@@ -1548,9 +1549,18 @@
       }
    }
 
-   function alphaBlend() { drawMode = 0; redraw(); }
-   function viewRGB() { drawMode = 1; redraw(); }
-   function viewAlpha() { drawMode = 2; redraw(); }
+   function updateViewModeButtons()
+   {
+      var ids = ['btn-alpha-blend', 'btn-view-rgb', 'btn-view-alpha', 'btn-view-r', 'btn-view-g', 'btn-view-b'];
+      for (var i = 0; i < ids.length; i++)
+         elem(ids[i]).classList.toggle('active-btn', i === drawMode);
+   }
+   function alphaBlend() { drawMode = 0; updateViewModeButtons(); redraw(); }
+   function viewRGB() { drawMode = 1; updateViewModeButtons(); redraw(); }
+   function viewAlpha() { drawMode = 2; updateViewModeButtons(); redraw(); }
+   function viewR() { drawMode = 3; updateViewModeButtons(); redraw(); }
+   function viewG() { drawMode = 4; updateViewModeButtons(); redraw(); }
+   function viewB() { drawMode = 5; updateViewModeButtons(); redraw(); }
 
    function BC7ChromaFilterClicked()
    {
@@ -2188,6 +2198,7 @@
    function globalInit()
    {
       elem('SRGB').checked = true;
+      updateViewModeButtons();
 
       var gl = elem('canvas').getContext('webgl');
       checkForGPUFormatSupport(gl);
@@ -2336,6 +2347,11 @@
     cursor: grabbing;
     user-select: none;
   }
+  .active-btn {
+    background-color: #4a90d9;
+    color: white;
+    border-style: inset;
+  }
 
   /* IMPORTANT: do NOT scale the canvas with CSS; let JS size it 1:1 */
   #canvas { display:block; image-rendering: pixelated; }
@@ -2376,7 +2392,7 @@
 
     <br>
     <div style="font-size: 24pt; font-weight: bold">
-    Basis Universal .KTX2 Supercompressed GPU Texture Encoding/Transcoding Testbed v2.16
+    Basis Universal .KTX2 Supercompressed GPU Texture Encoding/Transcoding Testbed v2.17
     </div>
 
     <br>This simple demo uses the <a href="https://github.com/BinomialLLC/basis_universal/">Basis Universal</a> C++ transcoder (compiled to WebAssembly using Emscripten) to transcode a .ktx2 file to:
@@ -2564,9 +2580,12 @@
     <b>Display/Visualization Options:</b>
     <br>
     
-    <input type="button" value="Alpha blend" onclick="alphaBlend()"></input>
-    <input type="button" value="View RGB" onclick="viewRGB()"></input>
-    <input type="button" value="View Alpha" onclick="viewAlpha()"></input>
+    <input type="button" id="btn-alpha-blend" value="Alpha blend" onclick="alphaBlend()"></input>
+    <input type="button" id="btn-view-rgb" value="View RGB" onclick="viewRGB()"></input>
+    <input type="button" id="btn-view-alpha" value="View Alpha" onclick="viewAlpha()"></input>
+    <input type="button" id="btn-view-r" value="View R" onclick="viewR()"></input>
+    <input type="button" id="btn-view-g" value="View G" onclick="viewG()"></input>
+    <input type="button" id="btn-view-b" value="View B" onclick="viewB()"></input>
 
     <br>
 
@@ -3085,6 +3104,40 @@ document.addEventListener('DOMContentLoaded', () => {
     isDragging = false;
     viewer.classList.remove('dragging');
   });
+  // Wheel-to-zoom: scroll wheel zooms in/out, preserving the point under the cursor.
+  viewer.addEventListener('wheel', e => {
+    e.preventDefault();
+    const slider = document.getElementById('display-zoom-slider');
+    if (!slider) return;
+
+    const oldSliderVal = parseInt(slider.value, 10);
+    const newSliderVal = e.deltaY < 0
+      ? Math.min(oldSliderVal + 1, parseInt(slider.max, 10))
+      : Math.max(oldSliderVal - 1, parseInt(slider.min, 10));
+
+    if (newSliderVal === oldSliderVal) return;
+
+    const oldZoom = (oldSliderVal === 0) ? 0.5 : oldSliderVal;
+    const newZoom = (newSliderVal === 0) ? 0.5 : newSliderVal;
+
+    // Mouse position relative to the viewer's top-left corner.
+    const rect = viewer.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+
+    // The texture-space coordinate currently under the cursor.
+    const texX = (viewer.scrollLeft + mouseX) / oldZoom;
+    const texY = (viewer.scrollTop  + mouseY) / oldZoom;
+
+    // Apply the zoom through the existing slider/function so all state stays in sync.
+    slider.value = newSliderVal;
+    updateDisplayZoom(newSliderVal);
+
+    // Adjust scroll so the same texture-space point remains under the cursor.
+    viewer.scrollLeft = texX * newZoom - mouseX;
+    viewer.scrollTop  = texY * newZoom - mouseY;
+
+  }, { passive: false });
 });
 </script>
 </body>

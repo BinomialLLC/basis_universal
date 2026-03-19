@@ -239,7 +239,7 @@ Renderer.prototype.drawTexture = function (texture, width, height, mode, scale, 
 
    var a = 1.0 / width;
    var b = 1.0 / height;
-   var c = 0;
+   var c = (mode >= 3) ? (mode - 2) : 0;  // mode 3->1(R), 4->2(G), 5->3(B)
    var d = 0;
    gl.uniform4f(this.uniformLocations_.control2, a, b, c, d);
 
@@ -318,6 +318,9 @@ Renderer.fragmentShaderSource_ = [
    '	 {',
    '   	c.rgb = c.aaa; c.w = 1.0;',
    '  }',
+   '  if (control2.z == 1.0) { c.rgb = vec3(c.r); c.w = 1.0; }',
+   '  else if (control2.z == 2.0) { c.rgb = vec3(c.g); c.w = 1.0; }',
+   '  else if (control2.z == 3.0) { c.rgb = vec3(c.b); c.w = 1.0; }',
    '  if (control.w > 0.0)',
    '     c.rgb = linearToSrgb(c.rgb);',
    '  gl_FragColor = c;',
