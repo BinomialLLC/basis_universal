@@ -527,6 +527,7 @@ External Links
 - [Online .EXR and .HDR Image File Viewer](https://viewer.openhdr.org/) - OpenHDR Viewer. Has a very well implemented tone mapper, auto-exposure, and HDR histogram.
 - [RenderDoc](https://renderdoc.org/) - Reliable viewer for LDR/HDR .DDS files in BC1-7 formats. Open the .PNG/.EXR/.DDS file, then select Window->Texture Viewer. Supports mipmaps, texture arrays, cubemaps, basic exposure controls.
 - [Paint.NET](https://www.getpaint.net/) - Windows app: built-in [.DDS file loading](https://github.com/0xC0000054/pdn-ddsfiletype-plus), supports BC1-7 and [cubemaps](https://github.com/0xC0000054/pdn-ddsfiletype-plus/wiki/Cube-Maps)
+- [dds-ktx](https://github.com/septag/dds-ktx): Simple .DDS/.KTX viewer with mipmap support. (Note: Crashes on compressed textures not divisible by 4 texels on each dimension.)
 - [AMD Compressonator](https://gpuopen.com/compressonator/) - .DDS viewer, can view .KTX files in some formats.
 - [PVRTexTool](https://www.imgtec.com/developers/powervr-sdk-tools/pvrtextool/) - Can view .ASTC and .KTX files in some formats that AMD Compressonator won't view. (Note: .DDS viewer seems busted for BC1, doesn't support BC7 at all.)
 - [Microsoft's DirectXTex](https://github.com/microsoft/DirectXTex) - Samples contain a basic .DDS viewer. (Note: May still have issues loading .DDS files with texture dimensions that aren't divisible by 4 texels.)
