@@ -35,8 +35,8 @@
 // 32-bit WASM limitation (TODO: remove for 64-bit), to prevent OOM crashes during HDR encoding in particular.
 // TODO: Even WASM64 in Chrome has limits which seem too low for us. For now, just impose this limit.
 #ifdef __wasm64__
-    #define BASISU_ENCODER_MAX_SOURCE_IMAGE_PIXELS (1024*1024*12)
-    #define BASISU_ENCODER_MAX_SOURCE_IMAGE_PIXELS_HIGHER_LIMIT (1024*1024*12)
+    #define BASISU_ENCODER_MAX_SOURCE_IMAGE_PIXELS (1024*1024*16)
+    #define BASISU_ENCODER_MAX_SOURCE_IMAGE_PIXELS_HIGHER_LIMIT (1024*1024*16)
 #else
     #define BASISU_ENCODER_MAX_SOURCE_IMAGE_PIXELS (1024*1024*4)
     #define BASISU_ENCODER_MAX_SOURCE_IMAGE_PIXELS_HIGHER_LIMIT (1024*1024*12)

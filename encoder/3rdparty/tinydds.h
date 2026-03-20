@@ -2002,23 +2002,28 @@ bool TinyDDS_WriteImage(TinyDDS_WriteCallbacks const *callbacks,
 		header.formatFourCC = TINYDDS_MAKE_RIFFCODE('D','X','1','0');
 		headerDX10.arraySize = slices;
 	}
-	header.flags = TINYDDS_DDSD_CAPS | TINYDDS_DDSD_PIXELFORMAT | TINYDDS_DDSD_MIPMAPCOUNT;
+	header.flags = TINYDDS_DDSD_CAPS | TINYDDS_DDSD_PIXELFORMAT | TINYDDS_DDSD_MIPMAPCOUNT | TINYDDS_DDSD_WIDTH | TINYDDS_DDSD_HEIGHT;
 	header.caps1 = TINYDDS_DDSCAPS_TEXTURE | TINYDDS_DDSCAPS_COMPLEX | TINYDDS_DDSCAPS_MIPMAP;
 
-	if(depth > 1) {
+	if(depth > 1) 
+	{
 		headerDX10.resourceDimension = TINYDDS_D3D10_RESOURCE_DIMENSION_TEXTURE3D;
 		header.flags |= TINYDDS_DDSD_DEPTH;
 		header.caps2 |= TINYDDS_DDSCAPS2_VOLUME;
 	}
-	else if(height > 1) {
+	else if(height > 1) 
+	{
 		headerDX10.resourceDimension = TINYDDS_D3D10_RESOURCE_DIMENSION_TEXTURE2D;
-		header.flags |= TINYDDS_DDSD_HEIGHT;
+		//header.flags |= TINYDDS_DDSD_HEIGHT;
 	}
-	else if(width > 1) {
+	else if(width > 1) 
+	{
 		headerDX10.resourceDimension = TINYDDS_D3D10_RESOURCE_DIMENSION_TEXTURE1D;
-		header.flags |= TINYDDS_DDSD_WIDTH;
+		//header.flags |= TINYDDS_DDSD_WIDTH;
 	}
-	if(cubemap) {
+
+	if(cubemap) 
+	{
 		headerDX10.miscFlag |= TINYDDS_D3D10_RESOURCE_MISC_TEXTURECUBE;
 		header.caps2 |= TINYDDS_DDSCAPS2_CUBEMAP | TINYDDS_DDSCAPS2_CUBEMAP_ALL;
 	}

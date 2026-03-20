@@ -999,7 +999,8 @@ bool random_compress_test()
         
         flags |= cFlagDebug;
                 
-        flags |= cFlagThreaded;
+        if (rnd.bit())
+            flags |= cFlagThreaded;
 
         if (rnd.bit())
             flags |= cFlagSRGB;
@@ -1101,7 +1102,7 @@ bool random_compress_test()
             basisu::vector<imagef> hdr_source_images;
             imagef hdr_src_img(src_img.get_width(), src_img.get_height());
             
-            const float max_y = rnd.frand(.000125f, 30000.0f) / 255.0f;
+            const float max_y = rnd.frand(.0000125f, basist::ASTC_HDR_MAX_VAL) / 255.0f;
 
             for (uint32_t y = 0; y < src_img.get_height(); y++)
             {
