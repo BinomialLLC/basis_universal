@@ -41,6 +41,13 @@
 #endif
 #include "basisu_miniz.h"
 
+#if defined(__ANDROID__) && __ANDROID_API__ < 24
+#define basisu_basisu_ftello(fp) ftell(fp)
+#else
+#define basisu_ftello(fp) ftello(fp)
+#endif
+
+
 #define QOI_IMPLEMENTATION
 #include "3rdparty/qoi.h"
 
