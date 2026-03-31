@@ -6,9 +6,9 @@
  * \n
  * Compile using:
  * \code
- *	cc -std=c++11 -lstdc++ simple.cpp
+ *	cc -std=c++11 -lstdc++ -fno-strict-aliasing simple.cpp
  * \endcode
- * 
+ *
  * Example code released under a CC0 license.
  */
 #include "../basisu_transcoder.cpp"
@@ -37,7 +37,7 @@ static uint8_t const srcRgb[] = {
  */
 int main() {
 	basisu_transcoder_init();
-	
+
 	basisu_transcoder transcoder;
 	if (transcoder.validate_header(srcRgb, sizeof srcRgb)) {
 		basisu_file_info fileInfo;

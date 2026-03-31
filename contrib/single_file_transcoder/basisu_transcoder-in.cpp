@@ -9,7 +9,7 @@
  * Transcoder build options for known platforms (iOS has ETC, ASTC and PVRTC;
  * Emscripten adds DXT to iOS's options; Android adds PVRTC2 to Emscripten's
  * options; other platforms build all except FXT1).
- * 
+ *
  * See https://github.com/BinomialLLC/basis_universal#shrinking-the-transcoders-compiled-size
  */
 #ifdef __APPLE__
@@ -29,16 +29,18 @@
 #define BASISD_SUPPORT_FXT1 0
 
 /*
- * KTX2 support disabled.
+ * KTX2 support enabled.
  */
-#define BASISD_SUPPORT_KTX2 0
+#define BASISD_SUPPORT_KTX2 1
+
+#define BASISU_ASTC_HELPERS_IMPLEMENTATION
 
 #include "basisu_transcoder.cpp"
 
 /**
  * Collection of unused functions and const variables to work around \c
  * -Wunused-function and \c -Wunused-const-variable warnings.
- * 
+ *
  * \todo LTO does its thing so any unused are removed but is there a better way?
  */
 void _basisu_translib_dummy() {

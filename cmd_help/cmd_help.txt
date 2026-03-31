@@ -1,0 +1,713 @@
+Basis Universal LDR/HDR GPU Texture Supercompression System v1.65.0 (x64)
+Copyright (C) 2019-2026 Binomial LLC, All rights reserved
+
+Usage: basisu filename [filename ...] <options>
+See project and wiki at: https://github.com/BinomialLLC/basis_universal
+
+The default processing mode is compression of one or more .PNG/.TGA/.JPG/.QOI/
+.DDS/.EXR/.HDR files to a LDR or HDR .KTX2 file. Alternate modes:
+
+ -unpack: Use transcoder to unpack a .basis/.KTX2 file to one or more .KTX, 
+  .DDS, .PNG, .ASTC, etc. files.
+
+ -info: Display high-level information about a .basis/.KTX2 file
+ 
+ -validate: Validate and display information about a .basis/.KTX2 file
+  
+ -compare: Compare two LDR PNG/BMP/TGA/JPG/QOI images specified with -file,
+  output PSNR and SSIM statistics and RGB/A delta images
+
+ -compare_hdr: Compare two HDR .EXR/.HDR images specified with -file, output
+  PSNR statistics and RGB delta images
+
+ -tonemap: Tonemap an HDR or EXR image to PNG at multiple exposures, use -file
+  to specify filename
+
+ -peek_astc: Read an .astc file and calculate statistics (for testing/dev)
+
+ -version or --version: Print version and exit
+
+--- Intro:
+
+This tool compresses LDR/SDR and HDR images and textures to a Basis Universal
+supercompressed GPU texture, which can be written to supercompressed .basis or
+standard .KTX2 files. It supports a number of SDR and HDR codecs, each with
+different quality, transcoding performance, and bitrate tradeoffs. A SDR/HDR
+mipmap generator is also included. This tool can also examine and
+unpack .KTX2/.basis files to .PNG, .KTX (v1), .ASTC, or .DDS files using its
+single source file transcoder library.
+
+The list of supported texture/supercompressed texture codecs:
+ -LDR: ETC1S (SDR default), RDO UASTC LDR 4x4, ASTC or XUASTC LDR 4x4-12x12
+ -HDR: UASTC HDR 4x4 (HDR default), RDO ASTC HDR 6x6, UASTC HDR 6x6
+ 
+RDO=Rate-Distortion Optimization. Two key parameters (quality and effort) have
+been unified across all the codecs:
+
+- The -quality X parameter, where X ranges from [0, 100], controls the
+compression quality vs. bitrate (output file size) tradeoff for those codecs
+supporting supercompression or RDO (Rate-distortion optimization). 100=max
+quality, and lower levels produce smaller files with more distortion.
+
+- The -effort X parameter, where X ranges from [0, 10], controls the
+compression speed (and max CPU usage) vs. max achievable quality tradeoff.
+Low efforts result in more distortion/artifacts, but faster compression. Lower
+efforts result in less utilization of the underlying GPU block format's
+capabilities.
+
+Key Definitions: 
+"Quality" controls the explicit tradeoff between output distortion and output
+file bitrate (in bits per pixel or target). At max quality (100) each
+compressor will output the lowest distortion it's capable of at its currently
+configured effort level.
+
+"Effort" controls how intensely a compressor uses the CPU to focus on each
+block format's encoding capabilities. Low effort levels only target a set of
+core or basic capabilities (specific to each output target format), while
+higher effort levels allow each compressor to explore more of each target's
+features (at the cost of higher CPU time). Lower effort levels result in more
+brittle compression (higher distortion on tough image/texture features).
+Effort=0 fastest compression, effort=10=extremely slow.
+
+Unless an explicit mode is specified, if one or more files have the .basis
+or .KTX2 extension this tool defaults to unpack mode.
+
+By default, the compressor assumes the input is in the sRGB colorspace (like
+typical photos/albedo textures). If the input is NOT sRGB (like a normal map),
+be sure to specify -linear for less artifacts. Depending on the content type,
+some experimentation may be needed.
+
+The TinyEXR library is used to read .EXR images. Crucially, this small library
+does not support all .EXR compression methods. For unsupported images, you can
+use a tool like ImageMagick to convert them to uncompressed .EXR.
+
+For .DDS source files: Mipmapped or plain 2D textures (but not cubemaps) are
+supported. Only uncompressed 32-bit RGBA/BGRA, half float RGBA, or float
+RGBA .DDS files are supported. In -tex_array mode, if a .DDS file is specified,
+all source files must be in .DDS format.
+
+Filenames prefixed with a @ symbol are read as filename listing files. Listing
+text files specify which actual filenames to process (one filename per line).
+
+--- High-Level Texture Mode (Codec) Selection:
+
+ 1. -etc1s: Encode to supercompressed ETC1S LDR (the default for SDR/LDR
+    inputs). Roughly .8-2.5 bpp. Supports temporal texture supercompression
+    (texture video) with skip blocks (Conditional Replenishment), with global
+    codebooks shared across all frames.
+
+ 2. -uastc/-uastc_ldr: UASTC LDR 4x4. Encode to UASTC LDR 4x4, a custom high
+    quality virtual texture format designed for fast transcoding to numerous
+    GPU texture formats. Roughly 5-8 bpp. Supports RDO encoding using -lambda X
+    option - see options below. In this mode the multi-target compressor
+    optimizes for a balance of transcoded ASTC 4x4 LDR and BC7 quality.
+
+ 3. -hdr/-hdr_4x4: UASTC HDR 4x4. Encode input as UASTC HDR 4x4 (the default if
+    any input file has the .EXR or .HDR extension, or if any .DDS file is HDR).
+    Output is standard, but constrained, ASTC HDR 4x4. Roughly 5-8 bpp. In this
+    mode the dual-target compressor optimizes for a balance of transcoded ASTC
+    4x4 HDR and BC6H quality.
+
+ 4. -hdr_6x6: ASTC HDR 6x6. Encode input as RDO or highest quality standard
+    ASTC HDR 6x6. Use -quality (preferred) or -lambda X (low-level, try
+    100-20000 or higher) option to enable RDO ASTC HDR 6x6, where x controls
+    the quality vs. size tradeoff. Roughly 1.2-3.2 bpp.
+
+ 5. -hdr_6x6i: UASTC HDR 6x6. Encode input as supercompressed UASTC HDR 6x6
+    intermediate. Use -quality (preferred) or -lambda X (low-level, try
+    100-20000 or higher) option to enable RDO UASTC HDR 6x6, where x controls
+    the quality vs. size tradeoff. Roughly 1-3.2 bpp.
+
+ 6. XUASTC LDR 4x4-12x12: -ldr_4x4i, -ldr_5x4i, -ldr_5x5i, -ldr_6x5i,
+    -ldr_6x6i, -ldr_8x5i, -ldr_8x6i, -ldr_10x5i, -ldr_10x6i, -ldr_8x8i,
+    -ldr_10x8i, -ldr_10x10i, -ldr_12x10i, -ldr_12x12i:
+    Compress to supercompressed XUASTC LDR/SDR using the specific
+    ASTC block size. See additional ASTC/XUASTC LDR specific options
+    (-effort, -quality, -xy, -ts, -tl, etc.) below. Roughly .3-5.7 bpp
+
+ 7. ASTC LDR 4x4-12x12: -ldr_4x4, -ldr_5x4, -ldr_5x5, -ldr_6x5, -ldr_6x6,
+    -ldr_8x5, -ldr_8x6, -ldr_10x5, -ldr_10x6, -ldr_8x8, -ldr_10x8,
+    -ldr_10x10, -ldr_12x10, -ldr_12x12:
+    Compress to standard or ZStd supercompressed ASTC LDR/SDR using
+    the specific ASTC block size. See additional ASTC LDR specific
+    options (-effort, -quality, -xy, -ts, -tl, etc.) below. .89-8 bpp before
+    ZStd compression.
+
+--- Tool Options:
+
+ -ktx2: Write .KTX2 files (the default). By default, UASTC LDR/HDR 4x4 and ASTC
+  6x6 files will be compressed using Zstandard unless -ktx2_no_zstandard is
+  specified.
+
+ -basis: Write .basis files instead of .KTX2 files.
+
+ -file filename.png/tga/jpg/qoi/exr/hdr: Input image filename, multiple images
+  are OK, use -file X for each input filename (prefixing input filenames
+  with -file is optional)
+
+ -alpha_file filename.png/tga/jpg/qoi: Input alpha image filename, multiple
+  images are OK, use -file X for each input filename (must be paired
+  with -file), images converted to REC709 grayscale and used as input alpha
+
+ -output_file filename: Output .basis/.KTX2 filename
+
+ -output_path: Output .basis/.KTX2 files to specified directory.
+
+ -debug or -verbose: Enable codec debug print to stdout (slightly slower).
+
+ -debug_images: Enable codec debug images (much slower).
+
+ -stats: Compute and display image quality metrics (slightly to much slower).
+
+ -individual: Process input images individually and output
+  multiple .basis/.KTX2 files (not as a texture array - this is now the default
+  as of v1.16)
+
+ -parallel: Compress multiple textures simultaneously (one per thread), instead
+  of one at a time. Compatible with OpenCL mode. This is much faster, but in
+  OpenCL mode the driver is pushed harder, and the CLI output will be jumbled.
+
+ -linear: Use linear colorspace metrics (instead of the default sRGB or scaled
+  RGB for HDR), write linear transfer function setting to KTX2/basis file, and
+  by default linear (not sRGB) mipmap filtering (unless overridden). Same
+  as -tl.
+
+ -srgb: Use sRGB colorspace metrics, write sRGB transfer function setting to
+  KTX2/basis file, and by default use sRGB mipmap filtering (unless
+  overridden). Same as -ts.
+
+ -tex_type <2d, 2darray, 3d, video, cubemap>: Set Basis file header's texture
+  type field. Cubemap arrays require multiples of 6 images, in X+, X-, Y+, Y-,
+  Z+, Z- order, each image must be the same resolutions. 2d=arbitrary 2D
+  images, 2darray=2D array, 3D=volume texture slices, video=video frames,
+  cubemap=array of faces. For 2darray/3d/cubemaps/video, each source image's
+  dimensions and # of mipmap levels must be the same. For video, the .basis
+  file will be written with the first frame being an I-Frame, and subsequent
+  frames being P-Frames (using conditional replenishment). Playback must always
+  occur in order from first to last image.
+
+ -cubemap: same as -tex_type cubemap
+
+ -tex_array: Process input images as a single texture array and write a
+  single .basis/.KTX2 file (the former default before v1.16)
+
+ -fuzz_testing: Use with -validate: Disables CRC16 validation of file contents
+  before transcoding
+
+ -multifile_printf: printf() format string to use to compose multiple filenames
+
+ -multifile_first: The index of the first file to process, default is 0 (must
+  specify -multifile_printf and -multifile_num)
+
+ -multifile_num: The total number of files to process.
+
+ -opencl: Enable OpenCL usage (currently only accelerates ETC1S encoding)
+
+ -opencl_serialize: Serialize all calls to the OpenCL driver (to work around
+  buggy drivers, only useful with -parallel)
+
+--- ETC1S specific options (-etc1s - the LDR/SDR default):
+
+ -quality X and -effort X: Set quality (1-100) and effort (0-10) levels
+
+ -q X: Low-level ETC1S quality level, 1-255, default is 128, lower=better
+  compression/lower quality/faster, higher=less compression/higher
+  quality/slower, default is 128. For even higher quality,
+  use -max_endpoints/-max_selectors. (-quality is preferred.)
+
+ -comp_level X: Low-level ETC1S speed vs. quality tradeoff. Range is 0-6,
+  default is 1. Higher values=MUCH slower, but slightly higher quality. Higher
+  levels intended for videos. (-effort is preferred.)
+
+ -max_endpoints X: ETC1S: Manually set the max number of color endpoint
+  clusters from 1-16128, use instead of -q
+
+ -max_selectors X: ETC1S: Manually set the max number of color selector
+  clusters from 1-16128, use instead of -q
+
+--- UASTC LDR/HDR 4x4 specific options (-uastc or -uastc_ldr):
+
+ -quality X and -effort X: Set quality (1-100) and effort (0-10) levels
+
+ -uastc, -uastc_ldr or -uastc_ldr_4x4: Enable UASTC LDR 4x4 texture mode,
+  instead of the default ETC1S mode. Significantly higher texture quality, but
+  much larger (~8bpp) files. (Note that UASTC LDR 4x4 .basis files must be
+  losslessly compressed by the user.)
+
+ -uastc_level: Set low-level UASTC LDR/HDR 4x4 encoding effort level. LDR Range
+  is [0,4], default is 2, higher=slower but higher quality. 0=fastest/lowest
+  quality, 3=slowest practical option, 4=impractically slow/highest achievable
+  quality. UASTC HDR 4x4 range is [0,4]: higher=slower, but higher quality. HDR
+  4x4 default level=1.
+
+ -uastc_rdo_l X: Enable UASTC LDR 4x4 RDO post-processing and set the low-level
+  UASTC LDR 4x4 RDO quality scalar (lambda) to X. Lower values=higher
+  quality/larger LZ compressed files, higher values=lower quality/smaller LZ
+  compressed files. Good range to try is [.25-10]. Note: Previous versons used
+  the -uastc_rdo_q option, which was removed because the RDO algorithm was
+  changed.
+
+ -uastc_rdo_d X: Set UASTC LDR 4x4 RDO dictionary size in bytes. Default is
+  4096, max is 65536. Lower values=faster, but less compression.
+
+ -uastc_rdo_b X: Set UASTC LDR 4x4 RDO max smooth block error scale. Range is
+  [1,300]. Default is 10.0, 1.0=disabled. Larger values suppress more artifacts
+  (and allocate more bits) on smooth blocks.
+
+ -uastc_rdo_s X: Set UASTC LDR 4x4 RDO max smooth block standard deviation.
+  Range is [.01,65536]. Default is 18.0. Larger values expand the range of
+  blocks considered smooth.
+
+ -uastc_rdo_f: Don't favor simpler UASTC LDR 4x4 modes in RDO mode.
+
+ -uastc_rdo_m: Disable RDO multithreading (slightly higher compression,
+  deterministic).
+
+--- UASTC HDR 4x4 specific options (-hdr or -hdr_4x4 - the HDR default):
+
+ -hdr, -hdr_4x4, or -uastc_hdr_4x4: Enable UASTC HDR 4x4 mode
+
+ -quality X and -effort X: Set quality (1-100) and effort (0-10) levels
+
+ -uastc_level X: Sets the low-level UASTC HDR 4x4 compressor's effort level.
+                 Valid range is [0,4]: higher=slower but higher quality. HDR
+                 default=1. Level 0=fastest/lowest quality, 3=highest practical
+                 setting, 4=exhaustive
+
+ -hdr_uber_mode: Allow the UASTC HDR 4x4 encoder to try varying the CEM 11
+  selectors more for slightly higher quality (slower). This may negatively
+  impact BC6H quality, however.
+
+ -hdr_ultra_quant: UASTC HDR 4x4: Try to find better quantized CEM 7/11
+  endpoint values (slower).
+
+ -hdr_favor_astc: UASTC HDR 4x4: By default the dual-target UASTC HDR 4x4
+  encoder tries to strike a balance or even slightly favor BC6H quality. If
+  this option is specified, ASTC HDR 4x4 quality is favored instead.
+
+--- ASTC/UASTC HDR 6x6 specific options (-hdr_6x6 or -hdr_6x6i):
+
+Internally both modes use the same compressor which can generate either
+standard ASTC HDR 6x6 (with optional RDO) or UASTC HDR 6x6 (supercompressed
+with a custom format).
+
+ -hdr_6x6 or -astc_hdr_6x6: Enable RDO ASTC HDR 6x6 mode
+
+ -hdr_6x6i or -uastc_hdr_6x6: Enable UASTC HDR 6x6 mode
+
+ -quality X and -effort X: Set quality (1-100) and effort (0-10) levels
+
+ -lambda X: Low-level option to enable rate distortion optimization (RDO) and
+            directly control the HDR 6x6 compressor's lambda setting. The
+            higher this value, the lower the quality, but the smaller the file
+            size. Try 100-20000, or higher values on some images. Upconverted
+            SDR images can generally tolerate much higher lambda settings vs.
+            true HDR images.
+
+ -hdr_6x6_level X: Low-level option to set the codec to 6x6 HDR mode (same
+            as -hdr_6x6) and controls encoder performance vs. max quality
+            tradeoff. X may range from [0,12]. Default level is 2. Higher
+            values result in better quality but slower encoding. Values above
+            10 are extremely slow.
+
+ -hdr_6x6i_level X: Low-level option to set the codec to 6x6 HDR intermediate
+            mode (same as -hdr_6x6i) and controls encoder performance vs. max
+            quality tradeoff. X may range from [0,12]. Default level is 2.
+
+ -rec_2020: The input image's gamut is Rec. 2020 vs. the default Rec. 709 - for
+            accurate colorspace error calculations. This value will also be
+            written to the KTX2 file's header in the DFD.
+
+ -hdr_6x6_jnd
+            X, -hdr_6x6_extra_pats, -hdr_6x6_brute_force_pats,
+            -hdr_6x6_comp_levels X Y, or -hdr_6x6i_comp_levels X Y: Low-level
+            control over the encoder's configuration.
+
+--- SDR/LDR->HDR upconversion options (only used when encoding to HDR formats
+from an LDR/SDR source image):
+
+ -hdr_ldr_no_srgb_to_linear: If specified, LDR images will NOT be converted to
+        normalized linear light (via a sRGB->Linear conversion) during SDR->HDR
+        upconversion before compressing as HDR.
+
+ -hdr_ldr_upconversion_nit_multiplier X: Specify how many nits (candelas per
+        sq. meter) LDR/SDR images are converted to after converting to linear
+        light. Default is 100 nits. Note: Previous builds used 1 nit. Common
+        values are 80-100 nits.
+
+--- ASTC LDR/XUASTC LDR specific options (-ldr_4x4 or -ldr_4x4i, up to 12x12):
+
+Internally both modes (ASTC 4x4-12x12 and XUASTC 4x4-12x12) use the same
+core compressor but with different outputs. All 14 standard ASTC block 
+sizes are supported (see the list below).
+
+ -ldr_4x4-12x12 or -astc_ldr_4x4-12x12: Enable ASTC LDR 4x4-12x12 mode
+
+ -ldr_4x4i-12x12 or -xuastc_ldr_4x4-12x12: Enable XUASTC LDR 4x4-12x12 mode
+
+ -quality X: Enables lossy weight grid DCT and sets DCT quality level [1,100]
+  (defaults to no DCT). Higher=better quality, but higher bitrate. Good values
+  to try are 30-90. Default is no weight grid DCT.
+
+ -effort X: Set encoder effort level [1,10]: Encoding speed tradeoff,        
+  higher=slower but potentially higher overall quality. Default=3, 10=Insane.
+  
+ -xuastc_arith, -xuastc_hybrid, -xuastc_zstd: Set transcoding speed vs.
+  compression ratio tradeoff by selecting the output profile/syntax. Default
+  is -xuastc_zstd (fastest, lowest ratio). ZStd is fastest/lowest ratio, arith
+  is slowest/highest ratio (3-15% better vs. ZStd).
+
+ -xy: Enables lossy supercompression using windowed/bounded RDO for extra
+  compression (default is lossless supercompression of the XUASTC texture data
+  unless DCT is enabled)
+
+ -xyd: Disables lossy supercompression (default, but automatically enabled
+  if -quality less than 100 is specified )
+
+ -xs: Force disable 2-3 subset usage in all effort levels (lower quality but
+  faster compression and faster transcoding to BC7 at certain block sizes)
+
+ -xp: Force disable RGB dual plane usage in all effort levels (lower quality
+  but faster compression and faster transcoding to BC7 at certain block sizes)
+
+ -ts: Use LDR sRGB ASTC decoding profile - the default. This parameter should
+  match how the developer will decode or sample the ASTC texture data. Inverse
+  of -tl. Same as -srgb.
+
+ -tl: Use LDR Linear ASTC decoding profile. Inverse of -ts. Same as -linear.
+
+ -weights X Y Z W: Set unsigned integer channel error weights. Defaults are
+  1,1,1,1. Useful to favor certain channels during compression.
+
+ -ls_min_psnr X, -ls_min_alpha_psnr X, -ls_thresh_psnr X, -ls_thresh_alpha_psnr
+  X, -ls_thresh_edge_psnr X, -ls_thresh_edge_alpha_psnr X: Windowed/bounded RDO
+  settings (Lossy supercompression must be enabled, or -xy.)
+
+ -xuastc_blurring: Experimental - enable blurred block candidates (MUCH slower
+  compression, higher quality).
+
+These modes support all the standard ASTC block sizes. The larger the block
+size, the lower the bitrate on disk and in memory, but the more noticeable the
+artifacts. Some block sizes (4x4, 6x6, and 8x6) have specially optimized direct
+transcoding paths to BC7. For faster direct BC7 transcoding at these block
+sizes, disable RGB dual plane (-xp) and subset usage (-xs).
+
+  Block Size 	Base/Memory Size
+  1. 4x4    	8.00 bpp
+  2. 5x4    	6.40 bpp
+  3. 5x5    	5.12 bpp
+  4. 6x5    	4.27 bpp
+  5. 6x6    	3.56 bpp
+  6. 8x5    	3.20 bpp
+  7. 8x6    	2.67 bpp
+  8. 10x5   	2.56 bpp
+  9. 10x6   	2.13 bpp
+ 10. 8x8    	2.00 bpp
+ 11. 10x8   	1.60 bpp
+ 12. 10x10  	1.28 bpp
+ 13. 12x10  	1.07 bpp
+ 14. 12x12  	0.89 bpp
+
+--- More options:
+
+ -test: Run an automated LDR ETC1S/UASTC LDR 4x4 encoding and transcoding test.
+  Returns EXIT_FAILURE on any failures.
+
+ -test_hdr_4x4/-test_hdr_6x6/-test_hdr_6x6i: Run automated UASTC HDR encoding
+  and transcoding tests. Returns EXIT_FAILURE on any failures.
+
+ -test_xuastc: Run an automated XUASTC LDR encoding and transcoding test.
+  Returns EXIT_FAILURE on any failures.
+
+ -test_dir: Optional directory of test files. Defaults to "../test_files".
+
+ -y_flip: Flip input images vertically before compression
+
+ -normal_map: Tunes codec parameters for better quality on normal maps (linear
+  colorspace metrics, linear mipmap filtering, no selector RDO, no sRGB)
+
+ -no_alpha: Always output non-alpha basis files, even if one or more inputs has
+  alpha
+
+ -force_alpha: Always output alpha basis files, even if no inputs has alpha
+
+ -separate_rg_to_color_alpha: Separate input R and G channels to RGB and A (for
+  tangent space XY normal maps)
+
+ -swizzle rgba: Specify swizzle for the 4 input color channels using r, g, b
+  and a (the -separate_rg_to_color_alpha flag is equivalent to rrrg)
+
+ -renorm: Renormalize each input image before any further
+  processing/compression
+
+ -no_multithreading: Disable multithreading
+
+ -max_threads X: Use at most X threads total when multithreading is enabled
+  (this includes the main thread)
+
+ -wasi_threads: Set number of threads to use in WASI threading builds
+  (default=8, only used in WASI threading builds)
+
+ -no_ktx: Disable KTX writing when unpacking (faster, less output files)
+
+ -ktx_only: Only write KTX files when unpacking (faster, less output files)
+
+ -write_out: Write 3dfx OUT files when unpacking FXT1 textures
+
+ -format_only: Only unpack the specified format, by its numeric code.
+
+ -etc1_only: Only unpack to ETC1, skipping the other texture formats
+  during -unpack
+
+ -disable_hierarchical_endpoint_codebooks: Disable hierarchical endpoint
+  codebook usage, slower but higher quality on some compression levels
+
+ -compare_ssim: Compute and display SSIM of image comparison (slow)
+
+ -compare_plot: Display histogram plots in -compare mode
+
+ -bench: UASTC benchmark mode, for development only
+
+ -resample X Y: Resample all input textures to XxY pixels using a box filter
+
+ -resample_factor X: Resample all input textures by scale factor X using a box
+  filter
+
+ -no_sse: Forbid all SSE instruction set usage
+
+ -validate_etc1s: Validate internal ETC1S compressor's data structures during
+  compression (slower, intended for development).
+
+ -ktx2_animdata_duration X: Set KTX2animData duration field to integer value X
+  (only valid/useful for -tex_type video, default is 1)
+
+ -ktx2_animdata_timescale X: Set KTX2animData timescale field to integer value
+  X (only valid/useful for -tex_type video, default is 15)
+
+ -ktx2_animdata_loopcount X: Set KTX2animData loopcount field to integer value
+  X (only valid/useful for -tex_type video, default is 0)
+
+ -framerate X: Set framerate in .basis header to X/frames sec.
+
+ -ktx2_no_zstandard: Don't compress UASTC texture data using Zstandard -- store
+  it uncompressed instead.
+
+ -ktx2_zstandard_level X: Set ZStandard compression level to X (see Zstandard
+  documentation, default level is 6)
+
+ -tonemap_dither: Dither tonemapper's 8-bit/component output by adding a small
+  amount of white noise, only used with -tonemap mode
+
+--- Mipmap Generator Options:
+
+By default, SDR textures will be converted from sRGB to linear light before
+mipmap filtering, then back to sRGB (for the RGB color channels) unless -linear
+is specified. You can override this behavior with -mip_srgb/-mip_linear.
+
+ -mipmap: Generate mipmaps for each source image
+
+ -mip_srgb: Convert image to linear before filtering, then back to sRGB.
+  (This is set automatically by default, unless you override it.)
+
+ -mip_linear: Keep image in linear light during mipmap filtering (i.e. do not
+  convert to/from sRGB for filtering purposes). (This is set automatically by
+  default, unless you override it.)
+
+ -mip_scale X: Set mipmap filter kernel's scale, lower=sharper, higher=more
+  blurry, default is 1.0 (quite conservative).
+
+ -mip_filter X: Set mipmap filter kernel, default is kaiser. Supported filters:
+  box, tent, bell, b-spline, mitchell, blackman, lanczos3, lanczos4, lanczos6,
+  lanczos12, kaiser, gaussian, catmullrom, quadratic_interp, quadratic_approx,
+  quadratic_mix
+
+ -mip_renorm: Renormalize normal map to unit length vectors after filtering
+
+ -mip_clamp: Use clamp addressing on borders, instead of wrapping
+
+ -mip_fast: Use faster mipmap generation (resample from previous mip, not
+  always first/largest mip level). The default.
+
+ -mip_slow: Always resample each mipmap level starting from the largest mipmap.
+  Higher quality, but slower. Opposite of -mip_fast. 
+
+ -mip_smallest X: Set smallest pixel dimension for generated mipmaps, default
+  is 1 pixel 
+
+--- Transcoding Options (used while unpacking, validating after compression):
+
+These settings control the "decode flags" used while transcoding:
+
+ -higher_quality_transcoding: Enable higher quality, but slower, transcoding
+
+ -no_deblocking: Always disable adaptive deblocking filter on all block sizes
+  (XUASTC/ASTC LDR 4x4-12x12 only). By default only block sizes >8x6 are
+  deblocked while transcoding. (No deblocking ever occurs when transcoding to
+  ASTC: only when re-encoding ASTC to another format, to lower artifacts.)
+
+ -force_deblocking: Always use adaptive deblocking filter, even for block sizes
+  <= 8x6 (XUASTC/ASTC LDR 4x4-12x12 only)
+
+ -stronger_deblocking: Use stronger adaptive deblocking filtering (XUASTC/ASTC
+  LDR 4x4-12x12 only)
+
+ -no_etc1s_chroma_filtering: Disable adaptive ETC1S transcode chroma filter,
+  for faster transcoding to BC7.
+
+ -fast_xuastc_ldr_bc7_transcoding: Use much faster, but lower quality, XUASTC
+  LDR 4x4/6x6/8x6 direct BC7 transcoders (the default)
+
+ -no_fast_xuastc_ldr_bc7_transcoding: Disable much faster, but slightly lower
+  quality, XUASTC LDR 4x4/6x6/8x6 direct BC7 transcoders
+
+--- Low-Level ETC1S backend endpoint/selector RDO codec options:
+
+ -no_selector_rdo: Disable backend's selector rate distortion optimizations
+  (slightly faster, less noisy output, but lower quality per output bit)
+
+ -selector_rdo_thresh X: Set selector RDO quality threshold, default is 1.25,
+  lower is higher quality but less quality per output bit (try 1.0-3.0)
+
+ -no_endpoint_rdo: Disable backend's endpoint rate distortion optimizations
+  (slightly faster, less noisy output, but lower quality per output bit)
+
+ -endpoint_rdo_thresh X: Set endpoint RDO quality threshold, default is 1.5,
+  lower is higher quality but less quality per output bit (try 1.0-3.0)
+
+--- Set various low-level fields in the Basis file header:
+
+ -userdata0 X: Set 32-bit userdata0 field in Basis file header to X (X is a
+  signed 32-bit int)
+
+ -userdata1 X: Set 32-bit userdata1 field in Basis file header to X (X is a
+  signed 32-bit int)
+
+--- Example LDR ETC1S/UASTC LDR 4x4 command lines:
+
+ - basisu x.png : Compress sRGB image x.png to x.ktx2 using default settings
+   (multiple filenames OK, use -tex_array if you want a tex array vs. multiple
+   output files)
+
+ - basisu -basis x.qoi : Compress sRGB image x.qoi to x.basis (supports 24-bit
+   or 32-bit .QOI files)
+
+ - basisu x.ktx2 : Unpack x.basis to PNG/KTX files (multiple filenames OK)
+
+ - basisu x.basis : Unpack x.basis to PNG/KTX files (multiple filenames OK)
+
+ - basisu -uastc x.png -uastc_rdo_l 2.0 -ktx2 -stats : Compress to a
+   UASTC .KTX2 file with RDO (rate distortion optimization) to reduce .KTX2
+   compressed file size
+
+ - basisu -file x.png -mipmap -y_flip : Compress a mipmapped x.ktx2 file from
+   an sRGB image named x.png, Y flip each source image
+
+ - basisu -validate -file x.basis : Validate x.basis (check header, check file
+   CRC's, attempt to transcode all slices)
+
+ - basisu -unpack -file x.basis : Validates, transcodes and unpacks x.basis to
+   mipmapped .KTX and RGB/A .PNG files (transcodes to all supported GPU texture
+   formats)
+
+ - basisu -q 255 -file x.png -mipmap -debug -stats : Compress sRGB x.png to
+   x.ktx2 at quality level 255 with compressor debug output/statistics
+
+ - basisu -linear -max_endpoints 16128 -max_selectors 16128 -file x.png :
+   Compress non-sRGB x.png to x.ktx2 using the largest supported manually
+   specified codebook sizes
+
+ - basisu -basis -comp_level 2 -max_selectors 8192 -max_endpoints
+   8192 -tex_type video -framerate 20 -multifile_printf
+   "x%02u.png" -multifile_first 1 -multifile_num 20 : Compress a 20 sRGB source
+   image video sequence (x01.png, x02.png, x03.png, etc.) to x01.basis
+
+--- Example UASTC HDR 4x4 command lines:
+
+ - basisu x.exr : Compress a HDR .EXR (or .HDR) image to a UASTC HDR 4x4 .KTX2
+  file. LDR/SDR images will be upconverted to linear light HDR before
+  compression. See HDR upconversion options, above.
+
+ - basisu -hdr_4x4 x.exr : Compress a HDR .EXR image to a UASTC HDR 4x4 .KTX2
+  file.
+
+ - basisu x.hdr -uastc_level 0 : Compress a HDR .hdr image to a UASTC HDR
+  4x4 .KTX2 file, fastest encoding but lowest quality
+
+ - basisu -hdr x.png : Compress a LDR .PNG image to UASTC HDR 4x4 (image is
+  converted from sRGB to linear light first, use -hdr_ldr_no_srgb_to_linear to
+  disable)
+
+ - basisu x.hdr -uastc_level 3 : Compress a HDR .hdr image to UASTC HDR 4x4 at
+  higher quality (-uastc_level 4 is highest quality, but very slow encoding)
+
+ - basisu x.hdr -uastc_level 3 -mipmap -basis -stats -debug -debug_images :
+  Compress a HDR .hdr image to UASTC HDR 4x4, .basis output file, at higher
+  quality, generate mipmaps, output statistics and debug information, and write
+  tone mapped debug images
+
+ - basisu x.hdr -stats -hdr_favor_astc -hdr_uber_mode -uastc_level 4 : Highest
+  achievable ASTC HDR 4x4 quality (very slow encoding, BC6H quality is traded
+  off)
+
+--- Example RDO ASTC/UASTC HDR 6x6 command lines:
+
+ - basisu -hdr_6x6 x.exr : Compress a HDR .EXR (or .HDR) image to a UASTC HDR
+  6x6 .KTX2 file. LDR/SDR images will be upconverted to linear light HDR before
+  compression. See HDR upconversion options, above.
+
+ - basisu -lambda 1000 -hdr_6x6 x.exr : Compress a HDR .EXR (or .HDR) image to
+  a UASTC HDR 6x6 .KTX2 file with rate-distortion optimization (RDO), at lambda
+  level 1000.
+
+ - basisu -hdr_6x6i x.exr : Compress a HDR .EXR image to a compressed
+  intermediate format UASTC HDR 6x6 .KTX2 file.
+
+ - basisu -lambda 1000 -hdr_6x6i x.exr : Compress a HDR .EXR image to a
+  compressed intermediate format UASTC HDR 6x6 .KTX2 file with rate-distortion
+  optimization (RDO), at lambda level 1000.
+
+--- Example ASTC/XUASTC LDR 4x4-12x12 command lines:
+
+ - basisu -ldr_6x6i -q 75 -xuastc_arith test.png : Compress test.png to XUASTC
+  LDR 6x6 using weight grid DCT with setting 75 and the arith profile for
+  higher compression.
+
+ - basisu -ldr_4x4 test.png : Compress test.png to ASTC LDR 4x4
+
+ - basisu -mipmap -ldr_10x5i test.png : Compress test.png to XUASTC LDR 10x5,
+  using lossless ZStd supercompression, with mipmaps
+
+--- ETC1S Texture Video Notes: Use -comp_level 2 or higher for better codebook
+generation, specify very large codebooks using -max_endpoints
+and -max_selectors, and reduce the default endpoint RDO threshold
+(-endpoint_rdo_thresh) to around 1.25. Videos may have mipmaps and alpha
+channels. Videos must always be played back by the transcoder in first to last
+image order. Video files currently use I-Frames on the first image, and
+P-Frames using conditional replenishment on subsequent frames.
+
+--- Low-level ETC1S compression (Effort) Level (-comp_level X) Details 
+
+This setting controls the ETC1S speed vs. quality tradeoff. (Use -q to control
+the quality vs. compressed size tradeoff.):
+
+ - Level 0: Fastest, but has marginal quality and can be brittle on complex
+images. Avg. Y dB: 35.45
+
+ - Level 1: Hierarchical codebook searching, faster ETC1S encoding. 36.87 dB,
+~1.4x slower vs. level 0. (This is the default setting.)
+
+ - Level 2: Use this or higher for video. Hierarchical codebook searching.
+36.87 dB, ~1.4x slower vs. level 0. (This is the v1.12's default setting.)
+
+ - Level 3: Full codebook searching. 37.13 dB, ~1.8x slower vs. level 0.
+(Equivalent to the initial release's default settings.)
+
+ - Level 4: Hierarchical codebook searching, codebook k-means iterations. 37.15
+dB, ~4x slower vs. level 0
+
+ - Level 5: Full codebook searching, codebook k-means iterations. 37.41 dB,
+~5.5x slower vs. level 0.
+
+ - Level 6: Full codebook searching, twice as many codebook k-means iterations,
+best ETC1 endpoint opt. 37.43 dB, ~12x slower vs. level 0
+

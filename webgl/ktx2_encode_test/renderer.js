@@ -3,102 +3,110 @@
  * @param {WebGLRenderingContext} gl The GL context.
  * @constructor
  */
-var Renderer = function(gl) {
-  /**
-   * The GL context.
-   * @type {WebGLRenderingContext}
-   * @private
-   */
-  this.gl_ = gl;
+var Renderer = function (gl) {
+   /**
+    * The GL context.
+    * @type {WebGLRenderingContext}
+    * @private
+    */
+   this.gl_ = gl;
+         
+   /**
+    * The WebGLProgram.
+    * @type {WebGLProgram}
+    * @private
+    */
+   this.program_ = gl.createProgram();
 
-  /**
-   * The WebGLProgram.
-   * @type {WebGLProgram}
-   * @private
-   */
-  this.program_ = gl.createProgram();
-
-  /**
-   * @type {WebGLShader}
-   * @private
-   */
-  this.vertexShader_ = this.compileShader_(
+   /**
+    * @type {WebGLShader}
+    * @private
+    */
+   this.vertexShader_ = this.compileShader_(
       Renderer.vertexShaderSource_, gl.VERTEX_SHADER);
 
-  /**
-   * @type {WebGLShader}
-   * @private
-   */
-  this.fragmentShader_ = this.compileShader_(
+   /**
+    * @type {WebGLShader}
+    * @private
+    */
+   this.fragmentShader_ = this.compileShader_(
       Renderer.fragmentShaderSource_, gl.FRAGMENT_SHADER);
 
-  /**
-   * Cached uniform locations.
-   * @type {Object.<string, WebGLUniformLocation>}
-   * @private
-   */
-  this.uniformLocations_ = {};
+   /**
+    * Cached uniform locations.
+    * @type {Object.<string, WebGLUniformLocation>}
+    * @private
+    */
+   this.uniformLocations_ = {};
 
-  /**
-   * Cached attribute locations.
-   * @type {Object.<string, WebGLActiveInfo>}
-   * @private
-   */
-  this.attribLocations_ = {};
+   /**
+    * Cached attribute locations.
+    * @type {Object.<string, WebGLActiveInfo>}
+    * @private
+    */
+   this.attribLocations_ = {};
 
-  /**
-   * A vertex buffer containing a single quad with xy coordinates from [-1,-1]
-   * to [1,1] and uv coordinates from [0,0] to [1,1].
-   * @private
-   */
-  this.quadVertexBuffer_ = gl.createBuffer();
-  gl.bindBuffer(gl.ARRAY_BUFFER, this.quadVertexBuffer_);
-  var vertices = new Float32Array(
+   /**
+    * A vertex buffer containing a single quad with xy coordinates from [-1,-1]
+    * to [1,1] and uv coordinates from [0,0] to [1,1].
+    * @private
+    */
+   this.quadVertexBuffer_ = gl.createBuffer();
+   gl.bindBuffer(gl.ARRAY_BUFFER, this.quadVertexBuffer_);
+
+   var vertices = new Float32Array(
       [-1.0, -1.0, 0.0, 1.0,
-       +1.0, -1.0, 1.0, 1.0,
-       -1.0, +1.0, 0.0, 0.0,
-        1.0, +1.0, 1.0, 0.0]);
-  gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
+      +1.0, -1.0, 1.0, 1.0,
+      -1.0, +1.0, 0.0, 0.0,
+         1.0, +1.0, 1.0, 0.0]);
+		 
+//   var vertices = new Float32Array(
+//      [-1.0, -1.0, 0.0, .5,
+//      +1.0, -1.0, .5, .5,
+//      -1.0, +1.0, 0.0, 0.0,
+//         1.0, +1.0, .5, 0.0]);
+		 
+   gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
 
 
-  // init shaders
+   // init shaders
 
-  gl.attachShader(this.program_, this.vertexShader_);
-  gl.attachShader(this.program_, this.fragmentShader_);
-  gl.bindAttribLocation(this.program_, 0, 'vert');
-  gl.linkProgram(this.program_);
-  gl.useProgram(this.program_);
-  gl.enableVertexAttribArray(0);
+   gl.attachShader(this.program_, this.vertexShader_);
+   gl.attachShader(this.program_, this.fragmentShader_);
+   gl.bindAttribLocation(this.program_, 0, 'vert');
+   gl.linkProgram(this.program_);
+   gl.useProgram(this.program_);
+   gl.enableVertexAttribArray(0);
 
-  gl.enable(gl.DEPTH_TEST);
-  gl.disable(gl.CULL_FACE);
+   gl.enable(gl.DEPTH_TEST);
+   gl.disable(gl.CULL_FACE);
 
-  var count = gl.getProgramParameter(this.program_, gl.ACTIVE_UNIFORMS);
-  for (var i = 0; i < /** @type {number} */(count); i++) {
-    var info = gl.getActiveUniform(this.program_, i);
-    var result = gl.getUniformLocation(this.program_, info.name);
-    this.uniformLocations_[info.name] = result;
-  }
+   var count = gl.getProgramParameter(this.program_, gl.ACTIVE_UNIFORMS);
+   for (var i = 0; i < /** @type {number} */(count); i++) {
+      var info = gl.getActiveUniform(this.program_, i);
+      var result = gl.getUniformLocation(this.program_, info.name);
+      this.uniformLocations_[info.name] = result;
+   }
 
-  count = gl.getProgramParameter(this.program_, gl.ACTIVE_ATTRIBUTES);
-  for (var i = 0; i < /** @type {number} */(count); i++) {
-    var info = gl.getActiveAttrib(this.program_, i);
-    var result = gl.getAttribLocation(this.program_, info.name);
-    this.attribLocations_[info.name] = result;
-  }
+   count = gl.getProgramParameter(this.program_, gl.ACTIVE_ATTRIBUTES);
+   for (var i = 0; i < /** @type {number} */(count); i++) {
+      var info = gl.getActiveAttrib(this.program_, i);
+      var result = gl.getAttribLocation(this.program_, info.name);
+      this.attribLocations_[info.name] = result;
+   }
 };
 
 
-Renderer.prototype.finishInit = function() {
-  this.draw();
+Renderer.prototype.finishInit = function () {
+   //this.draw();
 };
 
 
-Renderer.prototype.createDxtTexture = function(dxtData, width, height, format) {
-  var gl = this.gl_;
-  var tex = gl.createTexture();
-  gl.bindTexture(gl.TEXTURE_2D, tex);
-  gl.compressedTexImage2D(
+Renderer.prototype.createDxtTexture = function (dxtData, width, height, format) {
+   var gl = this.gl_;
+   var tex = gl.createTexture();
+   gl.bindTexture(gl.TEXTURE_2D, tex);
+   gl.compressedTexImage2D(
       gl.TEXTURE_2D,
       0,
       format,
@@ -106,20 +114,19 @@ Renderer.prototype.createDxtTexture = function(dxtData, width, height, format) {
       height,
       0,
       dxtData);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-  //gl.generateMipmap(gl.TEXTURE_2D)
-  gl.bindTexture(gl.TEXTURE_2D, null);
-  return tex;
+   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+   gl.bindTexture(gl.TEXTURE_2D, null);
+   return tex;
 };
 
-Renderer.prototype.createCompressedTexture = function(data, width, height, format) {
-  var gl = this.gl_;
-  var tex = gl.createTexture();
-  gl.bindTexture(gl.TEXTURE_2D, tex);
-  gl.compressedTexImage2D(
+Renderer.prototype.createCompressedTexture = function (data, width, height, format) {
+   var gl = this.gl_;
+   var tex = gl.createTexture();
+   gl.bindTexture(gl.TEXTURE_2D, tex);
+   gl.compressedTexImage2D(
       gl.TEXTURE_2D,
       0,
       format,
@@ -127,66 +134,120 @@ Renderer.prototype.createCompressedTexture = function(data, width, height, forma
       height,
       0,
       data);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-  //gl.generateMipmap(gl.TEXTURE_2D)
-  gl.bindTexture(gl.TEXTURE_2D, null);
-  return tex;
+   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+   gl.bindTexture(gl.TEXTURE_2D, null);
+   return tex;
+};
+
+Renderer.prototype.createHalfRGBATexture = function (data, width, height, format) {
+   var gl = this.gl_;
+   var tex = gl.createTexture();
+   gl.bindTexture(gl.TEXTURE_2D, tex);
+   gl.texImage2D(
+      gl.TEXTURE_2D,
+      0,
+      gl.RGBA,
+      width,
+      height,
+      0,
+      gl.RGBA,
+      format,
+      data);
+   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+   gl.bindTexture(gl.TEXTURE_2D, null);
+   return tex;
+};
+
+// WebGL requires each row of rgb565Data to be aligned on a 4-byte boundary.            
+Renderer.prototype.createRgb565Texture = function (rgb565Data, width, height) {
+   var gl = this.gl_;
+   var tex = gl.createTexture();
+   gl.bindTexture(gl.TEXTURE_2D, tex);
+   
+   gl.texImage2D(
+      gl.TEXTURE_2D,
+      0,
+      gl.RGB,
+      width,
+      height,
+      0,
+      gl.RGB,
+      gl.UNSIGNED_SHORT_5_6_5,
+      rgb565Data);
+   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+   gl.bindTexture(gl.TEXTURE_2D, null);
+   return tex;
+};
+
+Renderer.prototype.createRgbaTexture = function (rgbaData, width, height) {
+   var gl = this.gl_;
+   var tex = gl.createTexture();
+   gl.bindTexture(gl.TEXTURE_2D, tex);
+   gl.texImage2D(
+      gl.TEXTURE_2D,
+      0,
+      gl.RGBA,
+      width,
+      height,
+      0,
+      gl.RGBA,
+      gl.UNSIGNED_BYTE,
+      rgbaData);
+   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+   gl.bindTexture(gl.TEXTURE_2D, null);
+   return tex;
 };
 
 
-Renderer.prototype.createRgb565Texture = function(rgb565Data, width, height) {
-  var gl = this.gl_;
-  var tex = gl.createTexture();
-  gl.bindTexture(gl.TEXTURE_2D, tex);
-  gl.texImage2D(
-    gl.TEXTURE_2D,
-    0,
-    gl.RGB,
-    width,
-    height,
-    0,
-    gl.RGB,
-    gl.UNSIGNED_SHORT_5_6_5,
-    rgb565Data);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-  //gl.generateMipmap(gl.TEXTURE_2D)
-  gl.bindTexture(gl.TEXTURE_2D, null);
-  return tex;
-};
+Renderer.prototype.drawTexture = function (texture, width, height, mode, scale, linearToSRGBFlag, useLinearFiltering) {
+   var gl = this.gl_;
+   // draw scene
+   gl.clearColor(0, 0, 0, 1);
+   gl.clearDepth(1.0);
+   gl.viewport(0, 0, width, height);
+   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
 
+   gl.activeTexture(gl.TEXTURE0);
+   gl.bindTexture(gl.TEXTURE_2D, texture);
+   
+   // Point vs. bilinear sampling (no mipmaps involved here)
+   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, useLinearFiltering ? gl.LINEAR : gl.NEAREST);
+   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, useLinearFiltering ? gl.LINEAR : gl.NEAREST);
+      
+   gl.uniform1i(this.uniformLocations_.texSampler, 0);
 
-Renderer.prototype.drawTexture = function(texture, width, height, mode) {
-  var gl = this.gl_;
-  // draw scene
-  gl.clearColor(0, 0, 0, 1);
-  gl.clearDepth(1.0);
-  gl.viewport(0, 0, width, height);
-  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
+   var x = 0.0;
+   var y = 0.0;
+   if (mode == 1)
+      x = 1.0;
+   else if (mode == 2)
+      y = 1.0;
 
-  gl.activeTexture(gl.TEXTURE0);
-  gl.bindTexture(gl.TEXTURE_2D, texture);
-  gl.uniform1i(this.uniformLocations_.texSampler, 0);
+   gl.uniform4f(this.uniformLocations_.control, x, y, scale, linearToSRGBFlag ? 1.0 : 0.0);
 
-  var x = 0.0;
-  var y = 0.0;
-  if (mode == 1)
-  	x = 1.0;
-  else if (mode == 2)
-    y = 1.0;
-	
-  gl.uniform4f(this.uniformLocations_.control, x, y, 0.0, 0.0);
+   var a = 1.0 / width;
+   var b = 1.0 / height;
+   var c = (mode >= 3) ? (mode - 2) : 0;  // mode 3->1(R), 4->2(G), 5->3(B)
+   var d = 0;
+   gl.uniform4f(this.uniformLocations_.control2, a, b, c, d);
 
-  gl.enableVertexAttribArray(this.attribLocations_.vert);
-  gl.bindBuffer(gl.ARRAY_BUFFER, this.quadVertexBuffer_);
-  gl.vertexAttribPointer(this.attribLocations_.vert, 4, gl.FLOAT,
+   gl.enableVertexAttribArray(this.attribLocations_.vert);
+   gl.bindBuffer(gl.ARRAY_BUFFER, this.quadVertexBuffer_);
+   gl.vertexAttribPointer(this.attribLocations_.vert, 4, gl.FLOAT,
       false, 0, 0);
-  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+   gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 };
 
 
@@ -197,12 +258,22 @@ Renderer.prototype.drawTexture = function(texture, width, height, mode) {
  * @return {WebGLShader} The new WebGLShader.
  * @private
  */
-Renderer.prototype.compileShader_ = function(shaderSource, type) {
-  var gl = this.gl_;
-  var shader = gl.createShader(type);
-  gl.shaderSource(shader, shaderSource);
-  gl.compileShader(shader);
-  return shader;
+Renderer.prototype.compileShader_ = function (shaderSource, type) {
+   var gl = this.gl_;
+   var shader = gl.createShader(type);
+   gl.shaderSource(shader, shaderSource);
+   gl.compileShader(shader);
+   
+     // Check for errors
+   const compiled = gl.getShaderParameter(shader, gl.COMPILE_STATUS);
+   if (!compiled) {
+        const errorLog = gl.getShaderInfoLog(shader);
+        console.error(`Error compiling ${type === gl.VERTEX_SHADER ? 'vertex' : 'fragment'} shader:\n${errorLog}`);
+        gl.deleteShader(shader); // Cleanup shader object
+        throw new Error('Shader compilation failed');
+   }
+    
+   return shader;
 };
 
 
@@ -211,13 +282,13 @@ Renderer.prototype.compileShader_ = function(shaderSource, type) {
  * @private
  */
 Renderer.vertexShaderSource_ = [
-  'attribute vec4 vert;',
-  'varying vec2 v_texCoord;',
-  'void main() {',
-  '  gl_Position = vec4(vert.xy, 0.0, 1.0);',
-  '  v_texCoord = vert.zw;',
-  '}'
-  ].join('\n');
+   'attribute vec4 vert;',
+   'varying vec2 v_texCoord;',
+   'void main() {',
+   '  gl_Position = vec4(vert.xy, 0.0, 1.0);',
+   '  v_texCoord = vert.zw;',
+   '}'
+].join('\n');
 
 
 /**
@@ -225,22 +296,34 @@ Renderer.vertexShaderSource_ = [
  * @private '  gl_FragColor = texture2D(texSampler, v_texCoord);',
  */
 Renderer.fragmentShaderSource_ = [
-  'precision highp float;',
-  'uniform sampler2D texSampler;',
-  'uniform vec4 control;',
-  'varying vec2 v_texCoord;',
-  'void main() {',
-  '  vec4 c;',
-  '  c = texture2D(texSampler, v_texCoord);',
-  '  if (control.x > 0.0)',
-  '  {',
-  '   	c.w = 1.0;',
-  '  }',
-  '	 else if (control.y > 0.0)',
-  '	 {',
-  '   	c.rgb = c.aaa; c.w = 1.0;',
-  '  }',
-  '  gl_FragColor = c;',
-  '}'
-  ].join('\n');
-  
+   'precision highp float;',
+   'uniform sampler2D texSampler;',
+   'uniform vec4 control;',
+   'uniform vec4 control2;',
+   'varying vec2 v_texCoord;',
+   'vec3 linearToSrgb(vec3 linearRGB) {',
+   '  vec3 srgbLow = linearRGB * 12.92;',
+   '  vec3 srgbHigh = 1.055 * pow(linearRGB, vec3(1.0/2.4)) - 0.055;',
+   '  return clamp(mix(srgbLow, srgbHigh, step(0.0031308, linearRGB)), 0.0, 1.0);',
+   '}',
+   'void main() {',
+   '  vec4 c;',
+   '  c = texture2D(texSampler, v_texCoord);',
+   '  c.rgb *= control.z;',
+   '  if (control.x > 0.0)',
+   '  {',
+   '   	c.w = 1.0;',
+   '  }',
+   '	 else if (control.y > 0.0)',
+   '	 {',
+   '   	c.rgb = c.aaa; c.w = 1.0;',
+   '  }',
+   '  if (control2.z == 1.0) { c.rgb = vec3(c.r); c.w = 1.0; }',
+   '  else if (control2.z == 2.0) { c.rgb = vec3(c.g); c.w = 1.0; }',
+   '  else if (control2.z == 3.0) { c.rgb = vec3(c.b); c.w = 1.0; }',
+   '  if (control.w > 0.0)',
+   '     c.rgb = linearToSrgb(c.rgb);',
+   '  gl_FragColor = c;',
+   '}'
+].join('\n');
+

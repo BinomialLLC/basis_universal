@@ -1,0 +1,8 @@
+# Normalize EOL for all files that Git considers text files.
+* text=auto eol=lf
+# Except for Windows-only / Visual Studio files
+*.bat eol=crlf
+*.sln eol=crlf
+*.csproj eol=crlf
+
+*.hdr binary

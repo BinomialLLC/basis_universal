@@ -1,0 +1,8 @@
+# Ensure WebAssembly files are served with the correct MIME type
+AddType application/wasm .wasm
+
+# Add headers to enable SharedArrayBuffer and cross-origin isolation
+<IfModule mod_headers.c>
+    Header set Cross-Origin-Opener-Policy "same-origin"
+    Header set Cross-Origin-Embedder-Policy "require-corp"
+</IfModule>

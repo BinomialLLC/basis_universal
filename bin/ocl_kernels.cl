@@ -72,55 +72,32 @@ uint color_distance(bool perceptual, color_rgba e1, color_rgba e2, bool alpha)
 {
 	if (perceptual)
 	{
-#if 0
-		float3 delta_rgb = (float3)(e1.x - e2.x, e1.y - e2.y, e1.z - e2.z);
-
-		float3 delta_ycbcr;
-		delta_ycbcr.x = dot(delta_rgb, (float3)(.2126f, .7152f, .0722f)); // y
-		delta_ycbcr.y = delta_rgb.x - delta_ycbcr.x; // cr
-		delta_ycbcr.z = delta_rgb.z - delta_ycbcr.x; // cb
-
-		delta_ycbcr *= delta_ycbcr;
-
-		float d = dot(delta_ycbcr, (float3)(1.0f, 0.203125f, 0.0234375f));
-
-		if (alpha)
-		{
-			int delta_a = e1.w - e2.w;
-			d += delta_a * delta_a;
-		}
-
-		d = clamp(d * 256.0f + .5f, 0.0f, (float)UINT32_MAX);
-
-		return (uint)(d);
-#else
 		// This matches the CPU code, which is useful for testing.
 		int dr = e1.x - e2.x;
 		int dg = e1.y - e2.y;
 		int db = e1.z - e2.z;
 
-		int delta_l = dr * 27 + dg * 92 + db * 9;
-		int delta_cr = dr * 128 - delta_l;
-		int delta_cb = db * 128 - delta_l;
+		int delta_l = dr * 14 + dg * 45 + db * 5;
+		int delta_cr = dr * 64 - delta_l;
+		int delta_cb = db * 64 - delta_l;
 
-		uint id = ((uint)(delta_l * delta_l) >> 7U) +
-			((((uint)(delta_cr * delta_cr) >> 7U) * 26U) >> 7U) +
-			((((uint)(delta_cb * delta_cb) >> 7U) * 3U) >> 7U);
+		uint id = ((uint)(delta_l * delta_l) >> 5U) +
+			((((uint)(delta_cr * delta_cr) >> 5U) * 26U) >> 7U) +
+			((((uint)(delta_cb * delta_cb) >> 5U) * 3U) >> 7U);
 
 		if (alpha)
 		{
 			int da = (e1.w - e2.w) << 7;
 			id += ((uint)(da * da) >> 7U);
 		}
-		
+
 		return id;
-#endif
 	}
 	else if (alpha)
 	{
 		int dr = e1.x - e2.x;
 		int dg = e1.y - e2.y;
-		int db = e1.z - e2.z;	
+		int db = e1.z - e2.z;
 		int da = e1.w - e2.w;
 		return dr * dr + dg * dg + db * db + da * da;
 	}
@@ -128,7 +105,7 @@ uint color_distance(bool perceptual, color_rgba e1, color_rgba e2, bool alpha)
 	{
 		int dr = e1.x - e2.x;
 		int dg = e1.y - e2.y;
-		int db = e1.z - e2.z;	
+		int db = e1.z - e2.z;
 		return dr * dr + dg * dg + db * db;
 	}
 }
@@ -137,7 +114,7 @@ typedef struct __attribute__ ((packed)) etc_block_tag
 {
 	// big endian uint64:
 	// bit ofs:  56  48  40  32  24  16   8   0
-	// byte ofs: b0, b1, b2, b3, b4, b5, b6, b7 
+	// byte ofs: b0, b1, b2, b3, b4, b5, b6, b7
 	union
 	{
 		uint64_t m_uint64;
@@ -252,7 +229,7 @@ constant int g_etc1_inten_tables[cETC1IntenModifierValues][cETC1SelectorValues] 
 constant uint8_t g_etc1_to_selector_index[cETC1SelectorValues] = { 2, 3, 1, 0 };
 constant uint8_t g_selector_index_to_etc1[cETC1SelectorValues] = { 3, 2, 0, 1 };
 
-uint32_t etc_block_get_byte_bits(const etc_block *p, uint32_t ofs, uint32_t num) 
+uint32_t etc_block_get_byte_bits(const etc_block *p, uint32_t ofs, uint32_t num)
 {
 	assert((ofs + num) <= 64U);
 	assert(num && (num <= 8U));
@@ -275,7 +252,7 @@ void etc_block_set_byte_bits(etc_block *p, uint32_t ofs, uint32_t num, uint32_t 
 	p->m_bytes[byte_ofs] |= (bits << byte_bit_ofs);
 }
 
-bool etc_block_get_flip_bit(const etc_block *p) 
+bool etc_block_get_flip_bit(const etc_block *p)
 {
 	return (p->m_bytes[3] & 1) != 0;
 }
@@ -286,7 +263,7 @@ void etc_block_set_flip_bit(etc_block *p, bool flip)
 	p->m_bytes[3] |= (uint8_t)(flip);
 }
 
-bool etc_block_get_diff_bit(const etc_block *p) 
+bool etc_block_get_diff_bit(const etc_block *p)
 {
 	return (p->m_bytes[3] & 2) != 0;
 }
@@ -299,7 +276,7 @@ void etc_block_set_diff_bit(etc_block *p, bool diff)
 
 // Returns intensity modifier table (0-7) used by subblock subblock_id.
 // subblock_id=0 left/top (CW 1), 1=right/bottom (CW 2)
-uint32_t etc_block_get_inten_table(const etc_block *p, uint32_t subblock_id) 
+uint32_t etc_block_get_inten_table(const etc_block *p, uint32_t subblock_id)
 {
 	assert(subblock_id < 2);
 	const uint32_t ofs = subblock_id ? 2 : 5;
@@ -322,7 +299,7 @@ void etc_block_set_inten_tables_etc1s(etc_block *p, uint32_t t)
 	etc_block_set_inten_table(p, 1, t);
 }
 
-uint32_t etc_block_get_raw_selector(const etc_block *pBlock, uint32_t x, uint32_t y) 
+uint32_t etc_block_get_raw_selector(const etc_block *pBlock, uint32_t x, uint32_t y)
 {
 	assert((x | y) < 4);
 
@@ -337,7 +314,7 @@ uint32_t etc_block_get_raw_selector(const etc_block *pBlock, uint32_t x, uint32_
 }
 
 // Returned selector value ranges from 0-3 and is a direct index into g_etc1_inten_tables.
-uint32_t etc_block_get_selector(const etc_block *pBlock, uint32_t x, uint32_t y) 
+uint32_t etc_block_get_selector(const etc_block *pBlock, uint32_t x, uint32_t y)
 {
 	return g_etc1_to_selector_index[etc_block_get_raw_selector(pBlock, x, y)];
 }
@@ -354,7 +331,7 @@ void etc_block_set_selector(etc_block *pBlock, uint32_t x, uint32_t y, uint32_t 
 	const uint32_t mask = 1 << byte_bit_ofs;
 
 	const uint32_t etc1_val = g_selector_index_to_etc1[val];
-	
+
 	const uint32_t lsb = etc1_val & 1;
 	const uint32_t msb = etc1_val >> 1;
 
@@ -381,7 +358,7 @@ void etc_block_set_base4_color(etc_block *pBlock, uint32_t idx, uint16_t c)
 	}
 }
 
-uint16_t etc_block_get_base4_color(const etc_block *pBlock, uint32_t idx) 
+uint16_t etc_block_get_base4_color(const etc_block *pBlock, uint32_t idx)
 {
 	uint32_t r, g, b;
 	if (idx)
@@ -421,7 +398,7 @@ void etc_block_set_delta3_color(etc_block *pBlock, uint16_t c)
 	etc_block_set_byte_bits(pBlock, cETC1DeltaColor3BBitOffset, 3, c & 7);
 }
 
-uint16_t etc_block_get_delta3_color(const etc_block *pBlock) 
+uint16_t etc_block_get_delta3_color(const etc_block *pBlock)
 {
 	const uint32_t r = etc_block_get_byte_bits(pBlock, cETC1DeltaColor3RBitOffset, 3);
 	const uint32_t g = etc_block_get_byte_bits(pBlock, cETC1DeltaColor3GBitOffset, 3);
@@ -504,7 +481,7 @@ color_rgba etc_block_unpack_color4(uint16_t packed_color4, bool scaled, uint32_t
 }
 
 // false if didn't clamp, true if any component clamped
-bool etc_block_get_block_colors(const etc_block *pBlock, color_rgba* pBlock_colors, uint32_t subblock_index) 
+bool etc_block_get_block_colors(const etc_block *pBlock, color_rgba* pBlock_colors, uint32_t subblock_index)
 {
 	color_rgba b;
 
@@ -530,7 +507,7 @@ bool etc_block_get_block_colors(const etc_block *pBlock, color_rgba* pBlock_colo
 	return dc;
 }
 
-void get_block_colors5(color_rgba *pBlock_colors, const color_rgba *pBase_color5, uint32_t inten_table, bool scaled /* false */) 
+void get_block_colors5(color_rgba *pBlock_colors, const color_rgba *pBase_color5, uint32_t inten_table, bool scaled /* false */)
 {
 	color_rgba b = *pBase_color5;
 
@@ -695,7 +672,7 @@ void etc_block_set_block_color5(etc_block *pBlock, color_rgba c0_unscaled, color
 void etc_block_set_block_color5_etc1s(etc_block *pBlock, color_rgba c_unscaled)
 {
 	etc_block_set_diff_bit(pBlock, true);
-			
+
 	etc_block_set_base5_color(pBlock, etc_block_pack_color5(c_unscaled, false));
 	etc_block_set_delta3_color(pBlock, etc_block_pack_delta3(0, 0, 0));
 }
@@ -729,9 +706,9 @@ void etc_block_pack_raw_selectors(etc_block *pBlock, const uint8_t *pSelectors)
 		{
 			const uint32_t bit_index = x * 4 + y;
 			const uint32_t s = pSelectors[x + y * 4];
-		
+
 			const uint32_t lsb = s & 1, msb = s >> 1;
-		
+
 			word3 |= (lsb << bit_index);
 			word2 |= (msb << bit_index);
 		}
@@ -764,14 +741,14 @@ typedef struct etc1s_optimizer_solution_coordinates_tag
 	uint32_t m_inten_table;
 } etc1s_optimizer_solution_coordinates;
 
-color_rgba get_scaled_color(color_rgba unscaled_color) 
+color_rgba get_scaled_color(color_rgba unscaled_color)
 {
 	int br, bg, bb;
-	
+
 	br = (unscaled_color.x >> 2) | (unscaled_color.x << 3);
 	bg = (unscaled_color.y >> 2) | (unscaled_color.y << 3);
 	bb = (unscaled_color.z >> 2) | (unscaled_color.z << 3);
-	
+
 	return (color_rgba)((uint8_t)br, (uint8_t)bg, (uint8_t)bb, 255);
 }
 
@@ -779,7 +756,7 @@ typedef struct etc1s_optimizer_potential_solution_tag
 {
 	uint64_t					m_error;
 	etc1s_optimizer_solution_coordinates m_coords;
-		
+
 	uint8_t						m_selectors[16];
 	bool						m_valid;
 } etc1s_optimizer_potential_solution;
@@ -795,20 +772,20 @@ typedef struct etc1s_optimizer_state_tag
 bool etc1s_optimizer_evaluate_solution(
 	etc1s_optimizer_state *pState,
 	const global encode_etc1s_param_struct *pParams,
-	uint64_t num_pixels, const global color_rgba *pPixels, 
+	uint64_t num_pixels, const global color_rgba *pPixels,
 	const global uint32_t *pWeights,
-	etc1s_optimizer_solution_coordinates coords, 
-	etc1s_optimizer_potential_solution* pTrial_solution, 
+	etc1s_optimizer_solution_coordinates coords,
+	etc1s_optimizer_potential_solution* pTrial_solution,
 	etc1s_optimizer_potential_solution* pBest_solution)
 {
 	uint8_t temp_selectors[16];
 
 	pTrial_solution->m_valid = false;
-		
+
 	const color_rgba base_color = get_scaled_color(coords.m_unscaled_color);
-	
+
 	pTrial_solution->m_error = INT64_MAX;
-		
+
 	for (uint32_t inten_table = 0; inten_table < cETC1IntenModifierValues; inten_table++)
 	{
 		// TODO: This check is equivalent to medium quality in the C++ version.
@@ -825,7 +802,7 @@ bool etc1s_optimizer_evaluate_solution(
 		}
 
 		uint64_t total_error = 0;
-				
+
 		for (uint64_t c = 0; c < num_pixels; c++)
 		{
 			color_rgba src_pixel = pPixels[c];
@@ -858,7 +835,7 @@ bool etc1s_optimizer_evaluate_solution(
 				temp_selectors[c] = (uint8_t)(best_selector_index);
 
 			total_error += pWeights ? (best_error * (uint64_t)pWeights[c]) : best_error;
-			
+
 			if (total_error >= pTrial_solution->m_error)
 				break;
 		}
@@ -886,23 +863,23 @@ bool etc1s_optimizer_evaluate_solution(
 			success = true;
 		}
 	}
-				
+
 	return success;
 }
 
 void etc1s_optimizer_init(
 	etc1s_optimizer_state *pState,
 	const global encode_etc1s_param_struct *pParams,
-	uint64_t num_pixels, const global color_rgba *pPixels, 
+	uint64_t num_pixels, const global color_rgba *pPixels,
 	const global uint32_t *pWeights)
 {
 	const int LIMIT = 31;
-		
+
 	color_rgba min_color = 255;
 	color_rgba max_color = 0;
 	uint64_t total_weight = 0;
 	uint64_t sum_r = 0, sum_g = 0, sum_b = 0;
-				
+
 	for (uint64_t i = 0; i < num_pixels; i++)
 	{
 		const color_rgba c = pPixels[i];
@@ -917,7 +894,7 @@ void etc1s_optimizer_init(
 			sum_r += weight * c.x;
 			sum_g += weight * c.y;
 			sum_b += weight * c.z;
-		
+
 			total_weight += weight;
 		}
 		else
@@ -929,7 +906,7 @@ void etc1s_optimizer_init(
 			total_weight++;
 		}
 	}
-				
+
 	float3 avg_color;
 	avg_color.x = (float)sum_r / total_weight;
 	avg_color.y = (float)sum_g / total_weight;
@@ -937,7 +914,7 @@ void etc1s_optimizer_init(
 
 	pState->m_avg_color = avg_color;
 	pState->m_max_comp_spread = max(max((int)max_color.x - (int)min_color.x, (int)max_color.y - (int)min_color.y), (int)max_color.z - (int)min_color.z);
-		
+
 	// TODO: The rounding here could be improved, like with DXT1/BC1.
 	pState->m_br = clamp((int)(avg_color.x * (LIMIT / 255.0f) + .5f), 0, LIMIT);
 	pState->m_bg = clamp((int)(avg_color.y * (LIMIT / 255.0f) + .5f), 0, LIMIT);
@@ -961,7 +938,7 @@ void etc1s_optimizer_internal_cluster_fit(
 	etc1s_optimizer_solution_coordinates cur_coords;
 	cur_coords.m_unscaled_color = (color_rgba)(pState->m_br, pState->m_bg, pState->m_bb, 255);
 	etc1s_optimizer_evaluate_solution(pState, pParams, num_pixels, pPixels, pWeights, cur_coords, &trial_solution, &pState->m_best_solution);
-			
+
 	if (pState->m_best_solution.m_error == 0)
 		return;
 
@@ -993,11 +970,11 @@ void etc1s_optimizer_internal_cluster_fit(
 		const int br1 = clamp((int)((pState->m_avg_color.x - avg_delta_r_f) * (LIMIT / 255.0f) + .5f), 0, LIMIT);
 		const int bg1 = clamp((int)((pState->m_avg_color.y - avg_delta_g_f) * (LIMIT / 255.0f) + .5f), 0, LIMIT);
 		const int bb1 = clamp((int)((pState->m_avg_color.z - avg_delta_b_f) * (LIMIT / 255.0f) + .5f), 0, LIMIT);
-		
+
 		cur_coords.m_unscaled_color = (color_rgba)(br1, bg1, bb1, 255);
 
 		etc1s_optimizer_evaluate_solution(pState, pParams, num_pixels, pPixels, pWeights, cur_coords, &trial_solution, &pState->m_best_solution);
-	
+
 		if (pState->m_best_solution.m_error == 0)
 			break;
 	}
@@ -1005,24 +982,24 @@ void etc1s_optimizer_internal_cluster_fit(
 
 // Encode an ETC1S block given a 4x4 pixel block.
 kernel void encode_etc1s_blocks(
-    const global encode_etc1s_param_struct *pParams, 
+    const global encode_etc1s_param_struct *pParams,
     const global pixel_block *pInput_blocks,
     global etc_block *pOutput_blocks)
 {
 	const uint32_t block_index = get_global_id(0);
-	
+
 	const global pixel_block *pInput_block = &pInput_blocks[block_index];
 
 	etc1s_optimizer_state state;
 	etc1s_optimizer_init(&state, pParams, 16, pInput_block->m_pixels, NULL);
 	etc1s_optimizer_internal_cluster_fit(pParams->m_total_perms, &state, pParams, 16, pInput_block->m_pixels, NULL);
-	
+
 	etc_block blk;
 	etc_block_set_flip_bit(&blk, true);
 	etc_block_set_block_color5_etc1s(&blk, state.m_best_solution.m_coords.m_unscaled_color);
 	etc_block_set_inten_tables_etc1s(&blk, state.m_best_solution.m_coords.m_inten_table);
 	etc_block_pack_raw_selectors(&blk, state.m_best_solution.m_selectors);
-							
+
 	pOutput_blocks[block_index] = blk;
 }
 
@@ -1034,14 +1011,14 @@ typedef struct __attribute__ ((packed)) pixel_cluster_tag
 
 // Determine the optimal ETC1S color5/intensity given an arbitrary large array of 4x4 input pixel blocks.
 kernel void encode_etc1s_from_pixel_cluster(
-    const global encode_etc1s_param_struct *pParams, 
+    const global encode_etc1s_param_struct *pParams,
     const global pixel_cluster *pInput_pixel_clusters,
 	const global color_rgba *pInput_pixels,
 	const global uint32_t *pInput_weights,
     global etc_block *pOutput_blocks)
 {
 	const uint32_t cluster_index = get_global_id(0);
-	
+
 	const global pixel_cluster *pInput_cluster = &pInput_pixel_clusters[cluster_index];
 
 	uint64_t total_pixels = pInput_cluster->m_total_pixels;
@@ -1051,12 +1028,12 @@ kernel void encode_etc1s_from_pixel_cluster(
 	etc1s_optimizer_state state;
 	etc1s_optimizer_init(&state, pParams, total_pixels, pPixels, pWeights);
 	etc1s_optimizer_internal_cluster_fit(pParams->m_total_perms, &state, pParams, total_pixels, pPixels, pWeights);
-	
+
 	etc_block blk;
 	etc_block_set_flip_bit(&blk, true);
 	etc_block_set_block_color5_etc1s(&blk, state.m_best_solution.m_coords.m_unscaled_color);
 	etc_block_set_inten_tables_etc1s(&blk, state.m_best_solution.m_coords.m_inten_table);
-								
+
 	pOutput_blocks[cluster_index] = blk;
 }
 
@@ -1084,7 +1061,7 @@ typedef struct __attribute__ ((packed)) rec_param_struct_tag
 
 // For each input block: find the best endpoint cluster that encodes it.
 kernel void refine_endpoint_clusterization(
-    const rec_param_struct params, 
+    const rec_param_struct params,
     const global pixel_block *pInput_blocks,
 	const global rec_block_struct *pInput_block_info,
 	const global rec_endpoint_cluster_struct *pInput_clusters,
@@ -1096,7 +1073,7 @@ kernel void refine_endpoint_clusterization(
 	const int perceptual = params.m_perceptual;
 
 	const global pixel_block *pInput_block = &pInput_blocks[block_index];
-			
+
 	pixel_block priv_pixel_block;
 	priv_pixel_block = *pInput_block;
 
@@ -1104,7 +1081,7 @@ kernel void refine_endpoint_clusterization(
 	const uint32_t num_clusters = pInput_block_info[block_index].m_num_clusters;
 	const uint32_t cur_block_cluster_index = pInput_block_info[block_index].m_cur_cluster_index;
 	const uint32_t cur_block_cluster_etc_inten = pInput_block_info[block_index].m_cur_cluster_etc_inten;
-	
+
 	uint64_t overall_best_err = UINT64_MAX;
 	uint32_t best_cluster_index = 0;
 
@@ -1122,7 +1099,7 @@ kernel void refine_endpoint_clusterization(
 		get_block_colors5(block_colors, &unscaled_color, etc_inten, false);
 
 		uint64_t total_error = 0;
-				
+
 		for (uint32_t c = 0; c < 16; c++)
 		{
 			color_rgba src_pixel = priv_pixel_block.m_pixels[c];
@@ -1140,7 +1117,7 @@ kernel void refine_endpoint_clusterization(
 			trial_error = color_distance(perceptual, src_pixel, block_colors[3], false);
 			if (trial_error < best_error)
 				best_error = trial_error;
-							
+
 			total_error += best_error;
 		}
 
@@ -1180,7 +1157,7 @@ typedef struct __attribute__ ((packed)) fosc_param_struct_tag
 
 // For each input block: Find the quantized selector which results in the lowest error.
 kernel void find_optimal_selector_clusters_for_each_block(
-    const fosc_param_struct params, 
+    const fosc_param_struct params,
     const global pixel_block *pInput_blocks,
 	const global fosc_block_struct *pInput_block_info,
 	const global fosc_selector_struct *pInput_selectors,
@@ -1188,10 +1165,10 @@ kernel void find_optimal_selector_clusters_for_each_block(
     global uint32_t *pOutput_selector_cluster_indices)
 {
 	const uint32_t block_index = get_global_id(0);
-	
+
 	const global color_rgba *pBlock_pixels = pInput_blocks[block_index].m_pixels;
 	const global fosc_block_struct *pBlock_info = &pInput_block_info[block_index];
-	
+
 	const global fosc_selector_struct *pSelectors = &pInput_selectors[pBlock_info->m_first_selector];
 	const uint32_t num_selectors = pBlock_info->m_num_selectors;
 
@@ -1220,7 +1197,7 @@ kernel void find_optimal_selector_clusters_for_each_block(
 	for (uint32_t sel_index = 0; sel_index < num_selectors; sel_index++)
 	{
 		uint32_t sels = pSelectors[sel_index].m_packed_selectors;
-		
+
 		uint64_t total_err = 0;
 		for (uint32_t i = 0; i < 16; i++, sels >>= 2)
 			total_err += trial_errors[sels & 3][i];
@@ -1246,15 +1223,15 @@ typedef struct __attribute__ ((packed)) ds_param_struct_tag
 	int m_perceptual;
 } ds_param_struct;
 
-// For each input block: Determine the ETC1S selectors that result in the lowest error, given each block's predetermined ETC1S color5/intensities. 
+// For each input block: Determine the ETC1S selectors that result in the lowest error, given each block's predetermined ETC1S color5/intensities.
 kernel void determine_selectors(
-    const ds_param_struct params, 
+    const ds_param_struct params,
     const global pixel_block *pInput_blocks,
 	const global color_rgba *pInput_etc_color5_and_inten,
     global etc_block *pOutput_blocks)
 {
 	const uint32_t block_index = get_global_id(0);
-	
+
 	const global color_rgba *pBlock_pixels = pInput_blocks[block_index].m_pixels;
 
 	color_rgba etc_color5_inten = pInput_etc_color5_and_inten[block_index];
@@ -1287,4 +1264,3 @@ kernel void determine_selectors(
 
 	pOutput_blocks[block_index] = output_block;
 }
-

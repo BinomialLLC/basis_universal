@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=65", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "basisu-py"
+version = "0.2.0"
+description = "Python bindings for Basis Universal encoder/transcoder v2.x with native + WASM backend"
+authors = [
+    { name = "Binomial LLC", email = "stephanie@binomial.info" }
+]
+license = { text = "Apache 2.0" }
+readme = "README.md"
+requires-python = ">=3.8"
+
+dependencies = [
+    "numpy",
+    "Pillow",
+    "imageio>=2.22",
+    "wasmtime",
+]
+
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: C++",
+    "Operating System :: OS Independent",
+    "License :: OSI Approved :: Apache Software License",
+]
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["basisu_py*"]
+
+[tool.setuptools.package-data]
+basisu_py = [
+    "*.so",
+    "*.pyd",
+    "*.py",
+    "wasm/*.wasm",
+    "wasm/*.py",
+    "README.md",
+]

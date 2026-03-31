@@ -1,0 +1,26 @@
+# Prereq: activate emsdk first (so emcmake/em++ are on PATH)
+# Linux/macOS:
+source /path/to/emsdk/emsdk_env.sh
+# Windows PowerShell:
+# & "C:\path\to\emsdk\emsdk_env.ps1"
+
+# ===== Release (fast; same behavior as your original file) =====
+emcmake cmake -S . -B build-release -DCMAKE_BUILD_TYPE=Release
+cmake --build build-release -j
+
+# ===== Debug (symbols + assertions) =====
+emcmake cmake -S . -B build-debug -DCMAKE_BUILD_TYPE=Debug
+cmake --build build-debug -j
+
+# ===== SAN (ASan + UBSan; great for catching bugs) =====
+emcmake cmake -S . -B build-san -DCMAKE_BUILD_TYPE=SAN
+cmake --build build-san -j
+
+# Build a single target (optional) instead of all three:
+cmake --build build-release -j --target basis_encoder.js
+cmake --build build-release -j --target basis_encoder_threads.js
+cmake --build build-release -j --target basis_encoder_threads_wasm64.js
+
+# Toggle Zstd (OFF = smaller binary, no KTX2 Zstd compression)
+emcmake cmake -S . -B build-release -DCMAKE_BUILD_TYPE=Release -DKTX2_ZSTANDARD=OFF
+cmake --build build-release -j
