@@ -117,8 +117,8 @@ One interesting use of XUASTC LDR which works with any of the 14 block sizes: th
 
 XUASTC LDR supports the following ASTC configurations: L/LA/RGB/RGBA CEMs; base+scale or RGB/RGBA direct; base+offset CEMs; Blue Contraction encoding; 1–3 subsets; all partition patterns; and single- or dual-plane modes. Here is the [XUASTC LDR specification](https://github.com/BinomialLLC/basis_universal/wiki/XUASTC-LDR-Specification-v1.0). Also see the [ASTC and XUASTC LDR Usage Guide](https://github.com/BinomialLLC/basis_universal/wiki/ASTC-and-XUASTC-LDR-Usage-Guide).
 
-Here's a XUASTC LDR 4x4 (arithmetic profile) bit rate vs. distortion graph across 151 test textures/images (the same test corpus we used to create [bc7e.ispc](https://github.com/richgel999/bc7enc_rdo)). Distortion was measured using [PSNR-HVS-M](https://pypi.org/project/psnr-hvsm/).
-<img width="1284" height="759" alt="image" src="https://github.com/user-attachments/assets/14dd6cee-4d0a-47a6-9cca-03c5e8e149ce" />
+Here's a XUASTC LDR 4x4 (arithmetic vs. Zstd profile) bit rate vs. distortion graph across 151 test textures/images (the same test corpus we used to create [bc7e.ispc](https://github.com/richgel999/bc7enc_rdo)). Distortion was measured using [PSNR-HVS-M](https://pypi.org/project/psnr-hvsm/).
+<img width="1284" height="760" alt="image" src="https://github.com/user-attachments/assets/60f56279-3efd-4ec9-b866-a456e6fa9735" />
 
 Notes:  
 - Mode #1 (ETC1S) has special support and optimizations for basic temporal supercompression ([texture video](https://github.com/BinomialLLC/basis_universal/wiki/Encoding-ETC1S-and-XUASTC-LDR-Texture-Video)).
