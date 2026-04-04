@@ -1,4 +1,8 @@
 // File: android_astc_decomp.cpp
+//
+// 4/3/2026: Set BASISU_DISABLE_ANDROID_ASTC_DECOMP to 1 to completely disable this code and redirect all calls to our internal ASTC decoder in astc_helpers.h.
+// 
+// decodeVoidExtentBlock(): Fixing function so bits 10-11 are properly checked (they must both be 1 according to the spec), otherwise fuzzing using random 128-bit bit blocks doesn't match ARM or our decoder's output.
 
 /*-------------------------------------------------------------------------
  * drawElements Quality Program Tester Core
@@ -28,6 +32,129 @@
  * \brief ASTC Utilities.
  *//*--------------------------------------------------------------------*/
 #include "android_astc_decomp.h"
+
+// Set BASISU_DISABLE_ANDROID_ASTC_DECOMP to 1 to completely disable dEQP's code (we'll use our own internal decoder in this case, but you'll lose validation vs. a 2nd decoder).
+#ifndef BASISU_DISABLE_ANDROID_ASTC_DECOMP
+#define BASISU_DISABLE_ANDROID_ASTC_DECOMP (0)
+#endif
+
+#if BASISU_DISABLE_ANDROID_ASTC_DECOMP
+
+// Direct all calls to our internal ASTC decoder
+
+#include "../../transcoder/basisu.h"
+#include "../../transcoder/basisu_transcoder_internal.h"
+#include "../../transcoder/basisu_astc_helpers.h"
+
+namespace basisu_astc {
+namespace astc {
+
+static void set_ldr_error_color(uint8_t* pDst, uint32_t blockWidth, uint32_t blockHeight)
+{
+    const uint32_t total_texels = blockWidth * blockHeight;
+    for (uint32_t i = 0; i < total_texels; i++)
+    {
+        pDst[i * 4 + 0] = 0xFF;
+        pDst[i * 4 + 1] = 0;
+        pDst[i * 4 + 2] = 0xFF;
+        pDst[i * 4 + 3] = 0xFF;
+    }
+}
+
+static void set_hdr_error_color(float* pDst, uint32_t blockWidth, uint32_t blockHeight)
+{
+    const uint32_t total_texels = blockWidth * blockHeight;
+    for (uint32_t i = 0; i < total_texels; i++)
+    {
+        pDst[i * 4 + 0] = 1.0f;
+        pDst[i * 4 + 1] = 0;
+        pDst[i * 4 + 2] = 1.0f;
+        pDst[i * 4 + 3] = 1.0f;
+    }
+}
+
+bool decompress_ldr(uint8_t* pDst, const uint8_t* data, bool isSRGB, int blockWidth, int blockHeight)
+{
+    astc_helpers::log_astc_block log_blk;
+    if (!astc_helpers::unpack_block(data, log_blk, blockWidth, blockHeight))
+    {
+		set_ldr_error_color(pDst, blockWidth, blockHeight);
+        return false;
+    }
+
+    if (!astc_helpers::decode_block(log_blk, pDst, blockWidth, blockHeight, isSRGB ? astc_helpers::cDecodeModeSRGB8 : astc_helpers::cDecodeModeLDR8))
+    {
+        set_ldr_error_color(pDst, blockWidth, blockHeight);
+        return false;
+    }
+
+    return true;
+}
+
+bool decompress_hdr(float* pDstRGBA, const uint8_t* data, int blockWidth, int blockHeight)
+{
+    basist::half_float half_block[astc_helpers::MAX_BLOCK_PIXELS][4];
+
+    astc_helpers::log_astc_block log_blk;
+    if (!astc_helpers::unpack_block(data, log_blk, blockWidth, blockHeight))
+    {
+        set_hdr_error_color(pDstRGBA, blockWidth, blockHeight);
+        return false;
+    }
+
+    if (!astc_helpers::decode_block(log_blk, half_block, blockWidth, blockHeight, astc_helpers::cDecodeModeHDR16))
+    {
+        set_hdr_error_color(pDstRGBA, blockWidth, blockHeight);
+        return false;
+    }
+    
+    const uint32_t total_texels = blockWidth * blockHeight;
+
+    for (uint32_t p = 0; p < total_texels; p++)
+    {
+        pDstRGBA[0] = basist::half_to_float(half_block[p][0]);
+        pDstRGBA[1] = basist::half_to_float(half_block[p][1]);
+        pDstRGBA[2] = basist::half_to_float(half_block[p][2]);
+        pDstRGBA[3] = basist::half_to_float(half_block[p][3]);
+        pDstRGBA += 4;
+    }
+
+    return true;
+}
+
+bool is_hdr(const uint8_t* data, int blockWidth, int blockHeight, bool& is_hdr_flag)
+{
+    is_hdr_flag = false;
+
+    astc_helpers::log_astc_block log_blk;
+    if (!astc_helpers::unpack_block(data, log_blk, blockWidth, blockHeight))
+        return false;
+
+    if (log_blk.m_solid_color_flag_ldr)
+        return true;
+
+    if (log_blk.m_solid_color_flag_hdr)
+    {
+        is_hdr_flag = true;
+        return true;
+    }
+    
+    for (uint32_t i = 0; i < log_blk.m_num_partitions; i++)
+    {
+        if (astc_helpers::is_cem_hdr(log_blk.m_color_endpoint_modes[i]))
+        {
+            is_hdr_flag = true;
+            return true;
+        }
+    }
+
+    return true;
+}
+
+} }
+
+#else // !BASISU_DISABLE_ANDROID_ASTC_DECOMP
+
 #include <assert.h>
 #include <algorithm>
 #include <fenv.h>
@@ -715,6 +842,15 @@ inline void setASTCErrorColorBlock (void* dst, int blockWidth, int blockHeight, 
 
 DecompressResult decodeVoidExtentBlock (void* dst, const Block128& blockData, int blockWidth, int blockHeight, bool isSRGB, bool isLDRMode)
 {
+    // rg: Adding check here to match ARM's decoder and basisu's.
+    // 18.23.Void - Extent Blocks
+    // "Bits 10 and 11 are reserved and must be 1."
+    if (blockData.getBits(10, 11) != 3)
+    {
+        setASTCErrorColorBlock(dst, blockWidth, blockHeight, isSRGB);
+        return DECOMPRESS_RESULT_ERROR;
+    }
+
     const deUint32  minSExtent          = blockData.getBits(12, 24);
     const deUint32  maxSExtent          = blockData.getBits(25, 37);
     const deUint32  minTExtent          = blockData.getBits(38, 50);
@@ -2045,9 +2181,9 @@ bool decompress_hdr(float* pDstRGBA, const uint8_t* data, int blockWidth, int bl
     return true;
 }
 
-bool is_hdr(const uint8_t* data, int blockWidth, int blockHeight, bool &is_hdr)
+bool is_hdr(const uint8_t* data, int blockWidth, int blockHeight, bool& is_hdr_flag)
 {
-    is_hdr = false;
+    is_hdr_flag = false;
 
     const Block128 blockData(data);
 
@@ -2057,7 +2193,7 @@ bool is_hdr(const uint8_t* data, int blockWidth, int blockHeight, bool &is_hdr)
         return false;
     }
 
-    is_hdr = (status == 1);
+    is_hdr_flag = (status == 1);
 
     return true;
 }
@@ -2069,3 +2205,5 @@ bool is_hdr(const uint8_t* data, int blockWidth, int blockHeight, bool &is_hdr)
 #if defined(__GNUC__)
 #pragma GCC diagnostic pop
 #endif
+
+#endif // BASISU_DISABLE_ANDROID_ASTC_DECOMP

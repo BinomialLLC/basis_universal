@@ -18,6 +18,8 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+ * 
+ * 4/3/2026: Set BASISU_DISABLE_ANDROID_ASTC_DECOMP to 1 to completely disable this code and redirect all calls to our internal ASTC decoder.
  *
  *//*!
  * \file
@@ -37,7 +39,7 @@ namespace astc
 // which will lead to different outputs. So be sure to set it correctly (ideally it should match whatever the encoder did).
 bool decompress_ldr(uint8_t* pDst, const uint8_t* data, bool isSRGB, int blockWidth, int blockHeight);
 bool decompress_hdr(float* pDstRGBA, const uint8_t* data, int blockWidth, int blockHeight);
-bool is_hdr(const uint8_t* data, int blockWidth, int blockHeight, bool& is_hdr);
+bool is_hdr(const uint8_t* data, int blockWidth, int blockHeight, bool& is_hdr_flag);
 
 } // astc
 } // basisu
