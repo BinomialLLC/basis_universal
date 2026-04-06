@@ -96,6 +96,7 @@ message("Initial BASISU_ZSTD=${BASISU_ZSTD}")
 message("Initial BASISU_OPENCL=${BASISU_OPENCL}")
 message("Initial BASISU_SAN=${BASISU_SAN}")
 message("Initial BASISU_EXAMPLES=${BASISU_EXAMPLES}")
+message("Initial BASISU_DISABLE_ANDROID_ASTC_DECOMP=${BASISU_DISABLE_ANDROID_ASTC_DECOMP}")
 
 if ((NOT MSVC) AND BASISU_OPENCL)
     # With MSVC builds we use the Khronos lib/include files in the project's "OpenCL" directory, to completely avoid requiring fiddly to install vendor SDK's.
