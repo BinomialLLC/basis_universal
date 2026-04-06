@@ -15,7 +15,6 @@
 #include "basisu_astc_ldr_encode.h"
 #include "basisu_astc_hdr_common.h"
 #include "basisu_astc_ldr_common.h"
-#include "3rdparty/android_astc_decomp.h"
 
 // pick up BASISD_SUPPORT_KTX2_ZSTD macro (this defines it automatically and sets to 1 if not defined)
 #include "../transcoder/basisu_transcoder.h" 

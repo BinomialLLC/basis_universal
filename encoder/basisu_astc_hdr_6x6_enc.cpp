@@ -22,8 +22,6 @@
 #define MINIZ_NO_ZLIB_COMPATIBLE_NAMES
 #include "basisu_miniz.h"
 
-#include "3rdparty/android_astc_decomp.h"
-
 #include <array>
 #include <cfloat>
 

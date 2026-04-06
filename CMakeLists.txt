@@ -25,6 +25,7 @@ option(BASISU_SAN "sanitize" FALSE)
 option(BASISU_EXAMPLES "build examples" TRUE)
 option(BASISU_WASM_THREADING "Enable WASI threading support" OFF)
 option(BASISU_BUILD_PYTHON "Build native Python module via pybind11" OFF)
+option(BASISU_DISABLE_ANDROID_ASTC_DECOMP "Disable Android ASTC decompressor" OFF)
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/bin)
 
@@ -127,6 +128,12 @@ if (BASISU_ZSTD)
     message("Zstandard enabled")
 else()
     message("Zstandard disabled")
+endif()
+
+if (BASISU_DISABLE_ANDROID_ASTC_DECOMP)
+    add_compile_definitions(BASISU_DISABLE_ANDROID_ASTC_DECOMP=1)
+else()
+    add_compile_definitions(BASISU_DISABLE_ANDROID_ASTC_DECOMP=0)
 endif()
 
 if (NOT MSVC AND NOT BASISU_BUILD_WASM)
@@ -239,7 +246,6 @@ set(ENCODER_LIB_SRC_LIST
     encoder/basisu_astc_hdr_common.cpp
     encoder/basisu_astc_ldr_common.cpp
     encoder/basisu_astc_ldr_encode.cpp
-    encoder/3rdparty/android_astc_decomp.cpp
     encoder/3rdparty/tinyexr.cpp
     transcoder/basisu_transcoder.cpp
     encoder/basisu_astc_hdr_6x6_enc.h
@@ -273,7 +279,6 @@ set(ENCODER_LIB_SRC_LIST
     encoder/cppspmd_type_aliases.h
     encoder/jpgd.h
     encoder/pvpngreader.h
-    encoder/3rdparty/android_astc_decomp.h
     encoder/3rdparty/qoi.h
     encoder/3rdparty/tinyexr.h
     transcoder/basisu_astc_hdr_core.h
@@ -288,6 +293,12 @@ set(ENCODER_LIB_SRC_LIST
     transcoder/basisu.h
     zstd/zstd.h
 )
+
+if (NOT BASISU_DISABLE_ANDROID_ASTC_DECOMP)
+    list(APPEND ENCODER_LIB_SRC_LIST
+        encoder/3rdparty/android_astc_decomp.cpp
+    )
+endif()
 
 if (BASISU_ZSTD)
     set(ENCODER_LIB_SRC_LIST ${ENCODER_LIB_SRC_LIST} zstd/zstd.c)
@@ -343,7 +354,7 @@ if (BASISU_BUILD_WASM)
         
     endif()
 
-    # 256 MB initial, 3.5 GB max — safe defaults for BasisU
+    # 256 MB initial, 3.5 GB max ï¿½ safe defaults for BasisU
     target_link_options(basisu PRIVATE
         -Wl,--initial-memory=268435456
         -Wl,--max-memory=3758096384

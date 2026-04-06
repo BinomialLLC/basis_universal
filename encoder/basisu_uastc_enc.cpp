@@ -13,7 +13,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #include "basisu_uastc_enc.h"
-#include "3rdparty/android_astc_decomp.h"
 #include "basisu_gpu_texture.h"
 #include "basisu_bc7enc.h"
 
