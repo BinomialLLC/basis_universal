@@ -221,9 +221,6 @@
     <ClInclude Include="..\encoder\3rdparty\tinyexr.h">
       <Filter>Source Files\encoder\3rdparty</Filter>
     </ClInclude>
-    <ClInclude Include="..\encoder\3rdparty\android_astc_decomp.h">
-      <Filter>Source Files\encoder\3rdparty</Filter>
-    </ClInclude>
     <ClInclude Include="..\encoder\basisu_astc_hdr_common.h">
       <Filter>Source Files\encoder</Filter>
     </ClInclude>

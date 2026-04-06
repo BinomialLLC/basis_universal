@@ -55,7 +55,6 @@
     <ClCompile Include="..\zstd\zstd.c" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="..\encoder\3rdparty\android_astc_decomp.h" />
     <ClInclude Include="..\encoder\3rdparty\qoi.h" />
     <ClInclude Include="..\encoder\3rdparty\tinydds.h" />
     <ClInclude Include="..\encoder\3rdparty\tinyexr.h" />
