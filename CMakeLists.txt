@@ -247,7 +247,7 @@ set(ENCODER_LIB_SRC_LIST
     encoder/basisu_astc_hdr_common.cpp
     encoder/basisu_astc_ldr_common.cpp
     encoder/basisu_astc_ldr_encode.cpp
-    encoder/3rdparty/tinyexr.cpp
+    encoder/basisu_tinyexr.cpp
     transcoder/basisu_transcoder.cpp
     encoder/basisu_astc_hdr_6x6_enc.h
     encoder/basisu_astc_hdr_common.h

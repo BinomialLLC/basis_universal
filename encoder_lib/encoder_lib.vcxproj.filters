@@ -84,9 +84,6 @@
     <ClCompile Include="..\encoder\pvpngreader.cpp">
       <Filter>Source Files\encoder</Filter>
     </ClCompile>
-    <ClCompile Include="..\encoder\3rdparty\tinyexr.cpp">
-      <Filter>Source Files\encoder\3rdparty</Filter>
-    </ClCompile>
     <ClCompile Include="..\zstd\zstd.c">
       <Filter>Source Files\encoder\3rdparty</Filter>
     </ClCompile>
@@ -103,6 +100,9 @@
       <Filter>Source Files\encoder</Filter>
     </ClCompile>
     <ClCompile Include="..\encoder\basisu_astc_ldr_encode.cpp">
+      <Filter>Source Files\encoder</Filter>
+    </ClCompile>
+    <ClCompile Include="..\encoder\basisu_tinyexr.cpp">
       <Filter>Source Files\encoder</Filter>
     </ClCompile>
   </ItemGroup>

@@ -67,7 +67,7 @@ if(EMSCRIPTEN)
     ../../encoder/basisu_astc_hdr_common.cpp
     ../../encoder/basisu_astc_ldr_common.cpp
     ../../encoder/basisu_astc_ldr_encode.cpp
-    ../../encoder/3rdparty/tinyexr.cpp
+    ../../encoder/basisu_tinyexr.cpp
   )
   if(KTX2_ZSTANDARD)
     list(APPEND SRC_LIST ../../zstd/zstd.c)

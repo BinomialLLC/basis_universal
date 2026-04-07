@@ -28,9 +28,7 @@
 
 #include <vector>
 
-#ifndef TINYEXR_USE_ZFP
-#define TINYEXR_USE_ZFP (1)
-#endif
+#define TINYEXR_USE_MINIZ (0)
 #include "3rdparty/tinyexr.h"
 
 #ifndef MINIZ_HEADER_FILE_ONLY
@@ -3439,7 +3437,7 @@ namespace basisu
 			return false;
 		return write_vec_to_file(pFilename, file_data);
 	}
-		
+
 	bool read_exr(const char* pFilename, imagef& img, int& n_chans)
 	{
 		n_chans = 0;
@@ -3447,8 +3445,8 @@ namespace basisu
 		int width = 0, height = 0;
 		float* out_rgba = nullptr;
 		const char* err = nullptr;
-		
-		int status = LoadEXRWithLayer(&out_rgba, &width, &height, pFilename, nullptr, &err, &n_chans);
+
+		int status = LoadEXRWithLayer(&out_rgba, &width, &height, pFilename, nullptr, &err);
 		if (status != 0)
 		{
 			error_printf("Failed loading .EXR image \"%s\"! (TinyEXR error: %s)\n", pFilename, err ? err : "?");
@@ -3457,7 +3455,7 @@ namespace basisu
 			return false;
 		}
 
-		const uint32_t MAX_SUPPORTED_DIM = 65536;
+		const uint32_t MAX_SUPPORTED_DIM = 32768;
 		if ((width < 1) || (height < 1) || (width > (int)MAX_SUPPORTED_DIM) || (height > (int)MAX_SUPPORTED_DIM))
 		{
 			error_printf("Invalid dimensions of .EXR image \"%s\"!\n", pFilename);
@@ -3466,32 +3464,60 @@ namespace basisu
 		}
 
 		img.resize(width, height);
+
+		memcpy((void*)img.get_ptr(), out_rgba, static_cast<size_t>(sizeof(float) * 4 * img.get_total_pixels()));
 		
-		if (n_chans == 1)
+		free(out_rgba);
+		out_rgba = nullptr;
+
+		uint32_t total_all_same_rgba = 0, total_all_same_rgb = 0, total_has_alpha = 0;
+
+		for (int y = 0; y < height; y++)
 		{
-			const float* pSrc = out_rgba;
-			vec4F* pDst = img.get_ptr();
-
-			for (int y = 0; y < height; y++)
+			for (int x = 0; x < width; x++)
 			{
-				for (int x = 0; x < width; x++)
-				{
-					(*pDst)[0] = pSrc[0];
-					(*pDst)[1] = pSrc[1];
-					(*pDst)[2] = pSrc[2];
-					(*pDst)[3] = 1.0f;
+				const vec4F& p = img(x, y);
 
-					pSrc += 4;
-					++pDst;
-				}
-			}
+				if ((p[0] == p[1]) && (p[0] == p[2]))
+					total_all_same_rgb++;
+
+				const float a = p[3];
+
+				if ((a == p[0]) && (a == p[1]) && (a == p[2]))
+					total_all_same_rgba++;
+								
+				if (a != 1.0f)
+					total_has_alpha++;
+
+			} // x
+		} // y
+
+		const uint32_t total_pixels = width * height;
+		if (total_all_same_rgba == total_pixels)
+		{
+			// TinyEXR loads single channel EXR images into all output channels (including alpha) - assume they are luminance and fix our alpha.
+			// Odds are this is an opaque luminance-only image, not a true alpha channel image. (As of early 2026 we don't support any HDR format with alpha, anyway.)
+			for (int y = 0; y < height; y++)
+				for (int x = 0; x < width; x++)
+					img(x, y)[3] = 1.0f;
+			
+			n_chans = 1;
+		}
+		else if (total_has_alpha)
+		{
+			n_chans = 4;
+		}
+		else if (total_all_same_rgb == total_pixels)
+		{
+			n_chans = 1;
 		}
 		else
 		{
-			memcpy((void *)img.get_ptr(), out_rgba, static_cast<size_t>(sizeof(float) * 4 * img.get_total_pixels()));
+			n_chans = 3;
 		}
 
-		free(out_rgba);
+		//fmt_printf("Number of detected EXR channels: {}\n", n_chans);
+				
 		return true;
 	}
 
@@ -3512,6 +3538,8 @@ namespace basisu
 		img.resize(width, height);
 		memcpy((void *)img.get_ptr(), out_rgba, width * height * sizeof(float) * 4);
 		free(out_rgba);
+
+		// TODO: detect luminance-only etc.
 
 		return true;
 	}
