@@ -286,7 +286,7 @@ is filled with the description from the file header.
 
 The returned pixel data should be free()d after use. */
 
-void *qoi_decode(const void *data, int size, qoi_desc *desc, int channels);
+void *qoi_decode(const void *data, size_t size, qoi_desc *desc, int channels);
 
 
 #ifdef __cplusplus
