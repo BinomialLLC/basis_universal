@@ -6664,12 +6664,6 @@ bool ldr_astc_block_encode_image(
 
 		} // by
 
-		if (encoder_failed_flag)
-		{
-			fmt_error_printf("Main compressor block loop failed!\n");
-			return false;
-		}
-
 		job_pool.wait_for_all(&token);
 
 		if (encoder_failed_flag)
