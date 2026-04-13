@@ -54,4 +54,6 @@ echo   Build SUCCESSFUL!
 echo   Output in: python/basisu_py/
 echo ===========================================
 
+cd ..
+
 exit /b 0

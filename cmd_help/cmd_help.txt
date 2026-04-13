@@ -374,8 +374,7 @@ sizes are supported (see the list below).
   match how the developer will decode or sample the ASTC texture data. Inverse
   of -tl. Same as -srgb.
 
- -tl: Use LDR Linear ASTC decoding profile (same as -linear). Inverse of -ts.
-  Same as -linear.
+ -tl: Use LDR Linear ASTC decoding profile. Inverse of -ts. Same as -linear.
 
  -weights X Y Z W: Set unsigned integer channel error weights. Defaults are
   1,1,1,1. Useful to favor certain channels during compression.

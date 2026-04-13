@@ -16,13 +16,14 @@
 
    function log(s)
    {
-//      var div = document.createElement('div');
-//      div.innerHTML = s;
-//      document.getElementById('log-panel').appendChild(div);
-	 
-	  var div = document.createElement('div');
+      var panel = document.getElementById('log-panel');
+
+      if (panel.childElementCount >= 750)
+         panel.innerHTML = '';
+
+      var div = document.createElement('div');
       div.innerHTML = s;
-      document.getElementById('log-panel').appendChild(div);
+      panel.appendChild(div);
    }
 
    function logClear()
@@ -143,13 +144,13 @@
    COMPRESSED_RGBA_ASTC_8x6_KHR = 0x93B6;
    COMPRESSED_RGBA_ASTC_10x5_KHR = 0x93B8;
    COMPRESSED_RGBA_ASTC_10x6_KHR = 0x93B9;
-   COMPRESSED_RGBA_ASTC_10x8_KHR = 0x93BA;
    COMPRESSED_RGBA_ASTC_8x8_KHR = 0x93B7;  // note the WebGL block order is not the standard ASTC block order
+   COMPRESSED_RGBA_ASTC_10x8_KHR = 0x93BA;
    COMPRESSED_RGBA_ASTC_10x10_KHR = 0x93BB;
    COMPRESSED_RGBA_ASTC_12x10_KHR = 0x93BC;
    COMPRESSED_RGBA_ASTC_12x12_KHR = 0x93BD;
 
-   // ASTC sRGB variants
+   // ASTC sRGB variants - 0x20 higher
    COMPRESSED_SRGBA_ASTC_4x4_KHR = 0x93D0;
    COMPRESSED_SRGBA_ASTC_5x4_KHR = 0x93D1;
    COMPRESSED_SRGBA_ASTC_5x5_KHR = 0x93D2;
@@ -256,6 +257,7 @@
    var ldrHDRUpconversionScale = 1.0;
    var linearToSRGBFlag = false;
    var drawUseBilinearFiltering = false;
+   var displayZoom = 1.0;
 
    var tex, width, height, is_hdr, layers, levels, faces, tex_has_alpha, tex_is_srgb;
    var alignedWidth, alignedHeight, format, displayWidth, displayHeight;
@@ -271,6 +273,22 @@
    {
       if (!width)
          return;
+
+      // Keep the WebGL buffer at native resolution; use CSS to zoom the display.
+      var canvas = elem('canvas');
+      if (canvas.width !== displayWidth || canvas.height !== displayHeight)
+      {
+         canvas.width = displayWidth;
+         canvas.height = displayHeight;
+      }
+
+      var cssW = Math.round(displayWidth * displayZoom);
+      var cssH = Math.round(displayHeight * displayZoom);
+      canvas.style.width  = cssW + 'px';
+      canvas.style.height = cssH + 'px';
+
+      // Match CSS upscaling to the bilinear filtering setting.
+      canvas.style.imageRendering = drawUseBilinearFiltering ? 'auto' : 'pixelated';
 
       renderer.drawTexture(tex, displayWidth, displayHeight, drawMode, drawScale * ldrHDRUpconversionScale, linearToSRGBFlag, drawUseBilinearFiltering);
    }
@@ -439,9 +457,9 @@
    function transcodeTexture(data, uri)
    {
       updateErrorLine("");
-	  	  
-	  log('------');
-	  log('transcodeTexture(): Done loading .KTX2 file, decoded header:');
+          
+      log('------');
+      log('transcodeTexture(): Done loading .KTX2 file, decoded header:');
 
       const { KTX2File, initializeBasis, encodeBasisTexture } = Module;
 
@@ -460,8 +478,8 @@
          return;
       }
 
-      width = ktx2File.getWidth();
-      height = ktx2File.getHeight();
+      var baseWidth = ktx2File.getWidth();
+      var baseHeight = ktx2File.getHeight();
       var srcBlockWidth = ktx2File.getBlockWidth();
       var srcBlockHeight = ktx2File.getBlockHeight();
 
@@ -477,6 +495,48 @@
       faces = ktx2File.getFaces();
       tex_has_alpha = ktx2File.getHasAlpha();
       tex_is_srgb = ktx2File.isSRGB();
+
+      updateMipmapSliderRange(levels);
+
+      // Read the desired mipmap level from the slider, validate, and clamp if needed.
+      var selectedLevel = parseInt(document.getElementById('mipmap-level-slider').value, 10);
+      if (isNaN(selectedLevel) || selectedLevel < 0 || selectedLevel >= levels)
+      {
+         selectedLevel = 0;
+         document.getElementById('mipmap-level-slider').value = 0;
+         document.getElementById('mipmap-level-value').textContent = '0';
+      }
+
+      updateCubemapFaceRange(faces);
+
+      // Read the desired cubemap face from the slider, validate, and clamp if needed.
+      var selectedFace = parseInt(document.getElementById('cubemap-face-slider').value, 10);
+      if (isNaN(selectedFace) || selectedFace < 0 || selectedFace >= faces)
+      {
+         selectedFace = 0;
+         document.getElementById('cubemap-face-slider').value = 0;
+         document.getElementById('cubemap-face-value').textContent = '0';
+      }
+
+      // For array textures, layers==0 means non-arrayed (treat as 1 layer at index 0).
+      var effectiveLayers = Math.max(1, layers);
+      updateArrayLayerRange(effectiveLayers);
+
+      // Read the desired array layer from the slider, validate, and clamp if needed.
+      var selectedLayer = parseInt(document.getElementById('array-layer-slider').value, 10);
+      if (isNaN(selectedLayer) || selectedLayer < 0 || selectedLayer >= effectiveLayers)
+      {
+         selectedLayer = 0;
+         document.getElementById('array-layer-slider').value = 0;
+         document.getElementById('array-layer-value').textContent = '0';
+         document.getElementById('array-layer-input').value = 0;
+      }
+
+      // Set width/height to the selected mip level's original (unpadded) dimensions.
+      // This way all downstream code (alignment, transcoding, texture creation) works unchanged.
+      var imageLevelInfo = ktx2File.getImageLevelInfo(selectedLevel, selectedLayer, selectedFace);
+      width = imageLevelInfo.origWidth;
+      height = imageLevelInfo.origHeight;
 
       // If a HDR KTX2 file was upconverted from LDR/SDR content by us, it'll have a key indicating the Nit scale that was appplied.
       // We can use that to make viewing the file work out of the box.
@@ -699,10 +759,10 @@
          descString += ' from UASTC LDR 4x4';
       else
          descString += ' from ETC1S';
-		 
-	  // Start transcoding first before calling dumpKTX2FileDesc() so isVideo()) is always set correctly. 
-	  // (That flag depends on KTX2 global supercompression fields that are only unpacked when startTranscoding() is called.)
-	  if (!ktx2File.startTranscoding())
+         
+      // Start transcoding first before calling dumpKTX2FileDesc() so isVideo()) is always set correctly. 
+      // (That flag depends on KTX2 global supercompression fields that are only unpacked when startTranscoding() is called.)
+      if (!ktx2File.startTranscoding())
       {
          updateErrorLine('startTranscoding failed');
 
@@ -716,16 +776,17 @@
 
       var total_texels = dumpKTX2FileDesc(ktx2File);
       var bpp = (data.byteLength * 8.0) / total_texels;
-      descString += ` (${bpp.toFixed(3)} bits/pixel).`;
+      var fileSizeKB = data.byteLength / 1024.0;
+      descString += ` (${bpp.toFixed(3)} bits/pixel, ${fileSizeKB.toFixed(2)} KB).`;
 
       elem('format').innerText = descString;
             
-      const dstSize = ktx2File.getImageTranscodedSizeInBytes(0, 0, 0, format);
+      const dstSize = ktx2File.getImageTranscodedSizeInBytes(selectedLevel, selectedLayer, selectedFace, format);
       const dst = new Uint8Array(dstSize);
 
-      const levelIndex =0;
-      const layerIndex = 0;
-      const faceIndex = 0;
+      const levelIndex = selectedLevel;
+      const layerIndex = selectedLayer;
+      const faceIndex = selectedFace;
 
       var flags = elem('highquality_transcoding').checked ? Module.basisu_decode_flags.cDecodeFlagsHighQuality.value : 0;
 
@@ -764,6 +825,10 @@
       const elapsed = performance.now() - startTime;
 
       g_transcodingTime = elapsed;
+      
+      descString += '\nTexture Size: ' + baseWidth + 'x' + baseHeight + ', Levels: ' + levels + ', Layers: ' + layers + ', Faces: ' + faces + ', sRGB: ' + tex_is_srgb + ', alpha: ' + tex_has_alpha;
+
+      descString += '\nViewing: Mip ' + selectedLevel + ' (' + width + 'x' + height + ') Face ' + selectedFace + ' Layer ' + selectedLayer;
 
       descString += '\nTranscode time: ' + g_transcodingTime.toFixed(3) + 'ms';
 
@@ -798,6 +863,8 @@
 
       log('ldrHDRUpconversionNitMultiplier: ' + ldrHDRUpconversionNitMultiplier);
 
+      log('selectedLevel: ' + selectedLevel + ' (' + width + 'x' + height + '), face: ' + selectedFace + ', layer: ' + selectedLayer);
+
       logTime('transcoding time', elapsed.toFixed(3));
 
       alignedWidth = Math.floor((width + dstBlockWidth - 1) / dstBlockWidth) * dstBlockWidth;
@@ -809,35 +876,81 @@
       setCanvasSize(alignedWidth, alignedHeight);
 
       // Now create the WebGL texture object.
+      
+      var force_srgb_sampling = false;
 
+      // For ASTC LDR and XUASTC LDR, select the right format depending on the transfer function in the DFD (as reported by the transcoder API).
+	  // It's important for the GPU to decompress the texture using the same decode profile as what the encoder used.
       if ((format === BASIS_FORMAT.cTFASTC_4x4) || (format === BASIS_FORMAT.cTFASTC_HDR_4x4_RGBA))
-         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_4x4_KHR);
+      {
+         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_4x4_KHR + (tex_is_srgb ? 0x20 : 0));
+         force_srgb_sampling = tex_is_srgb;
+      }
       else if ((format === BASIS_FORMAT.cTFASTC_LDR_6x6_RGBA) || (format === BASIS_FORMAT.cTFASTC_HDR_6x6_RGBA))
-         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_6x6_KHR);
+      {
+         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_6x6_KHR + (tex_is_srgb ? 0x20 : 0));
+         force_srgb_sampling = tex_is_srgb;
+      }
       else if (format === BASIS_FORMAT.cTFASTC_LDR_5x4_RGBA)
-         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_5x4_KHR);
+      {
+         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_5x4_KHR + (tex_is_srgb ? 0x20 : 0));
+         force_srgb_sampling = tex_is_srgb; 
+      }
       else if (format === BASIS_FORMAT.cTFASTC_LDR_5x5_RGBA)
-         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_5x5_KHR);
+      {
+         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_5x5_KHR + (tex_is_srgb ? 0x20 : 0));
+         force_srgb_sampling = tex_is_srgb;
+      }
       else if (format === BASIS_FORMAT.cTFASTC_LDR_6x5_RGBA)
-         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_6x5_KHR);
+      {
+         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_6x5_KHR + (tex_is_srgb ? 0x20 : 0));
+         force_srgb_sampling = tex_is_srgb;
+      }
       else if (format === BASIS_FORMAT.cTFASTC_LDR_8x5_RGBA)
-         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_8x5_KHR);
+      {
+         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_8x5_KHR + (tex_is_srgb ? 0x20 : 0));
+         force_srgb_sampling = tex_is_srgb;
+      }
       else if (format === BASIS_FORMAT.cTFASTC_LDR_8x6_RGBA)
-         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_8x6_KHR);
+      {
+         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_8x6_KHR + (tex_is_srgb ? 0x20 : 0));
+         force_srgb_sampling = tex_is_srgb;
+      }
       else if (format === BASIS_FORMAT.cTFASTC_LDR_10x5_RGBA)
-         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_10x5_KHR);
+      {
+         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_10x5_KHR + (tex_is_srgb ? 0x20 : 0));
+         force_srgb_sampling = tex_is_srgb;
+      }
       else if (format === BASIS_FORMAT.cTFASTC_LDR_10x6_RGBA)
-         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_10x6_KHR);
+      {
+         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_10x6_KHR + (tex_is_srgb ? 0x20 : 0));
+         force_srgb_sampling = tex_is_srgb;
+      }
       else if (format === BASIS_FORMAT.cTFASTC_LDR_8x8_RGBA)
-         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_8x8_KHR);
+      {
+         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_8x8_KHR + (tex_is_srgb ? 0x20 : 0));
+         force_srgb_sampling = tex_is_srgb;
+      }
       else if (format === BASIS_FORMAT.cTFASTC_LDR_10x8_RGBA)
-         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_10x8_KHR);
+      {
+         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_10x8_KHR + (tex_is_srgb ? 0x20 : 0));
+         force_srgb_sampling = tex_is_srgb;
+      }
       else if (format === BASIS_FORMAT.cTFASTC_LDR_10x10_RGBA)
-         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_10x10_KHR);
+      {
+         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_10x10_KHR + (tex_is_srgb ? 0x20 : 0));
+         force_srgb_sampling = tex_is_srgb;
+      }
       else if (format === BASIS_FORMAT.cTFASTC_LDR_12x10_RGBA)
-         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_12x10_KHR);
+      {
+         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_12x10_KHR + (tex_is_srgb ? 0x20 : 0));
+         force_srgb_sampling = tex_is_srgb;
+      }
       else if (format === BASIS_FORMAT.cTFASTC_LDR_12x12_RGBA)
-         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_12x12_KHR);
+      {
+         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_12x12_KHR + (tex_is_srgb ? 0x20 : 0));
+         force_srgb_sampling = tex_is_srgb;
+      }
       else if ((format === BASIS_FORMAT.cTFBC3) || (format === BASIS_FORMAT.cTFBC1) || (format == BASIS_FORMAT.cTFBC7))
       {
          tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, DXT_FORMAT_MAP[format]);
@@ -934,7 +1047,7 @@
          tex = renderer.createRgb565Texture(dstTex, width, height);
       }
 
-      linearToSRGBFlag = is_hdr;
+      linearToSRGBFlag = (is_hdr != 0) || (force_srgb_sampling != 0);
 
       elem('linear_to_srgb').innerText = linearToSRGBFlag ? 'Enabled' : 'Disabled';
 
@@ -971,6 +1084,7 @@
    function resetDrawSettings()
    {
       drawMode = 0;
+      updateViewModeButtons();
 
       linearToSRGBFlag = false;
       elem('linear_to_srgb').innerText = linearToSRGBFlag ? 'Enabled' : 'Disabled';
@@ -1069,10 +1183,10 @@
    function compressImage(data, uri)
    {
       updateErrorLine("");
-	
-	  logClear();
+    
+      logClear();
 
-	  log('------');
+      log('------');
       log('compressImage(): URI: ' + uri);
 
       const { BasisFile, BasisEncoder, initializeBasis, encodeBasisTexture } = Module;
@@ -1284,6 +1398,12 @@
       basisEncoder.setRDOUASTCQualityScalar(getUASTCLDRRDOQuality());
 
       basisEncoder.setMipGen(elem('Mipmaps').checked);
+      basisEncoder.setMipFilter(parseInt(elem('mip-filter-select').value, 10));
+      basisEncoder.setMipScale(parseFloat(elem('mip-scale-input').value) || 1.0);
+      basisEncoder.setMipSmallestDimension(parseInt(elem('mip-smallest-dim-input').value, 10) || 1);
+      basisEncoder.setMipRenormalize(elem('MipRenormalize').checked);
+      basisEncoder.setMipWrapping(elem('MipWrapping').checked);
+
       basisEncoder.setYFlip(elem('YFlip').checked);
 
       basisEncoder.setETC1SCompressionLevel(getETC1SCompLevel());
@@ -1305,18 +1425,18 @@
          log('Encoding to XUASTC LDR 4x4-12x12');
       else
          log('Encoding to ETC1S quality level ' + etc1SQualityLevel);
-		 
+         
       // See if they've enabled the new-style unified effort and quality levels. 
-	  // If so, set them now, which will override some of the codec-specific lower level options set previously.
-	  if (elem('use_new_style_quality_effort').checked)		 
-	  {
-		 const unified_effort_level = parseInt(document.getElementById("unified-effort-slider").value, 10);
-		 const unified_quality_level = parseInt(document.getElementById("unified-quality-slider").value, 10);
-		 		 		 
-	  	 basisEncoder.setFormatModeAndQualityEffort(desiredBasisTexFormat, unified_quality_level, unified_effort_level, true);
-		 
-		 log('Encoding to unified effort level ' + unified_effort_level + ', unified quality level ' + unified_quality_level);
-	  }
+      // If so, set them now, which will override some of the codec-specific lower level options set previously.
+      if (elem('use_new_style_quality_effort').checked)      
+      {
+         const unified_effort_level = parseInt(document.getElementById("unified-effort-slider").value, 10);
+         const unified_quality_level = parseInt(document.getElementById("unified-quality-slider").value, 10);
+                         
+         basisEncoder.setFormatModeAndQualityEffort(desiredBasisTexFormat, unified_quality_level, unified_effort_level, true);
+         
+         log('Encoding to unified effort level ' + unified_effort_level + ', unified quality level ' + unified_quality_level);
+      }
 
       showBusyModal();
 
@@ -1356,8 +1476,8 @@
 
             if (num_output_bytes != 0)
             {
-			   //log('HERE');
-			   
+               //log('HERE');
+               
                transcodeTexture(actualKTX2FileData);
             }
 
@@ -1375,12 +1495,21 @@
    function runLoadFile()
    {
       //logClear();
+      resetMipmapSliderToZero();
+      resetCubemapFaceToZero();
+      resetArrayLayerToZero();
+      resetDisplayZoom();
+      resetExposure();
       loadArrayBufferFromURI(elem('file').value, transcodeTexture, dataLoadError);
    }
 
    function runEncodeImageFile()
    {
       //logClear();
+
+      //resetMipmapSliderToZero();
+      //resetCubemapFaceToZero();
+      //resetArrayLayerToZero();
 
       if ((elem('imagefile').value === '<externally loaded>') && (curLoadedImageData != null))
       {
@@ -1404,6 +1533,12 @@
 
       if (selectedFilename)
       {
+         resetMipmapSliderToZero();
+         resetCubemapFaceToZero();
+         resetArrayLayerToZero();
+         resetDisplayZoom();
+         resetExposure();
+
          elem('imagefile').value = selectedFilename;
 
          //logClear();
@@ -1414,9 +1549,18 @@
       }
    }
 
-   function alphaBlend() { drawMode = 0; redraw(); }
-   function viewRGB() { drawMode = 1; redraw(); }
-   function viewAlpha() { drawMode = 2; redraw(); }
+   function updateViewModeButtons()
+   {
+      var ids = ['btn-alpha-blend', 'btn-view-rgb', 'btn-view-alpha', 'btn-view-r', 'btn-view-g', 'btn-view-b'];
+      for (var i = 0; i < ids.length; i++)
+         elem(ids[i]).classList.toggle('active-btn', i === drawMode);
+   }
+   function alphaBlend() { drawMode = 0; updateViewModeButtons(); redraw(); }
+   function viewRGB() { drawMode = 1; updateViewModeButtons(); redraw(); }
+   function viewAlpha() { drawMode = 2; updateViewModeButtons(); redraw(); }
+   function viewR() { drawMode = 3; updateViewModeButtons(); redraw(); }
+   function viewG() { drawMode = 4; updateViewModeButtons(); redraw(); }
+   function viewB() { drawMode = 5; updateViewModeButtons(); redraw(); }
 
    function BC7ChromaFilterClicked()
    {
@@ -1440,7 +1584,7 @@
    {
       // Force retranscoding with the changed flags
       if (curLoadedKTX2Data != null) 
-	  {
+      {
          logClear();
          transcodeTexture(curLoadedKTX2Data, curLoadedKTX2URI);
       }
@@ -1477,6 +1621,185 @@
       redraw();
    }
 
+   function updateMipmapLevel(value)
+   {
+      var v = parseInt(value, 10);
+      document.getElementById('mipmap-level-value').textContent = v;
+
+      // Re-transcode the current texture at the selected mip level.
+      if (curLoadedKTX2Data != null)
+      {
+         transcodeTexture(curLoadedKTX2Data, curLoadedKTX2URI);
+      }
+   }
+
+   function updateDisplayZoom(value)
+   {
+      // Slider steps: 0=0.5x, 1=1x, 2=2x, ... 8=8x
+      var v = parseInt(value, 10);
+      displayZoom = (v === 0) ? 0.5 : v;
+      document.getElementById('display-zoom-value').textContent = displayZoom + 'x';
+      redraw();
+   }
+
+   function toggleBilinearFiltering()
+   {
+      drawUseBilinearFiltering = document.getElementById('bilinear-filtering').checked;
+      redraw();
+   }
+
+   function resetDisplayZoom()
+   {
+      displayZoom = 1.0;
+      document.getElementById('display-zoom-slider').value = 1;
+      document.getElementById('display-zoom-value').textContent = '1x';
+   }
+
+   function resetExposure()
+   {
+      drawScale = 1.0;
+      document.getElementById('scale-slider').value = 0.5;
+      document.getElementById('scale-value').textContent = '1.0000';
+   }
+
+   // Updates the slider range to match the current texture's mip count.
+   // Preserves the current slider value if it's still in range; otherwise clamps to 0.
+   function updateMipmapSliderRange(numLevels)
+   {
+      var slider = document.getElementById('mipmap-level-slider');
+      var label = document.getElementById('mipmap-level-value');
+
+      var maxLevel = Math.max(0, numLevels - 1);
+
+      slider.min = 0;
+      slider.max = maxLevel;
+      slider.disabled = (maxLevel === 0);
+
+      // Clamp current value to the new valid range.
+      var curVal = parseInt(slider.value, 10);
+      if (isNaN(curVal) || curVal < 0 || curVal > maxLevel)
+      {
+         slider.value = 0;
+         label.textContent = '0';
+      }
+   }
+
+   // Resets the slider to level 0 (for when a new file is loaded).
+   function resetMipmapSliderToZero()
+   {
+      var slider = document.getElementById('mipmap-level-slider');
+      var label = document.getElementById('mipmap-level-value');
+
+      slider.value = 0;
+      label.textContent = '0';
+   }
+
+   function updateCubemapFace(value)
+   {
+      var v = parseInt(value, 10);
+      document.getElementById('cubemap-face-value').textContent = v;
+
+      if (curLoadedKTX2Data != null)
+      {
+         transcodeTexture(curLoadedKTX2Data, curLoadedKTX2URI);
+      }
+   }
+
+   function updateCubemapFaceRange(numFaces)
+   {
+      var slider = document.getElementById('cubemap-face-slider');
+      var label = document.getElementById('cubemap-face-value');
+
+      var maxFace = Math.max(0, numFaces - 1);
+
+      slider.min = 0;
+      slider.max = maxFace;
+      slider.disabled = (maxFace === 0);
+
+      var curVal = parseInt(slider.value, 10);
+      if (isNaN(curVal) || curVal < 0 || curVal > maxFace)
+      {
+         slider.value = 0;
+         label.textContent = '0';
+      }
+   }
+
+   function resetCubemapFaceToZero()
+   {
+      var slider = document.getElementById('cubemap-face-slider');
+      var label = document.getElementById('cubemap-face-value');
+
+      slider.value = 0;
+      label.textContent = '0';
+   }
+
+   function updateArrayLayer(value)
+   {
+      var v = parseInt(value, 10);
+      document.getElementById('array-layer-value').textContent = v;
+      document.getElementById('array-layer-input').value = v;
+
+      if (curLoadedKTX2Data != null)
+      {
+         transcodeTexture(curLoadedKTX2Data, curLoadedKTX2URI);
+      }
+   }
+
+   function updateArrayLayerFromInput(value)
+   {
+      var v = parseInt(value, 10);
+      var slider = document.getElementById('array-layer-slider');
+      var maxLayer = parseInt(slider.max, 10);
+
+      if (isNaN(v) || v < 0) v = 0;
+      if (v > maxLayer) v = maxLayer;
+
+      slider.value = v;
+      document.getElementById('array-layer-value').textContent = v;
+      document.getElementById('array-layer-input').value = v;
+
+      if (curLoadedKTX2Data != null)
+      {
+         transcodeTexture(curLoadedKTX2Data, curLoadedKTX2URI);
+      }
+   }
+
+   function updateArrayLayerRange(numLayers)
+   {
+      var slider = document.getElementById('array-layer-slider');
+      var label = document.getElementById('array-layer-value');
+      var input = document.getElementById('array-layer-input');
+
+      var maxLayer = Math.max(0, numLayers - 1);
+
+      slider.min = 0;
+      slider.max = maxLayer;
+      slider.disabled = (maxLayer === 0);
+
+      input.min = 0;
+      input.max = maxLayer;
+      input.disabled = (maxLayer === 0);
+
+      var curVal = parseInt(slider.value, 10);
+      if (isNaN(curVal) || curVal < 0 || curVal > maxLayer)
+      {
+         slider.value = 0;
+         input.value = 0;
+         label.textContent = '0';
+      }
+   }
+
+   function resetArrayLayerToZero()
+   {
+      var slider = document.getElementById('array-layer-slider');
+      var label = document.getElementById('array-layer-value');
+      var input = document.getElementById('array-layer-input');
+
+      slider.value = 0;
+      input.value = 0;
+      label.textContent = '0';
+   }
+
 
 
    function downloadEncodedFile()
@@ -1488,6 +1811,49 @@
       }
    }
 
+   function saveFramebufferAsPNG()
+   {
+      if (!width || !displayWidth || !displayHeight)
+         return;
+
+      // Ensure the canvas contents are fresh.
+      redraw();
+
+      var canvas = elem('canvas');
+      var gl = canvas.getContext('webgl');
+
+      // Read the framebuffer. WebGL readPixels returns rows bottom-to-top.
+      var pixels = new Uint8Array(displayWidth * displayHeight * 4);
+      gl.readPixels(0, 0, displayWidth, displayHeight, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+
+      // Flip vertically into a temporary canvas via putImageData.
+      var tmpCanvas = document.createElement('canvas');
+      tmpCanvas.width = displayWidth;
+      tmpCanvas.height = displayHeight;
+      var ctx = tmpCanvas.getContext('2d');
+      var imageData = ctx.createImageData(displayWidth, displayHeight);
+
+      for (var y = 0; y < displayHeight; y++)
+      {
+         var srcRow = (displayHeight - 1 - y) * displayWidth * 4;
+         var dstRow = y * displayWidth * 4;
+         imageData.data.set(pixels.subarray(srcRow, srcRow + displayWidth * 4), dstRow);
+      }
+
+      ctx.putImageData(imageData, 0, 0);
+
+      // Convert to PNG blob and trigger download.
+      tmpCanvas.toBlob(function(blob) {
+         var url = URL.createObjectURL(blob);
+         var a = document.createElement('a');
+         a.href = url;
+         a.download = 'framebuffer.png';
+         document.body.appendChild(a);
+         a.click();
+         document.body.removeChild(a);
+         URL.revokeObjectURL(url);
+      }, 'image/png');
+   }
    function disabledFormatsChanged()
    {
       updateSupportedFormats();
@@ -1853,7 +2219,7 @@
    function showBusyModal()
    {
       //console.log("Showing modal");
-      document.getElementById('busy-modal').style.display = 'flex';
+      document.getElementById('busy-modal').style.display = 'block';
    }
 
    function hideBusyModal()
@@ -1875,6 +2241,7 @@
    function globalInit()
    {
       elem('SRGB').checked = true;
+      updateViewModeButtons();
 
       var gl = elem('canvas').getContext('webgl');
       checkForGPUFormatSupport(gl);
@@ -1966,7 +2333,7 @@
               xuastcLDRDCTValue.textContent = this.value;
           }
       }
-	 
+     
       {
         document.getElementById("unified-effort-slider").oninput = function() 
         {
@@ -1978,7 +2345,7 @@
             document.getElementById("unified-quality-value").textContent = this.value;
         }
       }
-	  
+      
       runLoadFile();
    }
 
@@ -2004,10 +2371,11 @@
     /* NEW: make the flex row fill the viewport and respect padding */
     height: 100vh;
     box-sizing: border-box;
+    overflow: hidden;
   }
 
-  /* Fixed-width controls column (never shrinks) */
-  .controls { flex: 0 0 600px; width: 600px; }
+  /* Fixed-width controls column (never shrinks), scrolls independently */
+  .controls { flex: 0 0 600px; width: 600px; overflow-y: auto; max-height: calc(100vh - 24px); }
 
   /* Viewer takes the remaining space and scrolls when texture is huge */
   /* EDIT: cap height so vertical scrolling appears inside the viewer */
@@ -2016,6 +2384,16 @@
     min-width: 0;
     overflow: auto;
     max-height: calc(100vh - 24px); /* 24px = 12px top + 12px bottom padding in .wrap */
+    cursor: grab;
+  }
+  .viewer.dragging {
+    cursor: grabbing;
+    user-select: none;
+  }
+  .active-btn {
+    background-color: #4a90d9;
+    color: white;
+    border-style: inset;
   }
 
   /* IMPORTANT: do NOT scale the canvas with CSS; let JS size it 1:1 */
@@ -2023,8 +2401,8 @@
 
   /* Small screens: stack vertically so it’s still usable */
   @media (max-width: 1100px){
-    .wrap{ flex-direction:column; height:auto; }
-    .controls{ flex: 0 0 auto; width:auto; }
+    .wrap{ flex-direction:column; height:auto; overflow:auto; }
+    .controls{ flex: 0 0 auto; width:auto; max-height:none; overflow-y:visible; }
     .viewer{ flex: 1 1 auto; max-height:none; }
   }
   
@@ -2057,7 +2435,7 @@
 
     <br>
     <div style="font-size: 24pt; font-weight: bold">
-    Basis Universal .KTX2 Supercompressed GPU Texture Encoding/Transcoding Testbed v2.01
+    Basis Universal .KTX2 Supercompressed GPU Texture Encoding/Transcoding Testbed v2.19
     </div>
 
     <br>This simple demo uses the <a href="https://github.com/BinomialLLC/basis_universal/">Basis Universal</a> C++ transcoder (compiled to WebAssembly using Emscripten) to transcode a .ktx2 file to:
@@ -2067,7 +2445,7 @@
     Thanks to Evan Parker for providing <a href="https://github.com/toji/webgl-texture-utils">webgl-texture-utils</a> and this test bed. <a href="../index.html">Go back.</a>
     Notes: Enable your browser debug console (F12 on Chrome/Firefox) to see debug output.
     The largest image resolution that can be compressed in the browser with
-    this library is limited to either 12 megapixels or 4 megapixels (depending on format and WASM64/WASM32) to avoid running out of WASM memory.
+    this library is limited to either 16 megapixels or 4 megapixels (depending on format and WASM64/WASM32) to avoid running out of WASM memory.
 
     <br><br>
     <div id="supported-formats">
@@ -2089,7 +2467,7 @@
     <input type="checkbox" id="multithreaded_encoding" checked>Use Multithreading (if available)
 
     <br>Additional Worker Threads (Max 18):
-    <input type="number" id="num_worker_threads" value="7" size="18" min="0" max="18">
+    <input type="number" id="num_worker_threads" value="4" size="18" min="0" max="18">
     <br><br>
 
     <br>
@@ -2164,9 +2542,10 @@
     <br>
 
     <input type="button" value="Download Encoded .KTX2 File" onclick="downloadEncodedFile()">
+    <input type="button" value="Save Framebuffer as .PNG" onclick="saveFramebufferAsPNG()">
 
     <hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">
-	
+    
     <b>KTX2 Texture Format to Encode:</b>
     <select id="basis-tex-format">
     <option value="0">ETC1S</option>
@@ -2206,41 +2585,96 @@
     <option value="32">ASTC LDR 12x12</option>
 
     </select>
-	
-	<br>
+    
+    <br>
     <hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">
-	
-	<b>Primary compression quality/effort options:</b>
+    
+    <b>Primary compression quality/effort options:</b>
 
     <br>
     Use unified quality/effort options (overrides below low-level options):
-	<input type="checkbox" id="use_new_style_quality_effort" checked></input>	
+    <input type="checkbox" id="use_new_style_quality_effort" checked></input>   
 
     <br>
-	<label for="unified-effort-slider"><b>Effort:</b></label>
-	<input type="range"
+    <label for="unified-effort-slider"><b>Effort:</b></label>
+    <input type="range"
        id="unified-effort-slider"
        min="0"
        max="10"
        step="1"
        value="2"
        style="width: 300px;">
-	<span id="unified-effort-value">2</span>
+    <span id="unified-effort-value">2</span>
 
-	<br><br>
+    <br><br>
 
-	<label for="unified-quality-slider"><b>Quality:</b></label>
-	<input type="range"
+    <label for="unified-quality-slider"><b>Quality:</b></label>
+    <input type="range"
        id="unified-quality-slider"
        min="1"
        max="100"
        step="1"
        value="80"
        style="width: 300px;">
-	<span id="unified-quality-value">80</span>
+    <span id="unified-quality-value">80</span>
 
     <br>
-	<hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">    
+    <hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">    
+            
+    <b>Display/Visualization Options:</b>
+    <br>
+    
+    <input type="button" id="btn-alpha-blend" value="Alpha blend" onclick="alphaBlend()"></input>
+    <input type="button" id="btn-view-rgb" value="View RGB" onclick="viewRGB()"></input>
+    <input type="button" id="btn-view-alpha" value="View Alpha" onclick="viewAlpha()"></input>
+    <input type="button" id="btn-view-r" value="View R" onclick="viewR()"></input>
+    <input type="button" id="btn-view-g" value="View G" onclick="viewG()"></input>
+    <input type="button" id="btn-view-b" value="View B" onclick="viewB()"></input>
+
+    <br>
+
+    <br>
+    <input type="button" value="LinearToSRGB" onclick="linearToSRGB()"></input> <b id='linear_to_srgb'>Disabled</b>
+
+    <br>
+
+    <label for="scale-slider">Exposure:</label>
+    <input type="range" id="scale-slider" min="0" max="1" step=".01" value=".5" style="width: 300px;" oninput="updateScale(this.value)">
+    <span id="scale-value">1.0000</span>
+        
+    <br>
+
+    <label for="mipmap-level-slider">Mipmap Level:</label>
+    <input type="range" id="mipmap-level-slider" min="0" max="0" step="1" value="0" style="width: 300px;" oninput="updateMipmapLevel(this.value)" disabled>
+    <span id="mipmap-level-value">0</span>
+
+    <br>
+
+    <label for="cubemap-face-slider">Cubemap Face:</label>
+    <input type="range" id="cubemap-face-slider" min="0" max="0" step="1" value="0" style="width: 300px;" oninput="updateCubemapFace(this.value)" disabled>
+    <span id="cubemap-face-value">0</span>
+
+    <br>
+
+    <label for="array-layer-slider">Array Layer:</label>
+    <input type="range" id="array-layer-slider" min="0" max="0" step="1" value="0" style="width: 300px;" oninput="updateArrayLayer(this.value)" disabled>
+    <span id="array-layer-value">0</span>
+    <input type="number" id="array-layer-input" min="0" max="0" value="0" style="width: 60px; margin-left: 8px;" onchange="updateArrayLayerFromInput(this.value)" disabled>
+
+    <br>
+
+    <label for="display-zoom-slider">Display Zoom:</label>
+    <input type="range" id="display-zoom-slider" min="0" max="8" step="1" value="1" style="width: 300px;" oninput="updateDisplayZoom(this.value)">
+    <span id="display-zoom-value">1x</span>
+
+    <br>
+
+    Bilinear Filtering:
+    <input type="checkbox" id="bilinear-filtering" onclick="toggleBilinearFiltering()">
+
+    <br>
+
+    <hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">
 	
 	<b>Transcoder Options (Decode Flags):</b>
 
@@ -2270,29 +2704,8 @@
     <input type="checkbox" id="highquality_transcoding" onclick="highQualityTranscodingClicked()">
 
     <br>
-	<hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">    
 	
-	<b>Display/Visualization Options:</b>
-	<br>
-	
-    <input type="button" value="Alpha blend" onclick="alphaBlend()"></input>
-    <input type="button" value="View RGB" onclick="viewRGB()"></input>
-    <input type="button" value="View Alpha" onclick="viewAlpha()"></input>
-
-    <br>
-
-    <br>
-    <input type="button" value="LinearToSRGB" onclick="linearToSRGB()"></input> <b id='linear_to_srgb'>Disabled</b>
-
-    <br>
-
-    <label for="scale-slider">Exposure:</label>
-    <input type="range" id="scale-slider" min="0" max="1" step=".01" value="1" style="width: 300px;" oninput="updateScale(this.value)">
-    <span id="scale-value">1</span>
-        
-    <br>
-
-    <hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">
+    <hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">    
 
     <b>Low-level ETC1S LDR Options:</b>
     <br>
@@ -2380,8 +2793,8 @@
     <br>
 
     <label for="xuastc_ldr_effort_level_slider">Effort Level (higher=slower):</label>
-    <input type="range" id="xuastc_ldr_effort_level_slider" min="0" max="9" step="1" value="3">
-    <span id="xuastc_ldr_effort_level_value">3</span> <!-- Displays the current value -->
+    <input type="range" id="xuastc_ldr_effort_level_slider" min="0" max="10" step="1" value="2">
+    <span id="xuastc_ldr_effort_level_value">2</span> <!-- Displays the current value -->
     <br>
 
     <label for="xuastc_ldr_dct_quality_slider">XUASTC Weight Grid DCT Quality (100=no DCT):</label>
@@ -2426,12 +2839,8 @@
     <b>Other Options:</b>
 
     <br>
-    Use sRGB/perceptual metrics:
+    Image is sRGB/use sRGB perceptual metrics:
     <input type="checkbox" id="SRGB">
-
-    <br>
-    Generate mipmap levels:
-    <input type="checkbox" id="Mipmaps">
 
     <br>
     Y flip source image:
@@ -2446,11 +2855,59 @@
 
     <hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">
 
+    <b>Mipmap Generation Options:</b>
+    <br>
+
+    Generate mipmap levels:
+    <input type="checkbox" id="Mipmaps">
+
+    <br>
+
+    <label for="mip-filter-select">Mip Filter:</label>
+    <select id="mip-filter-select">
+      <option value="0">box</option>
+      <option value="1">tent</option>
+      <option value="2">bell</option>
+      <option value="3">b-spline</option>
+      <option value="4">mitchell</option>
+      <option value="5">blackman</option>
+      <option value="6">lanczos3</option>
+      <option value="7">lanczos4</option>
+      <option value="8">lanczos6</option>
+      <option value="9">lanczos12</option>
+      <option value="10" selected>kaiser</option>
+      <option value="11">gaussian</option>
+      <option value="12">catmullrom</option>
+      <option value="13">quadratic_interp</option>
+      <option value="14">quadratic_approx</option>
+      <option value="15">quadratic_mix</option>
+    </select>
+
+    <br>
+
+    <label for="mip-scale-input">Mip Scale:</label>
+    <input type="number" id="mip-scale-input" value="1.0" min="0.000125" max="4.0" step="0.1" style="width: 80px;">
+
+    <br>
+
+    <label for="mip-smallest-dim-input">Smallest Mip Dimension:</label>
+    <input type="number" id="mip-smallest-dim-input" value="1" min="1" max="16384" step="1" style="width: 80px;">
+
+    <br>
+
+    Mip Renormalize:
+    <input type="checkbox" id="MipRenormalize">
+
+    Mip Wrapping:
+    <input type="checkbox" id="MipWrapping" checked>
+
+    <hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">
+
     <b>Log Output:</b>
-	<div id="log-panel" class="log-panel">
+    <div id="log-panel" class="log-panel">
     </div>
 
-    <div id="busy-modal" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); z-index: 9999; justify-content: center; align-items: center; font-size: 24px; color: white; display: none;">
+    <div id="busy-modal" style="position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background-color: rgba(0,0,0,0.85); z-index: 9999; font-size: 18px; color: white; display: none; padding: 20px 40px; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.5);">
     Encoding... Please wait.
     </div>
 
@@ -2619,6 +3076,12 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!file)
          return;
 
+      resetMipmapSliderToZero();
+      resetCubemapFaceToZero();
+      resetArrayLayerToZero();
+      resetDisplayZoom();
+      resetExposure();
+
       const reader = new FileReader();
 
       reader.onload = function (e)
@@ -2626,24 +3089,24 @@ document.addEventListener('DOMContentLoaded', () => {
           const arrayBuffer = e.target.result;
 
           // Assume you have a function to process the file
-		  log('------');
+          log('------');
           log(`Loaded file: ${file.name}`);
           log(`File size: ${file.size} bytes`);
-		  
-		  const lowerName = file.name.toLowerCase();
+          
+          const lowerName = file.name.toLowerCase();
 
-		  if (lowerName.endsWith(".ktx2")) 
-		  {
+          if (lowerName.endsWith(".ktx2")) 
+          {
               curLoadedKTX2Data  = arrayBuffer;
               curLoadedKTX2URI   = file.name;
 
               transcodeTexture(arrayBuffer, file.name);
               return;
           }
-		  else
-		  {
+          else
+          {
               compressImage(arrayBuffer, file.name);
-		  }
+          }
 
           elem('imagefile').value = '<externally loaded>';
       };
@@ -2658,6 +3121,69 @@ document.addEventListener('DOMContentLoaded', () => {
 
 </script>
 
+<script>
+// Drag-to-scroll: hold left mouse button and drag to pan the texture view.
+document.addEventListener('DOMContentLoaded', () => {
+  const viewer = document.querySelector('.viewer');
+  let isDragging = false;
+  let startX, startY, scrollLeftStart, scrollTopStart;
+  viewer.addEventListener('mousedown', e => {
+    // Only left button
+    if (e.button !== 0) return;
+    isDragging = true;
+    viewer.classList.add('dragging');
+    startX = e.clientX;
+    startY = e.clientY;
+    scrollLeftStart = viewer.scrollLeft;
+    scrollTopStart = viewer.scrollTop;
+    e.preventDefault();
+  });
+  window.addEventListener('mousemove', e => {
+    if (!isDragging) return;
+    viewer.scrollLeft = scrollLeftStart - (e.clientX - startX);
+    viewer.scrollTop  = scrollTopStart  - (e.clientY - startY);
+  });
+  window.addEventListener('mouseup', e => {
+    if (!isDragging) return;
+    isDragging = false;
+    viewer.classList.remove('dragging');
+  });
+  // Wheel-to-zoom: scroll wheel zooms in/out, preserving the point under the cursor.
+  viewer.addEventListener('wheel', e => {
+    e.preventDefault();
+    const slider = document.getElementById('display-zoom-slider');
+    if (!slider) return;
+
+    const oldSliderVal = parseInt(slider.value, 10);
+    const newSliderVal = e.deltaY < 0
+      ? Math.min(oldSliderVal + 1, parseInt(slider.max, 10))
+      : Math.max(oldSliderVal - 1, parseInt(slider.min, 10));
+
+    if (newSliderVal === oldSliderVal) return;
+
+    const oldZoom = (oldSliderVal === 0) ? 0.5 : oldSliderVal;
+    const newZoom = (newSliderVal === 0) ? 0.5 : newSliderVal;
+
+    // Mouse position relative to the viewer's top-left corner.
+    const rect = viewer.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+
+    // The texture-space coordinate currently under the cursor.
+    const texX = (viewer.scrollLeft + mouseX) / oldZoom;
+    const texY = (viewer.scrollTop  + mouseY) / oldZoom;
+
+    // Apply the zoom through the existing slider/function so all state stays in sync.
+    slider.value = newSliderVal;
+    updateDisplayZoom(newSliderVal);
+
+    // Adjust scroll so the same texture-space point remains under the cursor.
+    viewer.scrollLeft = texX * newZoom - mouseX;
+    viewer.scrollTop  = texY * newZoom - mouseY;
+
+  }, { passive: false });
+});
+</script>
 </body>
 
 </html>

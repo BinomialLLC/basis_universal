@@ -11,6 +11,8 @@
 
 #define USE_ENCODER (1)
 
+#define ENABLE_DEBUG_PRINTF (0)
+
 //#define FORCE_SAN_FAILURE
 
 const bool USE_OPENCL = false;
@@ -202,8 +204,8 @@ static bool encode_uastc_hdr()
     
 #if 1
     // Create a job pool containing 7 total threads (the calling thread plus 6 additional threads).
-    // A job pool must be created, even if threading is disabled. It's fine to pass in 0 for NUM_THREADS.
-	const uint32_t NUM_THREADS = 6;
+    // A job pool must be created, even if threading is disabled.
+	const uint32_t NUM_THREADS = 7;
 	job_pool jp(NUM_THREADS);
 	params.m_pJob_pool = &jp;
 	params.m_multithreading = true;
@@ -997,7 +999,8 @@ bool random_compress_test()
         
         flags |= cFlagDebug;
                 
-        flags |= cFlagThreaded;
+        if (rnd.bit())
+            flags |= cFlagThreaded;
 
         if (rnd.bit())
             flags |= cFlagSRGB;
@@ -1099,7 +1102,7 @@ bool random_compress_test()
             basisu::vector<imagef> hdr_source_images;
             imagef hdr_src_img(src_img.get_width(), src_img.get_height());
             
-            const float max_y = rnd.frand(.000125f, 30000.0f) / 255.0f;
+            const float max_y = rnd.frand(.0000125f, basist::ASTC_HDR_MAX_VAL) / 255.0f;
 
             for (uint32_t y = 0; y < src_img.get_height(); y++)
             {
@@ -1165,6 +1168,713 @@ bool random_compress_test()
     return true;
 }
 
+static bool test_compress_etc1s()
+{
+    printf("test_compress_etc1s:\n");
+
+    const uint32_t W = 256, H = 256;
+
+    image img(W, H);
+    for (uint32_t y = 0; y < H; y++)
+        for (uint32_t x = 0; x < W; x++)
+            img(x, y).set(((x ^ y) & 1) ? 255 : 0);
+
+    basis_compressor_params params;
+
+    // Set the format to ETC1S using the recommended unified method.
+    params.set_format_mode_and_quality_effort(basist::basis_tex_format::cETC1S, 75, 3);
+
+    // Input is sRGB
+    params.set_srgb_options(true);
+
+    // Provide the HDR source image.
+    params.m_source_images.push_back(img);
+
+    // Enable debug/status output and statistics.
+    params.m_debug = true;
+    params.m_status_output = true;
+    params.m_compute_stats = true;
+
+    // Write a .KTX2 file to disk.
+    params.m_create_ktx2_file = true;
+    params.m_write_output_basis_or_ktx2_files = true;
+    params.m_out_filename = "test_etc1s.ktx2";
+
+    // Create a job pool. A job pool MUST always be created, even if threading is disabled.
+    // num_total_threads is the TOTAL thread count: 1 = calling thread only, 7 = calling thread + 6 extra.
+    const uint32_t NUM_THREADS = 7;
+    job_pool jp(NUM_THREADS);
+    params.m_pJob_pool = &jp;
+    params.m_multithreading = true;
+
+    // Initialize and run the compressor.
+    basis_compressor comp;
+    if (!comp.init(params))
+        return false;
+
+    basisu::basis_compressor::error_code ec = comp.process();
+    if (ec != basisu::basis_compressor::cECSuccess)
+        return false;
+
+    return true;
+}
+
+static bool test_compress_uastc_ldr_4x4()
+{
+    printf("test_compress_uastc_ldr_4x4:\n");
+
+    const uint32_t W = 256, H = 256;
+
+    image img(W, H);
+    for (uint32_t y = 0; y < H; y++)
+        for (uint32_t x = 0; x < W; x++)
+            img(x, y).set(((x ^ y) & 1) ? 255 : 0);
+
+    basis_compressor_params params;
+
+    // Set the format to UASTC LDR 4x4 using the recommended unified method.
+    params.set_format_mode_and_quality_effort(basist::basis_tex_format::cUASTC_LDR_4x4, 75, 3);
+
+    // Input is sRGB
+    params.set_srgb_options(true);
+
+    // Provide the HDR source image.
+    params.m_source_images.push_back(img);
+
+    // Enable debug/status output and statistics.
+    params.m_debug = true;
+    params.m_status_output = true;
+    params.m_compute_stats = true;
+
+    // Write a .KTX2 file to disk.
+    params.m_create_ktx2_file = true;
+    params.m_write_output_basis_or_ktx2_files = true;
+    params.m_out_filename = "test_uastc_ldr_4x4.ktx2";
+
+    // Create a job pool. A job pool MUST always be created, even if threading is disabled.
+    // num_total_threads is the TOTAL thread count: 1 = calling thread only, 7 = calling thread + 6 extra.
+    const uint32_t NUM_THREADS = 7;
+    job_pool jp(NUM_THREADS);
+    params.m_pJob_pool = &jp;
+    params.m_multithreading = true;
+
+    // Initialize and run the compressor.
+    basis_compressor comp;
+    if (!comp.init(params))
+        return false;
+
+    basisu::basis_compressor::error_code ec = comp.process();
+    if (ec != basisu::basis_compressor::cECSuccess)
+        return false;
+
+    return true;
+}
+
+static bool test_compress_uastc_hdr_4x4()
+{
+    printf("test_compress_uastc_hdr_4x4:\n");
+
+    const uint32_t W = 256, H = 256;
+
+    imagef img(W, H);
+    for (uint32_t y = 0; y < H; y++)
+        for (uint32_t x = 0; x < W; x++)
+            img(x, y).set(((x ^ y) & 1) ? basist::ASTC_HDR_MAX_VAL : 1000.0f);
+
+    basis_compressor_params params;
+
+    // Set the format to UASTC HDR 4x4 using the recommended unified method.
+    params.set_format_mode_and_quality_effort(basist::basis_tex_format::cUASTC_HDR_4x4, 100, 8);
+
+    // This sets the low-level UASTC HDR 4x4 codec quality level directly (overriding set_format_mode_and_quality_effort()'s unified effort level set previously).
+    //params.m_uastc_hdr_4x4_options.set_quality_level(3);
+
+    // Use perceptual channel weights (2,3,1) for RGB error metrics instead of uniform (1,1,1).
+    params.set_srgb_options(true);
+
+    // Provide the HDR source image.
+    params.m_source_images_hdr.push_back(img);
+
+    // Enable debug/status output and statistics.
+    params.m_debug = true;
+    params.m_status_output = true;
+    params.m_compute_stats = true;
+
+    // Write a .KTX2 file to disk.
+    params.m_create_ktx2_file = true;
+    params.m_write_output_basis_or_ktx2_files = true;
+    params.m_out_filename = "test_uastc_hdr_4x4.ktx2";
+
+    // Create a job pool. A job pool MUST always be created, even if threading is disabled.
+    // num_total_threads is the TOTAL thread count: 1 = calling thread only, 7 = calling thread + 6 extra.
+    const uint32_t NUM_THREADS = 7;
+    job_pool jp(NUM_THREADS);
+    params.m_pJob_pool = &jp;
+    params.m_multithreading = true;
+
+    // Initialize and run the compressor.
+    basis_compressor comp;
+    if (!comp.init(params))
+        return false;
+
+    basisu::basis_compressor::error_code ec = comp.process();
+    if (ec != basisu::basis_compressor::cECSuccess)
+        return false;
+
+    return true;
+}
+
+static bool test_compress_astc_hdr_6x6()
+{
+    printf("test_compress_astc_hdr_6x6:\n");
+
+    const uint32_t W = 256, H = 256;
+
+    imagef img(W, H);
+    for (uint32_t y = 0; y < H; y++)
+        for (uint32_t x = 0; x < W; x++)
+            img(x, y).set(((x ^ y) & 1) ? basist::ASTC_HDR_MAX_VAL : 1000.0f);
+
+    basis_compressor_params params;
+
+    // Set the format to UASTC HDR 4x4 using the recommended unified method.
+    params.set_format_mode_and_quality_effort(basist::basis_tex_format::cASTC_HDR_6x6, 100, 8);
+
+    params.set_srgb_options(true);
+
+    // Provide the HDR source image.
+    params.m_source_images_hdr.push_back(img);
+
+    // Enable debug/status output and statistics.
+    params.m_debug = true;
+    params.m_status_output = true;
+    params.m_compute_stats = true;
+
+    // Write a .KTX2 file to disk.
+    params.m_create_ktx2_file = true;
+    params.m_write_output_basis_or_ktx2_files = true;
+    params.m_out_filename = "test_astc_hdr_6x6.ktx2";
+
+    // Create a job pool. A job pool MUST always be created, even if threading is disabled.
+    // num_total_threads is the TOTAL thread count: 1 = calling thread only, 7 = calling thread + 6 extra.
+    const uint32_t NUM_THREADS = 7;
+    job_pool jp(NUM_THREADS);
+    params.m_pJob_pool = &jp;
+    params.m_multithreading = true;
+
+    // Initialize and run the compressor.
+    basis_compressor comp;
+    if (!comp.init(params))
+        return false;
+
+    basisu::basis_compressor::error_code ec = comp.process();
+    if (ec != basisu::basis_compressor::cECSuccess)
+        return false;
+
+    return true;
+}
+
+static bool test_compress_uastc_hdr_6x6i()
+{
+    printf("test_compress_uastc_hdr_6x6i:\n");
+
+    const uint32_t W = 256, H = 256;
+
+    imagef img(W, H);
+    for (uint32_t y = 0; y < H; y++)
+        for (uint32_t x = 0; x < W; x++)
+            img(x, y).set(((x ^ y) & 1) ? basist::ASTC_HDR_MAX_VAL : 1000.0f);
+
+    basis_compressor_params params;
+
+    // Set the format to UASTC HDR 6x6i using the recommended unified method.
+    params.set_format_mode_and_quality_effort(basist::basis_tex_format::cUASTC_HDR_6x6_INTERMEDIATE, 75, 8);
+
+    params.set_srgb_options(true);
+
+    // Provide the HDR source image.
+    params.m_source_images_hdr.push_back(img);
+
+    // Enable debug/status output and statistics.
+    params.m_debug = true;
+    params.m_status_output = true;
+    params.m_compute_stats = true;
+
+    // Write a .KTX2 file to disk.
+    params.m_create_ktx2_file = true;
+    params.m_write_output_basis_or_ktx2_files = true;
+    params.m_out_filename = "test_uastc_hdr_6x6i.ktx2";
+
+    // Create a job pool. A job pool MUST always be created, even if threading is disabled.
+    // num_total_threads is the TOTAL thread count: 1 = calling thread only, 7 = calling thread + 6 extra.
+    const uint32_t NUM_THREADS = 7;
+    job_pool jp(NUM_THREADS);
+    params.m_pJob_pool = &jp;
+    params.m_multithreading = true;
+
+    // Initialize and run the compressor.
+    basis_compressor comp;
+    if (!comp.init(params))
+        return false;
+
+    basisu::basis_compressor::error_code ec = comp.process();
+    if (ec != basisu::basis_compressor::cECSuccess)
+        return false;
+
+    return true;
+}
+
+static bool test_compress_astc_ldr_6x6()
+{
+    printf("test_compress_astc_ldr_6x6:\n");
+
+    const uint32_t W = 256, H = 256;
+
+    image img(W, H);
+    for (uint32_t y = 0; y < H; y++)
+        for (uint32_t x = 0; x < W; x++)
+            img(x, y).set(((x ^ y) & 1) ? 255 : 0);
+
+    basis_compressor_params params;
+
+    // Set the format to ASTC LDR 6x6 using the recommended unified method.
+    params.set_format_mode_and_quality_effort(basist::basis_tex_format::cASTC_LDR_6x6, 75, 3);
+
+    // Input is sRGB
+    params.set_srgb_options(true);
+
+    // Provide the HDR source image.
+    params.m_source_images.push_back(img);
+
+    // Enable debug/status output and statistics.
+    params.m_debug = true;
+    params.m_status_output = true;
+    params.m_compute_stats = true;
+
+    // Write a .KTX2 file to disk.
+    params.m_create_ktx2_file = true;
+    params.m_write_output_basis_or_ktx2_files = true;
+    params.m_out_filename = "test_astc_ldr_6x6.ktx2";
+    
+    // enable Zstd supercompression
+    params.m_ktx2_uastc_supercompression = basist::KTX2_SS_ZSTANDARD;
+    // enable automatic mipmap generation
+    params.m_mip_gen = true;
+
+    // Create a job pool. A job pool MUST always be created, even if threading is disabled.
+    // num_total_threads is the TOTAL thread count: 1 = calling thread only, 7 = calling thread + 6 extra.
+    const uint32_t NUM_THREADS = 7;
+    job_pool jp(NUM_THREADS);
+    params.m_pJob_pool = &jp;
+    params.m_multithreading = true;
+
+    // Initialize and run the compressor.
+    basis_compressor comp;
+    if (!comp.init(params))
+        return false;
+
+    basisu::basis_compressor::error_code ec = comp.process();
+    if (ec != basisu::basis_compressor::cECSuccess)
+        return false;
+
+    return true;
+}
+
+static bool test_compress_xuastc_ldr_6x6()
+{
+    printf("test_compress_xuastc_ldr_6x6:\n");
+
+    const uint32_t W = 256, H = 256;
+
+    image img(W, H);
+    for (uint32_t y = 0; y < H; y++)
+        for (uint32_t x = 0; x < W; x++)
+            img(x, y).set(((x ^ y) & 1) ? 255 : 0);
+
+    basis_compressor_params params;
+
+    // Set the format to XUASTC LDR 6x6 using the recommended unified method.
+    params.set_format_mode_and_quality_effort(basist::basis_tex_format::cXUASTC_LDR_6x6, 75, 3);
+
+    // Input is sRGB
+    params.set_srgb_options(true);
+
+    // Provide the HDR source image.
+    params.m_source_images.push_back(img);
+
+    // Enable debug/status output and statistics.
+    params.m_debug = true;
+    params.m_status_output = true;
+    params.m_compute_stats = true;
+
+    // Write a .KTX2 file to disk.
+    params.m_create_ktx2_file = true;
+    params.m_write_output_basis_or_ktx2_files = true;
+    params.m_out_filename = "test_xuastc_ldr_6x6.ktx2";
+    
+    // enable automatic mipmap generation
+    params.m_mip_gen = true;
+
+    // Create a job pool. A job pool MUST always be created, even if threading is disabled.
+    // num_total_threads is the TOTAL thread count: 1 = calling thread only, 7 = calling thread + 6 extra.
+    const uint32_t NUM_THREADS = 7;
+    job_pool jp(NUM_THREADS);
+    params.m_pJob_pool = &jp;
+    params.m_multithreading = true;
+
+    // Initialize and run the compressor.
+    basis_compressor comp;
+    if (!comp.init(params))
+        return false;
+
+    basisu::basis_compressor::error_code ec = comp.process();
+    if (ec != basisu::basis_compressor::cECSuccess)
+        return false;
+
+    return true;
+}
+
+// View the resulting texture video .basis file using the webgl/video_test WebGL sample.
+static bool test_compress_etc1s_texture_video(bool write_ktx2_flag, bool gen_mips_flag)
+{
+    printf("test_compress_etc1s_texture_video:\n");
+
+    const uint32_t NUM_FRAMES = 50;
+    const uint32_t W = 384, H = 256;
+
+    basis_compressor_params params;
+
+    // Set the format to ETC1S using the recommended unified method.
+    params.set_format_mode_and_quality_effort(basist::basis_tex_format::cETC1S, 75, 3);
+
+    // Input is sRGB
+    params.set_srgb_options(true);
+
+    params.m_mip_gen = gen_mips_flag;
+
+    // Create the frames to compress
+    for (uint32_t frame_index = 0; frame_index < NUM_FRAMES; frame_index++)
+    {
+        image img(W, H);
+
+        img.debug_text(frame_index, 20, 1, 1, g_white_color, &g_black_color, false, fmt_string("Frame {}", frame_index).c_str());
+
+        // Provide the HDR source image.
+        params.m_source_images.push_back(img);
+    }
+
+    // Enable debug/status output and statistics.
+    params.m_debug = true;
+    params.m_status_output = true;
+    params.m_compute_stats = true;
+
+    // Set the texture type to video frames, which will cause the compressor to treat the images as a texture video sequence (using skip blocks).
+	params.m_tex_type = basist::basis_texture_type::cBASISTexTypeVideoFrames;
+    
+    // Write a .basis file to disk. (.KTX2 supports texture video too, but our current texture video WebGL sample only supports .basis.)
+    params.m_write_output_basis_or_ktx2_files = true;
+    if (write_ktx2_flag)
+    {
+        params.m_create_ktx2_file = true;
+        params.m_out_filename = gen_mips_flag ? "test_etc1s_texture_video_mips.ktx2" : "test_etc1s_texture_video.ktx2";
+    }
+    else
+    {
+        params.m_out_filename = gen_mips_flag ? "test_etc1s_texture_video_mips.basis" : "test_etc1s_texture_video.basis";
+    }
+
+    // Create a job pool. A job pool MUST always be created, even if threading is disabled.
+    // num_total_threads is the TOTAL thread count: 1 = calling thread only, 7 = calling thread + 6 extra.
+    const uint32_t NUM_THREADS = 7;
+    job_pool jp(NUM_THREADS);
+    params.m_pJob_pool = &jp;
+    params.m_multithreading = true;
+
+    // Initialize and run the compressor.
+    basis_compressor comp;
+    if (!comp.init(params))
+        return false;
+
+    basisu::basis_compressor::error_code ec = comp.process();
+    if (ec != basisu::basis_compressor::cECSuccess)
+        return false;
+
+    return true;
+}
+
+// View the resulting texture video .basis file using the webgl/video_test WebGL sample.
+static bool test_compress_xuastc_ldr_texture_video(bool write_ktx2_flag, bool gen_mips_flag)
+{
+    printf("test_compress_xuastc_ldr_texture_video:\n");
+
+    const uint32_t NUM_FRAMES = 50;
+    const uint32_t W = 384, H = 256;
+
+    basis_compressor_params params;
+
+    // Set the format to XUASTC LDR using the recommended unified method.
+    params.set_format_mode_and_quality_effort(basist::basis_tex_format::cXUASTC_LDR_8x8, 75, 3);
+
+    // Input is sRGB
+    params.set_srgb_options(true);
+
+    params.m_mip_gen = gen_mips_flag;
+
+    // Create the frames to compress
+    for (uint32_t frame_index = 0; frame_index < NUM_FRAMES; frame_index++)
+    {
+        image img(W, H);
+
+        img.debug_text(frame_index, 20, 1, 1, g_white_color, &g_black_color, false, fmt_string("Frame {}", frame_index).c_str());
+
+        // Provide the HDR source image.
+        params.m_source_images.push_back(img);
+    }
+
+    // Enable debug/status output and statistics.
+    params.m_debug = true;
+    params.m_status_output = true;
+    params.m_compute_stats = true;
+
+    // Set the texture type to video frames, which will cause the compressor to treat the images as a texture video sequence (using skip blocks).
+    params.m_tex_type = basist::basis_texture_type::cBASISTexTypeVideoFrames;
+
+    // Write a .basis file to disk. (.KTX2 supports texture video too, but our current texture video WebGL sample only supports .basis.)
+    params.m_write_output_basis_or_ktx2_files = true;
+    if (write_ktx2_flag)
+    {
+        params.m_create_ktx2_file = true;
+        params.m_out_filename = gen_mips_flag ? "test_xuastc_ldr_texture_video_mips.ktx2" : "test_xuastc_ldr_texture_video.ktx2";
+    }
+    else
+    {
+        params.m_out_filename = gen_mips_flag ?  "test_xuastc_ldr_texture_video_mips.basis" : "test_xuastc_ldr_texture_video.basis";
+    }
+
+    // Create a job pool. A job pool MUST always be created, even if threading is disabled.
+    // num_total_threads is the TOTAL thread count: 1 = calling thread only, 7 = calling thread + 6 extra.
+    const uint32_t NUM_THREADS = 7;
+    job_pool jp(NUM_THREADS);
+    params.m_pJob_pool = &jp;
+    params.m_multithreading = true;
+
+    // Initialize and run the compressor.
+    basis_compressor comp;
+    if (!comp.init(params))
+        return false;
+
+    basisu::basis_compressor::error_code ec = comp.process();
+    if (ec != basisu::basis_compressor::cECSuccess)
+        return false;
+
+    return true;
+}
+
+static bool test_compress_uastc_hdr_6x6i_array_custom_mipmap()
+{
+    printf("test_compress_uastc_hdr_6x6i_array_custom_mipmap:\n");
+
+    const uint32_t ARRAY_SIZE = 2;
+    const uint32_t W = 384, H = 256;
+
+    basis_compressor_params params;
+
+    // Set the format to UASTC HDR 6x6i using the recommended unified method.
+    params.set_format_mode_and_quality_effort(basist::basis_tex_format::cUASTC_HDR_6x6_INTERMEDIATE, 75, 3);
+
+    // Input is linear
+    params.set_srgb_options(false);
+
+    // Create the array slices
+    for (uint32_t array_index = 0; array_index < ARRAY_SIZE; array_index++)
+    {
+        int cur_w = W, cur_h = H;
+        int mip_index = 0;
+
+        // Create the mipmaps
+        params.m_source_images_hdr.enlarge(1);
+        params.m_source_mipmap_images_hdr.enlarge(1);
+
+        do
+        {
+            image img(cur_w, cur_h);
+
+            img.debug_text(0, 10, 1, 1, g_white_color, &g_black_color, false, fmt_string("{} {} {}x{}", array_index, mip_index, cur_w, cur_h).c_str());
+
+            // Upconvert LDR to HDR
+            imagef hdr_img;
+            convert_ldr_to_hdr_image(hdr_img, img, true, 100.0f, 0.0f);
+
+			// Add the source image for this mip level. The first mip level goes in m_source_images, and the remaining mip levels go in m_source_mipmap_images.
+            if (!mip_index)
+                params.m_source_images_hdr[array_index] = hdr_img;
+            else
+                params.m_source_mipmap_images_hdr[array_index].push_back(hdr_img);
+
+            ++mip_index;
+
+            cur_w = maximum(1, cur_w / 2);
+            cur_h = maximum(1, cur_h / 2);
+
+        } while ((cur_w > 1) || (cur_h > 1));
+
+    } // array_index
+        
+    // Enable debug/status output and statistics.
+    params.m_debug = true;
+    params.m_status_output = true;
+    params.m_compute_stats = true;
+
+    // Set the texture type to video frames, which will cause the compressor to treat the images as a texture video sequence (using skip blocks).
+    params.m_tex_type = basist::basis_texture_type::cBASISTexType2DArray;
+
+    // Write a .ktx2 file to disk.
+    params.m_create_ktx2_file = true;
+    params.m_write_output_basis_or_ktx2_files = true;
+    params.m_out_filename = "test_uastc_hdr_6x6i_array_custom_mips.ktx2";
+
+    // Create a job pool. A job pool MUST always be created, even if threading is disabled.
+    // num_total_threads is the TOTAL thread count: 1 = calling thread only, 7 = calling thread + 6 extra.
+    const uint32_t NUM_THREADS = 7;
+    job_pool jp(NUM_THREADS);
+    params.m_pJob_pool = &jp;
+    params.m_multithreading = true;
+
+    // Initialize and run the compressor.
+    basis_compressor comp;
+    if (!comp.init(params))
+        return false;
+
+    basisu::basis_compressor::error_code ec = comp.process();
+    if (ec != basisu::basis_compressor::cECSuccess)
+        return false;
+
+    return true;
+}
+
+// Creates a KTX2 ETC1S cubemap texture file
+static bool test_compress_etc1s_cubemap(bool tex_array_flag)
+{
+    printf("test_compress_etc1s_cubemap:\n");
+        
+    // In KTX2, cubemap faces must be square.
+    const uint32_t W = 256, H = 256;
+
+    basis_compressor_params params;
+
+    // Set the format to ETC1S using the recommended unified method.
+    params.set_format_mode_and_quality_effort(basist::basis_tex_format::cETC1S, 75, 3);
+
+    // Input is sRGB
+    params.set_srgb_options(true);
+
+    // Standard face order
+    static const char* s_pFace_names[6] = { "+X", "-X", "+Y", "-Y", "+Z", "-Z" };
+
+	const uint32_t num_layers = tex_array_flag ? 3 : 1;
+        
+    // Create the 6 faces to compress (for arrays, feed in 6*X)
+    for (uint32_t layer_index = 0; layer_index < num_layers; layer_index++)
+    {
+        for (uint32_t face_index = 0; face_index < 6; face_index++)
+        {
+            image img(W, H);
+
+            img.debug_text(0, 10, 1, 1, g_white_color, &g_black_color, false, fmt_string("Layer {}, Face {} {}", layer_index, face_index, s_pFace_names[face_index]).c_str());
+
+            // Provide the HDR source image.
+            params.m_source_images.push_back(img);
+        }
+    }
+
+    // Enable debug/status output and statistics.
+    params.m_debug = true;
+    params.m_status_output = true;
+    params.m_compute_stats = true;
+
+    // Set the texture type to cubemap/cubemap array
+    params.m_tex_type = basist::basis_texture_type::cBASISTexTypeCubemapArray;
+
+    params.m_mip_gen = true;
+
+    // Write a .basis file to disk. (.KTX2 supports texture video too, but our current texture video WebGL sample only supports .basis.)
+    params.m_write_output_basis_or_ktx2_files = true;
+    params.m_create_ktx2_file = true;
+    params.m_out_filename = tex_array_flag ? "test_etc1s_cubemap_array.ktx2" : "test_etc1s_cubemap.ktx2";
+
+    // Create a job pool. A job pool MUST always be created, even if threading is disabled.
+    // num_total_threads is the TOTAL thread count: 1 = calling thread only, 7 = calling thread + 6 extra.
+    const uint32_t NUM_THREADS = 7;
+    job_pool jp(NUM_THREADS);
+    params.m_pJob_pool = &jp;
+    params.m_multithreading = true;
+
+    // Initialize and run the compressor.
+    basis_compressor comp;
+    if (!comp.init(params))
+        return false;
+
+    basisu::basis_compressor::error_code ec = comp.process();
+    if (ec != basisu::basis_compressor::cECSuccess)
+        return false;
+
+    return true;
+}
+
+static bool lowlevel_compression_tests()
+{
+    // basisu_encoder_init() MUST have been called before this point.
+    basisu_encoder_init();
+                                
+    if (!test_compress_etc1s())
+        return false;
+
+    if (!test_compress_uastc_ldr_4x4())
+        return false;
+
+    if (!test_compress_uastc_hdr_4x4())
+        return false;
+
+    if (!test_compress_astc_hdr_6x6())
+        return false;
+
+    if (!test_compress_uastc_hdr_6x6i())
+        return false;
+
+    if (!test_compress_astc_ldr_6x6())
+        return false;
+
+    if (!test_compress_xuastc_ldr_6x6())
+        return false;
+
+    for (uint32_t ktx2_iter = 0; ktx2_iter < 2; ktx2_iter++)
+    {
+        for (uint32_t mips_iter = 0; mips_iter < 2; mips_iter++)
+        {
+            if (!test_compress_etc1s_texture_video(ktx2_iter != 0, mips_iter != 0))
+                return false;
+
+            if (!test_compress_xuastc_ldr_texture_video(ktx2_iter != 0, mips_iter != 0))
+                return false;
+        
+        } // mips_iter
+
+    } // ktx2_iter
+
+    if (!test_compress_uastc_hdr_6x6i_array_custom_mipmap())
+        return false;
+
+    if (!test_compress_etc1s_cubemap(false))
+        return false;
+
+    if (!test_compress_etc1s_cubemap(true))
+        return false;
+                
+    printf("lowlevel_compression_tests: Compression OK\n");
+        
+    return true;
+}
+
 #ifdef FORCE_SAN_FAILURE
 static void force_san_failure()
 {
@@ -1200,11 +1910,27 @@ int main(int arg_c, char* arg_v[])
 #if USE_ENCODER
 	basisu_encoder_init(USE_OPENCL, false);
 
-    if (!random_compress_test())
+#if ENABLE_DEBUG_PRINTF
+    enable_debug_printf(true);
+#endif
+
+    if (!lowlevel_compression_tests())
+    {
+        fprintf(stderr, "lowlevel_compression_tests() failed!\n");
         return EXIT_FAILURE;
+    }
+
+    if (!random_compress_test())
+    {
+        fprintf(stderr, "random_compress_test() failed!\n");
+        return EXIT_FAILURE;
+    }
     
     if (!block_unpack_and_transcode_example())
+    {
+        fprintf(stderr, "block_unpack_and_transcode_example() failed!\n");
         return EXIT_FAILURE;
+    }
 
     fuzz_uastc_hdr_transcoder_test();
     

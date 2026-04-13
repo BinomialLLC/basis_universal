@@ -109,14 +109,7 @@ namespace astc_ldr {
 		const image& orig_img, uint8_vec &comp_data, vector2D<astc_helpers::log_astc_block>& coded_blocks,
 		const astc_ldr_encode_config& global_cfg,
 		job_pool& job_pool);
-		
-	bool decompress_image(
-		const uint8_t* pComp_data, size_t comp_data_size,
-		vector2D<astc_helpers::log_astc_block>& coded_blocks, // the actual supercompressed ASTC LDR blocks emitted by the compressor
-		uint32_t& astc_block_width, uint32_t& astc_block_height,
-		uint32_t &actual_width, uint32_t &actual_height, bool &has_alpha, bool& uses_srgb_astc_decode_mode,
-		bool debug_output);
-
+	
 	void deblock_filter(uint32_t filter_block_width, uint32_t filter_block_height, const image& src_img, image& dst_img, bool stronger_filtering = false, int SKIP_THRESH = 24);
 
 } // namespace astc_ldr

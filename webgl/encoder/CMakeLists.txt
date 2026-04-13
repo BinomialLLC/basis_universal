@@ -67,7 +67,7 @@ if(EMSCRIPTEN)
     ../../encoder/basisu_astc_hdr_common.cpp
     ../../encoder/basisu_astc_ldr_common.cpp
     ../../encoder/basisu_astc_ldr_encode.cpp
-    ../../encoder/3rdparty/tinyexr.cpp
+    ../../encoder/basisu_tinyexr.cpp
   )
   if(KTX2_ZSTANDARD)
     list(APPEND SRC_LIST ../../zstd/zstd.c)
@@ -123,7 +123,7 @@ if(EMSCRIPTEN)
     endif()
 	
     if(${use_wasm64})
-      set(_lf "${_lf} ${LINK_WASM64} -s INITIAL_MEMORY=1073741824 -s MAXIMUM_MEMORY=12884901888")
+      set(_lf "${_lf} ${LINK_WASM64} -s INITIAL_MEMORY=1073741824 -s MAXIMUM_MEMORY=16106127360")
     endif()
 	
     set_target_properties(${target} PROPERTIES LINK_FLAGS "${_lf}")

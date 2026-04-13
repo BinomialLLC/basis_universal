@@ -15,10 +15,19 @@
 #include "basisu_astc_ldr_encode.h"
 #include "basisu_astc_hdr_common.h"
 #include "basisu_astc_ldr_common.h"
-#include "3rdparty/android_astc_decomp.h"
+
+// pick up BASISD_SUPPORT_KTX2_ZSTD macro (this defines it automatically and sets to 1 if not defined)
+#include "../transcoder/basisu_transcoder.h" 
+
 #include <queue>
 
+#ifndef BASISD_SUPPORT_KTX2_ZSTD
+#error BASISD_SUPPORT_KTX2_ZSTD must be defined here
+#endif
+
+#if BASISD_SUPPORT_KTX2_ZSTD
 #include "../zstd/zstd.h"
+#endif
 
 namespace basisu {
 namespace astc_ldr {
@@ -5481,9 +5490,7 @@ bool ldr_astc_block_encode_image(
 
 		fmt_debug_printf("Base encoder trial modes: {}, grand total including base+ofs CEM's: {}\n", encoder_trial_modes.size_u32(), total_actual_modes);
 	}
-				
-	uint32_t total_used_bc = 0;
-
+	
 	uint_vec used_rgb_direct_count;
 	used_rgb_direct_count.resize(encoder_trial_modes.size());
 
@@ -7184,6 +7191,8 @@ bool ldr_astc_block_encode_image(
 
 		uint32_t total_blocks_using_subsets = 0;
 
+		uint32_t total_used_bc = 0;
+
 		for (uint32_t by = 0; by < num_blocks_y; by++)
 		{
 			for (uint32_t bx = 0; bx < num_blocks_x; bx++)
@@ -7239,7 +7248,10 @@ bool ldr_astc_block_encode_image(
 					}
 
 					if (used_bc)
+					{
 						cem_used_bc[actual_cem]++;
+						total_used_bc++;
+					}
 
 					if (tm.m_num_parts > 1)
 						cem_used_subsets[actual_cem]++;
@@ -7353,7 +7365,7 @@ bool ldr_astc_block_encode_image(
 		debug_printf("\nTotal final encoded ASTC blocks using blue contraction: %u (%.2f%%)\n", total_used_bc, 100.0f * (float)total_used_bc / (float)total_blocks);
 
 		fmt_debug_printf("Total final encoded ASTC blocks using dual planes: {} {3.2}%\n", total_dp, (float)total_dp * 100.0f / (float)total_blocks);
-		fmt_debug_printf("Total final encoded ASTC blocks using base+ofs: {} {3.2}%\n", total_dp, (float)total_base_ofs * 100.0f / (float)total_blocks);
+		fmt_debug_printf("Total final encoded ASTC blocks using base+ofs: {} {3.2}%\n", total_base_ofs, (float)total_base_ofs * 100.0f / (float)total_blocks);
 		fmt_debug_printf("Total final encoded ASTC blocks using subsets: {} {3.2}%\n", total_blocks_using_subsets, (float)total_blocks_using_subsets * 100.0f / (float)total_blocks);
 
 		debug_printf("\nSubset usage histogram:\n");
@@ -8063,6 +8075,7 @@ void configure_encoder_effort_level(int level, ldr_astc_block_encode_image_high_
 	}
 }
 
+#if BASISD_SUPPORT_KTX2_ZSTD
 static bool zstd_compress(const uint8_t* pData, size_t data_len, uint8_vec& comp_data, int zstd_level)
 {
 	if (!data_len)
@@ -9325,6 +9338,7 @@ static bool compress_image_full_zstd(
 
 	return true;
 }
+#endif
 
 bool compress_image(
 	const image& orig_img, uint8_vec& comp_data, vector2D<astc_helpers::log_astc_block>& coded_blocks,
@@ -9449,15 +9463,28 @@ bool compress_image(
 
 	if (syntax == basist::astc_ldr_t::xuastc_ldr_syntax::cFullZStd)
 	{
+#if BASISD_SUPPORT_KTX2_ZSTD
 		// Full ZStd syntax is so different we'll move that to another function.
 		return compress_image_full_zstd(
 			orig_img, comp_data, coded_blocks,
 			global_cfg,
 			job_pool,
 			enc_cfg, enc_out);
+#else
+		fmt_error_printf("Full ZStd syntax not supported in this build (set BASISD_SUPPORT_KTX2_ZSTD to 1)\n");
+		return false;
+#endif
 	}
 
 	const bool use_faster_format = (syntax == basist::astc_ldr_t::xuastc_ldr_syntax::cHybridArithZStd);
+
+#if !BASISD_SUPPORT_KTX2_ZSTD
+	if (use_faster_format)
+	{
+		fmt_error_printf("Full ZStd syntax not supported in this build (set BASISD_SUPPORT_KTX2_ZSTD to 1)\n");
+		return false;
+	}
+#endif
 			
 	// Either full arithmetic, or hybrid arithmetic+ZStd for weight symbols.
 	basist::astc_ldr_t::xuastc_ldr_arith_header hdr;
@@ -10808,6 +10835,10 @@ bool compress_image(
 		
 	if (use_faster_format)
 	{
+#if !BASISD_SUPPORT_KTX2_ZSTD
+		fmt_error_printf("Full ZStd syntax not supported in this build (set BASISD_SUPPORT_KTX2_ZSTD to 1)\n");
+		return false;
+#else
 		suffix_bytes.reserve(8192);
 
 		mean0_bits.flush();
@@ -10873,6 +10904,7 @@ bool compress_image(
 			fmt_debug_printf(" Weight4 bytes: {} comp size: {}\n", (uint64_t)weight4_bits.get_bytes().size(), (uint64_t)comp_weight4.size());
 			fmt_debug_printf(" Weight8 bytes: {} comp size: {}\n", (uint64_t)weight8_bits.size(), (uint64_t)comp_weight8.size());
 		}
+#endif
 	}
 		
 	assert(comp_data.size() == 0);

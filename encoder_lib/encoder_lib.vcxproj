@@ -28,11 +28,11 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\encoder\3rdparty\android_astc_decomp.cpp" />
-    <ClCompile Include="..\encoder\3rdparty\tinyexr.cpp" />
     <ClCompile Include="..\encoder\basisu_astc_hdr_6x6_enc.cpp" />
     <ClCompile Include="..\encoder\basisu_astc_hdr_common.cpp" />
     <ClCompile Include="..\encoder\basisu_astc_ldr_common.cpp" />
     <ClCompile Include="..\encoder\basisu_astc_ldr_encode.cpp" />
+    <ClCompile Include="..\encoder\basisu_tinyexr.cpp" />
     <ClCompile Include="..\encoder\basisu_uastc_hdr_4x4_enc.cpp" />
     <ClCompile Include="..\encoder\basisu_backend.cpp" />
     <ClCompile Include="..\encoder\basisu_basis_file.cpp" />
@@ -55,7 +55,6 @@
     <ClCompile Include="..\zstd\zstd.c" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="..\encoder\3rdparty\android_astc_decomp.h" />
     <ClInclude Include="..\encoder\3rdparty\qoi.h" />
     <ClInclude Include="..\encoder\3rdparty\tinydds.h" />
     <ClInclude Include="..\encoder\3rdparty\tinyexr.h" />

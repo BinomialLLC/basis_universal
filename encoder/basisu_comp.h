@@ -22,8 +22,8 @@
 #include "basisu_astc_hdr_6x6_enc.h"
 #include "basisu_astc_ldr_encode.h"
 
-#define BASISU_LIB_VERSION 200
-#define BASISU_LIB_VERSION_STRING "2.00"
+#define BASISU_LIB_VERSION 210
+#define BASISU_LIB_VERSION_STRING "2.10"
 
 #ifndef BASISD_SUPPORT_KTX2
 	#error BASISD_SUPPORT_KTX2 is undefined
@@ -53,12 +53,17 @@ namespace basisu
 	const float BASISU_DEFAULT_HYBRID_SEL_CB_QUALITY_THRESH = 2.0f;
 
 	const uint32_t BASISU_MAX_IMAGE_DIMENSION = 16384;
-	const uint32_t BASISU_QUALITY_MIN = 1;
+	
+	// The original ETC1S specific (non-unified) quality level
+	const uint32_t BASISU_QUALITY_MIN = 1; // note 0 is also technically valid in the code/API for ETC1S; the difference in quality is tiny (both result in very small codebooks)
 	const uint32_t BASISU_QUALITY_MAX = 255;
-	const uint32_t BASISU_XUASTC_QUALITY_MIN = 1;
-	const uint32_t BASISU_XUASTC_QUALITY_MAX = 100;
+		
 	const uint32_t BASISU_MAX_ENDPOINT_CLUSTERS = basisu_frontend::cMaxEndpointClusters;
 	const uint32_t BASISU_MAX_SELECTOR_CLUSTERS = basisu_frontend::cMaxSelectorClusters;
+
+	// [1,100] are also the valid unified quality levels
+	const uint32_t BASISU_XUASTC_QUALITY_MIN = 1;
+	const uint32_t BASISU_XUASTC_QUALITY_MAX = 100;
 
 	const uint32_t BASISU_MAX_SLICES = 0xFFFFFF;
 
@@ -245,8 +250,8 @@ namespace basisu
 			m_endpoint_rdo_thresh(BASISU_DEFAULT_ENDPOINT_RDO_THRESH, 0.0f, 1e+10f),
 			m_mip_scale(1.0f, .000125f, 4.0f),
 			m_mip_smallest_dimension(1, 1, 16384),
-			m_etc1s_max_endpoint_clusters(512),
-			m_etc1s_max_selector_clusters(512),
+			m_etc1s_max_endpoint_clusters(0),
+			m_etc1s_max_selector_clusters(0),
 			m_quality_level(-1),
 			m_pack_uastc_ldr_4x4_flags(cPackUASTCLevelDefault),
 			m_rdo_uastc_ldr_4x4_quality_scalar(1.0f, 0.001f, 50.0f),
@@ -522,7 +527,7 @@ namespace basisu
 		// Ideally call set_format_mode() above instead of directly manipulating the below fields. These individual parameters are for backwards API compatibility. 
 		//   - If m_uastc is false you get ETC1S (the default).
 		//   - If m_uastc is true, and m_hdr is not true, and m_xuastc_or_astc_ldr_basis_tex_format==-1, we generate UASTC 4x4 LDR data (8bpp with or without RDO). 
-		//   - If m_uastc is true, and m_hdr is not true, and m_xuastc_or_astc_ldr_basis_tex_format!=-1, we generate XUASTC 4x4-12x12 or ASTC 4x4-12x12 LDR data.
+		//   - If m_uastc is true, and m_hdr is not true, and m_xuastc_or_astc_ldr_basis_tex_format!=-1, we generate XUASTC 4x4-12x12 or ASTC 4x4-12x12 LDR data, controlled by m_xuastc_or_astc_ldr_basis_tex_format.
 		//   - If m_uastc is true and m_hdr is true, we generate 4x4 or 6x6 HDR data, controlled by m_hdr_mode.
 				
 		// True to generate UASTC .basis/.KTX2 file data, otherwise ETC1S.
@@ -647,12 +652,14 @@ namespace basisu
 		param<int> m_mip_smallest_dimension;
 						
 		// ETC1S codebook size (quality) control. 
-		// If m_etc1s_quality_level != -1, it controls the quality level. It ranges from [1,255] or [BASISU_QUALITY_MIN, BASISU_QUALITY_MAX].
+		// If m_quality_level (previously named m_etc1s_quality_level) != -1, it controls the quality level. It ranges from [1,255] or [BASISU_QUALITY_MIN, BASISU_QUALITY_MAX].
 		// Otherwise m_max_endpoint_clusters/m_max_selector_clusters controls the codebook sizes directly.
 		uint32_t m_etc1s_max_endpoint_clusters;
 		uint32_t m_etc1s_max_selector_clusters;
 
-		// Quality level (bitrate vs. distortion tradeoff) control for ETC1S or XUASTC LDR 4x4-12x12 (must not be -1 for DCT to be used in XUASTC LDR 4x4 mode)
+		// Quality level (bitrate vs. distortion tradeoff) control for ETC1S or XUASTC LDR 4x4-12x12. 
+		// ETC1S: Must set to [1,255] or [BASISU_QUALITY_MIN, BASISU_QUALITY_MAX] to control quality vs. bitrate. If -1 (the default!), quality is controlled by m_etc1s_max_endpoint_clusters and m_etc1s_max_selector_clusters directly.
+		// XUASTC LDR: Must not be -1 for DCT.
 		int m_quality_level; 
 		
 		// m_tex_type, m_userdata0, m_userdata1, m_framerate - These fields go directly into the .basis file header.
@@ -683,7 +690,7 @@ namespace basisu
 		const basist::basisu_lowlevel_etc1s_transcoder *m_pGlobal_codebooks;
 
 		// KTX2 specific parameters.
-		// Internally, the compressor always creates a .basis file then it converts that lossless to KTX2.
+		// Internally, the compressor always creates a .basis file then it converts that losslessly to KTX2.
 		bool_param<false> m_create_ktx2_file;
 		basist::ktx2_supercompression m_ktx2_uastc_supercompression;
 		basist::ktx2_transcoder::key_value_vec m_ktx2_key_values;
@@ -695,8 +702,9 @@ namespace basisu
 		// For XUASTC LDR, it's also still used when generating .basis files vs. .KTX2.
 		bool_param<true> m_ktx2_and_basis_srgb_transfer_function; // false = linear transfer function, true = sRGB transfer function
 
+		// HDR codec specific options
 		uastc_hdr_4x4_codec_options m_uastc_hdr_4x4_options;
-		astc_6x6_hdr::astc_hdr_6x6_global_config m_astc_hdr_6x6_options;
+		astc_6x6_hdr::astc_hdr_6x6_global_config m_astc_hdr_6x6_options; // also UASTC HDR 6x6i
 
 		// True to try transcoding the generated output after compression to a few formats.
 		bool_param<false> m_validate_output_data;
@@ -711,9 +719,9 @@ namespace basisu
 		bool_param<true> m_ldr_hdr_upconversion_srgb_to_linear;
 		
 		// m_ldr_hdr_upconversion_nit_multiplier is only used when loading SDR/LDR images and compressing to an HDR output format.
-		// By default m_ldr_hdr_upconversion_nit_multiplier is 0. It's an override for the default.
-		// When loading LDR images, a default multiplier of 1.0 will be used in UASTC 4x4 HDR mode. Partially for backwards compatibility with previous library releases, and also because it doesn't really matter with this encoder what the multiplier is.
-		// With the 6x6 HDR encoder it does matter because it expects inputs in absolute nits, so the LDR upconversion luminance multiplier default will be 100 nits. (Most SDR monitors were/are 80-100 nits or so.)
+		// By default m_ldr_hdr_upconversion_nit_multiplier is 0. It's an override for the default, which is now 100.0 nits (LDR_TO_HDR_NITS).
+		// UASTC HDR 4x4: The default multiplier of 1.0 was previously used in this codec's original release. Note this encoder isn't dependent on absolute nits, unlike the ASTC 6x6 HDR encoder.
+		// RDO ASTC HDR 6x6/UASTC HDR 6x6i: These encoders expect inputs in absolute nits, so the LDR upconversion luminance multiplier default will be 100 nits. (Most SDR monitors were/are 80-100 nits or so.)
 		param<float> m_ldr_hdr_upconversion_nit_multiplier;
 
 		// The optional sRGB space bias to use during LDR->HDR upconversion. Should be between [0,.49] or so. Only applied on black (0.0) color components.
@@ -771,7 +779,7 @@ namespace basisu
 			cECFailedValidating,
 			cECFailedEncodeUASTC,
 			cECFailedFrontEnd,
-			cECFailedFontendExtract,
+			cECFailedFrontendExtract,
 			cECFailedBackend,
 			cECFailedCreateBasisFile,
 			cECFailedWritingOutput,
@@ -870,7 +878,7 @@ namespace basisu
 		
 		// The upconversion multiplier used to load LDR images in HDR mode.
 		float m_ldr_to_hdr_upconversion_nit_multiplier;
-		
+				
 		// True if any loaded source images were LDR and upconverted to HDR.
 		bool m_upconverted_any_ldr_images;
 

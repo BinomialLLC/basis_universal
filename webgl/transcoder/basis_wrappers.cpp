@@ -35,8 +35,8 @@
 // 32-bit WASM limitation (TODO: remove for 64-bit), to prevent OOM crashes during HDR encoding in particular.
 // TODO: Even WASM64 in Chrome has limits which seem too low for us. For now, just impose this limit.
 #ifdef __wasm64__
-    #define BASISU_ENCODER_MAX_SOURCE_IMAGE_PIXELS (1024*1024*12)
-    #define BASISU_ENCODER_MAX_SOURCE_IMAGE_PIXELS_HIGHER_LIMIT (1024*1024*12)
+    #define BASISU_ENCODER_MAX_SOURCE_IMAGE_PIXELS (1024*1024*16)
+    #define BASISU_ENCODER_MAX_SOURCE_IMAGE_PIXELS_HIGHER_LIMIT (1024*1024*16)
 #else
     #define BASISU_ENCODER_MAX_SOURCE_IMAGE_PIXELS (1024*1024*4)
     #define BASISU_ENCODER_MAX_SOURCE_IMAGE_PIXELS_HIGHER_LIMIT (1024*1024*12)
@@ -2799,6 +2799,11 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
     // ASTC HDR 6x6: Enable brute force pattern searching (slower)
     .function("setASTC_HDR_6x6_BruteForcePats", optional_override([](basis_encoder& self, bool flag) {
         self.m_params.m_astc_hdr_6x6_options.m_brute_force_partition_matching = flag;
+    }))
+	
+    // ASTC HDR 6x6: Write v1.6 compatible UASTC HDR 6x6i files (the current default, but eventually this will be changed to default to false, requiring v2.0 or later transcoders)
+    .function("setASTC_HDR_6x6_WriteBasisU16CompatibleFiles", optional_override([](basis_encoder& self, bool flag) {
+        self.m_params.m_astc_hdr_6x6_options.m_write_basisu_1_6_compatible_files = flag;
     }))
 
     // ASTC HDR 6x6: Control gaussian filtering on very hard blocks
