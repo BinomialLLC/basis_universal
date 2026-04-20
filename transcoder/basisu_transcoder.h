@@ -35,6 +35,8 @@
 
 namespace basist
 {
+	const uint32_t BASISU_MAX_SUPPORTED_TEXTURE_DIMENSION = 16384;
+
 	// High-level composite texture formats supported by the transcoder.
 	// Each of these texture formats directly correspond to OpenGL/D3D/Vulkan etc. texture formats.
 	// Notes:

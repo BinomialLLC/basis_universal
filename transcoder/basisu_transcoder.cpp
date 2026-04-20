@@ -8593,12 +8593,20 @@ namespace basist
 		uint32_t* pPVRTC_endpoints = nullptr;
 		if ((fmt == block_format::cPVRTC1_4_RGB) || (fmt == block_format::cPVRTC1_4_RGBA))
 		{
-			pPVRTC_work_mem = malloc(num_blocks_x * num_blocks_y * (sizeof(decoder_etc_block) + sizeof(uint32_t)));
+			const uint64_t alloc_size = (uint64_t)num_blocks_x * (uint64_t)num_blocks_y * (sizeof(decoder_etc_block) + sizeof(uint32_t));
+			if (alloc_size > (256u * 1024u * 1024u)) // sanity check, 16384x16384=192MB
+			{
+				BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_slice: malloc would be too large\n");
+				return false;
+			}
+
+			pPVRTC_work_mem = malloc(alloc_size);
 			if (!pPVRTC_work_mem)
 			{
 				BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_slice: malloc failed\n");
 				return false;
 			}
+
 			pPVRTC_endpoints = (uint32_t*)&((decoder_etc_block*)pPVRTC_work_mem)[num_blocks_x * num_blocks_y];
 		}
 
@@ -11984,6 +11992,44 @@ namespace basist
 		return (basis_tex_format)(uint32_t)pHeader->m_tex_format;
 	}
 
+	static bool check_slice_desc(const basis_slice_desc& slice_desc, uint32_t block_width, uint32_t block_height)
+	{
+		// calculated by us from the source format
+		assert((block_width >= 4) && (block_width <= 12));
+		assert((block_height >= 4) && (block_height <= 12));
+
+		// ensure the unpadded image dimensions are valid
+		if ((!slice_desc.m_orig_width) || (!slice_desc.m_orig_height))
+			return false;
+				
+		if ((slice_desc.m_orig_width > BASISU_MAX_SUPPORTED_TEXTURE_DIMENSION) || (slice_desc.m_orig_height > BASISU_MAX_SUPPORTED_TEXTURE_DIMENSION))
+			return false;
+
+		// now calculate the number of expected blocks on each dimension given the source format's block size
+		const uint32_t num_blocks_x_expected = (slice_desc.m_orig_width + block_width - 1) / block_width;
+		const uint32_t num_blocks_y_expected = (slice_desc.m_orig_height + block_height - 1) / block_height;
+
+		// ensure the slice has the exact number of expected blocks on each dimension
+		if ((slice_desc.m_num_blocks_x != num_blocks_x_expected) || (slice_desc.m_num_blocks_y != num_blocks_y_expected))
+			return false;
+
+		// at this point the original texture dimensions are valid, and the stored block dimensions
+		// exactly match the padded dimensions implied by those original dimensions
+
+		return true;
+	}
+
+	static bool check_slice_desc(const basis_file_header* pHeader, const basis_slice_desc& slice_desc)
+	{
+		if (pHeader->m_tex_format >= (uint32_t)basis_tex_format::cTotalFormats)
+			return false;
+
+		const uint32_t block_width = basis_tex_format_get_block_width((basis_tex_format)((uint32_t)pHeader->m_tex_format));
+		const uint32_t block_height = basis_tex_format_get_block_height((basis_tex_format)((uint32_t)pHeader->m_tex_format));
+
+		return check_slice_desc(slice_desc, block_width, block_height);
+	}
+
 	bool basisu_transcoder::get_image_info(const void* pData, uint32_t data_size, basisu_image_info& image_info, uint32_t image_index) const
 	{
 		if (!validate_header_quick(pData, data_size))
@@ -12023,11 +12069,17 @@ namespace basist
 		}
 
 		const basis_slice_desc& slice_desc = pSlice_descs[slice_index];
-
+				
 		image_info.m_image_index = image_index;
 		image_info.m_total_levels = total_levels;
 		
 		image_info.m_alpha_flag = false;
+
+		if (pHeader->m_tex_format >= (uint32_t)basis_tex_format::cTotalFormats)
+		{
+			BASISU_DEVEL_ERROR("basisu_transcoder::get_image_info: invalid m_tex_format\n");
+			return false;
+		}
 
 		// For ETC1S, if anything has alpha all images have alpha. For UASTC, we only report alpha when the image actually has alpha.
 		if (pHeader->m_tex_format == (int)basis_tex_format::cETC1S)
@@ -12039,6 +12091,12 @@ namespace basist
 				
 		const uint32_t block_width = basis_tex_format_get_block_width((basis_tex_format)((uint32_t)pHeader->m_tex_format));
 		const uint32_t block_height = basis_tex_format_get_block_height((basis_tex_format)((uint32_t)pHeader->m_tex_format));
+
+		if (!check_slice_desc(slice_desc, block_width, block_height))
+		{
+			BASISU_DEVEL_ERROR("basisu_transcoder::get_image_info: invalid slice_desc\n");
+			return false;
+		}
 				
 		image_info.m_width = slice_desc.m_num_blocks_x * block_width;
 		image_info.m_height = slice_desc.m_num_blocks_y * block_height;
@@ -12119,9 +12177,24 @@ namespace basist
 			return false;
 		}
 
+		if (pHeader->m_tex_format >= (uint32_t)basis_tex_format::cTotalFormats)
+		{
+			BASISU_DEVEL_ERROR("basisu_transcoder::get_image_info: invalid m_tex_format\n");
+			return false;
+		}
+
 		const basis_slice_desc* pSlice_descs = reinterpret_cast<const basis_slice_desc*>(static_cast<const uint8_t*>(pData) + pHeader->m_slice_desc_file_ofs);
 
 		const basis_slice_desc& slice_desc = pSlice_descs[slice_index];
+
+		const uint32_t block_width = basis_tex_format_get_block_width((basis_tex_format)((uint32_t)pHeader->m_tex_format));
+		const uint32_t block_height = basis_tex_format_get_block_height((basis_tex_format)((uint32_t)pHeader->m_tex_format));
+
+		if (!check_slice_desc(slice_desc, block_width, block_height))
+		{
+			BASISU_DEVEL_ERROR("basisu_transcoder::get_image_level_desc: invalid slice_desc\n");
+			return false;
+		}
 
 		orig_width = slice_desc.m_orig_width;
 		orig_height = slice_desc.m_orig_height;
@@ -12153,6 +12226,12 @@ namespace basist
 			return false;
 		}
 
+		if (pHeader->m_tex_format >= (uint32_t)basis_tex_format::cTotalFormats)
+		{
+			BASISU_DEVEL_ERROR("basisu_transcoder::get_image_info: invalid m_tex_format\n");
+			return false;
+		}
+
 		const basis_slice_desc* pSlice_descs = reinterpret_cast<const basis_slice_desc*>(static_cast<const uint8_t*>(pData) + pHeader->m_slice_desc_file_ofs);
 
 		const basis_slice_desc& slice_desc = pSlice_descs[slice_index];
@@ -12168,6 +12247,12 @@ namespace basist
 		
 		const uint32_t block_width = basis_tex_format_get_block_width((basis_tex_format)((uint32_t)pHeader->m_tex_format));
 		const uint32_t block_height = basis_tex_format_get_block_height((basis_tex_format)((uint32_t)pHeader->m_tex_format));
+
+		if (!check_slice_desc(slice_desc, block_width, block_height))
+		{
+			BASISU_DEVEL_ERROR("basisu_transcoder::get_image_level_info: invalid slice_desc\n");
+			return false;
+		}
 
 		image_info.m_iframe_flag = (slice_desc.m_flags & cSliceDescFlagsFrameIsIFrame) != 0;
 		image_info.m_width = slice_desc.m_num_blocks_x * block_width;
@@ -12226,6 +12311,11 @@ namespace basist
 		file_info.m_tables_size = pHeader->m_tables_file_size;
 
 		file_info.m_tex_format = static_cast<basis_tex_format>(static_cast<int>(pHeader->m_tex_format));
+		if (file_info.m_tex_format >= basis_tex_format::cTotalFormats)
+		{
+			BASISU_DEVEL_ERROR("basisu_transcoder::get_file_info: invalid m_tex_format\n");
+			return false;
+		}
 
 		file_info.m_etc1s = (pHeader->m_tex_format == (int)basis_tex_format::cETC1S);
 		
@@ -12241,7 +12331,7 @@ namespace basist
 
 		file_info.m_tex_type = static_cast<basis_texture_type>(static_cast<uint8_t>(pHeader->m_tex_type));
 
-		if (file_info.m_tex_type > cBASISTexTypeTotal)
+		if (file_info.m_tex_type >= cBASISTexTypeTotal)
 		{
 			BASISU_DEVEL_ERROR("basisu_transcoder::get_file_info: invalid texture type, file is corrupted\n");
 			return false;
@@ -12266,6 +12356,12 @@ namespace basist
 			file_info.m_slices_size += pSlice_descs[i].m_file_size;
 
 			basisu_slice_info& slice_info = file_info.m_slice_info[i];
+
+			if (!check_slice_desc(pSlice_descs[i], block_width, block_height))
+			{
+				BASISU_DEVEL_ERROR("basisu_transcoder::get_file_info: invalid slice desc\n");
+				return false;
+			}
 
 			slice_info.m_orig_width = pSlice_descs[i].m_orig_width;
 			slice_info.m_orig_height = pSlice_descs[i].m_orig_height;
@@ -12457,6 +12553,12 @@ namespace basist
 		}
 
 		const basis_slice_desc& slice_desc = reinterpret_cast<const basis_slice_desc*>(pDataU8 + pHeader->m_slice_desc_file_ofs)[slice_index];
+
+		if (!check_slice_desc(pHeader, slice_desc))
+		{
+			BASISU_DEVEL_ERROR("basisu_transcoder::transcode_slice: invalid basis_slice_desc\n");
+			return false;
+		}
 
 		const uint32_t dst_block_width = get_block_width(fmt), dst_block_height = get_block_height(fmt);
 										
@@ -12732,7 +12834,7 @@ namespace basist
 		const uint8_t* pDataU8 = static_cast<const uint8_t*>(pData);
 
 		const basis_slice_desc* pSlice_descs = reinterpret_cast<const basis_slice_desc*>(pDataU8 + pHeader->m_slice_desc_file_ofs);
-
+				
 		const bool basis_file_has_alpha_slices = (pHeader->m_flags & cBASISHeaderFlagHasAlphaSlices) != 0;
 
 		int slice_index = find_first_slice_index(pData, data_size, image_index, level_index);
@@ -12740,6 +12842,12 @@ namespace basist
 		{
 			BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: failed finding slice index\n");
 			// Unable to find the requested image/level 
+			return false;
+		}
+
+		if (!check_slice_desc(pHeader, pSlice_descs[slice_index]))
+		{
+			BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: invalid basis_slice_desc\n");
 			return false;
 		}
 

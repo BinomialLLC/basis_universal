@@ -2146,8 +2146,8 @@ namespace basisu
 
 			if ((m_params.m_resample_width > 0) && (m_params.m_resample_height > 0))
 			{
-				int new_width = basisu::minimum<int>(m_params.m_resample_width, BASISU_MAX_SUPPORTED_TEXTURE_DIMENSION);
-				int new_height = basisu::minimum<int>(m_params.m_resample_height, BASISU_MAX_SUPPORTED_TEXTURE_DIMENSION);
+				int new_width = basisu::minimum<int>(m_params.m_resample_width, basist::BASISU_MAX_SUPPORTED_TEXTURE_DIMENSION);
+				int new_height = basisu::minimum<int>(m_params.m_resample_height, basist::BASISU_MAX_SUPPORTED_TEXTURE_DIMENSION);
 
 				debug_printf("Resampling to %ix%i\n", new_width, new_height);
 
@@ -2171,8 +2171,8 @@ namespace basisu
 				// TODO: A box filter - kaiser looks too sharp on video. Let the caller control this.
 				if (m_params.m_hdr)
 				{
-					int new_width = basisu::minimum<int>(basisu::maximum(1, (int)ceilf(file_image_hdr.get_width() * m_params.m_resample_factor)), BASISU_MAX_SUPPORTED_TEXTURE_DIMENSION);
-					int new_height = basisu::minimum<int>(basisu::maximum(1, (int)ceilf(file_image_hdr.get_height() * m_params.m_resample_factor)), BASISU_MAX_SUPPORTED_TEXTURE_DIMENSION);
+					int new_width = basisu::minimum<int>(basisu::maximum(1, (int)ceilf(file_image_hdr.get_width() * m_params.m_resample_factor)), basist::BASISU_MAX_SUPPORTED_TEXTURE_DIMENSION);
+					int new_height = basisu::minimum<int>(basisu::maximum(1, (int)ceilf(file_image_hdr.get_height() * m_params.m_resample_factor)), basist::BASISU_MAX_SUPPORTED_TEXTURE_DIMENSION);
 
 					debug_printf("Resampling to %ix%i\n", new_width, new_height);
 
@@ -2183,8 +2183,8 @@ namespace basisu
 				}
 				else
 				{
-					int new_width = basisu::minimum<int>(basisu::maximum(1, (int)ceilf(file_image.get_width() * m_params.m_resample_factor)), BASISU_MAX_SUPPORTED_TEXTURE_DIMENSION);
-					int new_height = basisu::minimum<int>(basisu::maximum(1, (int)ceilf(file_image.get_height() * m_params.m_resample_factor)), BASISU_MAX_SUPPORTED_TEXTURE_DIMENSION);
+					int new_width = basisu::minimum<int>(basisu::maximum(1, (int)ceilf(file_image.get_width() * m_params.m_resample_factor)), basist::BASISU_MAX_SUPPORTED_TEXTURE_DIMENSION);
+					int new_height = basisu::minimum<int>(basisu::maximum(1, (int)ceilf(file_image.get_height() * m_params.m_resample_factor)), basist::BASISU_MAX_SUPPORTED_TEXTURE_DIMENSION);
 
 					debug_printf("Resampling to %ix%i\n", new_width, new_height);
 
@@ -2203,7 +2203,7 @@ namespace basisu
 				return false;
 			}
 
-			if ((width > BASISU_MAX_SUPPORTED_TEXTURE_DIMENSION) || (height > BASISU_MAX_SUPPORTED_TEXTURE_DIMENSION))
+			if ((width > basist::BASISU_MAX_SUPPORTED_TEXTURE_DIMENSION) || (height > basist::BASISU_MAX_SUPPORTED_TEXTURE_DIMENSION))
 			{
 				error_printf("basis_compressor::read_source_images: Source image \"%s\" is too large!\n", pSource_filename);
 				return false;
@@ -5271,7 +5271,7 @@ namespace basisu
 
 		*pSize = 0;
 
-		if ((width > BASISU_MAX_SUPPORTED_TEXTURE_DIMENSION) || (height > BASISU_MAX_SUPPORTED_TEXTURE_DIMENSION))
+		if ((width > basist::BASISU_MAX_SUPPORTED_TEXTURE_DIMENSION) || (height > basist::BASISU_MAX_SUPPORTED_TEXTURE_DIMENSION))
 		{
 			error_printf("basis_compress: Image too large\n");
 			return nullptr;
@@ -5305,7 +5305,7 @@ namespace basisu
 
 		*pSize = 0;
 
-		if ((width > BASISU_MAX_SUPPORTED_TEXTURE_DIMENSION) || (height > BASISU_MAX_SUPPORTED_TEXTURE_DIMENSION))
+		if ((width > basist::BASISU_MAX_SUPPORTED_TEXTURE_DIMENSION) || (height > basist::BASISU_MAX_SUPPORTED_TEXTURE_DIMENSION))
 		{
 			error_printf("basis_compress: Image too large\n");
 			return nullptr;

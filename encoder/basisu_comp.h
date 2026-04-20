@@ -40,9 +40,7 @@ namespace basisu
 {
 	struct opencl_context;
 	typedef opencl_context* opencl_context_ptr;
-
-	const uint32_t BASISU_MAX_SUPPORTED_TEXTURE_DIMENSION = 16384;
-
+		
 	// Allow block's color distance to increase by 1.5 while searching for an alternative nearby endpoint.
 	const float BASISU_DEFAULT_ENDPOINT_RDO_THRESH = 1.5f; 
 	
