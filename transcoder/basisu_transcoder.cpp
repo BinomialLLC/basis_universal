@@ -19581,6 +19581,13 @@ namespace basist
 			return false;
 		}
 
+		// Sanity check the dimensions
+		if ((m_header.m_pixel_width > BASISU_MAX_SUPPORTED_TEXTURE_DIMENSION) || (m_header.m_pixel_height > BASISU_MAX_SUPPORTED_TEXTURE_DIMENSION))
+		{
+			BASISU_DEVEL_ERROR("ktx2_transcoder::init: Texture is too large\n");
+			return false;
+		}
+
 		// Face count must be 1 or 6
 		if ((m_header.m_face_count != 1) && (m_header.m_face_count != 6))
 		{
