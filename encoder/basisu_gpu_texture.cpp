@@ -2057,6 +2057,19 @@ namespace basisu
 
 		return true;
 	}
+
+	static uint32_t mipmap_reduce(uint32_t value, uint32_t level)
+	{
+		for (uint32_t i = 0; i < level; i++) 
+		{
+			if (value <= 1u)
+				return 1;
+
+			value = value >> 1u;
+		}
+
+		return value;
+	}
 		
 	bool read_uncompressed_dds_file(const char* pFilename, basisu::vector<image> &ldr_mips,	basisu::vector<imagef>& hdr_mips)
 	{
@@ -2159,8 +2172,8 @@ namespace basisu
 
 		for (uint32_t level = 0; level < TinyDDS_NumberOfMipmaps(ctx); level++)
 		{
-			const uint32_t level_width = TinyDDS_MipMapReduce(width, level);
-			const uint32_t level_height = TinyDDS_MipMapReduce(height, level);
+			const uint32_t level_width = mipmap_reduce(width, level);
+			const uint32_t level_height = mipmap_reduce(height, level);
 			const uint32_t total_level_texels = level_width * level_height;
 
 			const void* pImage = TinyDDS_ImageRawData(ctx, level);
