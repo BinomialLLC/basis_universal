@@ -86,6 +86,7 @@ if (BASISU_BUILD_WASM)
     set(BASISU_SAN OFF CACHE BOOL "" FORCE)
 endif()
 
+message("Initial BUILD_SHARED_LIBS=${BUILD_SHARED_LIBSf}")
 message("Initial CMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}")
 message("Initial BASISU_BUILD_X64=${BASISU_BUILD_X64}")
 message("Initial BASISU_BUILD_WASM=${BASISU_BUILD_WASM}")
@@ -305,14 +306,30 @@ if (BASISU_ZSTD)
     set(ENCODER_LIB_SRC_LIST ${ENCODER_LIB_SRC_LIST} zstd/zstd.c)
 endif()
 
-# Create the static library
-add_library(basisu_encoder STATIC ${ENCODER_LIB_SRC_LIST})
+# Create the library
+add_library(basisu_encoder ${ENCODER_LIB_SRC_LIST})
 
-# Create the basisu executable and link against the static library
+include(GenerateExportHeader)
+generate_export_header(basisu_encoder)
+
+if (BUILD_SHARED_LIBS)
+    set_target_properties(basisu_encoder PROPERTIES
+        CXX_VISIBILITY_PRESET hidden
+        VISIBILITY_INLINES_HIDDEN 1
+        # Empty string sets values to cmake default
+        RUNTIME_OUTPUT_DIRECTORY ""  # .dll
+        ARCHIVE_OUTPUT_DIRECTORY ""  # .lib (import lib)
+        LIBRARY_OUTPUT_DIRECTORY ""  # .so on Linux
+    )
+else ()
+    target_compile_definitions(basisu_encoder PUBLIC BASISU_STATIC)
+endif ()
+
+# Create the basisu executable and link against the library
 add_executable(basisu basisu_tool.cpp)
 target_link_libraries(basisu PRIVATE basisu_encoder)
 
-# Create the new example executable and link against the static library
+# Create the new example executable and link against the library
 if(BASISU_EXAMPLES)
     add_executable(example example/example.cpp)
     target_link_libraries(example PRIVATE basisu_encoder)

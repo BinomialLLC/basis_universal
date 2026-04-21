@@ -3,6 +3,7 @@ build/
 # VS project and working files
 *.vcxproj.user
 .vs/
+.vscode/
 Debug/
 Release/
 x64/
