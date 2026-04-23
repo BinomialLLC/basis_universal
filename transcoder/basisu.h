@@ -62,7 +62,7 @@
 #endif
 
 // Export macro for shared libraries
-#ifdef BASISU_STATIC
+#ifndef BASISU_SHARED
     #define BASISU_API
 #elif defined(_WIN32)
     #ifdef basisu_encoder_EXPORTS

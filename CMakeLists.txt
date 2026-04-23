@@ -20,7 +20,8 @@ endif()
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-option(BASISU_STATIC "static linking" FALSE)
+option(BASISU_STATIC "Link runtime libraries statically" FALSE)
+option(BASISU_SHARED "Build basis-universal as a shared library" FALSE)
 option(BASISU_SAN "sanitize" FALSE)
 option(BASISU_EXAMPLES "build examples" TRUE)
 option(BASISU_WASM_THREADING "Enable WASI threading support" OFF)
@@ -86,8 +87,8 @@ if (BASISU_BUILD_WASM)
     set(BASISU_SAN OFF CACHE BOOL "" FORCE)
 endif()
 
-message("Initial BUILD_SHARED_LIBS=${BUILD_SHARED_LIBSf}")
 message("Initial CMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}")
+message("Initial BASISU_SHARED=${BASISU_SHARED}")
 message("Initial BASISU_BUILD_X64=${BASISU_BUILD_X64}")
 message("Initial BASISU_BUILD_WASM=${BASISU_BUILD_WASM}")
 message("Initial BASISU_WASM_THREADING=${BASISU_WASM_THREADING}")
@@ -312,17 +313,11 @@ add_library(basisu_encoder ${ENCODER_LIB_SRC_LIST})
 include(GenerateExportHeader)
 generate_export_header(basisu_encoder)
 
-if (BUILD_SHARED_LIBS)
+if (BASISU_SHARED)
     set_target_properties(basisu_encoder PROPERTIES
         CXX_VISIBILITY_PRESET hidden
-        VISIBILITY_INLINES_HIDDEN 1
-        # Empty string sets values to cmake default
-        RUNTIME_OUTPUT_DIRECTORY ""  # .dll
-        ARCHIVE_OUTPUT_DIRECTORY ""  # .lib (import lib)
-        LIBRARY_OUTPUT_DIRECTORY ""  # .so on Linux
-    )
-else ()
-    target_compile_definitions(basisu_encoder PUBLIC BASISU_STATIC)
+        VISIBILITY_INLINES_HIDDEN 1)
+    target_compile_definitions(basisu_encoder PUBLIC BASISU_SHARED)
 endif ()
 
 # Create the basisu executable and link against the library
