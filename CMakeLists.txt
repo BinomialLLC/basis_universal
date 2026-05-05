@@ -308,14 +308,16 @@ if (BASISU_ZSTD)
 endif()
 
 # Create the library
-add_library(basisu_encoder ${ENCODER_LIB_SRC_LIST})
 
 if (BASISU_SHARED)
+    add_library(basisu_encoder SHARED ${ENCODER_LIB_SRC_LIST})
     set_target_properties(basisu_encoder PROPERTIES
         CXX_VISIBILITY_PRESET hidden
         VISIBILITY_INLINES_HIDDEN 1)
     target_compile_definitions(basisu_encoder PUBLIC BASISU_SHARED)
-endif ()
+else()
+    add_library(basisu_encoder STATIC ${ENCODER_LIB_SRC_LIST})
+endif()
 
 # Create the basisu executable and link against the library
 add_executable(basisu basisu_tool.cpp)

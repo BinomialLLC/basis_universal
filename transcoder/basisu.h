@@ -61,23 +61,6 @@
 #define strcasecmp _stricmp
 #endif
 
-// Export macro for shared libraries
-#ifndef BASISU_SHARED
-    #define BASISU_API
-#elif defined(_WIN32)
-    #ifdef basisu_encoder_EXPORTS
-        #define BASISU_API __declspec(dllexport)
-    #else
-        #define BASISU_API __declspec(dllimport)
-    #endif
-#else
-    #ifdef basisu_encoder_EXPORTS
-        #define BASISU_API __attribute__((visibility("default")))
-    #else
-        #define BASISU_API
-    #endif
-#endif
-
 // Set to one to enable debug printf()'s when any errors occur, for development/debugging. Especially useful for WebGL development.
 #ifndef BASISU_FORCE_DEVEL_MESSAGES
 // Do not check in as 1!
