@@ -379,7 +379,7 @@ if (BASISU_BUILD_WASM)
         
     endif()
 
-    # 256 MB initial, 3.5 GB max � safe defaults for BasisU
+    # 256 MB initial, 3.5 GB max  safe defaults for BasisU
     target_link_options(basisu PRIVATE
         -Wl,--initial-memory=268435456
         -Wl,--max-memory=3758096384
