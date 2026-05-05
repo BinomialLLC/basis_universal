@@ -90,6 +90,11 @@ if (BASISU_BUILD_WASM)
     set(BASISU_SHARED OFF CACHE BOOL "" FORCE)
 endif()
 
+if (BASISU_BUILD_PYTHON)
+    # Dynamic linking is not supported on Python builds
+    set(BASISU_SHARED OFF CACHE BOOL "" FORCE)
+endif()
+
 message("Initial CMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}")
 message("Initial BASISU_SHARED=${BASISU_SHARED}")
 message("Initial BASISU_BUILD_X64=${BASISU_BUILD_X64}")
@@ -278,8 +283,6 @@ set(ENCODER_LIB_SRC_LIST
     encoder/basisu_uastc_hdr_4x4_enc.h
     encoder/basisu_astc_ldr_common.h
     encoder/basisu_astc_ldr_encode.h
-    encoder/basisu_wasm_api.cpp
-    encoder/basisu_wasm_transcoder_api.cpp
     encoder/cppspmd_flow.h
     encoder/cppspmd_math_declares.h
     encoder/cppspmd_math.h
@@ -315,13 +318,18 @@ endif()
 # Create the library
 
 if (BASISU_SHARED)
-    add_library(basisu_encoder SHARED ${ENCODER_LIB_SRC_LIST})
+    add_library(basisu_encoder SHARED ${ENCODER_LIB_SRC_LIST}
+        encoder/basisu_wasm_api.cpp
+        encoder/basisu_wasm_transcoder_api.cpp
+    )
+
     set_target_properties(basisu_encoder PROPERTIES
         CXX_VISIBILITY_PRESET hidden
         VISIBILITY_INLINES_HIDDEN 1
         VERSION   2.10
         SOVERSION 2
-        )
+    )
+
     if (MSVC)
         set_target_properties(basisu_encoder PROPERTIES
             RUNTIME_OUTPUT_DIRECTORY_DEBUG          ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}
@@ -330,6 +338,7 @@ if (BASISU_SHARED)
             RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL     ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}
         )
     endif()
+    
     target_compile_definitions(basisu_encoder PUBLIC BASISU_SHARED)
 else()
     add_library(basisu_encoder STATIC ${ENCODER_LIB_SRC_LIST})
@@ -619,7 +628,6 @@ if (BASISU_BUILD_WASM)
     endif()
 
     add_executable(${BASISU_TRANSCODER_WASM_OUTPUT_NAME} 
-        ${CMAKE_CURRENT_SOURCE_DIR}/encoder/basisu_wasm_transcoder_api.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/transcoder/basisu_transcoder.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/zstd/zstddeclib.c)
             
@@ -682,7 +690,7 @@ if (BASISU_BUILD_PYTHON AND NOT BASISU_BUILD_WASM)
 
     pybind11_add_module(basisu_transcoder_python
         python/basisu_transcoder_pybind11.cpp
-        encoder/basisu_wasm_transcoder_api.cpp  
+        encoder/basisu_wasm_transcoder_api.cpp
         transcoder/basisu_transcoder.cpp
         zstd/zstddeclib.c
     )
