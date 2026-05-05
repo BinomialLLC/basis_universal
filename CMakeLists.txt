@@ -85,6 +85,9 @@ if (BASISU_BUILD_WASM)
 
     # WASM cannot use sanitizers
     set(BASISU_SAN OFF CACHE BOOL "" FORCE)
+    
+    # WASM cannot link as a shared object
+    set(BASISU_SHARED OFF CACHE BOOL "" FORCE)
 endif()
 
 message("Initial CMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}")
