@@ -310,9 +310,6 @@ endif()
 # Create the library
 add_library(basisu_encoder ${ENCODER_LIB_SRC_LIST})
 
-include(GenerateExportHeader)
-generate_export_header(basisu_encoder)
-
 if (BASISU_SHARED)
     set_target_properties(basisu_encoder PROPERTIES
         CXX_VISIBILITY_PRESET hidden
