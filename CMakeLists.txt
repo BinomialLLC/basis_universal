@@ -275,6 +275,8 @@ set(ENCODER_LIB_SRC_LIST
     encoder/basisu_uastc_hdr_4x4_enc.h
     encoder/basisu_astc_ldr_common.h
     encoder/basisu_astc_ldr_encode.h
+    encoder/basisu_wasm_api.cpp
+    encoder/basisu_wasm_transcoder_api.cpp
     encoder/cppspmd_flow.h
     encoder/cppspmd_math_declares.h
     encoder/cppspmd_math.h
@@ -313,7 +315,18 @@ if (BASISU_SHARED)
     add_library(basisu_encoder SHARED ${ENCODER_LIB_SRC_LIST})
     set_target_properties(basisu_encoder PROPERTIES
         CXX_VISIBILITY_PRESET hidden
-        VISIBILITY_INLINES_HIDDEN 1)
+        VISIBILITY_INLINES_HIDDEN 1
+        VERSION   2.10
+        SOVERSION 2
+        )
+    if (MSVC)
+        set_target_properties(basisu_encoder PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY_DEBUG          ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}
+            RUNTIME_OUTPUT_DIRECTORY_RELEASE        ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}
+            RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}
+            RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL     ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}
+        )
+    endif()
     target_compile_definitions(basisu_encoder PUBLIC BASISU_SHARED)
 else()
     add_library(basisu_encoder STATIC ${ENCODER_LIB_SRC_LIST})
@@ -328,7 +341,7 @@ if(BASISU_EXAMPLES)
     add_executable(example example/example.cpp)
     target_link_libraries(example PRIVATE basisu_encoder)
     
-    add_executable(example_capi example_capi/example_capi.c encoder/basisu_wasm_api.cpp encoder/basisu_wasm_transcoder_api.cpp)
+    add_executable(example_capi example_capi/example_capi.c)
     target_link_libraries(example_capi PRIVATE basisu_encoder)
     
     add_executable(example_transcoding example_transcoding/example_transcoding.cpp example_transcoding/utils.cpp zstd/zstddeclib.c transcoder/basisu_transcoder.cpp)

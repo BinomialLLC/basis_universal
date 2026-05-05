@@ -10,7 +10,7 @@
 		#define BU_WASM_EXPORT(name) __attribute__((export_name(name)))
 	#endif
 #elif defined(__cplusplus)
-	#define BU_WASM_EXPORT(name) BASISU_API extern "C"
+	#define BU_WASM_EXPORT(name) extern "C" BASISU_API
 #else
 	#define BU_WASM_EXPORT(name) BASISU_API
 #endif
