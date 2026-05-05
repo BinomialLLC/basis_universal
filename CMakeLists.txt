@@ -20,7 +20,8 @@ endif()
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-option(BASISU_STATIC "static linking" FALSE)
+option(BASISU_STATIC "Link runtime libraries statically" FALSE)
+option(BASISU_SHARED "Build basis-universal as a shared library" FALSE)
 option(BASISU_SAN "sanitize" FALSE)
 option(BASISU_EXAMPLES "build examples" TRUE)
 option(BASISU_WASM_THREADING "Enable WASI threading support" OFF)
@@ -84,9 +85,18 @@ if (BASISU_BUILD_WASM)
 
     # WASM cannot use sanitizers
     set(BASISU_SAN OFF CACHE BOOL "" FORCE)
+    
+    # WASM cannot link as a shared object
+    set(BASISU_SHARED OFF CACHE BOOL "" FORCE)
+endif()
+
+if (BASISU_BUILD_PYTHON)
+    # Dynamic linking is not supported on Python builds
+    set(BASISU_SHARED OFF CACHE BOOL "" FORCE)
 endif()
 
 message("Initial CMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}")
+message("Initial BASISU_SHARED=${BASISU_SHARED}")
 message("Initial BASISU_BUILD_X64=${BASISU_BUILD_X64}")
 message("Initial BASISU_BUILD_WASM=${BASISU_BUILD_WASM}")
 message("Initial BASISU_WASM_THREADING=${BASISU_WASM_THREADING}")
@@ -305,19 +315,45 @@ if (BASISU_ZSTD)
     set(ENCODER_LIB_SRC_LIST ${ENCODER_LIB_SRC_LIST} zstd/zstd.c)
 endif()
 
-# Create the static library
-add_library(basisu_encoder STATIC ${ENCODER_LIB_SRC_LIST})
+# Create the library
 
-# Create the basisu executable and link against the static library
+if (BASISU_SHARED)
+    add_library(basisu_encoder SHARED ${ENCODER_LIB_SRC_LIST}
+        encoder/basisu_wasm_api.cpp
+        encoder/basisu_wasm_transcoder_api.cpp
+    )
+
+    set_target_properties(basisu_encoder PROPERTIES
+        CXX_VISIBILITY_PRESET hidden
+        VISIBILITY_INLINES_HIDDEN 1
+        VERSION   2.10
+        SOVERSION 2
+    )
+
+    if (MSVC)
+        set_target_properties(basisu_encoder PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY_DEBUG          ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}
+            RUNTIME_OUTPUT_DIRECTORY_RELEASE        ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}
+            RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}
+            RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL     ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}
+        )
+    endif()
+    
+    target_compile_definitions(basisu_encoder PUBLIC BASISU_SHARED)
+else()
+    add_library(basisu_encoder STATIC ${ENCODER_LIB_SRC_LIST})
+endif()
+
+# Create the basisu executable and link against the library
 add_executable(basisu basisu_tool.cpp)
 target_link_libraries(basisu PRIVATE basisu_encoder)
 
-# Create the new example executable and link against the static library
+# Create the new example executable and link against the library
 if(BASISU_EXAMPLES)
     add_executable(example example/example.cpp)
     target_link_libraries(example PRIVATE basisu_encoder)
     
-    add_executable(example_capi example_capi/example_capi.c encoder/basisu_wasm_api.cpp encoder/basisu_wasm_transcoder_api.cpp)
+    add_executable(example_capi example_capi/example_capi.c)
     target_link_libraries(example_capi PRIVATE basisu_encoder)
     
     add_executable(example_transcoding example_transcoding/example_transcoding.cpp example_transcoding/utils.cpp zstd/zstddeclib.c transcoder/basisu_transcoder.cpp)
@@ -355,7 +391,7 @@ if (BASISU_BUILD_WASM)
         
     endif()
 
-    # 256 MB initial, 3.5 GB max � safe defaults for BasisU
+    # 256 MB initial, 3.5 GB max  safe defaults for BasisU
     target_link_options(basisu PRIVATE
         -Wl,--initial-memory=268435456
         -Wl,--max-memory=3758096384
@@ -592,7 +628,6 @@ if (BASISU_BUILD_WASM)
     endif()
 
     add_executable(${BASISU_TRANSCODER_WASM_OUTPUT_NAME} 
-        ${CMAKE_CURRENT_SOURCE_DIR}/encoder/basisu_wasm_transcoder_api.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/transcoder/basisu_transcoder.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/zstd/zstddeclib.c)
             
@@ -655,7 +690,7 @@ if (BASISU_BUILD_PYTHON AND NOT BASISU_BUILD_WASM)
 
     pybind11_add_module(basisu_transcoder_python
         python/basisu_transcoder_pybind11.cpp
-        encoder/basisu_wasm_transcoder_api.cpp  
+        encoder/basisu_wasm_transcoder_api.cpp
         transcoder/basisu_transcoder.cpp
         zstd/zstddeclib.c
     )
