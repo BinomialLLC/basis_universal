@@ -23583,7 +23583,7 @@ namespace basist
 		{
 #if defined(__EMSCRIPTEN__) || defined(__clang__) || defined(__GNUC__)
 			return __builtin_popcount(x);
-#elif defined(_MSC_VER)
+#elif defined(_MSC_VER) && (defined(_M_IX86) || defined(_M_X64) || defined(_M_ARM64))
 			return __popcnt(x);
 #else
 			int count = 0;
@@ -29766,7 +29766,7 @@ namespace bc7f
 	{
 #if defined(__EMSCRIPTEN__) || defined(__clang__) || defined(__GNUC__)
 		return __builtin_popcount(x);
-#elif defined(_MSC_VER)
+#elif defined(_MSC_VER) && (defined(_M_IX86) || defined(_M_X64) || defined(_M_ARM64))
 		return __popcnt(x);
 #else
 		int count = 0;
@@ -34019,10 +34019,19 @@ namespace bc7f
 		
 	static inline int pop16(uint32_t x)
 	{
-#if defined(_MSC_VER)
+#if defined(__EMSCRIPTEN__) || defined(__clang__) || defined(__GNUC__)
+		return __builtin_popcount(x & 0xFFFFu);
+#elif defined(_MSC_VER) && (defined(_M_IX86) || defined(_M_X64) || defined(_M_ARM64))
 		return __popcnt16((unsigned short)x);
 #else
-		return __builtin_popcount(x & 0xFFFFu);
+		uint32_t y = x & 0xFFFFu;
+		int count = 0;
+		while (y) 
+		{
+			y &= (y - 1);
+			++count;
+		}
+		return count;
 #endif
 	}
 
