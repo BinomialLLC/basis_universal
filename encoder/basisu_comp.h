@@ -691,7 +691,7 @@ namespace basisu
 		// Internally, the compressor always creates a .basis file then it converts that losslessly to KTX2.
 		bool_param<false> m_create_ktx2_file;
 		basist::ktx2_supercompression m_ktx2_uastc_supercompression;
-		basist::ktx2_transcoder::key_value_vec m_ktx2_key_values;
+		basisu::key_value_vec m_ktx2_key_values;
 		param<int> m_ktx2_zstd_supercompression_level;
 		
 		// Note: The default for this parameter (which used to be "m_ktx2_srgb_transfer_func") used to be false, now setting this to true and renaming to m_ktx2_and_basis_srgb_transfer_function.
@@ -990,7 +990,8 @@ namespace basisu
 		uint32_t flags_and_quality, float uastc_rdo_or_dct_quality,
 		size_t* pSize,
 		image_stats* pStats,
-		int quality_level = -1, int effort_level = -1);
+		int quality_level = -1, int effort_level = -1,
+		const basisu::key_value_vec* pKeyValues = nullptr);
 
 	// This function accepts an array of source images. 
 	// If more than one image is provided, it's assumed the images form a mipmap pyramid and automatic mipmap generation is disabled.
@@ -1003,7 +1004,8 @@ namespace basisu
 		const basisu::vector<image> &source_images,
 		uint32_t flags_and_quality, float uastc_rdo_or_dct_quality,
 		size_t* pSize,
-		image_stats* pStats = nullptr);
+		image_stats* pStats = nullptr,
+		const basisu::key_value_vec* pKeyValues = nullptr);
 
 	// HDR-only version.
 	// Important: The returned block MUST be manually freed using basis_free_data().
@@ -1012,7 +1014,8 @@ namespace basisu
 		const basisu::vector<imagef>& source_images_hdr,
 		uint32_t flags_and_quality, float uastc_rdo_or_dct_quality,
 		size_t* pSize,
-		image_stats* pStats = nullptr);
+		image_stats* pStats = nullptr,
+		const basisu::key_value_vec* pKeyValues = nullptr);
 
 	// This function only accepts a single LDR source image. It's just a wrapper for basis_compress() above.
 	// Important: The returned block MUST be manually freed using basis_free_data().
@@ -1021,7 +1024,8 @@ namespace basisu
 		const uint8_t* pImageRGBA, uint32_t width, uint32_t height, uint32_t pitch_in_pixels,
 		uint32_t flags_and_quality, float uastc_rdo_or_dct_quality,
 		size_t* pSize,
-		image_stats* pStats = nullptr);
+		image_stats* pStats = nullptr,
+		const basisu::key_value_vec* pKeyValues = nullptr);
 
 	// basis_compress2() variants accept the new unified quality_level and effort_level parameters instead of the old flags/float uastc_rdo_or_dct_quality parameter.
 	// quality_level must be [0,100], effort_level [0,10].
@@ -1030,21 +1034,24 @@ namespace basisu
 		const basisu::vector<image>& source_images,
 		uint32_t flags_and_quality, int quality_level, int effort_level,
 		size_t* pSize,
-		image_stats* pStats = nullptr);
+		image_stats* pStats = nullptr,
+		const basisu::key_value_vec* pKeyValues = nullptr);
 
 	void* basis_compress2(
 		basist::basis_tex_format mode,
 		const basisu::vector<imagef>& source_images_hdr,
 		uint32_t flags_and_quality, int quality_level, int effort_level,
 		size_t* pSize,
-		image_stats* pStats = nullptr);
+		image_stats* pStats = nullptr,
+		const basisu::key_value_vec* pKeyValues = nullptr);
 
 	void* basis_compress2(
 		basist::basis_tex_format mode,
 		const uint8_t* pImageRGBA, uint32_t width, uint32_t height, uint32_t pitch_in_pixels,
 		uint32_t flags_and_quality, int quality_level, int effort_level,
 		size_t* pSize,
-		image_stats* pStats = nullptr);
+		image_stats* pStats = nullptr,
+		const basisu::key_value_vec* pKeyValues = nullptr);
 
 	// Frees the dynamically allocated file data returned by basis_compress().
 	// This MUST be called on the pointer returned by basis_compress() when you're done with it.
