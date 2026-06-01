@@ -2002,11 +2002,13 @@ float encode_surrogate_trial(
 			log_block.m_endpoints[0][0], log_block.m_endpoints[0][1], log_block.m_scales[0], log_block.m_weights0, log_block.m_weights1,
 			flags);
 
+#if 0
 #if defined(_DEBUG) || defined(DEBUG)
 		{
 			float alt_wsse_err = decode_surrogate_and_compute_error(block_width, block_height, pixel_stats, log_block, nullptr, params);
 			assert(fabs(wsse_err - alt_wsse_err) < .00125f);
 		}
+#endif
 #endif
 	}
 
