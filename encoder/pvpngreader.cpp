@@ -484,7 +484,7 @@ public:
 	void* png_calloc(uint32_t i);
 	int block_read(void* buf, uint32_t len);
 	int64_t block_read_dword();
-	int fetch_next_chunk_data(uint8_t* buf, int bytes);
+	int64_t fetch_next_chunk_data(uint8_t* buf, uint32_t bytes);
 	int fetch_next_chunk_byte();
 	int fetch_next_chunk_word();
 	int64_t fetch_next_chunk_dword();
@@ -590,12 +590,12 @@ int64_t png_decoder::block_read_dword()
 	return (int64_t)v;
 }
 
-int png_decoder::fetch_next_chunk_data(uint8_t* buf, int bytes)
+int64_t png_decoder::fetch_next_chunk_data(uint8_t* buf, uint32_t bytes)
 {
 	if (!m_chunk_flag)
 		return 0;
 
-	bytes = minimum<int>(bytes, m_chunk_left);
+	bytes = minimum<uint32_t>(bytes, m_chunk_left);
 
 	int status = block_read(buf, bytes);
 	if (status != 0)
@@ -615,7 +615,7 @@ int png_decoder::fetch_next_chunk_data(uint8_t* buf, int bytes)
 	{
 		int64_t res = block_read_dword();
 		if (res < 0)
-			return (int)res;
+			return res;
 
 		if (check_crc32)
 		{
@@ -633,9 +633,9 @@ int png_decoder::fetch_next_chunk_byte()
 {
 	uint8_t buf[1];
 
-	int status = fetch_next_chunk_data(buf, 1);
+	int64_t status = fetch_next_chunk_data(buf, 1);
 	if (status < 0)
-		return status;
+		return (int)status;
 
 	if (status != 1)
 		return terminate(PNG_BAD_CHUNK_SIZE);
@@ -647,9 +647,9 @@ int png_decoder::fetch_next_chunk_word()
 {
 	uint8_t buf[2];
 
-	int status = fetch_next_chunk_data(buf, 2);
+	int64_t status = fetch_next_chunk_data(buf, 2);
 	if (status < 0)
-		return status;
+		return (int)status;
 
 	if (status != 2)
 		return terminate(PNG_BAD_CHUNK_SIZE);
@@ -661,9 +661,9 @@ int64_t png_decoder::fetch_next_chunk_dword()
 {
 	uint8_t buf[4];
 
-	int status = fetch_next_chunk_data(buf, 4);
+	int64_t status = fetch_next_chunk_data(buf, 4);
 	if (status < 0)
-		return status;
+		return (int)status;
 
 	if (status != 4)
 		terminate(PNG_BAD_CHUNK_SIZE);
@@ -676,9 +676,9 @@ int png_decoder::fetch_next_chunk_init()
 {
 	while (m_chunk_flag)
 	{
-		int status = fetch_next_chunk_data(m_temp_buf, TEMP_BUF_SIZE * 4);
-		if (status != 0)
-			return status;
+		int64_t status = fetch_next_chunk_data(m_temp_buf, TEMP_BUF_SIZE * 4);
+		if (status < 0)
+			return (int)status;
 	}
 
 	int64_t n = block_read_dword();
@@ -691,9 +691,9 @@ int png_decoder::fetch_next_chunk_init()
 	m_chunk_left = m_chunk_size + 4;
 	m_chunk_crc32 = 0;
 
-	int status = fetch_next_chunk_data(m_chunk_name, 4);
+	int64_t status = fetch_next_chunk_data(m_chunk_name, 4);
 	if (status < 0)
-		return status;
+		return (int)status;
 
 	return 0;
 }
@@ -727,9 +727,11 @@ int png_decoder::unchunk_data(uint8_t* buf, uint32_t bytes, uint32_t* ptr_bytes_
 			}
 		}
 
-		int res = fetch_next_chunk_data(buf + bytes_read, bytes - bytes_read);
+		int64_t res = fetch_next_chunk_data(buf + bytes_read, bytes - bytes_read);
 		if (res < 0)
-			return res;
+			return (int)res;
+		
+		assert(res <= UINT32_MAX);
 
 		bytes_read += (uint32_t)res;
 	}
