@@ -694,6 +694,8 @@ int png_decoder::fetch_next_chunk_init()
 	int64_t status = fetch_next_chunk_data(m_chunk_name, 4);
 	if (status < 0)
 		return (int)status;
+	if (status != 4)
+		return terminate(PNG_BAD_CHUNK_SIZE);
 
 	return 0;
 }
