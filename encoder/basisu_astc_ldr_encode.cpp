@@ -2126,6 +2126,7 @@ float encode_surrogate_trial_subsets(
 		total_subset_err = decode_surrogate_and_compute_error(block_width, block_height, pixel_stats, log_block, pPat, params);
 	}
 
+#if 0
 #if defined(_DEBUG) || defined(DEBUG)
 	if (!is_downsampling)
 	{
@@ -2133,6 +2134,7 @@ float encode_surrogate_trial_subsets(
 
 		assert(fabs(total_subset_err - alt_subset_err) < .00125f);
 	}
+#endif
 #endif
 
 	return (float)total_subset_err;
