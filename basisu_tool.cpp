@@ -1632,8 +1632,7 @@ static bool compress_mode(command_line_params &opts)
 		if (params.m_tex_type == basist::basis_texture_type::cBASISTexTypeVideoFrames)
 		{
 			// Create KTXanimData key value entry
-			// TODO: Move this to basisu_comp.h
-			basist::ktx2_transcoder::key_value kv;
+			basisu::key_value kv;
 
 			const char* pAD = "KTXanimData";
 			kv.m_key.resize(strlen(pAD) + 1);

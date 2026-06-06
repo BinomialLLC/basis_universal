@@ -478,6 +478,54 @@ namespace basisu
 		}
 	};
 
+	// Key value field data.
+	struct key_value
+	{
+		// The key field is UTF8 and always zero terminated. 
+		// In memory we always append a zero terminator to the key.
+		basisu::uint8_vec m_key;
+
+		// The value may be empty. In the KTX2 file it consists of raw bytes which may or may not be zero terminated. 
+		// In memory we always append a zero terminator to the value.
+		basisu::uint8_vec m_value;
+
+		bool operator< (const key_value& rhs) const { return strcmp((const char*)m_key.data(), (const char *)rhs.m_key.data()) < 0; }
+
+		
+	};
+	typedef basisu::vector<key_value> key_value_vec;
+	
+	// Replaces if the key already exists
+	inline void add_key_value(key_value_vec& key_values, const std::string& key, const std::string& val)
+	{
+		assert(key.size());
+
+		key_value* p = nullptr;
+
+		// Try to find an existing key
+		for (size_t i = 0; i < key_values.size(); i++)
+		{
+			if (strcmp((const char*)key_values[i].m_key.data(), key.c_str()) == 0)
+			{
+				p = &key_values[i];
+				break;
+			}
+		}
+		
+		if (!p)
+			p = key_values.enlarge(1);
+
+		p->m_key.resize(0);
+		p->m_value.resize(0);
+
+		p->m_key.resize(key.size() + 1);
+		memcpy(p->m_key.data(), key.c_str(), key.size());
+
+		p->m_value.resize(val.size() + 1);
+		if (val.size())
+			memcpy(p->m_value.data(), val.c_str(), val.size());
+	}
+
 	enum eZero { cZero };
 	enum eNoClamp { cNoClamp };
 	

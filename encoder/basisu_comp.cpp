@@ -4585,18 +4585,18 @@ namespace basisu
 		}
 		
 		// Key values
-		basist::ktx2_transcoder::key_value_vec key_values(m_params.m_ktx2_key_values);
+		basisu::key_value_vec key_values(m_params.m_ktx2_key_values);
 		
-		basist::ktx2_add_key_value(key_values, "KTXwriter", fmt_string("Basis Universal {}", BASISU_LIB_VERSION_STRING));
+		basisu::add_key_value(key_values, "KTXwriter", fmt_string("Basis Universal {}", BASISU_LIB_VERSION_STRING));
 
 		if (m_params.m_hdr)
 		{
 			if (m_upconverted_any_ldr_images)
 			{
-				basist::ktx2_add_key_value(key_values, "LDRUpconversionMultiplier", fmt_string("{}", m_ldr_to_hdr_upconversion_nit_multiplier));
+				basisu::add_key_value(key_values, "LDRUpconversionMultiplier", fmt_string("{}", m_ldr_to_hdr_upconversion_nit_multiplier));
 
 				if (m_params.m_ldr_hdr_upconversion_srgb_to_linear)
-					basist::ktx2_add_key_value(key_values, "LDRUpconversionSRGBToLinear", "1");
+					basisu::add_key_value(key_values, "LDRUpconversionSRGBToLinear", "1");
 			}
 						
 			// Always write the scale to simplify testing.
@@ -4919,7 +4919,8 @@ namespace basisu
 		uint32_t flags_and_quality, float uastc_rdo_or_dct_quality,
 		size_t* pSize,
 		image_stats* pStats,
-		int quality_level, int effort_level)
+		int quality_level, int effort_level,
+		const basisu::key_value_vec* pKeyValues)
 	{
 		assert((pSource_images != nullptr) || (pSource_images_hdr != nullptr));
 		assert(!((pSource_images != nullptr) && (pSource_images_hdr != nullptr)));
@@ -5135,6 +5136,8 @@ namespace basisu
 			// Set KTX2 specific parameters.
 			if ((flags_and_quality & cFlagKTX2UASTCSuperCompression) && (comp_params.m_uastc))
 				comp_params.m_ktx2_uastc_supercompression = basist::KTX2_SS_ZSTANDARD;
+			if (pKeyValues)
+				comp_params.m_ktx2_key_values = *pKeyValues;
 		}
 				
 		comp_params.m_compute_stats = (pStats != nullptr);
@@ -5217,9 +5220,10 @@ namespace basisu
 		const basisu::vector<image>& source_images,
 		uint32_t flags_and_quality, float uastc_rdo_or_dct_quality,
 		size_t* pSize,
-		image_stats* pStats)
+		image_stats* pStats,
+		const basisu::key_value_vec* pKeyValues)
 	{
-		return basis_compress_internal(mode, &source_images, nullptr, flags_and_quality, uastc_rdo_or_dct_quality, pSize, pStats, -1, -1);
+		return basis_compress_internal(mode, &source_images, nullptr, flags_and_quality, uastc_rdo_or_dct_quality, pSize, pStats, -1, -1, pKeyValues);
 	}
 
 	void* basis_compress2(
@@ -5227,9 +5231,10 @@ namespace basisu
 		const basisu::vector<image>& source_images,
 		uint32_t flags_and_quality, int quality_level, int effort_level,
 		size_t* pSize,
-		image_stats* pStats)
+		image_stats* pStats,
+		const basisu::key_value_vec* pKeyValues)
 	{
-		return basis_compress_internal(mode, &source_images, nullptr, flags_and_quality, 0.0f, pSize, pStats, quality_level, effort_level);
+		return basis_compress_internal(mode, &source_images, nullptr, flags_and_quality, 0.0f, pSize, pStats, quality_level, effort_level, pKeyValues);
 	}
 
 	void* basis_compress(
@@ -5237,9 +5242,10 @@ namespace basisu
 		const basisu::vector<imagef>& source_images_hdr,
 		uint32_t flags_and_quality, float uastc_rdo_or_dct_quality,
 		size_t* pSize,
-		image_stats* pStats)
+		image_stats* pStats,
+		const basisu::key_value_vec* pKeyValues)
 	{
-		return basis_compress_internal(mode, nullptr, &source_images_hdr, flags_and_quality, uastc_rdo_or_dct_quality, pSize, pStats, -1, -1);
+		return basis_compress_internal(mode, nullptr, &source_images_hdr, flags_and_quality, uastc_rdo_or_dct_quality, pSize, pStats, -1, -1, pKeyValues);
 	}
 
 	void* basis_compress2(
@@ -5247,9 +5253,10 @@ namespace basisu
 		const basisu::vector<imagef>& source_images_hdr,
 		uint32_t flags_and_quality, int quality_level, int effort_level,
 		size_t* pSize,
-		image_stats* pStats)
+		image_stats* pStats,
+		const basisu::key_value_vec* pKeyValues)
 	{
-		return basis_compress_internal(mode, nullptr, &source_images_hdr, flags_and_quality, 0.0f, pSize, pStats, quality_level, effort_level);
+		return basis_compress_internal(mode, nullptr, &source_images_hdr, flags_and_quality, 0.0f, pSize, pStats, quality_level, effort_level, pKeyValues);
 	}
 
 	void* basis_compress(
@@ -5257,7 +5264,8 @@ namespace basisu
 		const uint8_t* pImageRGBA, uint32_t width, uint32_t height, uint32_t pitch_in_pixels,
 		uint32_t flags_and_quality, float uastc_rdo_or_dct_quality,
 		size_t* pSize,
-		image_stats* pStats)
+		image_stats* pStats,
+		const basisu::key_value_vec* pKeyValues)
 	{
 		if (!pitch_in_pixels)
 			pitch_in_pixels = width;
@@ -5283,7 +5291,7 @@ namespace basisu
 		for (uint32_t y = 0; y < height; y++)
 			memcpy(source_image[0].get_ptr() + y * width, (const color_rgba*)pImageRGBA + y * pitch_in_pixels, width * sizeof(color_rgba));
 
-		return basis_compress(mode, source_image, flags_and_quality, uastc_rdo_or_dct_quality, pSize, pStats);
+		return basis_compress(mode, source_image, flags_and_quality, uastc_rdo_or_dct_quality, pSize, pStats, pKeyValues);
 	}
 
 	void* basis_compress2(
@@ -5291,7 +5299,8 @@ namespace basisu
 		const uint8_t* pImageRGBA, uint32_t width, uint32_t height, uint32_t pitch_in_pixels,
 		uint32_t flags_and_quality, int quality_level, int effort_level,
 		size_t* pSize,
-		image_stats* pStats)
+		image_stats* pStats,
+		const basisu::key_value_vec* pKeyValues)
 	{
 		if (!pitch_in_pixels)
 			pitch_in_pixels = width;
@@ -5317,7 +5326,7 @@ namespace basisu
 		for (uint32_t y = 0; y < height; y++)
 			memcpy(source_image[0].get_ptr() + y * width, (const color_rgba*)pImageRGBA + y * pitch_in_pixels, width * sizeof(color_rgba));
 
-		return basis_compress2(mode, source_image, flags_and_quality, quality_level, effort_level, pSize, pStats);
+		return basis_compress2(mode, source_image, flags_and_quality, quality_level, effort_level, pSize, pStats, pKeyValues);
 	}
 		
 	void basis_free_data(void* p)
