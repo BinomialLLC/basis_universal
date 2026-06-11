@@ -1,6 +1,7 @@
 // File: basisu_wasm_api_common.h
 #pragma once
 #include "stdint.h"
+#include "../transcoder/basisu_config.h"
 
 #if defined(__wasm__)
 	#if defined(__cplusplus)
@@ -9,9 +10,9 @@
 		#define BU_WASM_EXPORT(name) __attribute__((export_name(name)))
 	#endif
 #elif defined(__cplusplus)
-	#define BU_WASM_EXPORT(name) extern "C"
+	#define BU_WASM_EXPORT(name) extern "C" BASISU_API
 #else
-	#define BU_WASM_EXPORT(name)
+	#define BU_WASM_EXPORT(name) BASISU_API
 #endif
 
 // wasm_bool_t is an alias for uint32_t
