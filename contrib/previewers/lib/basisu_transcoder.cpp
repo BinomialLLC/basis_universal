@@ -3518,7 +3518,6 @@ namespace basist
 	extern endpoint_err g_bc7_mode_6_optimal_endpoints[256][2]; // [c][pbit]
 	const uint32_t BC7ENC_MODE_6_OPTIMAL_INDEX = 5;
 
-	extern endpoint_err g_bc7_mode_5_optimal_endpoints[256]; // [c]
 	const uint32_t BC7ENC_MODE_5_OPTIMAL_INDEX = 1;
 
 	// Packs a BC7 block from a high-level description. Handles all BC7 modes.
@@ -20875,7 +20874,6 @@ namespace basist
 	const uint8_t g_bc7_alpha_index_bitcount[8] = { 0, 0, 0, 0, 3, 2, 4, 2 };
 
 	endpoint_err g_bc7_mode_6_optimal_endpoints[256][2]; // [c][pbit]
-	endpoint_err g_bc7_mode_5_optimal_endpoints[256]; // [c]
 
 	static inline void bc7_set_block_bits(uint8_t* pBytes, uint32_t val, uint32_t num_bits, uint32_t* pCur_ofs)
 	{
@@ -22660,8 +22658,8 @@ namespace basist
 
 				for (uint32_t c = 0; c < 3; c++)
 				{
-					dst_blk.m_low[0].m_c[c] = g_bc7_mode_5_optimal_endpoints[solid_color.c[c]].m_lo;
-					dst_blk.m_high[0].m_c[c] = g_bc7_mode_5_optimal_endpoints[solid_color.c[c]].m_hi;
+					dst_blk.m_low[0].m_c[c] = bc7_mode_5_optimal_endpoint_0(solid_color.c[c]);
+					dst_blk.m_high[0].m_c[c] = bc7_mode_5_optimal_endpoint_1(solid_color.c[c]);
 				}
 
 				memset(dst_blk.m_selectors, BC7ENC_MODE_5_OPTIMAL_INDEX, 16);
@@ -25937,36 +25935,6 @@ namespace basist
 
 				g_bc7_mode_6_optimal_endpoints[c][lp] = best;
 			} // lp
-
-		} // c
-
-		// BC7 777
-		for (int c = 0; c < 256; c++)
-		{
-			endpoint_err best;
-			best.m_error = (uint16_t)UINT16_MAX;
-
-			for (uint32_t l = 0; l < 128; l++)
-			{
-				const uint32_t low = (l << 1) | (l >> 6);
-
-				for (uint32_t h = 0; h < 128; h++)
-				{
-					const uint32_t high = (h << 1) | (h >> 6);
-
-					const int k = (low * (64 - g_bc7_weights2[BC7ENC_MODE_5_OPTIMAL_INDEX]) + high * g_bc7_weights2[BC7ENC_MODE_5_OPTIMAL_INDEX] + 32) >> 6;
-
-					const int err = (k - c) * (k - c);
-					if (err < best.m_error)
-					{
-						best.m_error = (uint16_t)err;
-						best.m_lo = (uint8_t)l;
-						best.m_hi = (uint8_t)h;
-					}
-				} // h
-			} // l
-
-			g_bc7_mode_5_optimal_endpoints[c] = best;
 
 		} // c
 	}

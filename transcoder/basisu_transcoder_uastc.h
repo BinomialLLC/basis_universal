@@ -184,7 +184,6 @@ namespace basist
 	extern endpoint_err g_bc7_mode_6_optimal_endpoints[256][2]; // [c][pbit]
 	const uint32_t BC7ENC_MODE_6_OPTIMAL_INDEX = 5;
 
-	extern endpoint_err g_bc7_mode_5_optimal_endpoints[256]; // [c]
 	const uint32_t BC7ENC_MODE_5_OPTIMAL_INDEX = 1;
 
 	// Packs a BC7 block from a high-level description. Handles all BC7 modes.

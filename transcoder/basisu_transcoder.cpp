@@ -14380,7 +14380,15 @@ namespace basist
 	const uint8_t g_bc7_alpha_index_bitcount[8] = { 0, 0, 0, 0, 3, 2, 4, 2 };
 
 	endpoint_err g_bc7_mode_6_optimal_endpoints[256][2]; // [c][pbit]
-	endpoint_err g_bc7_mode_5_optimal_endpoints[256]; // [c]
+
+	// Based on https://fgiesen.wordpress.com/2024/11/03/bc7-optimal-solid-color-blocks/
+	uint32_t bc7_mode_5_optimal_endpoint_0(uint8_t target) {
+		return target >> 1;
+	}
+
+	uint32_t bc7_mode_5_optimal_endpoint_1(uint8_t target) {
+		return ((target < 128) ? (target + 1) : (target - 1)) >> 1;
+	}
 
 	static inline void bc7_set_block_bits(uint8_t* pBytes, uint32_t val, uint32_t num_bits, uint32_t* pCur_ofs)
 	{
@@ -16167,8 +16175,8 @@ namespace basist
 
 				for (uint32_t c = 0; c < 3; c++)
 				{
-					dst_blk.m_low[0].m_c[c] = g_bc7_mode_5_optimal_endpoints[solid_color.c[c]].m_lo;
-					dst_blk.m_high[0].m_c[c] = g_bc7_mode_5_optimal_endpoints[solid_color.c[c]].m_hi;
+					dst_blk.m_low[0].m_c[c] = bc7_mode_5_optimal_endpoint_0(solid_color.c[c]);
+					dst_blk.m_high[0].m_c[c] = bc7_mode_5_optimal_endpoint_1(solid_color.c[c]);
 				}
 
 				memset(dst_blk.m_selectors, BC7ENC_MODE_5_OPTIMAL_INDEX, 16);
@@ -19442,36 +19450,6 @@ namespace basist
 
 				g_bc7_mode_6_optimal_endpoints[c][lp] = best;
 			} // lp
-
-		} // c
-
-		// BC7 777
-		for (int c = 0; c < 256; c++)
-		{
-			endpoint_err best;
-			best.m_error = (uint16_t)UINT16_MAX;
-
-			for (uint32_t l = 0; l < 128; l++)
-			{
-				const uint32_t low = (l << 1) | (l >> 6);
-
-				for (uint32_t h = 0; h < 128; h++)
-				{
-					const uint32_t high = (h << 1) | (h >> 6);
-
-					const int k = (low * (64 - g_bc7_weights2[BC7ENC_MODE_5_OPTIMAL_INDEX]) + high * g_bc7_weights2[BC7ENC_MODE_5_OPTIMAL_INDEX] + 32) >> 6;
-
-					const int err = (k - c) * (k - c);
-					if (err < best.m_error)
-					{
-						best.m_error = (uint16_t)err;
-						best.m_lo = (uint8_t)l;
-						best.m_hi = (uint8_t)h;
-					}
-				} // h
-			} // l
-
-			g_bc7_mode_5_optimal_endpoints[c] = best;
 
 		} // c
 	}
@@ -30523,14 +30501,14 @@ namespace bc7f
 	{
 		pBlock[0] = 0b00100000;
 
-		uint32_t lr = basist::g_bc7_mode_5_optimal_endpoints[c[0]].m_lo;
-		uint32_t hr = basist::g_bc7_mode_5_optimal_endpoints[c[0]].m_hi;
+		uint32_t lr = bc7_mode_5_optimal_endpoint_0(c[0]);
+		uint32_t hr = bc7_mode_5_optimal_endpoint_1(c[0]);
 
-		uint32_t lg = basist::g_bc7_mode_5_optimal_endpoints[c[1]].m_lo;
-		uint32_t hg = basist::g_bc7_mode_5_optimal_endpoints[c[1]].m_hi;
+		uint32_t lg = bc7_mode_5_optimal_endpoint_0(c[1]);
+		uint32_t hg = bc7_mode_5_optimal_endpoint_1(c[1]);
 
-		uint32_t lb = basist::g_bc7_mode_5_optimal_endpoints[c[2]].m_lo;
-		uint32_t hb = basist::g_bc7_mode_5_optimal_endpoints[c[2]].m_hi;
+		uint32_t lb = bc7_mode_5_optimal_endpoint_0(c[2]);
+		uint32_t hb = bc7_mode_5_optimal_endpoint_1(c[2]);
 
 		// 8 endpoints are 8-bits, nothing fancy needed
 		uint32_t a = c[3];
