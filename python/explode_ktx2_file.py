@@ -122,6 +122,7 @@ def dump_all_top_level(t, h):
     print("  is_uastc_ldr_4x4       :", t.is_uastc_ldr_4x4(h))
     print("  is_xuastc_ldr          :", t.is_xuastc_ldr(h))
     print("  is_astc_ldr            :", t.is_astc_ldr(h))
+    print("  is_xubc7               :", t.is_xubc7(h))
     print("  is_hdr                 :", t.is_hdr(h))
     print("  is_hdr_4x4             :", t.is_hdr_4x4(h))
     print("  is_hdr_6x6             :", t.is_hdr_6x6(h))
@@ -133,6 +134,7 @@ def dump_all_top_level(t, h):
     print("\nBlock Info:")
     print("  block_width            :", t.get_block_width(h))
     print("  block_height           :", t.get_block_height(h))
+    print("  deblocking_filter_index:", t.get_deblocking_filter_index(h))
 
     print("\nDFD Info:")
     print("  color_model            :", t.get_dfd_color_model(h))
@@ -158,6 +160,7 @@ def dump_basis_tex_format_helpers(t, h):
 
     print("is_xuastc_ldr     :", t.basis_tex_format_is_xuastc_ldr(fmt))
     print("is_astc_ldr       :", t.basis_tex_format_is_astc_ldr(fmt))
+    print("is_xubc7          :", t.basis_tex_format_is_xubc7(fmt))
     print("block width       :", t.basis_tex_format_get_block_width(fmt))
     print("block height      :", t.basis_tex_format_get_block_height(fmt))
     print("is_hdr            :", t.basis_tex_format_is_hdr(fmt))
