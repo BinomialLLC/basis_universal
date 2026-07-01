@@ -1,21 +1,35 @@
 <!--
-   Simple .KTX2 encode/transcode testbed.
+   Simple .KTX2/.DDS encode/transcode testbed.
    Supports numerous texture formats: ETC1, PVRTC1, BC1-BC7, BC6H, ASTC LDR 4x4-12x12, ASTC HDR 4x4 and 6x6, and various uncompressed fallbacks (16-bit 565, 32bpp, 64bpp).
-   Supports loading .PNG, .JPG, .EXR and .HDR files using the basisu library compiled to WASM with emscripten.
+   Supports loading .PNG, .JPG, .QOI, .EXR and .HDR files using the basisu library compiled to WASM with emscripten.
+   Also supports .WebP, .AVIF, .GIF, .BMP, .TIFF, .HEIC, .HEIF, and .JXL files via browser-assisted decoding (browser support varies).
    Thanks to Evan Parker for providing webgl-texture-utils and the original test bed.
+   Script wasm-feature-detect.js was from: https://unpkg.com/wasm-feature-detect/dist/umd/index.js, see https://github.com/GoogleChromeLabs/wasm-feature-detect (Apache 2.0).
 -->
 
 <!doctype html>
 <html>
 <head>
+<meta charset="utf-8">
 <script src="renderer.js"></script>
-<script src="https://unpkg.com/wasm-feature-detect/dist/umd/index.js"></script>
+<script src="wasm-feature-detect.js"></script>
+<script src="encode_dto_apply.js"></script>
 <script type="text/javascript">
 
-   const MAX_WORKER_THREADS = 18;
+   // The max limit is controlled by the basisu encoder module's linker options in CMakeLists.txt (see "set(LINK_THREADS "-s USE_PTHREADS=1 -s PTHREAD_POOL_SIZE=32 -s ENVIRONMENT=web,worker")")
+   const MAX_WORKER_THREADS = 32;
+   
+   const VERY_LARGE_BLOCK_SIZE_IN_PIXELS = 80; // blocks with >= 80 texels (10x8 or larger) will be automatically deblocked
 
+   var loggingDisabled = true;
+   function setLoggingDisabled(v)
+   {
+      loggingDisabled = !!v;
+   }
    function log(s)
    {
+      if (loggingDisabled)
+         return;
       var panel = document.getElementById('log-panel');
 
       if (panel.childElementCount >= 750)
@@ -178,9 +192,22 @@
    COMPRESSED_RGBA_BPTC_UNORM = 0x8E8C;
    COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT_EXT = 0x8E8F;
 
+   // BC4/BC5 (RGTC) formats, from:
+   // https://www.khronos.org/registry/webgl/extensions/EXT_texture_compression_rgtc/
+   // The transcoder emits unsigned BC4 (1 channel -> red) and unsigned BC5 (2 channels -> red/green).
+   COMPRESSED_RED_RGTC1_EXT = 0x8DBB;        // BC4 unsigned
+   COMPRESSED_RED_GREEN_RGTC2_EXT = 0x8DBD;  // BC5 unsigned
+
    // ETC format, from:
    // https://www.khronos.org/registry/webgl/extensions/WEBGL_compressed_texture_etc1/
    COMPRESSED_RGB_ETC1_WEBGL = 0x8D64;
+
+   // ETC2 / EAC formats, from:
+   // https://www.khronos.org/registry/webgl/extensions/WEBGL_compressed_texture_etc/
+   COMPRESSED_RGBA8_ETC2_EAC = 0x9278;        // ETC2 RGBA (LDR color + alpha), 16 bytes/block
+   COMPRESSED_SRGB8_ALPHA8_ETC2_EAC = 0x9279; // sRGB variant of ETC2 RGBA (kept for completeness; not used)
+   COMPRESSED_R11_EAC = 0x9270;               // EAC R11 (unsigned, 1 channel), 8 bytes/block (no sRGB variant)
+   COMPRESSED_RG11_EAC = 0x9272;              // EAC RG11 (unsigned, 2 channels), 16 bytes/block (no sRGB variant)
 
    // PVRTC format, from:
    // https://www.khronos.org/registry/webgl/extensions/WEBGL_compressed_texture_pvrtc/
@@ -246,9 +273,22 @@
    DXT_FORMAT_MAP[BASIS_FORMAT.cTFBC1] = COMPRESSED_RGB_S3TC_DXT1_EXT;
    DXT_FORMAT_MAP[BASIS_FORMAT.cTFBC3] = COMPRESSED_RGBA_S3TC_DXT5_EXT;
    DXT_FORMAT_MAP[BASIS_FORMAT.cTFBC7] = COMPRESSED_RGBA_BPTC_UNORM;
+   DXT_FORMAT_MAP[BASIS_FORMAT.cTFBC4] = COMPRESSED_RED_RGTC1_EXT;
+   DXT_FORMAT_MAP[BASIS_FORMAT.cTFBC5] = COMPRESSED_RED_GREEN_RGTC2_EXT;
 
    var astcSupported = false, etcSupported = false, dxtSupported = false, bc7Supported = false, bc6hSupported = false, astcHDRSupported = false,
       rgbaHalfSupported = false, halfFloatWebGLFormat = 0, pvrtcSupported = false;
+
+   // BC4/BC5 (RGTC) support. Currently consumed only by the DDS viewer, but kept as
+   // general shared infrastructure (DXT_FORMAT_MAP entries, capability detection, the
+   // disable toggle) so a future KTX2 BC4/BC5 transcode path can reuse it directly.
+   // A single combined flag/toggle keeps the new UI minimal.
+   var rgtcSupported = false, rgtcDisabled = false;
+
+   // ETC2 (RGBA) + EAC (R11/RG11) support, from the WEBGL_compressed_texture_etc extension (distinct
+   // from the ETC1-only WEBGL_compressed_texture_etc1 flag above). The *Disabled flags drive the
+   // per-format enable/disable testing toggles (same pattern as the other formats).
+   var etc2Supported = false, eacSupported = false, etc2Disabled = false, eacDisabled = false;
 
    var astcDisabled = false, etcDisabled = false, dxtDisabled = false, bc7Disabled = false, bc6hDisabled = false, astcHDRDisabled = false, rgbaHalfDisabled = false, pvrtcDisabled = false;
 
@@ -261,11 +301,84 @@
 
    var tex, width, height, is_hdr, layers, levels, faces, tex_has_alpha, tex_is_srgb;
    var alignedWidth, alignedHeight, format, displayWidth, displayHeight;
+   var tex_block_width = 0, tex_block_height = 0, tex_deblocking_filter_id = 0;
+   var used_gpu_deblocking_flag = false, used_cpu_deblocking_flag = false;
 
    var curLoadedImageData = null, curLoadedImageURI = null;
+   var curLoadedBrowserRGBA = null;  // non-null when curLoadedImageData came from a browser-decoded format
    var curLoadedKTX2Data = null, curLoadedKTX2URI = null;
 
+   // DDS source support (new, additive). A .DDS is a pre-compressed source we only
+   // transcode+view (no encode, no export yet). The viewer is tri-state: nothing
+   // loaded / a KTX2 loaded / a DDS loaded. We keep a SEPARATE pair of globals for
+   // the DDS bytes, and on a DDS load we null curLoadedKTX2Data so every existing
+   // KTX2-guarded code path (re-transcodes, exports) naturally short-circuits and
+   // the KTX2 logic is never handed DDS data. The KTX2 code paths are left as-is.
+   var curLoadedDDSData = null, curLoadedDDSURI = null;
+
+   // Returns which kind of compressed source is currently loaded for viewing:
+   // 'ktx2', 'dds', or 'none'. Use this (rather than poking curLoadedKTX2Data
+   // directly) anywhere the UI needs to branch on, or fetch metadata about, the
+   // currently loaded file.
+   function getLoadedSourceKind()
+   {
+      if (curLoadedDDSData != null) return 'dds';
+      if (curLoadedKTX2Data != null) return 'ktx2';
+      return 'none';
+   }
+
+   // Update the small "Loaded: ..." labels under the source-image / .ktx2
+   // inputs. Called from every load site after the corresponding URI global
+   // is assigned. Safe to call before the DOM elements exist (no-op in that
+   // case) — the labels also start out reading "(none)" from the markup.
+   function updateLoadedSourceDisplay()
+   {
+      const span = document.getElementById('loaded-source-uri-display');
+      const btn  = document.getElementById('copy-loaded-source-uri-btn');
+      if (!span) return;
+      const uri = curLoadedImageURI;
+      if (uri)
+      {
+         span.textContent = uri;
+         span.title = uri;
+         if (btn) btn.disabled = false;
+      }
+      else
+      {
+         span.textContent = '(none)';
+         span.title = '';
+         if (btn) btn.disabled = true;
+      }
+   }
+   function updateLoadedFormatDisplay()
+   {
+      const span = document.getElementById('loaded-ktx2-uri-display');
+      const btn  = document.getElementById('copy-loaded-ktx2-uri-btn');
+      if (!span) return;
+      // This label shows the currently-loaded compressed texture. It's source-aware:
+      // a loaded .DDS is surfaced here too (with a suffix), since DDS has no separate label.
+      var uri = curLoadedKTX2URI;
+      if (getLoadedSourceKind() === 'dds' && curLoadedDDSURI)
+         uri = curLoadedDDSURI + ' (.DDS)';
+      if (uri)
+      {
+         span.textContent = uri;
+         span.title = uri;
+         if (btn) btn.disabled = false;
+      }
+      else
+      {
+         span.textContent = '(none)';
+         span.title = '';
+         if (btn) btn.disabled = true;
+      }
+   }
+
    var g_transcodingTime = 0;
+   // DEV: when true, the main-thread "Encode (on Main Thread)" path ALSO runs the DTO
+   // encode and byte-compares it (so it encodes twice). Off by default. Long-term that
+   // path will switch to the DTO technique outright; this is just the verification.
+   var g_enableDTOValidation = false;
    var g_lastEncodeTime = 0;
    var g_lastEncodeMip0RGBAPSNR = 0;
 
@@ -289,8 +402,65 @@
 
       // Match CSS upscaling to the bilinear filtering setting.
       canvas.style.imageRendering = drawUseBilinearFiltering ? 'auto' : 'pixelated';
+      
+      // GPU shader deblocking control
+      const deblocking_filter_select = document.getElementById("deblocking-filter-select");
+      const deblocking_mode = Number(deblocking_filter_select.value);
 
-      renderer.drawTexture(tex, displayWidth, displayHeight, drawMode, drawScale * ldrHDRUpconversionScale, linearToSRGBFlag, drawUseBilinearFiltering);
+      var should_gpu_deblock_flag = false;
+      
+      if (deblocking_mode == 1) // auto (GPU)
+      {
+         // By default only apply the filter if the KTX2 file enabled it
+         if (tex_deblocking_filter_id != 0)
+            should_gpu_deblock_flag = true;
+      }
+      else if (deblocking_mode == 2) // Forced - Use GPU
+      {
+         // Decide if we should apply the filter or not
+         if (elem('xuastc_ldr_force_deblocking_on_all_block_sizes').checked)
+            should_gpu_deblock_flag = true;
+         else if ((tex_block_width * tex_block_height) >= VERY_LARGE_BLOCK_SIZE_IN_PIXELS) // check for very large block sizes
+            should_gpu_deblock_flag = true;
+      }
+      
+      if ((should_gpu_deblock_flag) &&
+          (tex_block_width >= 4) && (tex_block_height >= 4))
+      {
+          var show_edge_weights = elem('xuastc_ldr_gpu_deblocking_show_edge_weights').checked;
+          
+          // Draw with deblocking filter
+          renderer.drawTextureDeblocked(tex, displayWidth, displayHeight, drawMode, drawScale * ldrHDRUpconversionScale, linearToSRGBFlag, false, tex_block_width, tex_block_height, show_edge_weights);      
+          
+          used_gpu_deblocking_flag = true;
+      }
+      else
+      {
+          // Draw normally, no filtering
+          renderer.drawTexture(tex, displayWidth, displayHeight, drawMode, drawScale * ldrHDRUpconversionScale, linearToSRGBFlag, false);
+          
+          used_gpu_deblocking_flag = false;
+      }
+      
+      const deblockingIndicator = document.getElementById("deblocking-indicator");
+
+      // Build the string first, then only touch the DOM if it actually changed.
+      // Writing innerText forces layout work even when the value is identical,
+      // and this runs on every draw, so guarding the write matters here.
+      let deblockingText = "Deblocking Filter:";
+
+      if (used_gpu_deblocking_flag)
+        deblockingText += " GPU Shader ";
+
+      if (used_cpu_deblocking_flag)
+        deblockingText += " CPU (during transcode if available)";
+
+      if (!used_gpu_deblocking_flag && !used_cpu_deblocking_flag)
+        deblockingText += " Disabled";
+
+      if (deblockingIndicator.innerText !== deblockingText)
+        deblockingIndicator.innerText = deblockingText;
+      
    }
 
    function dumpKTX2FileDesc(ktx2File)
@@ -457,7 +627,7 @@
    function transcodeTexture(data, uri)
    {
       updateErrorLine("");
-          
+
       log('------');
       log('transcodeTexture(): Done loading .KTX2 file, decoded header:');
 
@@ -466,6 +636,8 @@
       resetDrawSettings();
 
       initializeBasis();
+      
+      used_cpu_deblocking_flag = false;
 
       const ktx2File = new KTX2File(new Uint8Array(data));
 
@@ -487,6 +659,7 @@
       var is_uastc = ktx2File.isUASTC();
       var is_astc_ldr = ktx2File.isASTC_LDR();
       var is_xuastc_ldr = ktx2File.isXUASTC_LDR();
+      var is_xubc7 = ktx2File.isXUBC7();
 
       is_hdr = ktx2File.isHDR();
 
@@ -537,7 +710,13 @@
       var imageLevelInfo = ktx2File.getImageLevelInfo(selectedLevel, selectedLayer, selectedFace);
       width = imageLevelInfo.origWidth;
       height = imageLevelInfo.origHeight;
-
+    
+      // Retrieve the file's block dimensions (used for deblocking)  
+      tex_block_width = imageLevelInfo.blockWidth;
+      tex_block_height = imageLevelInfo.blockHeight;
+            
+      tex_deblocking_filter_id = ktx2File.getDeblockingFilterIndex();
+      
       // If a HDR KTX2 file was upconverted from LDR/SDR content by us, it'll have a key indicating the Nit scale that was appplied.
       // We can use that to make viewing the file work out of the box.
       var ldrHDRUpconversionNitMultiplier = ktx2File.getLDRHDRUpconversionNitMultiplier();
@@ -548,16 +727,16 @@
          ldrHDRUpconversionScale = 1.0;
 
       var dstBlockWidth = 4, dstBlockHeight = 4;
+      
+      // PVRTC1 requires both width/height be a power of 2 (but not square is okay)      
+      var is_pow2 = ((width & (width - 1)) == 0) && ((height & (height - 1)) == 0);
 
-      // To transcode to PVRTC1, the texture MUST be square and the dimensions must be a power of 2.
-      var is_square_pow2 = (width == height) && ((width & (width - 1)) == 0);
-
-      if ((!is_hdr) && (!is_square_pow2))
+      if ((!is_hdr) && (!is_pow2))
       {
          if ((pvrtcSupported) && (!pvrtcDisabled))
          {
-            updateErrorLine("Note: PVRTC is available but the texture's dimensions are not square/power of 2.");
-            log("Note: PVRTC is available but the texture's dimensions are not square/power of 2.");
+            updateErrorLine("Note: PVRTC is available but the texture's dimensions are not both a power of 2.");
+            log("Note: PVRTC is available but the texture's dimensions are not both a power of 2.");
          }
       }
 
@@ -569,7 +748,7 @@
          ktx2File.delete();
          return;
       }
-
+          
       // Decide which texture format to transcode to.
       // Note: If the file is UASTC LDR, the preferred formats are ASTC/BC7. For UASTC HDR, ASTC HDR/BC6H.
       // If the file is ETC1S and doesn't have alpha, the preferred formats are ETC1 and BC1. For alpha, the preferred formats are ETC2, BC3 or BC7.
@@ -671,7 +850,14 @@
             format = BASIS_FORMAT.cTFBC1;
          }
       }
-      else if ((pvrtcSupported) && (!pvrtcDisabled) && (is_square_pow2))
+      // ETC2 RGBA: alpha-capable color codec, higher quality than PVRTC1 (and ETC1), so it ranks above
+      // both. Targets ETC-tier GPUs lacking ASTC/BC; ETC1 below is RGB-only and would drop alpha.
+      else if ((etc2Supported) && (!etc2Disabled))
+      {
+         formatString = 'ETC2 RGBA';
+         format = BASIS_FORMAT.cTFETC2;
+      }
+      else if ((pvrtcSupported) && (!pvrtcDisabled) && (is_pow2))
       {
          if (tex_has_alpha)
          {
@@ -691,9 +877,9 @@
       }
       else
       {
-         formatString = 'RGB565';
-         format = BASIS_FORMAT.cTFRGB565;
-         log('Warning: Falling back to decoding texture data to uncompressed 16-bit 565');
+         formatString = 'RGBA32';
+         format = BASIS_FORMAT.cTFRGBA32;
+         log('Warning: Falling back to decoding texture data to uncompressed 32-bit RGBA');
       }
 
       var descString = formatString;
@@ -730,6 +916,10 @@
             default:
              break;
         }
+      }
+      else if (is_xubc7)
+      {
+         descString += ' from XUBC7';
       }
       else if (is_xuastc_ldr)
       {
@@ -793,17 +983,47 @@
       if (elem('etc1s_bc7_transcoder_no_chroma_filtering').checked)
          flags = flags | Module.basisu_decode_flags.cDecodeFlagsNoETC1SChromaFiltering.value;
 
-      if (elem('xuastc_ldr_disable_deblocking').checked)
-         flags = flags | Module.basisu_decode_flags.cDecodeFlagsNoDeblockFiltering.value;
-
-      if (elem('xuastc_ldr_stronger_deblocking').checked)
-         flags = flags | Module.basisu_decode_flags.cDecodeFlagsStrongerDeblockFiltering.value;
-
-      if (elem('xuastc_ldr_force_deblocking').checked)
-         flags = flags | Module.basisu_decode_flags.cDecodeFlagsForceDeblockFiltering.value;
-
       if (elem('xuastc_ldr_disable_fast_bc7_transcoding').checked)
          flags = flags | Module.basisu_decode_flags.cDecodeFlagXUASTCLDRDisableFastBC7Transcoding.value;
+
+      if (elem('transcode_alpha_to_opaque_formats').checked)
+         flags = flags | Module.basisu_decode_flags.cDecodeFlagsTranscodeAlphaDataToOpaqueFormats.value;
+
+      // Set deblocking related transcode options
+      const deblocking_filter_select = document.getElementById("deblocking-filter-select");
+      const deblocking_mode = Number(deblocking_filter_select.value);
+              
+      // if CPU deblocking is forced on
+      if (deblocking_mode == 3)
+      {
+         // They're forcing CPU deblocking, which is also the transcoder default. By default the transcoder only deblocks block sizes >= VERY_LARGE_BLOCK_SIZE_IN_PIXELS (80) texels, but we can force it on for all block sizes here.
+         // We either enable it or disable it here.
+         if (elem('xuastc_ldr_force_deblocking_on_all_block_sizes').checked)
+         {
+            flags = flags | Module.basisu_decode_flags.cDecodeFlagsForceDeblockFiltering.value;
+            used_cpu_deblocking_flag = true;
+         }
+         else
+         {
+            // By default CPU deblocking during transcoding will only happen on block sizes >= 50 texels
+            if (tex_block_width * tex_block_height >= VERY_LARGE_BLOCK_SIZE_IN_PIXELS)
+            {
+               flags = flags | Module.basisu_decode_flags.cDecodeFlagsForceDeblockFiltering.value;
+               used_cpu_deblocking_flag = true;
+            }
+         }
+         
+         if (!used_cpu_deblocking_flag)
+         {
+            flags = flags | Module.basisu_decode_flags.cDecodeFlagsNoDeblockFiltering.value;
+         }
+      }
+      else
+      {
+        // By default, disable all CPU deblocking during transcoding (we'll use GPU or none during display).
+        // This overrides the transcoder's default behavior, which is to deblock while transcoding to non-ASTC formats, block sizes >=10x8 or larger. 
+        flags = flags | Module.basisu_decode_flags.cDecodeFlagsNoDeblockFiltering.value;
+      }
             
       // For simplicity here this only includes the transcode time, not initial file opening/global codebook decomp time.
       // For all formats except ETC1S the file opening time will be tiny. ETC1S codebook decomp is also quite fast, but not free with large codebooks.
@@ -862,6 +1082,7 @@
       log('faces: ' + faces);
 
       log('ldrHDRUpconversionNitMultiplier: ' + ldrHDRUpconversionNitMultiplier);
+      log('tex_deblocking_filter_id: ' + tex_deblocking_filter_id);
 
       log('selectedLevel: ' + selectedLevel + ' (' + width + 'x' + height + '), face: ' + selectedFace + ', layer: ' + selectedLayer);
 
@@ -880,7 +1101,7 @@
       var force_srgb_sampling = false;
 
       // For ASTC LDR and XUASTC LDR, select the right format depending on the transfer function in the DFD (as reported by the transcoder API).
-	  // It's important for the GPU to decompress the texture using the same decode profile as what the encoder used.
+      // It's important for the GPU to decompress the texture using the same decode profile as what the encoder used.
       if ((format === BASIS_FORMAT.cTFASTC_4x4) || (format === BASIS_FORMAT.cTFASTC_HDR_4x4_RGBA))
       {
          tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_4x4_KHR + (tex_is_srgb ? 0x20 : 0));
@@ -959,6 +1180,11 @@
       {
          tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGB_ETC1_WEBGL);
       }
+      else if (format === BASIS_FORMAT.cTFETC2)
+      {
+         // ETC2 RGBA (non-sRGB, matching the BC/UNORM path); 16 bytes/block.
+         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA8_ETC2_EAC);
+      }
       else if (format === BASIS_FORMAT.cTFPVRTC1_4_RGB)
       {
          tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGB_PVRTC_4BPPV1_IMG);
@@ -1023,28 +1249,13 @@
       }
       else
       {
-         // Uncompressed 565 (with no block alignment)
+         // Uncompressed 32-bit RGBA (with no block alignment)
 
          displayWidth = width;
          displayHeight = height;
          setCanvasSize(width, height);
 
-         // WebGL requires each row to be aligned on a 4-byte boundary.
-         var widthWordAligned = (width + 1) & ~1;
-
-         // Create 565 texture.
-         var dstTex = new Uint16Array(widthWordAligned * height);
-
-         // Convert the array of bytes to an array of uint16's.
-         var pix = 0;
-         for (var y = 0; y < height; y++)
-         {
-            const dstTexRowOfs = y * widthWordAligned;
-            for (var x = 0; x < width; x++, pix++)
-               dstTex[dstTexRowOfs + x] = dst[2 * pix + 0] | (dst[2 * pix + 1] << 8);
-         }
-
-         tex = renderer.createRgb565Texture(dstTex, width, height);
+         tex = renderer.createRgbaTexture(dst, width, height);
       }
 
       linearToSRGBFlag = (is_hdr != 0) || (force_srgb_sampling != 0);
@@ -1053,8 +1264,432 @@
 
       redraw();
 
+      // Tri-state: mark KTX2 as the active source and clear any DDS source. Done on the
+      // success path only, so a failed load leaves the previously-loaded source intact.
       curLoadedKTX2Data = data;
       curLoadedKTX2URI = uri;
+      curLoadedDDSData = null;
+      curLoadedDDSURI = null;
+      updateLoadedFormatDisplay();
+   }
+
+   // Logs a .DDS source's metadata (using ONLY the DDSFile API) and returns the total
+   // texel count across all images (for the bits/pixel readout). The DDS analog of
+   // dumpKTX2FileDesc(); DDS has no DFD/key-value/header machinery so this is simpler.
+   function dumpDDSFileDesc(ddsFile)
+   {
+      log('------');
+      log('DDS Width: ' + ddsFile.getWidth());
+      log('DDS Height: ' + ddsFile.getHeight());
+      log('Levels: ' + ddsFile.getLevels());
+      log('Layers: ' + ddsFile.getLayers());
+      log('Faces: ' + ddsFile.getFaces());
+      log('IsCubemap: ' + ddsFile.getIsCubemap());
+      log('Has alpha: ' + ddsFile.getHasAlpha());
+      log('isSRGB: ' + ddsFile.isSRGB());
+      log('Contained transcoder_texture_format: ' + ddsFile.getFormat());
+      log('DDS format (dds_format enum): ' + ddsFile.getDDSFormat() + ' (' + ddsFormatName(ddsFile) + ')');
+      log('Source kind (dds_source_kind enum): ' + ddsFile.getSourceKind());
+
+      log('--');
+      log('Image level information:');
+
+      var total_texels = 0;
+      var level_index;
+      for (level_index = 0; level_index < ddsFile.getLevels(); level_index++)
+      {
+         var layer_index;
+         // layers==0 means non-arrayed (treat as a single layer at index 0).
+         for (layer_index = 0; layer_index < Math.max(1, ddsFile.getLayers()); layer_index++)
+         {
+            var face_index;
+            for (face_index = 0; face_index < ddsFile.getFaces(); face_index++)
+            {
+               var info = ddsFile.getImageLevelInfo(level_index, layer_index, face_index);
+
+               log('level: ' + level_index + ' layer: ' + layer_index + ' face: ' + face_index);
+               log('orig_width: ' + info.origWidth);
+               log('orig_height: ' + info.origHeight);
+               log('width: ' + info.width);
+               log('height: ' + info.height);
+               log('numBlocksX: ' + info.numBlocksX);
+               log('numBlocksY: ' + info.numBlocksY);
+               log('blockWidth: ' + info.blockWidth);
+               log('blockHeight: ' + info.blockHeight);
+               log('totalBlocks: ' + info.totalBlocks);
+               log('--');
+
+               total_texels += info.origWidth * info.origHeight;
+            }
+         }
+      }
+      log('------');
+
+      return total_texels;
+   }
+
+   // Human-readable name for a .DDS's exact physical format. Prefers the encoder
+   // build's authoritative DDSFile.getDDSFormatString() (present in basis_encoder*.js);
+   // falls back to a reverse lookup of the Module.dds_format enum if that's absent
+   // (e.g. a transcoder-only build).
+   function ddsFormatName(ddsFile)
+   {
+      var ddsFmt = ddsFile.getDDSFormat();
+      if (typeof ddsFile.getDDSFormatString === 'function')
+         return ddsFile.getDDSFormatString(ddsFmt);
+      if (Module.dds_format)
+      {
+         for (var name in Module.dds_format)
+         {
+            if (Module.dds_format[name] && Module.dds_format[name].value === ddsFmt)
+               return name;
+         }
+      }
+      return String(ddsFmt);
+   }
+
+   // Transcode + display a loaded .DDS source. NEW functionality, deliberately kept
+   // separate from transcodeTexture() (the KTX2 path) so that path is untouched.
+   // DDS is LDR/BCn-or-uncompressed only here (no HDR), view-only (no encode/export).
+   // It picks a GPU display format using the SAME capability + disable-toggle priority
+   // as the KTX2 viewer (ASTC 4x4 -> BC7 -> BC1/BC3 -> PVRTC1 -> ETC1 -> RGBA32), plus
+   // a BC4/BC5 passthrough when the RGTC extension is available & enabled. Every
+   // candidate is additionally gated by DDSFile.isTranscodeFormatSupported(); anything
+   // unsupported falls through to the next, ending at always-supported RGBA32.
+   function transcodeDDSTexture(data, uri)
+   {
+      updateErrorLine("");
+
+      log('------');
+      log('transcodeDDSTexture(): Loading .DDS file:');
+
+      const { DDSFile, initializeBasis } = Module;
+
+      resetDrawSettings();
+
+      initializeBasis();
+
+      used_cpu_deblocking_flag = false;
+
+      const ddsFile = new DDSFile(new Uint8Array(data));
+
+      if (!ddsFile.isValid())
+      {
+         updateErrorLine('Invalid or unsupported .dds file');
+         console.warn('Invalid or unsupported .dds file');
+         ddsFile.close();
+         ddsFile.delete();
+         return;
+      }
+
+      var baseWidth = ddsFile.getWidth();
+      var baseHeight = ddsFile.getHeight();
+
+      // DDS here is always LDR (the dds_format enum has no HDR entries).
+      is_hdr = false;
+
+      layers = ddsFile.getLayers();
+      levels = ddsFile.getLevels();
+      faces = ddsFile.getFaces();
+      tex_has_alpha = ddsFile.getHasAlpha();
+      tex_is_srgb = ddsFile.isSRGB();
+
+      // DDS has no deblocking concept; clear so redraw()'s GPU-deblock branch never
+      // engages on a stale KTX2 value.
+      tex_deblocking_filter_id = 0;
+      ldrHDRUpconversionScale = 1.0;
+
+      updateMipmapSliderRange(levels);
+
+      var selectedLevel = parseInt(document.getElementById('mipmap-level-slider').value, 10);
+      if (isNaN(selectedLevel) || selectedLevel < 0 || selectedLevel >= levels)
+      {
+         selectedLevel = 0;
+         document.getElementById('mipmap-level-slider').value = 0;
+         document.getElementById('mipmap-level-value').textContent = '0';
+      }
+
+      updateCubemapFaceRange(faces);
+
+      var selectedFace = parseInt(document.getElementById('cubemap-face-slider').value, 10);
+      if (isNaN(selectedFace) || selectedFace < 0 || selectedFace >= faces)
+      {
+         selectedFace = 0;
+         document.getElementById('cubemap-face-slider').value = 0;
+         document.getElementById('cubemap-face-value').textContent = '0';
+      }
+
+      // layers==0 means non-arrayed (treat as 1 layer at index 0).
+      var effectiveLayers = Math.max(1, layers);
+      updateArrayLayerRange(effectiveLayers);
+
+      var selectedLayer = parseInt(document.getElementById('array-layer-slider').value, 10);
+      if (isNaN(selectedLayer) || selectedLayer < 0 || selectedLayer >= effectiveLayers)
+      {
+         selectedLayer = 0;
+         document.getElementById('array-layer-slider').value = 0;
+         document.getElementById('array-layer-value').textContent = '0';
+         document.getElementById('array-layer-input').value = 0;
+      }
+
+      var imageLevelInfo = ddsFile.getImageLevelInfo(selectedLevel, selectedLayer, selectedFace);
+      width = imageLevelInfo.origWidth;
+      height = imageLevelInfo.origHeight;
+      tex_block_width = imageLevelInfo.blockWidth;
+      tex_block_height = imageLevelInfo.blockHeight;
+
+      if (!width || !height || !levels)
+      {
+         updateErrorLine('Invalid .dds file');
+         console.warn('Invalid .dds file');
+         ddsFile.close();
+         ddsFile.delete();
+         return;
+      }
+
+      var dstBlockWidth = 4, dstBlockHeight = 4;
+      var is_pow2 = ((width & (width - 1)) == 0) && ((height & (height - 1)) == 0);
+
+      var srcKind = ddsFile.getSourceKind();
+      var DSK = Module.dds_source_kind;
+
+      // Returns true only if the transcoder can actually produce 'fmt' for this DDS.
+      function ddsCanProduce(fmt) { return ddsFile.isTranscodeFormatSupported(fmt); }
+
+      // Decide the GPU display format.
+      //  1) NATIVE PASSTHROUGH (preferred): if the DDS is a block format the GPU supports natively,
+      //     transcode to that EXACT format -- a lossless passthrough (no re-encode, exact channels,
+      //     fastest). BC1->BC1, BC3->BC3, BC4->BC4, BC5->BC5, BC7->BC7.
+      //  2) FALLBACK (native unavailable, or an uncompressed source): pick the highest-quality
+      //     supported format that PRESERVES the source's channels -- an alpha source only ever falls
+      //     back to an alpha-capable target (never an RGB-only format), so no channels/data are lost.
+      //     RGBA32 is the universal last resort (always available).
+      // Every step is gated by both the GPU capability/disable toggles AND the transcoder's own
+      // format support (ddsCanProduce).
+      var formatString = 'UNKNOWN';
+
+      // When "Transcode alpha to opaque (ETC1/PVRTC1_RGB)" is checked, the transcoder carries alpha
+      // separately, so those RGB-only targets become usable for alpha sources too (a testing feature).
+      var allowAlphaToOpaque = elem('transcode_alpha_to_opaque_formats').checked;
+
+      // Detect single-channel (R) and dual-channel (RG) sources -- compressed (BC4/BC5) OR uncompressed
+      // (R8/R8G8) -- via the source's actual DDS format. These route to the channel-matched
+      // BC4/BC5/EAC R11/EAC RG11 targets below instead of expanding to a color codec. (Color sources
+      // leave both flags false.)
+      var ddsFmt = ddsFile.getDDSFormat();
+      var DF = Module.dds_format;
+      var isSingleChannelSrc = !!DF && ((ddsFmt === DF.cBC4.value) || (ddsFmt === DF.cR8.value));
+      var isDualChannelSrc   = !!DF && ((ddsFmt === DF.cBC5.value) || (ddsFmt === DF.cR8G8.value));
+
+      // 1) native passthrough -- exact format match. (A BC2 source has no JS source_kind enum member and
+      //    is never byte-passthrough-able, so it intentionally falls through to the fallback below.)
+      if ((srcKind === DSK.cBC1.value) && dxtSupported && !dxtDisabled && ddsCanProduce(BASIS_FORMAT.cTFBC1))
+      {
+         formatString = 'BC1'; format = BASIS_FORMAT.cTFBC1;
+      }
+      else if ((srcKind === DSK.cBC3.value) && dxtSupported && !dxtDisabled && ddsCanProduce(BASIS_FORMAT.cTFBC3))
+      {
+         formatString = 'BC3'; format = BASIS_FORMAT.cTFBC3;
+      }
+      else if ((srcKind === DSK.cBC4.value) && rgtcSupported && !rgtcDisabled && ddsCanProduce(BASIS_FORMAT.cTFBC4))
+      {
+         formatString = 'BC4'; format = BASIS_FORMAT.cTFBC4;
+      }
+      else if ((srcKind === DSK.cBC5.value) && rgtcSupported && !rgtcDisabled && ddsCanProduce(BASIS_FORMAT.cTFBC5))
+      {
+         formatString = 'BC5'; format = BASIS_FORMAT.cTFBC5;
+      }
+      else if ((srcKind === DSK.cBC7.value) && bc7Supported && !bc7Disabled && ddsCanProduce(BASIS_FORMAT.cTFBC7))
+      {
+         formatString = 'BC7'; format = BASIS_FORMAT.cTFBC7;
+      }
+      // Single/dual-channel sources (BC4/BC5 OR uncompressed R8/R8G8): channel-matched targets so we don't
+      // expand them to a color codec -- BC4/BC5 (RGTC) preferred, else EAC R11/RG11. BC4/BC5 SOURCES are
+      // byte-passthrough'd above; this handles R8/R8G8 re-encode and the no-RGTC case.
+      else if (isSingleChannelSrc && rgtcSupported && !rgtcDisabled && ddsCanProduce(BASIS_FORMAT.cTFBC4))
+      {
+         formatString = 'BC4'; format = BASIS_FORMAT.cTFBC4;
+      }
+      else if (isSingleChannelSrc && eacSupported && !eacDisabled && ddsCanProduce(BASIS_FORMAT.cTFETC2_EAC_R11))
+      {
+         formatString = 'EAC R11'; format = BASIS_FORMAT.cTFETC2_EAC_R11;
+      }
+      else if (isDualChannelSrc && rgtcSupported && !rgtcDisabled && ddsCanProduce(BASIS_FORMAT.cTFBC5))
+      {
+         formatString = 'BC5'; format = BASIS_FORMAT.cTFBC5;
+      }
+      else if (isDualChannelSrc && eacSupported && !eacDisabled && ddsCanProduce(BASIS_FORMAT.cTFETC2_EAC_RG11))
+      {
+         formatString = 'EAC RG11'; format = BASIS_FORMAT.cTFETC2_EAC_RG11;
+      }
+      // 2) channel-preserving fallback. Highest quality first; alpha sources stay alpha-capable.
+      else if (astcSupported && !astcDisabled && ddsCanProduce(BASIS_FORMAT.cTFASTC_4x4))
+      {
+         formatString = 'ASTC LDR 4x4'; format = BASIS_FORMAT.cTFASTC_4x4;
+      }
+      else if (bc7Supported && !bc7Disabled && ddsCanProduce(BASIS_FORMAT.cTFBC7))
+      {
+         formatString = 'BC7'; format = BASIS_FORMAT.cTFBC7;
+      }
+      else if (dxtSupported && !dxtDisabled && ddsCanProduce(BASIS_FORMAT.cTFBC3))
+      {
+         formatString = 'BC3'; format = BASIS_FORMAT.cTFBC3;
+      }
+      else if (etc2Supported && !etc2Disabled && ddsCanProduce(BASIS_FORMAT.cTFETC2))
+      {
+         formatString = 'ETC2 RGBA'; format = BASIS_FORMAT.cTFETC2;
+      }
+      else if (pvrtcSupported && !pvrtcDisabled && is_pow2 && tex_has_alpha && ddsCanProduce(BASIS_FORMAT.cTFPVRTC1_4_RGBA))
+      {
+         formatString = 'PVRTC1_RGBA'; format = BASIS_FORMAT.cTFPVRTC1_4_RGBA;
+      }
+      else if (dxtSupported && !dxtDisabled && ddsCanProduce(BASIS_FORMAT.cTFBC1))
+      {
+         formatString = 'BC1'; format = BASIS_FORMAT.cTFBC1;
+      }
+      else if (etcSupported && !etcDisabled && ddsCanProduce(BASIS_FORMAT.cTFETC1))
+      {
+         // ETC1 is RGB-only and preferred over PVRTC1 (higher quality). Usable for an alpha source only
+         // when "Transcode alpha to opaque" is checked (else alpha would be silently dropped).
+         formatString = 'ETC1'; format = BASIS_FORMAT.cTFETC1;
+      }
+      else if (pvrtcSupported && !pvrtcDisabled && is_pow2 && (!tex_has_alpha || allowAlphaToOpaque) && ddsCanProduce(BASIS_FORMAT.cTFPVRTC1_4_RGB))
+      {
+         // PVRTC1 RGB is RGB-only; usable for an alpha source only when "Transcode alpha to opaque" is checked.
+         formatString = 'PVRTC1_RGB'; format = BASIS_FORMAT.cTFPVRTC1_4_RGB;
+      }
+      else
+      {
+         formatString = 'RGBA32'; format = BASIS_FORMAT.cTFRGBA32;
+         log('Note: decoding .DDS to uncompressed 32-bit RGBA (no enabled/supported GPU format matched).');
+      }
+
+      var descString = formatString + ' from DDS ' + ddsFormatName(ddsFile);
+
+      if (!ddsFile.startTranscoding())
+      {
+         updateErrorLine('startTranscoding failed');
+         log('startTranscoding failed');
+         console.warn('startTranscoding failed');
+         ddsFile.close();
+         ddsFile.delete();
+         return;
+      }
+
+      var total_texels = dumpDDSFileDesc(ddsFile);
+      var bpp = total_texels ? (data.byteLength * 8.0) / total_texels : 0;
+      var fileSizeKB = data.byteLength / 1024.0;
+      descString += ` (${bpp.toFixed(3)} bits/pixel, ${fileSizeKB.toFixed(2)} KB).`;
+
+      elem('format').innerText = descString;
+
+      const dstSize = ddsFile.getImageTranscodedSizeInBytes(selectedLevel, selectedLayer, selectedFace, format);
+      const dst = new Uint8Array(dstSize);
+
+      // Reuse the shared decode-flag composer (DDS ignores the ETC1S/XUASTC-specific
+      // bits; deblocking defaults to off for these formats, which is correct).
+      var flags = composeTranscodeDecodeFlags(tex_block_width, tex_block_height);
+
+      const startTime = performance.now();
+
+      if (!ddsFile.transcodeImageWithFlags(dst, selectedLevel, selectedLayer, selectedFace, format, flags, -1, -1))
+      {
+         updateErrorLine('ddsFile.transcodeImageWithFlags failed');
+         log('ddsFile.transcodeImageWithFlags failed');
+         console.warn('transcodeImageWithFlags failed');
+         ddsFile.close();
+         ddsFile.delete();
+         return;
+      }
+
+      const elapsed = performance.now() - startTime;
+      g_transcodingTime = elapsed;
+
+      descString += '\nTexture Size: ' + baseWidth + 'x' + baseHeight + ', Levels: ' + levels + ', Layers: ' + layers + ', Faces: ' + faces + ', sRGB: ' + tex_is_srgb + ', alpha: ' + tex_has_alpha;
+      descString += '\nViewing: Mip ' + selectedLevel + ' (' + width + 'x' + height + ') Face ' + selectedFace + ' Layer ' + selectedLayer;
+      descString += '\nTranscode time: ' + g_transcodingTime.toFixed(3) + 'ms';
+      elem('format').innerText = descString;
+
+      ddsFile.close();
+      ddsFile.delete();
+
+      log('width: ' + width);
+      log('height: ' + height);
+      log('has_alpha: ' + tex_has_alpha);
+      log('is_srgb: ' + tex_is_srgb);
+      log('dstBlockWidth: ' + dstBlockWidth);
+      log('dstBlockHeight: ' + dstBlockHeight);
+      log('levels: ' + levels);
+      log('layers: ' + layers);
+      log('faces: ' + faces);
+      logTime('transcoding time', elapsed.toFixed(3));
+
+      alignedWidth = Math.floor((width + dstBlockWidth - 1) / dstBlockWidth) * dstBlockWidth;
+      alignedHeight = Math.floor((height + dstBlockHeight - 1) / dstBlockHeight) * dstBlockHeight;
+
+      displayWidth = alignedWidth;
+      displayHeight = alignedHeight;
+
+      setCanvasSize(alignedWidth, alignedHeight);
+
+      var force_srgb_sampling = false;
+
+      if (format === BASIS_FORMAT.cTFASTC_4x4)
+      {
+         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_ASTC_4x4_KHR + (tex_is_srgb ? 0x20 : 0));
+         force_srgb_sampling = tex_is_srgb;
+      }
+      else if ((format === BASIS_FORMAT.cTFBC1) || (format === BASIS_FORMAT.cTFBC3) || (format === BASIS_FORMAT.cTFBC7) ||
+               (format === BASIS_FORMAT.cTFBC4) || (format === BASIS_FORMAT.cTFBC5))
+      {
+         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, DXT_FORMAT_MAP[format]);
+      }
+      else if (format === BASIS_FORMAT.cTFETC1)
+      {
+         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGB_ETC1_WEBGL);
+      }
+      else if (format === BASIS_FORMAT.cTFETC2)
+      {
+         // ETC2 RGBA (non-sRGB, matching the BC/UNORM path); 16 bytes/block.
+         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA8_ETC2_EAC);
+      }
+      else if (format === BASIS_FORMAT.cTFETC2_EAC_R11)
+      {
+         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_R11_EAC);
+      }
+      else if (format === BASIS_FORMAT.cTFETC2_EAC_RG11)
+      {
+         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RG11_EAC);
+      }
+      else if (format === BASIS_FORMAT.cTFPVRTC1_4_RGB)
+      {
+         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGB_PVRTC_4BPPV1_IMG);
+      }
+      else if (format === BASIS_FORMAT.cTFPVRTC1_4_RGBA)
+      {
+         tex = renderer.createCompressedTexture(dst, alignedWidth, alignedHeight, COMPRESSED_RGBA_PVRTC_4BPPV1_IMG);
+      }
+      else
+      {
+         // Uncompressed 32-bit RGBA (no block alignment)
+         displayWidth = width;
+         displayHeight = height;
+         setCanvasSize(width, height);
+         tex = renderer.createRgbaTexture(dst, width, height);
+      }
+
+      linearToSRGBFlag = (force_srgb_sampling != 0);
+      elem('linear_to_srgb').innerText = linearToSRGBFlag ? 'Enabled' : 'Disabled';
+
+      redraw();
+
+      // Tri-state: mark DDS as the active source and clear any KTX2 source. Done on the
+      // success path only, so a failed load leaves the previously-loaded source intact.
+      curLoadedDDSData = data;
+      curLoadedDDSURI = uri;
+      curLoadedKTX2Data = null;
+      curLoadedKTX2URI = null;
+      updateLoadedFormatDisplay();
    }
 
    function download_file(filename, body)
@@ -1109,6 +1744,113 @@
       return cleanExtension;
    }
 
+   // -----------------------------------------------------------------------
+   // Browser-assisted image loading for formats the Basis library can't
+   // decode natively (WebP, AVIF, GIF, BMP, ...).
+   // The browser decodes the image and we extract raw 32-bit RGBA pixels,
+   // which the encoder accepts via its cRGBA32 image type.
+   // Only used for LDR/SDR content. HDR files (.EXR, .HDR) must be loaded
+   // by the library directly.
+   // -----------------------------------------------------------------------
+
+   // Extensions the Basis Universal library decodes internally.
+   const BASISU_NATIVE_EXTENSIONS = new Set([
+      'png', 'jpg', 'jpeg', 'jfif',   // LDR
+      'qoi',                           // LDR (decoded by the library)
+      'exr', 'hdr',                    // HDR
+      'ktx2'                           // handled separately
+   ]);
+
+   // Map extensions the *browser* can typically decode to their MIME types.
+   const BROWSER_IMAGE_MIME_TYPES = {
+      'webp': 'image/webp',
+      'avif': 'image/avif',
+      'bmp':  'image/bmp',
+      'gif':  'image/gif',
+      'tif':  'image/tiff',
+      'tiff': 'image/tiff',
+      'jxl':  'image/jxl',
+      'heic': 'image/heic',
+      'heif': 'image/heif',
+   };
+
+   // Returns true when the file extension is NOT handled by the Basis
+   // library but IS a recognized image format the browser might decode.
+   function needsBrowserDecode(ext)
+   {
+      if (!ext) return false;
+      var lower = ext.toLowerCase();
+      return !BASISU_NATIVE_EXTENSIONS.has(lower) && (lower in BROWSER_IMAGE_MIME_TYPES);
+   }
+
+   // Decode an image file's ArrayBuffer through the browser's built-in
+   // codecs and return raw 32-bit RGBA pixel data suitable for the
+   // encoder's cRGBA32 mode.
+   //
+   // Returns a Promise resolving to { rgbaU8: Uint8Array, width, height }.
+   //
+   // We use a throw-away WebGL context for pixel read-back instead of
+   // Canvas 2D because Canvas 2D always premultiplies alpha internally,
+   // which destroys RGB values on semi-transparent pixels.  The WebGL
+   // path keeps straight alpha throughout so the output is bit-exact.
+   //
+   // Per the WebGL spec, UNPACK_PREMULTIPLY_ALPHA_WEBGL and
+   // UNPACK_FLIP_Y_WEBGL are IGNORED for ImageBitmap uploads --
+   // alpha and orientation must be set via createImageBitmap() options.
+   function browserDecodeToRGBA(arrayBuffer, fileName)
+   {
+      var ext = getFileExtension(fileName);
+      var mime = BROWSER_IMAGE_MIME_TYPES[ext] || ('image/' + ext);
+      var blob = new Blob([arrayBuffer], { type: mime });
+
+      // premultiplyAlpha:'none' -> straight alpha, lossless.
+      return createImageBitmap(blob, {
+         premultiplyAlpha: 'none'
+      }).then(function (bitmap)
+      {
+         var w = bitmap.width;
+         var h = bitmap.height;
+
+         if (!w || !h)
+         {
+            bitmap.close();
+            throw 'Browser decoded a 0\u00d70 image from ' + fileName;
+         }
+
+         var canvas = document.createElement('canvas');
+         canvas.width = w;
+         canvas.height = h;
+         var gl = canvas.getContext('webgl', {
+            alpha: true,
+            premultipliedAlpha: false
+         });
+         if (!gl)
+         {
+            bitmap.close();
+            throw 'Could not create WebGL context for pixel read-back';
+         }
+
+         var tex = gl.createTexture();
+         gl.bindTexture(gl.TEXTURE_2D, tex);
+         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, bitmap);
+         bitmap.close();
+
+         var fb = gl.createFramebuffer();
+         gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+         gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+
+         var pixels = new Uint8Array(w * h * 4);
+         gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+
+         gl.deleteFramebuffer(fb);
+         gl.deleteTexture(tex);
+         var lose = gl.getExtension('WEBGL_lose_context');
+         if (lose) lose.loseContext();
+
+         return { rgbaU8: pixels, width: w, height: h };
+      });
+   }
+
    function getETC1SCompLevel()
    {
       var slider = document.getElementById('etc1s-comp-level-slider'); // Get the slider element
@@ -1116,6 +1858,7 @@
       return compLevel;
    }
 
+   // UASTC HDR effort (it's misnamed "quality" in the API for backwards compat)
    function getUASTCHDRQuality()
    {
       var slider = document.getElementById('uastc-hdr-quality-slider'); // Get the slider element
@@ -1152,6 +1895,568 @@
       return effortLevel;
    }
 
+   function getXUBC7RDOLevel()
+   {
+      var slider = document.getElementById('xubc7_rdo_level_slider');
+      var rdoLevel = parseInt(slider.value, 10);  // [0,100], 0 = no RDO
+      return rdoLevel;
+   }
+
+   function getXUBC7NumStripes()
+   {
+      var slider = document.getElementById('xubc7_num_stripes_slider');
+      var numStripes = parseInt(slider.value, 10);  // [1,16]
+      return numStripes;
+   }
+
+   function getXUBC7Encoder()
+   {
+      var sel = document.getElementById('xubc7_encoder_select');
+      return parseInt(sel.value, 10);  // 0 = bc7f, 1 = bc7e_scalar
+   }
+
+   function getXUBC7BC7EScalarLevel()
+   {
+      var slider = document.getElementById('xubc7_bc7e_scalar_level_slider');
+      return parseInt(slider.value, 10);  // [0,6]
+   }
+
+   // Snapshot ALL encode inputs into a plain, structured-clone-able DTO for the
+   // background encode worker (see the encode-worker migration). Every enum is
+   // resolved to an int here on the main thread -- the worker's separate module
+   // instance uses the SAME build, so the int values are identical and the worker
+   // never needs an enum object. The caller passes the already-resolved formatMode
+   // (the HDR-source override + dropdown mutation stays on the main thread) plus
+   // the source context. The source bytes are referenced as-is: posting the DTO
+   // WITHOUT a transfer list structure-clones (copies) them, so the retained
+   // curLoadedImageData / curLoadedBrowserRGBA stay valid for re-encodes.
+   //
+   // This mirrors the inline encode path's reads exactly (same elem()/getX()
+   // helpers), so the two stay value-for-value identical. Currently UNWIRED --
+   // it's the payload builder for the worker path; the legacy path is untouched.
+   // Reads the 4 channel-swizzle inputs (the source channel index for each output channel R,G,B,A),
+   // each clamped to an integer in [0,3]. Default is identity [0,1,2,3] (no swizzle).
+   function getSwizzle()
+   {
+      function s(id) { return Math.max(0, Math.min(3, parseInt(elem(id).value, 10) || 0)); }
+      return [s('swizzle_r'), s('swizzle_g'), s('swizzle_b'), s('swizzle_a')];
+   }
+
+   function buildEncodeDTO(formatMode, extension, fileData, browserDecodedRGBA, isHDRSourceFile)
+   {
+      const isHDRTarget = Module.isBasisTexFormatHDR(formatMode);
+
+      // ---- source image: pre-decoded RGBA, or raw file bytes the encoder
+      //      decodes itself (img_type tells it the format; dims 0,0) ----
+      let source;
+      if (browserDecodedRGBA)
+      {
+         // browser-decoded (WebP/AVIF/etc.): always LDR 8-bit RGBA
+         source = {
+            isPreDecodedRGBA: true,
+            isHDRTarget: isHDRTarget,
+            bytes: browserDecodedRGBA.rgbaU8,
+            width: browserDecodedRGBA.width,
+            height: browserDecodedRGBA.height,
+            imgType: isHDRTarget ? Module.hdr_image_type.cHITRGBA8Image.value
+                                 : Module.ldr_image_type.cRGBA32.value,
+            convertLDRToLinear: elem('ConvertLDRToLinear').checked,
+            nitMultiplier: getNitMultiplier()
+         };
+      }
+      else if (isHDRTarget)
+      {
+         let imgType = Module.hdr_image_type.cHITPNGImage.value;
+         if (extension === "exr") imgType = Module.hdr_image_type.cHITEXRImage.value;
+         else if (extension === "hdr") imgType = Module.hdr_image_type.cHITHDRImage.value;
+         else if (extension === "jpg" || extension === "jpeg" || extension === "jfif") imgType = Module.hdr_image_type.cHITJPGImage.value;
+         else if (extension === "qoi") imgType = Module.hdr_image_type.cHITQOIImage.value;
+         source = {
+            isPreDecodedRGBA: false, isHDRTarget: true,
+            bytes: new Uint8Array(fileData), width: 0, height: 0, imgType: imgType, // matches legacy's new Uint8Array(data)
+            convertLDRToLinear: elem('ConvertLDRToLinear').checked,
+            nitMultiplier: getNitMultiplier()
+         };
+      }
+      else
+      {
+         let imgType = Module.ldr_image_type.cPNGImage.value;
+         if (extension === "jpg" || extension === "jpeg" || extension === "jfif") imgType = Module.ldr_image_type.cJPGImage.value;
+         else if (extension === "qoi") imgType = Module.ldr_image_type.cQOIImage.value;
+         source = {
+            isPreDecodedRGBA: false, isHDRTarget: false,
+            bytes: new Uint8Array(fileData), width: 0, height: 0, imgType: imgType, // matches legacy's new Uint8Array(data)
+            convertLDRToLinear: false, nitMultiplier: 1.0
+         };
+      }
+
+      const sRGB_flag = elem('SRGB').checked;
+
+      return {
+         source: source,
+
+         // container / threading
+         multithreaded: elem('multithreaded_encoding').checked,
+         numWorkerThreads: getNumWorkerThreads(),
+         createKTX2: true,
+         ktx2UASTCSupercompression: true,
+
+         // color / transfer
+         sRGB: sRGB_flag,
+         isHDRSourceFile: isHDRSourceFile, // gates setKTX2AndBasisSRGBTransferFunc
+         rec2020: elem('Rec2020').checked,
+
+         // format + quality/effort
+         formatMode: formatMode,
+         isXUASTCLDRTarget: Module.isBasisTexFormatXUASTCLDR(formatMode), // resolved here so applyEncodeDTO stays Module-free
+         isXUBC7Target: (formatMode === Module.basis_tex_format.cXUBC7.value),
+         // Two INDEPENDENT signals, mirroring the legacy path exactly:
+         //  lowLevelOptsEnabled = run the low-level codec block (legacy: unified checkbox OFF)
+         //  applyUnified        = run setFormatModeAndQualityEffort (legacy: checkbox ON *or* XUBC7 forces it)
+         // Both can be true at once (XUBC7 + checkbox-off: low-level block runs, then unified overrides).
+         lowLevelOptsEnabled: !elem('use_new_style_quality_effort').checked,
+         applyUnified: elem('use_new_style_quality_effort').checked || (formatMode === Module.basis_tex_format.cXUBC7.value),
+         unifiedQuality: parseInt(document.getElementById('unified-quality-slider').value, 10),
+         unifiedEffort: parseInt(document.getElementById('unified-effort-slider').value, 10),
+
+         // low-level codec opts (applied only when lowLevelOptsEnabled, i.e. unified checkbox off)
+         uastcHDRQuality: getUASTCHDRQuality(),
+         astcHDR6x6Level: getASTCHDR6x6CompLevel(),
+         astc6x6Lambda: getASTC6x6RDOLambda(),
+         xuastcDCTQuality: getXUASTCLDRDCTQuality(), // worker: setQualityLevel+UseDCT when <100
+         etc1sQuality: parseInt(elem('EncodeQuality').value, 10),
+         xuastcLossySupercompression: elem('XUASTCLossySupercompression').checked,
+         astcXuastcEffortLevel: getXUASTCLDREffortLevel(),
+         rdoUASTC: elem('UASTC_LDR_RDO').checked,
+         rdoUASTCQualityScalar: getUASTCLDRRDOQuality(),
+         packUASTCFlags: getUASTCLDRQuality(),
+         etc1sCompLevel: getETC1SCompLevel(),
+
+         // always-applied opts (regardless of the unified/low-level toggle)
+         xuastcBoundedRDO: [
+            getSafeFloat("xuastc_ldr_min_psnr"), getSafeFloat("xuastc_ldr_min_alpha_psnr"),
+            getSafeFloat("xuastc_ldr_thresh_psnr"), getSafeFloat("xuastc_ldr_thresh_alpha_psnr"),
+            getSafeFloat("xuastc_ldr_thresh_edge_psnr"), getSafeFloat("xuastc_ldr_thresh_edge_alpha_psnr")
+         ],
+         xuastcDisableRGBDualPlane: elem('XUASTCDisableRGBDualPlane').checked,
+         xuastcDisableSubsets: elem('XUASTCDisableSubsets').checked,
+         xuastcUseBlur: elem('XUASTCUseBlur').checked,
+         xuastcSelectCompressor: Module.xuastc_ldr_astc_comp_selection[elem('XUASTCLDRCompressor').value].value,
+         xuastcHeavySubsetUsage: elem('XUASTCHeavySubsetUsage').checked,
+         xuastcSharpenMode: Number(document.getElementById("XUASTCSharpenMode").value),
+         xuastcSharpenAmount: parseFloat(elem('XUASTCSharpenAmount').value) || 0.0,
+         xuastcDeblockingMode: Number(document.getElementById("encoding_deblocking_filter_select").value),
+         xuastcNumDeblockingPasses: getDeblockingNumPasses(),
+         weights: [
+            Math.max(1, Math.min(32, parseInt(elem('xuastc_ldr_weight_r').value, 10) || 1)),
+            Math.max(1, Math.min(32, parseInt(elem('xuastc_ldr_weight_g').value, 10) || 1)),
+            Math.max(1, Math.min(32, parseInt(elem('xuastc_ldr_weight_b').value, 10) || 1)),
+            Math.max(1, Math.min(32, parseInt(elem('xuastc_ldr_weight_a').value, 10) || 1))
+         ],
+         swizzle: getSwizzle(),
+         xuastcSyntax: getXUASTCLDRSyntax(),
+         xubc7RDOLevel: getXUBC7RDOLevel(),
+         xubc7NumStripes: getXUBC7NumStripes(),
+         xubc7Encoder: getXUBC7Encoder(),
+         xubc7BC7EScalarLevel: getXUBC7BC7EScalarLevel(),
+
+         // mipmaps + debug
+         mipGen: elem('Mipmaps').checked,
+         mipFilter: parseInt(elem('mip-filter-select').value, 10),
+         mipScale: parseFloat(elem('mip-scale-input').value) || 1.0,
+         mipSmallestDim: parseInt(elem('mip-smallest-dim-input').value, 10) || 1,
+         mipRenormalize: elem('MipRenormalize').checked,
+         mipWrapping: elem('MipWrapping').checked,
+         yFlip: elem('YFlip').checked,
+         debug: elem('Debug').checked,
+         computeStats: elem('ComputeStats').checked,
+         printStats: elem('PrintStats').checked
+      };
+   }
+
+   // applyEncodeDTO(encoder, dto) now lives in the shared file encode_dto_apply.js
+   // (loaded via <script src> on the page and importScripts() in the encode worker,
+   // so there is a single definition for both the non-worker and worker paths).
+
+   // ENCODE WORKER (persistent singleton). The threaded encoder module is created
+   // and initialized ONCE (lazily, on first use) and reused for every encode -- the
+   // module load is costly, so we never recreate it (and a future cancel will be a
+   // synchronous in-encoder callback, not a respawn). encodeViaWorker() builds a DTO
+   // from the currently loaded source + settings, sends it to the worker, and when
+   // the worker returns the encoded KTX2 bytes the page processes them through the
+   // SAME path as a normal encode (store + transcodeTexture + UI update).
+   let g_encodeWorker = null;         // persistent worker (null until first use)
+   let g_encodeWorkerLoaded = false;  // module loaded + initialized in the worker
+   let g_encodeWorkerOnReady = null;  // fired once when the worker becomes ready
+   let g_encodeWorkerWatchdog = null; // load-time hang detector only
+
+   // The worker can flood us with print lines (esp. with debug on). Buffer them and
+   // flush to the DOM at most every ~100ms instead of writing on every message.
+   let g_encodeBusyLogBuffer = '';
+   let g_encodeBusyFlushTimer = null;
+
+   // ---- worker-encode busy modal (truly modal via <dialog>.showModal()) ----
+   function showEncodeBusy()
+   {
+      const dlg = document.getElementById('encode-busy-dialog');
+      const prog = document.getElementById('encode-busy-progress');
+      const logEl = document.getElementById('encode-busy-log');
+      const closeBtn = document.getElementById('encode-busy-close');
+      const autoCloseChk = document.getElementById('encode-busy-autoclose');
+      const autoCloseDefault = document.getElementById('encode-modal-autoclose');
+      if (prog) prog.removeAttribute('value'); // indeterminate "busy" bar (set .value later for real %)
+      if (logEl) logEl.textContent = '';        // clear the previous run's output
+      g_encodeBusyLogBuffer = '';               // drop any leftover buffered text
+      if (g_encodeBusyFlushTimer !== null) { clearTimeout(g_encodeBusyFlushTimer); g_encodeBusyFlushTimer = null; }
+      if (closeBtn) closeBtn.disabled = true;   // grayed out (and ESC blocked) until the encode finishes
+      if (autoCloseChk && autoCloseDefault) autoCloseChk.checked = autoCloseDefault.checked; // seed from the page default
+      if (dlg && !dlg.open) dlg.showModal();
+   }
+   // Write the buffered text to the log in one go (called on a ~100ms timer and on finish).
+   function flushEncodeBusyLog()
+   {
+      if (g_encodeBusyFlushTimer !== null) { clearTimeout(g_encodeBusyFlushTimer); g_encodeBusyFlushTimer = null; }
+      if (!g_encodeBusyLogBuffer) return;
+      const logEl = document.getElementById('encode-busy-log');
+      if (logEl)
+      {
+         // Only auto-scroll if the user is already at (or near) the bottom; if they've scrolled
+         // up to read earlier text, leave their position alone so new output doesn't yank it.
+         const atBottom = (logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight) <= 4;
+         logEl.textContent += g_encodeBusyLogBuffer;
+         if (atBottom)
+            logEl.scrollTop = logEl.scrollHeight; // follow the latest line
+      }
+      g_encodeBusyLogBuffer = '';
+   }
+   function appendEncodeBusyLog(text)
+   {
+      // Buffer the line; schedule a single flush ~100ms out (coalesces a flood into
+      // ~10 DOM updates per second).
+      g_encodeBusyLogBuffer += text + '\n';
+      if (g_encodeBusyFlushTimer === null)
+         g_encodeBusyFlushTimer = setTimeout(flushEncodeBusyLog, 100);
+   }
+   // Called when a worker encode finishes (success or error). Default: auto-close.
+   // If the user UNchecked "Automatically close when done", leave the dialog up with
+   // an OK button so they can study the log (useful for long/debug encodes).
+   function finishEncodeBusy()
+   {
+      document.body.style.cursor = ''; // clear the DDS busy cursor (no-op if it wasn't set)
+
+      flushEncodeBusyLog(); // drain any buffered tail so the full log is visible
+
+      // Encode finished: enable the Close button (+ allow ESC) and stop the busy bar.
+      const closeBtn = document.getElementById('encode-busy-close');
+      const prog = document.getElementById('encode-busy-progress');
+      if (closeBtn) closeBtn.disabled = false;
+      if (prog) { prog.max = 1; prog.value = 1; } // show "done" (full, stops the busy animation)
+
+      const autoCloseChk = document.getElementById('encode-busy-autoclose');
+      if (!autoCloseChk || autoCloseChk.checked)
+         hideEncodeBusy(); // default behaviour: close automatically
+      // else: leave the dialog up; the now-enabled Close button (or ESC) dismisses it
+   }
+   function hideEncodeBusy()
+   {
+      document.body.style.cursor = ''; // ensure the busy cursor is cleared on every close path (watchdog/onerror/manual)
+      const dlg = document.getElementById('encode-busy-dialog');
+      if (dlg && dlg.open) dlg.close();
+   }
+
+   // Process KTX2 bytes from an encode exactly like the normal encode button:
+   // store them (download button reads encodedKTX2File) + transcode + update the UI.
+   function handleEncodedKTX2(ktx2Bytes)
+   {
+      const n = ktx2Bytes ? ktx2Bytes.length : 0;
+      if (n === 0)
+      {
+         updateErrorLine('Image is invalid or unsupported, or it may be too large to compress in WASM without risking running out of memory.');
+         log('encodeBasisTexture() failed!');
+         return;
+      }
+      log('encodeBasisTexture() succeeded, output size ' + n);
+      encodedKTX2File = ktx2Bytes;   // same global the legacy path sets
+      transcodeTexture(ktx2Bytes);   // same transcode + display + UI as a normal encode
+   }
+
+   // Process .DDS bytes from a worker DDS-encode: display them through the SAME path a
+   // loaded-from-disk .dds takes (transcodeDDSTexture), so the result appears exactly as if
+   // the user had just opened this .dds file. Optionally also downloads it.
+   function handleEncodedDDS(ddsBytes)
+   {
+      const n = ddsBytes ? ddsBytes.length : 0;
+      if (n === 0)
+      {
+         updateErrorLine('DDS encode produced no data — the source or chosen format may be unsupported.');
+         log('encodeToDDS() failed!');
+         return;
+      }
+      log('encodeToDDS() succeeded, output size ' + n);
+
+      const fmtName = ddsEncodeFormatName();
+      const filename = 'encoded_' + fmtName + '.dds';
+
+      // Display it through the SAME well-tested path a loaded-from-disk .dds takes. The result also
+      // becomes the current .dds source, so the "Download Encoded .KTX2/.DDS File" button saves it.
+      transcodeDDSTexture(ddsBytes, filename);
+
+      // Optionally auto-download the encoded .dds (the "Download encoded .DDS file when done" checkbox).
+      var dl = document.getElementById('dds-encode-download');
+      if (dl && dl.checked)
+         download_file(filename, ddsBytes);
+   }
+
+   // Create the worker + load the module ONCE; call onReady() when ready (immediately
+   // if already loaded). The worker is never terminated.
+   function ensureEncodeWorker(onReady)
+   {
+      if (g_encodeWorker && g_encodeWorkerLoaded) { onReady(); return; }
+
+      g_encodeWorkerOnReady = onReady; // latest caller wins if clicked again mid-load
+
+      if (g_encodeWorker) return; // already created and still loading; onReady fires on 'loaded'
+
+      const scriptSrc = (window.wasm64 && window.isThreaded) ? "../encoder/build/basis_encoder_threads_wasm64.js" :
+                        (window.isThreaded ? "../encoder/build/basis_encoder_threads.js" : "../encoder/build/basis_encoder.js");
+
+      console.log("encodeWorker: creating worker (one-time), scriptSrc=" + scriptSrc);
+
+      const t0 = performance.now();
+      g_encodeWorker = new Worker('encode-worker.js');
+
+      g_encodeWorkerWatchdog = setTimeout(function ()
+      {
+         hideEncodeBusy();
+         console.warn('encodeWorker: no loaded/error after 20s -- likely a pthread-spawn hang (check mainScriptUrlOrBlob / COOP+COEP)');
+      }, 20000);
+
+      const clearWatchdog = function () { if (g_encodeWorkerWatchdog) { clearTimeout(g_encodeWorkerWatchdog); g_encodeWorkerWatchdog = null; } };
+
+      g_encodeWorker.onmessage = function (e)
+      {
+         const msg = e.data || {};
+         if (msg.type === 'loaded')
+         {
+            clearWatchdog();
+            g_encodeWorkerLoaded = true;
+            console.log('%cencodeWorker: ' + msg.text + '  (' + (performance.now() - t0).toFixed(0) + ' ms)', 'color:#0a0;font-weight:bold');
+            if (g_encodeWorkerOnReady) { const cb = g_encodeWorkerOnReady; g_encodeWorkerOnReady = null; cb(); }
+         }
+         else if (msg.type === 'print')
+         {
+            // worker stdout/stderr -> live modal log + console (streams during encode)
+            appendEncodeBusyLog(msg.text);
+            console.log(msg.text);
+         }
+         else if (msg.type === 'encoded')
+         {
+            console.log('%cencodeWorker: ' + msg.text, 'color:#0a0;font-weight:bold');
+
+            // mirror the main-thread path's UI updates so the display is identical:
+            // encode time + mip0 PSNR feed the description string built in transcodeTexture.
+            if (typeof msg.encodeMs === 'number') { g_lastEncodeTime = msg.encodeMs; logTime('encoding time', msg.encodeMs.toFixed(2)); }
+            if (typeof msg.psnr === 'number') g_lastEncodeMip0RGBAPSNR = msg.psnr;
+
+            const bytes = new Uint8Array(msg.bytes); // KTX2 file, transferred back from the worker
+            handleEncodedKTX2(bytes);                // process like a normal encode (sets encodedKTX2File + transcodeTexture)
+
+            finishEncodeBusy();                      // auto-close, or keep open if the user asked to
+         }
+         else if (msg.type === 'encodedDDS')
+         {
+            console.log('%cencodeWorker: ' + msg.text, 'color:#0a0;font-weight:bold');
+
+            if (typeof msg.encodeMs === 'number') { g_lastEncodeTime = msg.encodeMs; logTime('DDS encoding time', msg.encodeMs.toFixed(2)); }
+
+            const bytes = new Uint8Array(msg.bytes); // .DDS file, transferred back from the worker
+            // finishEncodeBusy() MUST run even if the display (transcodeDDSTexture) throws, so the busy
+            // cursor + modal are always cleared no matter how the encode/display turns out.
+            try { handleEncodedDDS(bytes); }         // display it like a loaded .dds (+ optional download)
+            finally { finishEncodeBusy(); }          // auto-close, or keep open if the user asked to
+         }
+         else if (msg.type === 'error')
+         {
+            clearWatchdog();
+            appendEncodeBusyLog('ERROR: ' + msg.text);
+            console.error('encodeWorker: ' + msg.text);
+            // Surface the same on-page failure message the main-thread path shows, so a worker-side
+            // encode failure (e.g. a bogus/unsupported image) isn't silent in the UI.
+            updateErrorLine('Image is invalid or unsupported, or it may be too large to compress in WASM without risking running out of memory.');
+            log('encodeBasisTexture() failed!');
+            finishEncodeBusy();
+         }
+         else
+            console.log('encodeWorker: ' + msg.text);
+      };
+
+      g_encodeWorker.onerror = function (err)
+      {
+         clearWatchdog();
+         hideEncodeBusy();
+         console.error('encodeWorker: worker.onerror: ' + err.message + ' @ ' + err.filename + ':' + err.lineno);
+      };
+
+      g_encodeWorker.postMessage({ type: 'init', scriptSrc: scriptSrc });
+   }
+
+   // Worker-encode the CURRENTLY loaded source (curLoaded* must be set): build the
+   // DTO, show the modal, and post to the persistent worker. Shared by the "Encode!"
+   // button (already-loaded case) and the auto-load path (compressImage routes here
+   // for worker mode).
+   function encodeViaWorkerCore()
+   {
+      if (!curLoadedImageData && !curLoadedBrowserRGBA)
+      {
+         console.warn('encodeViaWorkerCore: no source loaded');
+         return;
+      }
+
+      // Match the main encode path: optionally clear the devtools console first.
+      const clearConsoleEl = document.getElementById('clear-console-on-encode');
+      if (clearConsoleEl && clearConsoleEl.checked && typeof console.clear === 'function')
+         console.clear();
+
+      const ext = curLoadedImageURI ? getFileExtension(curLoadedImageURI) : null;
+      const isHDRSrc = (ext != null) && (ext === "exr" || ext === "hdr");
+
+      // Same HDR-source override as the main path: an HDR source file forces a HDR
+      // format (and updates the dropdown).
+      let fmt = getSelectedBasisTexFormat();
+      if (Module.isBasisTexFormatLDR(fmt) && isHDRSrc)
+      {
+         fmt = Module.basis_tex_format.cUASTC_HDR_4x4.value;
+         setDropdownValue('basis-tex-format', fmt);
+      }
+
+      const dto = buildEncodeDTO(fmt, ext, curLoadedImageData, curLoadedBrowserRGBA, isHDRSrc);
+
+      showEncodeBusy(); // modal up for the whole load(if first)+encode; hidden on encoded/error
+
+      ensureEncodeWorker(function ()
+      {
+         console.log('encodeViaWorker: sending DTO to worker (formatMode=' + fmt + ')...');
+         g_encodeWorker.postMessage({ type: 'encode', dto: dto });
+      });
+   }
+
+   // "Encode!" button. Mirrors runEncodeImageFile: if a source is already loaded,
+   // worker-encode it; otherwise load the file named in the imagefile box (e.g. the
+   // default assets/kodim06.png on first run) and then worker-encode it.
+   function encodeViaWorker()
+   {
+      if ((elem('imagefile').value === '<externally loaded>') && (curLoadedImageData != null))
+      {
+         encodeViaWorkerCore();
+      }
+      else
+      {
+         loadArrayBufferFromURI(elem('imagefile').value, function (d, u) { loadAndCompressImage(d, u, 'worker'); }, dataLoadError);
+      }
+   }
+
+   // --- DDS export (direct source -> .DDS, on the worker; mirrors the KTX2 worker path) ---
+
+   // Resolve the selected DDS output format dropdown (member name -> numeric dds_output_format).
+   function getDDSEncodeFormatValue()
+   {
+      const name = document.getElementById('dds-encode-format').value; // e.g. "cDDSFmtBC7"
+      if (Module.dds_output_format && Module.dds_output_format[name])
+         return Module.dds_output_format[name].value;
+      return -1; // cDDSFmtInvalid
+   }
+
+   // Canonical token string for the selected format (for the output filename / log).
+   function ddsEncodeFormatName()
+   {
+      const v = getDDSEncodeFormatValue();
+      if ((v >= 0) && Module.getDDSOutputFormatString)
+         return Module.getDDSOutputFormatString(v);
+      return 'dds';
+   }
+
+   // Worst-case .DDS output buffer size: the page only ever encodes a single 2D slice, and the
+   // encoder caps total source texels (BASISU_ENCODER_MAX_SOURCE_IMAGE_PIXELS_HIGHER_LIMIT). The
+   // largest possible output is 32bpp uncompressed + a full mip chain (~4/3x); 1.5x + 64KB gives
+   // comfortable margin. This is a plain JS ArrayBuffer (not WASM memory), so it's cheap to allocate.
+   function computeDDSBufferSize()
+   {
+      const maxTexels = window.wasm64 ? (16 * 1024 * 1024) : (12 * 1024 * 1024);
+      return Math.ceil(maxTexels * 4 * 1.5) + 65536;
+   }
+
+   // Worker-encode the CURRENTLY loaded source to .DDS (curLoaded* must be set). Builds the DTO
+   // (reusing buildEncodeDTO), augments it with the DDS options, shows the modal, posts to the worker.
+   function encodeDDSViaWorkerCore()
+   {
+      if (!curLoadedImageData && !curLoadedBrowserRGBA)
+      {
+         console.warn('encodeDDSViaWorkerCore: no source loaded');
+         return;
+      }
+
+      const clearConsoleEl = document.getElementById('clear-console-on-encode');
+      if (clearConsoleEl && clearConsoleEl.checked && typeof console.clear === 'function')
+         console.clear();
+
+      const ext = curLoadedImageURI ? getFileExtension(curLoadedImageURI) : null;
+      const isHDRSrc = (ext != null) && (ext === "exr" || ext === "hdr");
+
+      // DDS export is LDR-only for now (HDR DDS formats / build_dds HDR path are a future addition).
+      if (isHDRSrc)
+      {
+         updateErrorLine('DDS export is LDR-only for now; load an LDR image (PNG/JPG/WebP/etc).');
+         return;
+      }
+
+      const ddsFormat = getDDSEncodeFormatValue();
+      if (ddsFormat < 0)
+      {
+         updateErrorLine('Please choose a valid DDS output format.');
+         return;
+      }
+
+      // Pass a plain LDR format mode to buildEncodeDTO so the source is treated as LDR. encodeToDDS()
+      // chooses the real prep format internally (and restores it after), so this only affects how the
+      // DTO selects the source image type (LDR vs HDR) -- not the actual DDS output.
+      const ldrFmt = Module.basis_tex_format.cUASTC_LDR_4x4.value;
+
+      const dto = buildEncodeDTO(ldrFmt, ext, curLoadedImageData, curLoadedBrowserRGBA, false);
+
+      // DDS-specific fields consumed by applyDDSEncodeDTO() / the worker.
+      dto.ddsFormat          = ddsFormat;
+      dto.ddsBC7Encoder      = parseInt(document.getElementById('dds-encode-bc7-encoder').value, 10);
+      dto.ddsBC7FLevel       = parseInt(document.getElementById('dds-encode-bc7f-level').value, 10);
+      dto.ddsBC7EScalarLevel = parseInt(document.getElementById('dds-encode-bc7e-level').value, 10);
+      dto.ddsBufferSize      = computeDDSBufferSize();
+
+      // Busy cursor for the whole DDS create (worker encode + the brief main-thread display that
+      // follows). Cleared in finishEncodeBusy()/hideEncodeBusy() so it can never get stuck.
+      document.body.style.cursor = 'wait';
+
+      showEncodeBusy(); // same modal/log window as the KTX2 encode
+
+      ensureEncodeWorker(function ()
+      {
+         console.log('encodeDDSViaWorker: sending DDS DTO to worker (ddsFormat=' + dto.ddsFormat + ')...');
+         g_encodeWorker.postMessage({ type: 'encodeDDS', dto: dto });
+      });
+   }
+
+   // "Encode DDS!" button. Mirrors encodeViaWorker(): if a source image is already loaded, DDS-encode
+   // it; otherwise load the file named in the imagefile box and then DDS-encode it.
+   function encodeDDSViaWorker()
+   {
+      if ((elem('imagefile').value === '<externally loaded>') && (curLoadedImageData != null))
+      {
+         encodeDDSViaWorkerCore();
+      }
+      else
+      {
+         loadArrayBufferFromURI(elem('imagefile').value, function (d, u) { loadAndCompressImage(d, u, 'ddsworker'); }, dataLoadError);
+      }
+   }
+
    function getXUASTCLDRDCTQuality()
    {
       var slider = document.getElementById('xuastc_ldr_dct_quality_slider');
@@ -1159,8 +2464,49 @@
       return effortLevel;
    }
 
+   function getDeblockingNumPasses()
+   {
+      var slider = document.getElementById('deblocking-num-passes-slider');
+      var n = parseInt(slider.value, 10);
+      if (!isFinite(n)) n = 16;
+      // Clamp to declared range [2, 256].
+      if (n < 2) n = 2;
+      if (n > 256) n = 256;
+      return n;
+   }
+   // True for Apple Safari (any version, desktop or iOS). Excludes other engines
+   // whose UA string also contains "Safari" (Chrome, Edge, Firefox-on-iOS, etc.).
+   function isSafari()
+   {
+      var ua = navigator.userAgent || "";
+      if (/chrome|chromium|crios|android|fxios|edg\/|opr\//i.test(ua)) return false;
+      return /safari/i.test(ua);
+   }
+
+   // Detects Safari 26.0-26.2, which have a WebKit bug where growing a shared
+   // (multithreaded) WASM heap corrupts memory -> "Out of bounds memory access"
+   // crashes during encoding. Fixed in Safari 26.3 (see emscripten issue #25905).
+   // There's no clean feature-test (the bug is silent until a heap grow), so we
+   // sniff the Safari version from the user-agent string.
+   function isBuggySafari()
+   {
+      if (!isSafari()) return false;
+      var m = (navigator.userAgent || "").match(/version\/(\d+)\.(\d+)/i);
+      if (!m) return false;
+      var major = parseInt(m[1], 10), minor = parseInt(m[2], 10);
+      return (major === 26) && (minor < 3);   // 26.0, 26.1, 26.2
+   }
+
+   // Returns the number of extra worker threads the encoder should ACTUALLY use
+   // (0 = single-threaded). BOTH encode paths -- the main-thread path and the
+   // background worker (via the DTO) -- call this, so any override here applies to
+   // both. On the buggy Safari versions we force single-threaded regardless of the
+   // UI controls, to avoid the multithreaded heap-grow crash.
    function getNumWorkerThreads()
    {
+      if (isBuggySafari())
+         return 0;
+
       var slider = document.getElementById('num_worker_threads');
       var num = parseInt(slider.value, 10);  // Convert the slider value to an integer
 
@@ -1180,8 +2526,48 @@
       return Number.isFinite(v) ? v : defaultValue;
    }
 
-   function compressImage(data, uri)
+   // Wrapper suitable as a loadArrayBufferFromURI callback.
+   // Checks whether the loaded file needs browser-assisted decoding
+   // and, if so, decodes first before calling compressImage.
+   // mode (optional): 'main' / 'worker' / undefined(=auto) -- forwarded to
+   // compressImage to pick the encode path. Omitted on normal loads (auto: respects
+   // the "Encode on worker thread by default" checkbox).
+   function loadAndCompressImage(data, uri, mode)
    {
+      var ext = getFileExtension(uri);
+      if (needsBrowserDecode(ext))
+      {
+         log('Format ".' + ext + '" is not natively supported by Basis Universal; decoding via browser...');
+
+         browserDecodeToRGBA(data, uri).then(function (decoded)
+         {
+            log('Browser decode OK: ' + decoded.width + 'x' + decoded.height);
+            compressImage(data, uri, decoded, mode);
+         }).catch(function (err)
+         {
+            var msg = 'Failed to decode .' + ext + ' file. Your browser may not support this image format.';
+            updateErrorLine(msg);
+            log(msg);
+            log('(' + err + ')');
+         });
+      }
+      else
+      {
+         compressImage(data, uri, undefined, mode);
+      }
+   }
+
+   // mode: 'main' = force main-thread; 'worker' = force worker; undefined = auto
+   // (respect the "Encode on worker thread by default" checkbox).
+   function compressImage(data, uri, browserDecodedRGBA, mode)
+   {
+      // Dev option: clear the browser's devtools console on each new encode.
+      // The null guard on the element and the function-type check on console.clear
+      // are defensive — both should always be true in practice.
+      const clearConsoleEl = document.getElementById('clear-console-on-encode');
+      if (clearConsoleEl && clearConsoleEl.checked && typeof console.clear === 'function') {
+         console.clear();
+      }
       updateErrorLine("");
     
       logClear();
@@ -1199,6 +2585,31 @@
 
       curLoadedImageData = data;
       curLoadedImageURI = uri;
+      curLoadedBrowserRGBA = browserDecodedRGBA || null;
+      // An image is now the active source for encoding: drop any prior DDS source so a
+      // failed encode (which never reaches transcodeTexture) can't leave the viewer stuck
+      // in the DDS state and block re-encoding.
+      curLoadedDDSData = null;
+      curLoadedDDSURI = null;
+      updateLoadedSourceDisplay();
+
+      // Route to the background worker for mode 'worker', or for auto (undefined)
+      // when "Encode on worker thread by default" is checked. mode 'main' stays on
+      // this (main-thread) path. curLoaded* are set above, so encodeViaWorkerCore()
+      // has what it needs (it does its own HDR-source override + console clear).
+      // DDS export goes through its own worker path (same machinery, encodeToDDS instead of encode).
+      if (mode === 'ddsworker')
+      {
+         encodeDDSViaWorkerCore();
+         return;
+      }
+
+      const workerDefault = elem('encode-on-worker-default') && elem('encode-on-worker-default').checked;
+      if ((mode === 'worker') || (mode !== 'main' && workerDefault))
+      {
+         encodeViaWorkerCore();
+         return;
+      }
 
       // Create a destination buffer to hold the compressed .basis file data. If this buffer isn't large enough compression will fail.
       var ktx2FileData = new Uint8Array(1024 * 1024 * 24);
@@ -1231,6 +2642,7 @@
       // Consistently set sRGB related options
       var sRGB_flag = elem('SRGB').checked;
 
+      // We could also set setSRGBOptions() here. (The KTX2 sRGB transfer func setting will be ignored when writing HDR files, as it's always linear.)
       // sRGB colorspace metrics (used by some codecs, like ETC1S/UASTC)
       basisEncoder.setPerceptual(sRGB_flag);
 
@@ -1244,7 +2656,26 @@
       // Mipmap generator sRGB->linear conversion during filtering
       basisEncoder.setMipSRGB(sRGB_flag);
 
-      if (Module.isBasisTexFormatHDR(desiredBasisTexFormat))
+      if (browserDecodedRGBA)
+      {
+         // Browser-decoded image (WebP, AVIF, etc.): always LDR 8-bit RGBA.
+         
+         if (Module.isBasisTexFormatHDR(desiredBasisTexFormat))
+         {
+            var ldr_to_hdr_nit_multiplier = getNitMultiplier();
+            
+            basisEncoder.setSliceSourceImageHDR(0, browserDecodedRGBA.rgbaU8, 
+                browserDecodedRGBA.width, browserDecodedRGBA.height, 
+                Module.hdr_image_type.cHITRGBA8Image.value, elem('ConvertLDRToLinear').checked, ldr_to_hdr_nit_multiplier);
+         }
+         else
+         {
+            basisEncoder.setSliceSourceImage(0, browserDecodedRGBA.rgbaU8,
+                browserDecodedRGBA.width, browserDecodedRGBA.height,
+                Module.ldr_image_type.cRGBA32.value);
+         }
+      }
+      else if (Module.isBasisTexFormatHDR(desiredBasisTexFormat))
       {
          var img_type = Module.hdr_image_type.cHITPNGImage.value;
 
@@ -1256,6 +2687,8 @@
                img_type = Module.hdr_image_type.cHITHDRImage.value;
             else if ((extension === "jpg") || (extension === "jpeg") || (extension === "jfif"))
                img_type = Module.hdr_image_type.cHITJPGImage.value;
+            else if (extension === "qoi")
+               img_type = Module.hdr_image_type.cHITQOIImage.value;
          }
 
          var ldr_to_hdr_nit_multiplier = getNitMultiplier();
@@ -1340,48 +2773,90 @@
       }
       else
       {
-         // basis_tex_format is LDR
+         // basis_tex_format is LDR, source is a natively-supported file format
          var img_type = Module.ldr_image_type.cPNGImage.value;
 
          if (extension != null)
          {
             if ((extension === "jpg") || (extension === "jpeg") || (extension === "jfif"))
                img_type = Module.ldr_image_type.cJPGImage.value;
+            else if (extension === "qoi")
+               img_type = Module.ldr_image_type.cQOIImage.value;
          }
 
          basisEncoder.setSliceSourceImage(0, new Uint8Array(data), 0, 0, img_type);
       }
 
       basisEncoder.setFormatMode(desiredBasisTexFormat);
-
-      // Use UASTC HDR quality (0=fastest)
-      basisEncoder.setUASTCHDRQualityLevel(getUASTCHDRQuality());
-
-      basisEncoder.setASTC_HDR_6x6_Level(getASTCHDR6x6CompLevel());
-      basisEncoder.setLambda(getASTC6x6RDOLambda());
+            
       basisEncoder.setRec2020(elem('Rec2020').checked);
 
       basisEncoder.setDebug(elem('Debug').checked);
+      basisEncoder.setStatusOutput(true);
       basisEncoder.setComputeStats(elem('ComputeStats').checked);
+      basisEncoder.setPrintStats(elem('PrintStats').checked);
+                  
+      // Some newer codecs (e.g. XUBC7) ALWAYS use the unified quality/effort
+      // controls even when the page is in low-level mode. The low-level branch
+      // below sets this flag for them; the unified block further down then runs
+      // regardless of the "use unified" checkbox.
+      var force_unified_effort_quality = false;
 
-      const etc1SQualityLevel = parseInt(elem('EncodeQuality').value, 10);
-
-      // Retrieve the correct slider depending on XUASTC vs. ETC1S
-      if (Module.isBasisTexFormatXUASTCLDR(desiredBasisTexFormat))
+      // If not using unified effort/quality options, set various low-level effort and quality related parameters.
+      // These low-level settings get set automatically if unified effort/quality settings are used.
+      if (!elem('use_new_style_quality_effort').checked)
       {
-         var weightGridDCTQuality = getXUASTCLDRDCTQuality();
-         if (weightGridDCTQuality < 100)
-         {
-            basisEncoder.setQualityLevel(weightGridDCTQuality);
-            basisEncoder.setXUASTCLDRUseDCT(true);
-         }
+        // Set UASTC HDR 4x4 effort (0=fastest) (somewhat misnamed "quality" because it impacts both performance and quality)
+        basisEncoder.setUASTCHDRQualityLevel(getUASTCHDRQuality());
+
+        // Set ASTC HDR 6x6/UASTC HDR 6x6 effort
+        basisEncoder.setASTC_HDR_6x6_Level(getASTCHDR6x6CompLevel());
+
+        // Set ASTC HDR 6x6/UASTC HDR 6x6 lambda (quality)
+        basisEncoder.setLambda(getASTC6x6RDOLambda());
+      
+        // Retrieve the correct quality slider depending on XUASTC vs. ETC1S.
+        // New codecs (e.g. XUBC7) always use the unified quality/effort controls
+        // even when the page is in low-level mode -- the low-level options are
+        // effectively ignored for them (we're moving new codecs to the unified
+        // options exclusively).
+        if (desiredBasisTexFormat === Module.basis_tex_format.cXUBC7.value)
+        {
+            // XUBC7 uses the unified quality/effort controls -- defer to the
+            // unified block below (the low-level Q/effort options are ignored).
+            force_unified_effort_quality = true;
+        }
+        else if (Module.isBasisTexFormatXUASTCLDR(desiredBasisTexFormat))
+        {
+            var weightGridDCTQuality = getXUASTCLDRDCTQuality();
+            
+            if (weightGridDCTQuality < 100)
+            {
+                basisEncoder.setQualityLevel(weightGridDCTQuality);
+                basisEncoder.setXUASTCLDRUseDCT(true);
+            }
+        }
+        else
+        {
+            const etc1SQualityLevel = parseInt(elem('EncodeQuality').value, 10);
+            basisEncoder.setQualityLevel(etc1SQualityLevel);
+        }
+
+        // Low level ASTC and XUASTC LDR bounded/windowed RDO settings
+        basisEncoder.setXUASTCLDRUseLossySupercompression(elem('XUASTCLossySupercompression').checked);
+        
+        basisEncoder.setASTCOrXUASTCLDREffortLevel(getXUASTCLDREffortLevel());
+        
+        // UASTC LDR 4x4
+        basisEncoder.setRDOUASTC(elem('UASTC_LDR_RDO').checked);
+        basisEncoder.setRDOUASTCQualityScalar(getUASTCLDRRDOQuality());
+        basisEncoder.setPackUASTCFlags(getUASTCLDRQuality());
+        
+        // ETC1S
+        basisEncoder.setETC1SCompressionLevel(getETC1SCompLevel());
       }
-      else
-         basisEncoder.setQualityLevel(etc1SQualityLevel);
 
-      // Low level ASTC and XUASTC LDR bounded/windowed RDO settings
-      basisEncoder.setXUASTCLDRUseLossySupercompression(elem('XUASTCLossySupercompression').checked);
-
+      // Low-level ASTC LDR/XUASTC LDR 4x4-12x12 options (that are available even if unified effort/quality settings are used)
       basisEncoder.setXUASTCLDRBoundedRDOParam(0, getSafeFloat("xuastc_ldr_min_psnr"));
       basisEncoder.setXUASTCLDRBoundedRDOParam(1, getSafeFloat("xuastc_ldr_min_alpha_psnr"));
       basisEncoder.setXUASTCLDRBoundedRDOParam(2, getSafeFloat("xuastc_ldr_thresh_psnr"));
@@ -1391,12 +2866,62 @@
 
       basisEncoder.setXUASTCLDRForceDisableRGBDualPlane(elem('XUASTCDisableRGBDualPlane').checked);
       basisEncoder.setXUASTCLDRForceDisableSubsets(elem('XUASTCDisableSubsets').checked);
+      basisEncoder.setXUASTCLDRUseBlurring(elem('XUASTCUseBlur').checked);
+      
+      // Dropdown value is the enum member name (e.g. "cBasisU"); look up the int
+      // via the Embind-exported enum so we don't hardcode integer values here.
+      basisEncoder.setXUASTCLDRSelectCompressor(
+         Module.xuastc_ldr_astc_comp_selection[elem('XUASTCLDRCompressor').value].value);
+          
+      basisEncoder.setXUASTCLDRHeavySubsetUsage(elem('XUASTCHeavySubsetUsage').checked);
+                  
+      const sharpenModeSelect = document.getElementById("XUASTCSharpenMode");
+      basisEncoder.setXUASTCLDRSharpenMode(Number(sharpenModeSelect.value));
+      basisEncoder.setXUASTCLDRSharpenAmount(parseFloat(elem('XUASTCSharpenAmount').value) || 0.0);
+      
+      // Set deblocking related encode time parameters
+      const encoding_deblocking_filter_select = document.getElementById("encoding_deblocking_filter_select");
+      const encoding_deblocking_filter_mode = Number(encoding_deblocking_filter_select.value);
 
+      // By default: No deblocking
+      basisEncoder.setXUASTCLDRDeblockingMode(encoding_deblocking_filter_mode);
+            
+      basisEncoder.setXUASTCLDRNumDeblockingPasses(getDeblockingNumPasses());
+      
+      // Set channel weights. Note the codec's default ASTC/XUASTC LDR channel weights were selected for sRGB content and are 3,11,1,11 (RGBA)
+      basisEncoder.setASTCOrXUASTCLDRWeights(
+         Math.max(1, Math.min(32, parseInt(elem('xuastc_ldr_weight_r').value, 10) || 1)),
+         Math.max(1, Math.min(32, parseInt(elem('xuastc_ldr_weight_g').value, 10) || 1)),
+         Math.max(1, Math.min(32, parseInt(elem('xuastc_ldr_weight_b').value, 10) || 1)),
+         Math.max(1, Math.min(32, parseInt(elem('xuastc_ldr_weight_a').value, 10) || 1))
+      );
+
+      // Set source image channel swizzle (default 0,1,2,3 = no swizzle).
+      {
+         var sw = getSwizzle();
+         basisEncoder.setSwizzle(sw[0], sw[1], sw[2], sw[3]);
+      }
+
+      // Set XUASTC LDR entropy coding profile/syntax
       basisEncoder.setXUASTCLDRSyntax(getXUASTCLDRSyntax());
 
-      basisEncoder.setRDOUASTC(elem('UASTC_LDR_RDO').checked);
-      basisEncoder.setRDOUASTCQualityScalar(getUASTCLDRRDOQuality());
+      // XUBC7 RDO level [0,100] (0=off). A low-level XUBC7 knob applied regardless
+      // of the unified controls (which only handle XUBC7's quality+effort). Setting
+      // it is harmless for non-XUBC7 formats (ignored unless the format is XUBC7).
+      basisEncoder.setXUBC7RDOLevel(getXUBC7RDOLevel());
 
+      // XUBC7 number of encode stripes [1,16] (default 8). Independent of the
+      // unified controls; harmless for non-XUBC7 formats. More stripes = more
+      // encode/decode parallelism for a slightly larger file.
+      basisEncoder.setXUBC7NumStripes(getXUBC7NumStripes());
+
+      // XUBC7 BC7 base encoder: 0 = bc7f (fast, default), 1 = bc7e_scalar (slower,
+      // higher quality), plus its quality level [0,6]. Independent of the unified
+      // controls; harmless for non-XUBC7 formats (ignored unless format is XUBC7).
+      basisEncoder.setXUBC7Encoder(getXUBC7Encoder());
+      basisEncoder.setXUBC7BC7EScalarLevel(getXUBC7BC7EScalarLevel());
+
+      // Mipmap options (setMipSRGB() set is above, and matches the sRGB checkbox)
       basisEncoder.setMipGen(elem('Mipmaps').checked);
       basisEncoder.setMipFilter(parseInt(elem('mip-filter-select').value, 10));
       basisEncoder.setMipScale(parseFloat(elem('mip-scale-input').value) || 1.0);
@@ -1404,31 +2929,13 @@
       basisEncoder.setMipRenormalize(elem('MipRenormalize').checked);
       basisEncoder.setMipWrapping(elem('MipWrapping').checked);
 
+      // Image Y flip
       basisEncoder.setYFlip(elem('YFlip').checked);
-
-      basisEncoder.setETC1SCompressionLevel(getETC1SCompLevel());
-      basisEncoder.setPackUASTCFlags(getUASTCLDRQuality());
-
-      basisEncoder.setASTCOrXUASTCLDREffortLevel(getXUASTCLDREffortLevel());
-
-      if (desiredBasisTexFormat === Module.basis_tex_format.cUASTC_HDR_4x4.value)
-         log('Encoding to UASTC HDR 4x4 quality level ' + getUASTCHDRQuality());
-      else if (desiredBasisTexFormat === Module.basis_tex_format.cASTC_HDR_6x6.value)
-         log('Encoding to ASTC HDR 6x6');
-      else if (desiredBasisTexFormat === Module.basis_tex_format.cUASTC_HDR_6x6_INTERMEDIATE.value)
-         log('Encoding to UASTC HDR 6x6 Intermediate');
-      else if (desiredBasisTexFormat === Module.basis_tex_format.cUASTC_LDR_4x4.value)
-         log('Encoding to UASTC LDR 4x4');
-      else if (Module.isBasisTexFormatASTCLDR(desiredBasisTexFormat))
-         log('Encoding to ASTC LDR 4x4-12x12');
-      else if (Module.isBasisTexFormatXUASTCLDR(desiredBasisTexFormat))
-         log('Encoding to XUASTC LDR 4x4-12x12');
-      else
-         log('Encoding to ETC1S quality level ' + etc1SQualityLevel);
-         
-      // See if they've enabled the new-style unified effort and quality levels. 
+               
+      // See if they've enabled the new-style unified effort and quality levels.
       // If so, set them now, which will override some of the codec-specific lower level options set previously.
-      if (elem('use_new_style_quality_effort').checked)      
+      // force_unified_effort_quality is set for codecs (e.g. XUBC7) that always use the unified controls.
+      if (elem('use_new_style_quality_effort').checked || force_unified_effort_quality)
       {
          const unified_effort_level = parseInt(document.getElementById("unified-effort-slider").value, 10);
          const unified_quality_level = parseInt(document.getElementById("unified-quality-slider").value, 10);
@@ -1437,6 +2944,21 @@
          
          log('Encoding to unified effort level ' + unified_effort_level + ', unified quality level ' + unified_quality_level);
       }
+      
+      if (desiredBasisTexFormat === Module.basis_tex_format.cUASTC_HDR_4x4.value)
+         log('Encoding to UASTC HDR 4x4');
+      else if (desiredBasisTexFormat === Module.basis_tex_format.cASTC_HDR_6x6.value)
+         log('Encoding to ASTC HDR 6x6');
+      else if (desiredBasisTexFormat === Module.basis_tex_format.cUASTC_HDR_6x6_INTERMEDIATE.value)
+         log('Encoding to UASTC HDR 6x6i');
+      else if (desiredBasisTexFormat === Module.basis_tex_format.cUASTC_LDR_4x4.value)
+         log('Encoding to UASTC LDR 4x4');
+      else if (Module.isBasisTexFormatASTCLDR(desiredBasisTexFormat))
+         log('Encoding to ASTC LDR 4x4-12x12');
+      else if (Module.isBasisTexFormatXUASTCLDR(desiredBasisTexFormat))
+         log('Encoding to XUASTC LDR 4x4-12x12');
+      else
+         log('Encoding to ETC1S');
 
       showBusyModal();
 
@@ -1461,9 +2983,48 @@
 
             basisEncoder.delete();
 
+            // DEV VALIDATION: run the DTO encode path on the SAME main thread (no
+            // worker yet) and verify it produces byte-identical output to the legacy
+            // path above. Logs to the JS console (Chrome F12). Wrapped so it can
+            // never break the real encode. Temporary -- remove once the DTO path is
+            // trusted and used for both non-worker and worker encoding.
+            // Skipped when the legacy encode failed (nothing meaningful to compare).
+            if (g_enableDTOValidation && num_output_bytes > 0) try
+            {
+               const _dtoT0 = performance.now();
+               const _dto = buildEncodeDTO(desiredBasisTexFormat, extension, data, browserDecodedRGBA, isHDRSourceFile);
+               const _dtoEnc = new BasisEncoder();
+               applyEncodeDTO(_dtoEnc, _dto);
+               const _dtoOut = new Uint8Array(1024 * 1024 * 24);
+               const _dtoLen = _dtoEnc.encode(_dtoOut);
+               _dtoEnc.delete();
+               const _dtoMs = (performance.now() - _dtoT0).toFixed(2);
+
+               let _same = (_dtoLen === num_output_bytes);
+               let _firstDiff = -1;
+               if (_same)
+               {
+                  for (let i = 0; i < _dtoLen; i++)
+                  {
+                     if (_dtoOut[i] !== actualKTX2FileData[i]) { _same = false; _firstDiff = i; break; }
+                  }
+               }
+
+               if (_same)
+                  console.log(`%cDTO validation: IDENTICAL ✓  (legacy=${num_output_bytes} B, DTO=${_dtoLen} B, DTO encode ${_dtoMs} ms)`, 'color:#0a0;font-weight:bold');
+               else
+                  console.error(`DTO validation: MISMATCH ✗  legacy=${num_output_bytes} B, DTO=${_dtoLen} B` +
+                     (_firstDiff >= 0 ? `, first differing byte @ ${_firstDiff} (legacy=${actualKTX2FileData[_firstDiff]}, DTO=${_dtoOut[_firstDiff]})` : ' (length differs)') +
+                     (_dto.multithreaded ? ' [multithreaded: a mismatch may be encoder non-determinism, not a DTO bug -- retry single-threaded to confirm]' : ''));
+            }
+            catch (_e)
+            {
+               console.error('DTO validation: ERROR', _e);
+            }
+
             if (num_output_bytes == 0)
             {
-               updateErrorLine('encodeBasisTexture() failed! Image may be too large to compress using WASM without risking OOM.');
+               updateErrorLine('Image is invalid or unsupported, or it may be too large to compress in WASM without risking running out of memory.');
 
                log('encodeBasisTexture() failed!');
             }
@@ -1515,13 +3076,13 @@
       {
          //console.log("calling compressImage 1");
 
-         compressImage(curLoadedImageData, curLoadedImageURI);
+         compressImage(curLoadedImageData, curLoadedImageURI, curLoadedBrowserRGBA, 'main'); // this button forces main-thread
       }
       else
       {
          //console.log("calling compressImage 4");
 
-         loadArrayBufferFromURI(elem('imagefile').value, compressImage, dataLoadError);
+         loadArrayBufferFromURI(elem('imagefile').value, function (d, u) { loadAndCompressImage(d, u, 'main'); }, dataLoadError); // force main-thread
       }
    }
 
@@ -1545,7 +3106,7 @@
 
          //console.log("calling compressImage 3");
 
-         loadArrayBufferFromURI(selectedFilename, compressImage, dataLoadError);
+         loadArrayBufferFromURI(selectedFilename, loadAndCompressImage, dataLoadError);
       }
    }
 
@@ -1562,33 +3123,37 @@
    function viewG() { drawMode = 4; updateViewModeButtons(); redraw(); }
    function viewB() { drawMode = 5; updateViewModeButtons(); redraw(); }
 
-   function BC7ChromaFilterClicked()
+   // Re-transcode + redraw the currently-viewed compressed texture (KTX2 or DDS) after a transcoder
+   // option changes. No-op if nothing is loaded. Shared by the transcoder-option change handlers.
+   function retranscodeCurrentTexture()
    {
       if (curLoadedKTX2Data != null)
       {
          logClear();
          transcodeTexture(curLoadedKTX2Data, curLoadedKTX2URI);
       }
-   }
-
-   function XUASTCDeblockingFilterClicked()
-   {
-      if (curLoadedKTX2Data != null)
+      else if (curLoadedDDSData != null)
       {
          logClear();
-         transcodeTexture(curLoadedKTX2Data, curLoadedKTX2URI);
+         transcodeDDSTexture(curLoadedDDSData, curLoadedDDSURI);
       }
    }
 
-   function highQualityTranscodingClicked()
+   function BC7ChromaFilterClicked() { retranscodeCurrentTexture(); }
+   function XUASTCDeblockingFilterClicked() { retranscodeCurrentTexture(); }
+   function DeblockingFilterModeChanged() { retranscodeCurrentTexture(); }
+   
+   function XUASTCGPUDeblockingFilterClicked()
    {
-      // Force retranscoding with the changed flags
-      if (curLoadedKTX2Data != null) 
-      {
-         logClear();
-         transcodeTexture(curLoadedKTX2Data, curLoadedKTX2URI);
-      }
+      redraw();
    }
+
+   function highQualityTranscodingClicked() { retranscodeCurrentTexture(); }
+
+   // Toggles cDecodeFlagsTranscodeAlphaDataToOpaqueFormats. Only meaningful for opaque target
+   // formats (PVRTC1 RGB, ETC1): it transcodes the source's alpha channel into the opaque output
+   // instead of RGB, so the alpha can be viewed. No effect on formats that already carry alpha.
+   function alphaToOpaqueFormatsClicked() { retranscodeCurrentTexture(); }
 
    function linearToSRGB()
    {
@@ -1631,6 +3196,10 @@
       {
          transcodeTexture(curLoadedKTX2Data, curLoadedKTX2URI);
       }
+      else if (curLoadedDDSData != null)
+      {
+         transcodeDDSTexture(curLoadedDDSData, curLoadedDDSURI);
+      }
    }
 
    function updateDisplayZoom(value)
@@ -1642,6 +3211,48 @@
       redraw();
    }
 
+   function updateCanvasColorSpace(value)
+   {
+      if (!renderer) return;
+      var target;
+      if (value === 'default')
+         target = originalCanvasColorSpace;
+      else
+         target = value;
+      // Unsupported browser (snapshot is null): nothing to do.
+      if (target === null) return;
+      renderer.setCanvasColorSpace(target);
+      redraw();
+   }
+   // Encoding presets: shortcuts that flip a small set of encoder controls to
+   // sensible values for a given content type. Only invoked when the user picks
+   // a value from the preset dropdown -- never on page load. Each branch sets
+   // every preset-controlled field explicitly, so switching back and forth is
+   // fully predictable regardless of intermediate manual edits.
+   function applyEncodingPreset(value)
+   {
+      if (value === 'srgb_photo')
+      {
+         elem('SRGB').checked = true;
+         elem('xuastc_ldr_weight_r').value = 9;
+         elem('xuastc_ldr_weight_g').value = 11;
+         elem('xuastc_ldr_weight_b').value = 1;
+         elem('xuastc_ldr_weight_a').value = 11;
+         //elem('XUASTCSharpenMode').value = '0'; // Disabled
+         //elem('encoding_deblocking_filter_select').value = '1'; // Auto
+      }
+      else if (value === 'linear_texture')
+      {
+         elem('SRGB').checked = false;
+         elem('xuastc_ldr_weight_r').value = 1;
+         elem('xuastc_ldr_weight_g').value = 1;
+         elem('xuastc_ldr_weight_b').value = 1;
+         elem('xuastc_ldr_weight_a').value = 1;
+         //elem('XUASTCSharpenMode').value = '0'; // Disabled
+         //elem('encoding_deblocking_filter_select').value = '0'; // Disabled
+      }
+   }
+   
    function toggleBilinearFiltering()
    {
       drawUseBilinearFiltering = document.getElementById('bilinear-filtering').checked;
@@ -1660,6 +3271,47 @@
       drawScale = 1.0;
       document.getElementById('scale-slider').value = 0.5;
       document.getElementById('scale-value').textContent = '1.0000';
+   }
+
+   function resetDisplayOptions()
+   {
+      // View mode -> Alpha blend
+      drawMode = 0;
+      updateViewModeButtons();
+
+      // LinearToSRGB -> Disabled
+      linearToSRGBFlag = false;
+      elem('linear_to_srgb').innerText = 'Disabled';
+
+      // Exposure -> 1.0
+      resetExposure();
+
+      // Mipmap level -> 0
+      resetMipmapSliderToZero();
+
+      // Cubemap face -> 0
+      resetCubemapFaceToZero();
+
+      // Array layer -> 0
+      resetArrayLayerToZero();
+
+      // Display zoom -> 1x
+      resetDisplayZoom();
+
+      // Bilinear filtering -> off
+      drawUseBilinearFiltering = false;
+      document.getElementById('bilinear-filtering').checked = false;
+
+      document.getElementById('xuastc_ldr_gpu_deblocking_show_edge_weights').checked = false;     
+      
+      // Re-transcode at mip 0 / face 0 / layer 0 if a texture is loaded,
+      // then redraw with the reset settings.
+      if (curLoadedKTX2Data != null)
+         transcodeTexture(curLoadedKTX2Data, curLoadedKTX2URI);
+      else if (curLoadedDDSData != null)
+         transcodeDDSTexture(curLoadedDDSData, curLoadedDDSURI);
+      else
+         redraw();
    }
 
    // Updates the slider range to match the current texture's mip count.
@@ -1703,6 +3355,10 @@
       {
          transcodeTexture(curLoadedKTX2Data, curLoadedKTX2URI);
       }
+      else if (curLoadedDDSData != null)
+      {
+         transcodeDDSTexture(curLoadedDDSData, curLoadedDDSURI);
+      }
    }
 
    function updateCubemapFaceRange(numFaces)
@@ -1743,6 +3399,10 @@
       {
          transcodeTexture(curLoadedKTX2Data, curLoadedKTX2URI);
       }
+      else if (curLoadedDDSData != null)
+      {
+         transcodeDDSTexture(curLoadedDDSData, curLoadedDDSURI);
+      }
    }
 
    function updateArrayLayerFromInput(value)
@@ -1761,6 +3421,10 @@
       if (curLoadedKTX2Data != null)
       {
          transcodeTexture(curLoadedKTX2Data, curLoadedKTX2URI);
+      }
+      else if (curLoadedDDSData != null)
+      {
+         transcodeDDSTexture(curLoadedDDSData, curLoadedDDSURI);
       }
    }
 
@@ -1804,6 +3468,25 @@
 
    function downloadEncodedFile()
    {
+      // Source-aware: whatever compressed texture is currently active gets downloaded. A .DDS view
+      // (an "Encode DDS!" result, or a loaded .dds) downloads the .dds bytes; otherwise the encoded
+      // .KTX2 is downloaded. The current-source globals tell us which.
+      if (getLoadedSourceKind() === 'dds')
+      {
+         if (curLoadedDDSData && curLoadedDDSData.length)
+         {
+            var ddsName = 'encoded_file.dds';
+            if (curLoadedDDSURI)
+            {
+               var base = curLoadedDDSURI.split(/[\\/]/).pop();
+               if (base && /\.dds$/i.test(base)) ddsName = base;
+            }
+            download_file(ddsName, curLoadedDDSData);
+         }
+         else
+            updateErrorLine('No .DDS data to download.');
+         return;
+      }
       if (encodedKTX2File)
       {
          if (encodedKTX2File.length)
@@ -1811,10 +3494,212 @@
       }
    }
 
-   function saveFramebufferAsPNG()
+   // Composes the transcoder decode flags from the "Transcoder Options (Decode Flags)"
+   // UI elements, matching how the normal transcode path (transcodeTexture()) builds
+   // them, so DDS/KTX exports decode the same way. blockWidth/blockHeight are the
+   // source texture's block dimensions (for the force-deblock-on-large-blocks
+   // heuristic). Returns the flags integer. (Keep in sync with transcodeTexture().)
+   function composeTranscodeDecodeFlags(blockWidth, blockHeight)
+   {
+      var F = Module.basisu_decode_flags;
+
+      var flags = elem('highquality_transcoding').checked ? F.cDecodeFlagsHighQuality.value : 0;
+
+      if (elem('etc1s_bc7_transcoder_no_chroma_filtering').checked)
+         flags = flags | F.cDecodeFlagsNoETC1SChromaFiltering.value;
+
+      if (elem('xuastc_ldr_disable_fast_bc7_transcoding').checked)
+         flags = flags | F.cDecodeFlagXUASTCLDRDisableFastBC7Transcoding.value;
+
+      if (elem('transcode_alpha_to_opaque_formats').checked)
+         flags = flags | F.cDecodeFlagsTranscodeAlphaDataToOpaqueFormats.value;
+
+      var deblocking_mode = Number(document.getElementById("deblocking-filter-select").value);
+
+      if (deblocking_mode == 3)
+      {
+         // Force CPU deblocking: on all block sizes if requested, else only on large
+         // blocks (the transcoder's default region); otherwise explicitly disable it.
+         if (elem('xuastc_ldr_force_deblocking_on_all_block_sizes').checked)
+            flags = flags | F.cDecodeFlagsForceDeblockFiltering.value;
+         else if ((blockWidth * blockHeight) >= VERY_LARGE_BLOCK_SIZE_IN_PIXELS)
+            flags = flags | F.cDecodeFlagsForceDeblockFiltering.value;
+         else
+            flags = flags | F.cDecodeFlagsNoDeblockFiltering.value;
+      }
+      else
+      {
+         // Disable CPU deblocking during transcoding (display uses GPU or none).
+         flags = flags | F.cDecodeFlagsNoDeblockFiltering.value;
+      }
+
+      return flags;
+   }
+
+   // Exports the currently loaded/displayed .KTX2 to a .DDS file (transcoding every
+   // mip level, array layer, and cubemap face to the format chosen in the
+   // #dds-export-format dropdown) and downloads it. Uses the encoder build's
+   // KTX2File.exportToDDS() / getDDSData().
+   // Runs a synchronous, main-thread function with a busy ('wait') cursor shown during it. The work is
+   // deferred one frame (double rAF) so the browser actually paints the cursor before the blocking call,
+   // and the cursor is ALWAYS restored in finally -- so it can never get stuck on any return/throw path.
+   function withBusyCursor(fn)
+   {
+      document.body.style.cursor = 'wait';
+      requestAnimationFrame(function () { requestAnimationFrame(function ()
+      {
+         try { fn(); }
+         finally { document.body.style.cursor = ''; }
+      }); });
+   }
+
+   function downloadExportedDDS() { withBusyCursor(downloadExportedDDSImpl); }
+
+   function downloadExportedDDSImpl()
+   {
+      // A loaded .DDS source is view-only for now (no DDS->DDS re-export path yet).
+      if (getLoadedSourceKind() === 'dds')
+      {
+         updateErrorLine('Export is not supported for .DDS sources yet.');
+         return;
+      }
+      // Nothing loaded/encoded yet -> nothing to export, so bail with an error.
+      if (!curLoadedKTX2Data)
+      {
+         updateErrorLine('No .KTX2 currently loaded to export. Load or encode a texture first.');
+         return;
+      }
+
+      var ktx2Bytes = new Uint8Array(curLoadedKTX2Data);
+      if (!ktx2Bytes.length)
+      {
+         updateErrorLine('No .KTX2 currently loaded to export. Load or encode a texture first.');
+         return;
+      }
+
+      var sel = document.getElementById('dds-export-format');
+      var format = parseInt(sel.value, 10);
+      var fmtLabel = sel.options[sel.selectedIndex].text.split(' ')[0];
+
+      var ktx2File = new Module.KTX2File(ktx2Bytes);
+      if (!ktx2File.isValid())
+      {
+         updateErrorLine('Export failed: the encoded .KTX2 is invalid.');
+         ktx2File.close();
+         ktx2File.delete();
+         return;
+      }
+
+      // Match the decode flags the normal transcode path uses (from the Decode Flags UI).
+      var decodeFlags = composeTranscodeDecodeFlags(ktx2File.getBlockWidth(), ktx2File.getBlockHeight());
+      // exportToDDS() calls start_transcoding() internally and returns the .DDS
+      // size in bytes (0 on failure, e.g. requesting an LDR format from an HDR texture).
+      // srgb_mode -1 = auto: follow the KTX2's transfer function (HDR -> linear formats).
+      var numBytes = ktx2File.exportToDDS(format, -1, decodeFlags);
+      if (!numBytes)
+      {
+         updateErrorLine('DDS export failed. The chosen format may be unsupported for this texture (e.g. a BC1-7/RGBA32 LDR format from an HDR texture; HDR supports only BC6H).');
+         ktx2File.close();
+         ktx2File.delete();
+         return;
+      }
+
+      var ddsData = new Uint8Array(numBytes);
+      var ok = ktx2File.getDDSData(ddsData);
+
+      ktx2File.close();
+      ktx2File.delete();
+
+      if (!ok)
+      {
+         updateErrorLine('Failed retrieving the exported .DDS data.');
+         return;
+      }
+
+      download_file('exported_' + fmtLabel + '.dds', ddsData);
+      log('Exported .DDS (' + fmtLabel + ', ' + numBytes + ' bytes).');
+   }
+
+   // Exports the currently loaded/displayed .KTX2 to a compressed KTX1 (.ktx) file
+   // (transcoding every mip level, array layer, and cubemap face to the format chosen
+   // in the #ktx-export-format dropdown) and downloads it. Uses the encoder build's
+   // KTX2File.exportToKTX() / getKTXData().
+   function downloadExportedKTX() { withBusyCursor(downloadExportedKTXImpl); }
+
+   function downloadExportedKTXImpl()
+   {
+      // A loaded .DDS source is view-only for now (no DDS->KTX re-export path yet).
+      if (getLoadedSourceKind() === 'dds')
+      {
+         updateErrorLine('Export is not supported for .DDS sources yet.');
+         return;
+      }
+      // Nothing loaded/encoded yet -> nothing to export, so bail with an error.
+      if (!curLoadedKTX2Data)
+      {
+         updateErrorLine('No .KTX2 currently loaded to export. Load or encode a texture first.');
+         return;
+      }
+
+      var ktx2Bytes = new Uint8Array(curLoadedKTX2Data);
+      if (!ktx2Bytes.length)
+      {
+         updateErrorLine('No .KTX2 currently loaded to export. Load or encode a texture first.');
+         return;
+      }
+
+      var sel = document.getElementById('ktx-export-format');
+      var format = parseInt(sel.value, 10);
+      // Sanitize the option label into a filename token (e.g. "ASTC LDR 6x6" -> "ASTC_LDR_6x6").
+      var fmtLabel = sel.options[sel.selectedIndex].text.replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+
+      var ktx2File = new Module.KTX2File(ktx2Bytes);
+      if (!ktx2File.isValid())
+      {
+         updateErrorLine('Export failed: the encoded .KTX2 is invalid.');
+         ktx2File.close();
+         ktx2File.delete();
+         return;
+      }
+
+      // Match the decode flags the normal transcode path uses (from the Decode Flags UI).
+      var decodeFlags = composeTranscodeDecodeFlags(ktx2File.getBlockWidth(), ktx2File.getBlockHeight());
+      // exportToKTX() calls start_transcoding() internally and returns the .KTX size
+      // in bytes (0 on failure). srgb_mode -1 = auto (only affects ASTC LDR output).
+      var numBytes = ktx2File.exportToKTX(format, -1, decodeFlags);
+      if (!numBytes)
+      {
+         updateErrorLine('KTX export failed. The chosen format may be unsupported for this texture (e.g. an LDR format from an HDR texture, or a non-power-of-2 texture for PVRTC1).');
+         ktx2File.close();
+         ktx2File.delete();
+         return;
+      }
+
+      var ktxData = new Uint8Array(numBytes);
+      var ok = ktx2File.getKTXData(ktxData);
+
+      ktx2File.close();
+      ktx2File.delete();
+
+      if (!ok)
+      {
+         updateErrorLine('Failed retrieving the exported .KTX data.');
+         return;
+      }
+
+      download_file('exported_' + fmtLabel + '.ktx', ktxData);
+      log('Exported .KTX (' + fmtLabel + ', ' + numBytes + ' bytes).');
+   }
+
+   // Renders the current framebuffer to a PNG Blob and passes it to onBlob(blob).
+   // Calls onBlob(null) if the framebuffer isn't ready or PNG encoding fails.
+   function getFramebufferPNGBlob(onBlob)
    {
       if (!width || !displayWidth || !displayHeight)
+      {
+         onBlob(null);
          return;
+      }
 
       // Ensure the canvas contents are fresh.
       redraw();
@@ -1842,8 +3727,15 @@
 
       ctx.putImageData(imageData, 0, 0);
 
-      // Convert to PNG blob and trigger download.
       tmpCanvas.toBlob(function(blob) {
+         onBlob(blob || null);
+      }, 'image/png');
+   }
+   function saveFramebufferAsPNG()
+   {
+      getFramebufferPNGBlob(function(blob) {
+         if (!blob)
+            return;
          var url = URL.createObjectURL(blob);
          var a = document.createElement('a');
          a.href = url;
@@ -1852,18 +3744,55 @@
          a.click();
          document.body.removeChild(a);
          URL.revokeObjectURL(url);
-      }, 'image/png');
+      });
+   }
+   function copyFramebufferToClipboard()
+   {
+      if (!navigator.clipboard || typeof navigator.clipboard.write !== 'function')
+      {
+         updateErrorLine('Clipboard image writing is not available. Serve this page over https:// or localhost, and use a recent browser.');
+         return;
+      }
+      // Pre-check framebuffer readiness here (in addition to the same check inside
+      // getFramebufferPNGBlob) so we can show a specific "no framebuffer" message
+      // rather than the generic clipboard-write failure that would otherwise surface.
+      if (!width || !displayWidth || !displayHeight)
+      {
+         updateErrorLine('No framebuffer to copy.');
+         return;
+      }
+      // Construct the ClipboardItem synchronously inside the user-gesture click handler,
+      // passing a Promise<Blob> rather than awaiting the blob first. Safari (and stricter
+      // gesture-tracking in other browsers) requires this so the gesture isn't considered
+      // expired by the time toBlob resolves.
+      var blobSize = 0;
+      var blobPromise = new Promise(function(resolve, reject) {
+         getFramebufferPNGBlob(function(blob) {
+            if (!blob) { reject(new Error('PNG encoding failed')); return; }
+            blobSize = blob.size;
+            resolve(blob);
+         });
+      });
+      // Suppress unhandled-rejection warnings on blobPromise itself; the rejection
+      // (if any) is also surfaced through clipboard.write's promise below.
+      blobPromise.catch(function() {});
+      navigator.clipboard.write([
+         new ClipboardItem({ 'image/png': blobPromise })
+      ]).then(function() {
+         updateStatusLine('Copied framebuffer to clipboard.');
+         log('------');
+         log('Copied framebuffer to clipboard (' + blobSize + ' bytes, PNG).');
+      }).catch(function(err) {
+         updateErrorLine('Failed to copy framebuffer to clipboard.');
+         log('Clipboard write failed: ' + err);
+      });
    }
    function disabledFormatsChanged()
    {
       updateSupportedFormats();
       updateDisableButtons();
 
-      if (curLoadedKTX2Data != null)
-      {
-         logClear();
-         transcodeTexture(curLoadedKTX2Data, curLoadedKTX2URI);
-      }
+      retranscodeCurrentTexture();
    }
 
    function disableASTC()
@@ -1914,6 +3843,25 @@
       disabledFormatsChanged();
    }
 
+   // BC4/BC5 (RGTC) toggle. Only affects the DDS viewer.
+   function disableRGTC()
+   {
+      rgtcDisabled = !rgtcDisabled;
+      disabledFormatsChanged();
+   }
+
+   function disableETC2()
+   {
+      etc2Disabled = !etc2Disabled;
+      disabledFormatsChanged();
+   }
+
+   function disableEAC()
+   {
+      eacDisabled = !eacDisabled;
+      disabledFormatsChanged();
+   }
+
    function disableAllFormats()
    {
       astcDisabled = true;
@@ -1924,6 +3872,9 @@
       astcHDRDisabled = true;
       bc6hDisabled = true;
       rgbaHalfDisabled = true;
+      rgtcDisabled = true;
+      etc2Disabled = true;
+      eacDisabled = true;
       disabledFormatsChanged();
    }
 
@@ -1937,6 +3888,9 @@
       astcHDRDisabled = false;
       bc6hDisabled = false;
       rgbaHalfDisabled = false;
+      rgtcDisabled = false;
+      etc2Disabled = false;
+      eacDisabled = false;
       disabledFormatsChanged();
    }
 
@@ -2021,6 +3975,32 @@
             addButton('<button onclick="disableRGBA_HALF()">Disable RGBA_HALF</button>');
       }
 
+      // BC4/BC5 (RGTC): only meaningful for DDS sources, but the toggle is always shown when supported.
+      if (rgtcSupported)
+      {
+         if (rgtcDisabled)
+            addButton('<button onclick="disableRGTC()">Enable BC4/BC5</button>');
+         else
+            addButton('<button onclick="disableRGTC()">Disable BC4/BC5</button>');
+      }
+
+      // ETC2 RGBA + EAC R11/RG11 (from WEBGL_compressed_texture_etc): shown when supported (typically mobile).
+      if (etc2Supported)
+      {
+         if (etc2Disabled)
+            addButton('<button onclick="disableETC2()">Enable ETC2 RGBA</button>');
+         else
+            addButton('<button onclick="disableETC2()">Disable ETC2 RGBA</button>');
+      }
+
+      if (eacSupported)
+      {
+         if (eacDisabled)
+            addButton('<button onclick="disableEAC()">Enable EAC R11/RG11</button>');
+         else
+            addButton('<button onclick="disableEAC()">Disable EAC R11/RG11</button>');
+      }
+
       addButton('<button onclick="disableAllFormats()">Disable All</button>');
       addButton('<button onclick="enableAllFormats()">Enable All</button>');
    }
@@ -2037,7 +4017,7 @@
          supportedFormats.push('ETC1');
 
       if (dxtSupported && !dxtDisabled)
-         supportedFormats.push('BC1-5');
+         supportedFormats.push('BC1-3');
 
       if (pvrtcSupported && !pvrtcDisabled)
          supportedFormats.push('PVRTC');
@@ -2053,6 +4033,15 @@
 
       if (rgbaHalfSupported && !rgbaHalfDisabled)
          supportedFormats.push('RGBA_HALF');
+
+      if (rgtcSupported && !rgtcDisabled)
+         supportedFormats.push('BC4/BC5');
+
+      if (etc2Supported && !etc2Disabled)
+         supportedFormats.push('ETC2 RGBA');
+
+      if (eacSupported && !eacDisabled)
+         supportedFormats.push('EAC R11/RG11');
 
       // Prepare the display string
       let supportedString = 'Supported WebGL formats: ';
@@ -2091,6 +4080,20 @@
       dxtSupported = !!gl.getExtension('WEBGL_compressed_texture_s3tc');
       pvrtcSupported = !!(gl.getExtension('WEBGL_compressed_texture_pvrtc')) || !!(gl.getExtension('WEBKIT_WEBGL_compressed_texture_pvrtc'));
       bc7Supported = !!gl.getExtension('EXT_texture_compression_bptc');
+      // BC4/BC5 come from the same RGTC extension (used only by the DDS viewer).
+      rgtcSupported = !!gl.getExtension('EXT_texture_compression_rgtc');
+
+      // ETC2 (RGB/RGBA) + EAC (R11/RG11) come from WEBGL_compressed_texture_etc (NOT the ETC1-only
+      // WEBGL_compressed_texture_etc1 above). ETC2 RGBA is used by both the KTX2 and DDS transcode paths;
+      // EAC R11/RG11 are used by the DDS path only (channel-matched fallback for R8/R8G8 / BC4/BC5).
+      {
+         var etc2Ext = gl.getExtension('WEBGL_compressed_texture_etc');
+         if (etc2Ext)
+         {
+            etc2Supported = !!etc2Ext.COMPRESSED_RGBA8_ETC2_EAC;  // ETC2 RGB / RGBA
+            eacSupported  = !!etc2Ext.COMPRESSED_RG11_EAC;        // EAC R11 / RG11
+         }
+      }
 
       // Check for BC6H support
       {
@@ -2140,12 +4143,15 @@
 
       console.log('astcSupported: ' + astcSupported);
       console.log('etcSupported: ' + etcSupported);
+      console.log('etc2Supported (ETC2 RGB/RGBA): ' + etc2Supported);
+      console.log('eacSupported (EAC R11/RG11): ' + eacSupported);
       console.log('dxtSupported: ' + dxtSupported);
       console.log('bc7Supported: ' + bc7Supported);
       console.log('pvrtcSupported: ' + pvrtcSupported);
       console.log('bc6hSupported: ' + bc6hSupported);
       console.log('astcHDRSupported: ' + astcHDRSupported);
       console.log('rgbaHalfSupported: ' + rgbaHalfSupported);
+      console.log('rgtcSupported (BC4/BC5): ' + rgtcSupported);
 
       updateSupportedFormats();
       updateDisableButtons();
@@ -2246,6 +4252,10 @@
       var gl = elem('canvas').getContext('webgl');
       checkForGPUFormatSupport(gl);
 
+      // Snapshot the browser's chosen default color space so the UI can revert to it.
+      // null on browsers that don't expose the property (treated as "no control available").
+      window.originalCanvasColorSpace =
+         (typeof gl.drawingBufferColorSpace !== 'undefined') ? gl.drawingBufferColorSpace : null;
       window.renderer = new Renderer(gl);
 
       elem('file').addEventListener('keydown', function (e)
@@ -2333,6 +4343,86 @@
               xuastcLDRDCTValue.textContent = this.value;
           }
       }
+      {
+          let deblockingPassesSlider = document.getElementById('deblocking-num-passes-slider');
+          let deblockingPassesValue  = document.getElementById('deblocking-num-passes-value');
+          deblockingPassesSlider.oninput = function()
+          {
+              deblockingPassesValue.textContent = this.value;
+          }
+      }
+      {
+          let xubc7RDOSlider = document.getElementById('xubc7_rdo_level_slider');
+          let xubc7RDOValue  = document.getElementById('xubc7_rdo_level_value');
+          xubc7RDOSlider.oninput = function()
+          {
+              xubc7RDOValue.textContent = this.value;
+          }
+      }
+      {
+          let xubc7StripesSlider = document.getElementById('xubc7_num_stripes_slider');
+          let xubc7StripesValue  = document.getElementById('xubc7_num_stripes_value');
+          xubc7StripesSlider.oninput = function()
+          {
+              xubc7StripesValue.textContent = this.value;
+          }
+      }
+      {
+          let xubc7Bc7eLevelSlider = document.getElementById('xubc7_bc7e_scalar_level_slider');
+          let xubc7Bc7eLevelValue  = document.getElementById('xubc7_bc7e_scalar_level_value');
+          xubc7Bc7eLevelSlider.oninput = function()
+          {
+              xubc7Bc7eLevelValue.textContent = this.value;
+          }
+      }
+
+      // Wire the two "Loaded: ..." displays for source image and .ktx2 file.
+      // The display text is updated by updateLoadedSourceDisplay() /
+      // updateLoadedFormatDisplay(), which are called from every load site that
+      // assigns curLoadedImageURI or curLoadedKTX2URI.
+      {
+          function wireCopyButton(btnId, getUri)
+          {
+              const btn = document.getElementById(btnId);
+              if (!btn) return;
+              btn.addEventListener('click', async function()
+              {
+                  const uri = getUri();
+                  if (!uri) return;
+                  const originalText = btn.textContent;
+                  try
+                  {
+                      await navigator.clipboard.writeText(uri);
+                      btn.textContent = 'Copied!';
+                  }
+                  catch (err)
+                  {
+                      // Fallback for environments where the async clipboard API
+                      // is unavailable (e.g. some older browsers or non-HTTPS).
+                      try
+                      {
+                          const ta = document.createElement('textarea');
+                          ta.value = uri;
+                          ta.style.position = 'fixed';
+                          ta.style.opacity = '0';
+                          document.body.appendChild(ta);
+                          ta.select();
+                          document.execCommand('copy');
+                          document.body.removeChild(ta);
+                          btn.textContent = 'Copied!';
+                      }
+                      catch (err2)
+                      {
+                          btn.textContent = 'Copy failed';
+                          log('Copy to clipboard failed: ' + err2);
+                      }
+                  }
+                  setTimeout(function() { btn.textContent = originalText; }, 1200);
+              });
+          }
+          wireCopyButton('copy-loaded-source-uri-btn', function() { return curLoadedImageURI; });
+          wireCopyButton('copy-loaded-ktx2-uri-btn',   function() { return getLoadedSourceKind() === 'dds' ? curLoadedDDSURI : curLoadedKTX2URI; });
+      }
      
       {
         document.getElementById("unified-effort-slider").oninput = function() 
@@ -2349,13 +4439,79 @@
       runLoadFile();
    }
 
-   function updateErrorLine(message)
+   // Single source of truth for the message line. Pass '' (or whitespace) to clear.
+   // type is 'error' (red) or 'status' (gray).
+   function updateMessageLine(message, type)
    {
-     const errorLine = document.getElementById('error-line');
-     errorLine.textContent = message;
-     errorLine.style.color = message.trim() ? 'red' : '';
+     const line = document.getElementById('error-line');
+     line.textContent = message;
+     if (!message.trim())
+     {
+        line.style.color = '';
+        return;
+     }
+     line.style.color = (type === 'status') ? 'green' : 'red';
    }
+   function updateErrorLine(message)  { updateMessageLine(message, 'error'); }
+   function updateStatusLine(message) { updateMessageLine(message, 'status'); }
 
+   async function pasteImageFromClipboard()
+   {
+      // navigator.clipboard is undefined in non-secure contexts (file://, http://).
+      // The function check guards against browsers (notably some Firefox versions)
+      // where navigator.clipboard exists for text-only methods but .read is missing.
+      if (!navigator.clipboard || typeof navigator.clipboard.read !== 'function')
+      {
+         updateErrorLine('Clipboard image reading is not available. Serve this page over https:// or localhost, and use a recent browser.');
+         return;
+      }
+      let clipboardItems;
+      try
+      {
+         clipboardItems = await navigator.clipboard.read();
+      }
+      catch (err)
+      {
+         updateErrorLine('Could not read clipboard. Browser permission was denied or unavailable.');
+         log('Clipboard read failed: ' + err);
+         return;
+      }
+      // MIME types we support pasting. createImageBitmap (used by browserDecodeToRGBA
+      // via loadAndCompressImage -> compressImage) handles all of these in modern browsers.
+      const SUPPORTED = {
+         'image/png':  'png',
+         'image/jpeg': 'jpg',
+         'image/webp': 'webp',
+         'image/bmp':  'bmp',
+         'image/gif':  'gif'
+      };
+      for (const clipboardItem of clipboardItems)
+      {
+         for (const type of clipboardItem.types)
+         {
+            const ext = SUPPORTED[type];
+            if (!ext) continue;
+            let blob;
+            try
+            {
+               blob = await clipboardItem.getType(type);
+            }
+            catch (err)
+            {
+               log('Clipboard image getType failed for ' + type + ': ' + err);
+               continue;
+            }
+            // Wrap the blob as a File so it has .name and .size like the drag/drop path,
+            // then reuse processFile() — same code path as drag-drop and file-picker.
+            const fileName = 'clipboard-image.' + ext;
+            const file = new File([blob], fileName, { type: type });
+            updateErrorLine('');
+            window.processFile(file);
+            return;
+         }
+      }
+      updateErrorLine('Clipboard does not contain a supported LDR/SDR bitmap image.');
+   }
 </script>
 
 <style>
@@ -2399,7 +4555,7 @@
   /* IMPORTANT: do NOT scale the canvas with CSS; let JS size it 1:1 */
   #canvas { display:block; image-rendering: pixelated; }
 
-  /* Small screens: stack vertically so it�s still usable */
+  /* Small screens: stack vertically so it's still usable */
   @media (max-width: 1100px){
     .wrap{ flex-direction:column; height:auto; overflow:auto; }
     .controls{ flex: 0 0 auto; width:auto; max-height:none; overflow-y:visible; }
@@ -2429,32 +4585,46 @@
 </head>
 
 <body>
+<div id="safari-bug-banner" style="display:none; background:#c0392b; color:#ffffff; font-weight:bold; padding:10px 14px; text-align:center; border-bottom:2px solid #7b241c; font-family:sans-serif;">
+&#9888; Your Safari version (26.0-26.2) has a WebAssembly memory bug that crashes multithreaded encoding. Encoding is running single-threaded (slower) as a workaround. For full speed, update to Safari 26.3+, or use Chrome or Firefox.
+</div>
 
 <div class="wrap">
   <div class="controls">
 
     <br>
+    <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
     <div style="font-size: 24pt; font-weight: bold">
-    Basis Universal .KTX2 Supercompressed GPU Texture Encoding/Transcoding Testbed v2.19
+    Basis Universal .KTX2/.DDS Studio v2.50
+      </div>
+      <button type="button" onclick="document.getElementById('help-dialog').showModal()"
+              style="font-size: 11pt; padding: 4px 10px;">Help / About</button>
     </div>
 
-    <br>This simple demo uses the <a href="https://github.com/BinomialLLC/basis_universal/">Basis Universal</a> C++ transcoder (compiled to WebAssembly using Emscripten) to transcode a .ktx2 file to:
+    <br>This tool uses the <a href="https://github.com/BinomialLLC/basis_universal/">Basis Universal</a> C++ transcoder (compiled to WebAssembly using Emscripten) to transcode a .ktx2 file to:
     <br><b id='format'>FORMAT</b>
     <br>
-    <br>The viewer is implemented in WebGL and renders a single textured quad. It also supports encoding .PNG, .JPG, .EXR or .HDR files to LDR or HDR .KTX2 files.
-    Thanks to Evan Parker for providing <a href="https://github.com/toji/webgl-texture-utils">webgl-texture-utils</a> and this test bed. <a href="../index.html">Go back.</a>
-    Notes: Enable your browser debug console (F12 on Chrome/Firefox) to see debug output.
-    The largest image resolution that can be compressed in the browser with
-    this library is limited to either 16 megapixels or 4 megapixels (depending on format and WASM64/WASM32) to avoid running out of WASM memory.
+    <dialog id="help-dialog" style="max-width: 640px; padding: 20px; border: 1px solid #888; border-radius: 6px;"
+            onclick="if (event.target === this) this.close();">
+      <h2 style="margin-top: 0;">About Basis Universal .KTX2/.DDS Studio</h2>
+      <p>The viewer is implemented in WebGL and renders a single textured quad. It also supports encoding .PNG, .JPG, .QOI, .EXR or .HDR files to LDR or HDR .KTX2 files.</p>
+      <p>Additional image formats (.WebP, .AVIF, .GIF, .BMP, .TIFF, .HEIC, .HEIF, .JXL) are supported via browser-assisted decoding (browser support varies by format).</p>
+      <p>Thanks to Evan Parker for providing <a href="https://github.com/toji/webgl-texture-utils">webgl-texture-utils</a> and this test bed. <a href="../index.html">Go back.</a></p>
+      <p><b>Notes:</b> Enable your browser debug console (F12 on Chrome/Firefox) to see debug output.
+      The largest image resolution that can be compressed in the browser with this library is limited to either 16 megapixels or 4 megapixels (depending on format and WASM64/WASM32) to avoid running out of WASM memory.</p>
+      <div style="text-align: right; margin-top: 16px;">
+        <button type="button" onclick="document.getElementById('help-dialog').close()"
+                style="padding: 4px 14px;">Close</button>
+      </div>
+    </dialog>
 
-    <br><br>
+    <br>
     <div id="supported-formats">
     Supported WebGL formats:
     </div>
 
     <br>
     <div id="error-line">
-    Test
     </div>
 
     <div id="disable-buttons" style="margin-top: 10px;">
@@ -2463,27 +4633,55 @@
 
     <br>
     <div id="threading-indicator"> </div>
+    
     <br>
     <input type="checkbox" id="multithreaded_encoding" checked>Use Multithreading (if available)
 
-    <br>Additional Worker Threads (Max 18):
-    <input type="number" id="num_worker_threads" value="4" size="18" min="0" max="18">
+    <br>Additional Worker Threads (Max 32):
+    <input type="number" id="num_worker_threads" value="12" min="0" max="32">
     <br><br>
+    
+    <div id="deblocking-indicator"> </div>
+    
+    <hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">
+    <b>Source Image / File Input:</b>
+    <br>
+    <div id="drop-area" style="width: 40%; height: 75px; border: 2px dashed #ccc; display: flex; justify-content: center; align-items: center; margin-top: 20px;">
+    <p>Drag and drop a .KTX2, .DDS, or image file here, or click to select a file.</p>
+    <input type="file" id="file-input" style="display: none;">
+    </div>
 
     <br>
     .ktx2 file:
     <input id="file" type="text" size=30 value="assets/kodim23.ktx2"></input>
     <input type="button" value="Transcode!" onclick="runLoadFile()"></input>
     <br>
+    <div style="margin: 2px 0 0 60px; font-size: 0.85em; color: var(--ink-dim, #666); word-break: break-all;">
+        Loaded:
+        <span id="loaded-ktx2-uri-display" title="URI of the currently loaded .ktx2 file">(none)</span>
+        <button id="copy-loaded-ktx2-uri-btn" type="button"
+                style="margin-left: 6px; padding: 0 6px; font-size: 0.85em;"
+                title="Copy this URI to the clipboard"
+                disabled>Copy</button>
+    </div>
 
     <br>
-    .png/.jpg/.exr/.hdr file:
-    <input id="imagefile" type="text" size=30 value="assets/desk.exr"></input>
-    <input type="button" value="Encode!" onclick="runEncodeImageFile()"></input>
+    .png/.jpg/.webp/.exr/.hdr file:
+    <input id="imagefile" type="text" size=30 value="assets/kodim06.png"></input>
+    <input type="button" value="Encode!" onclick="encodeViaWorker()" title="Encode on a background worker thread: the UI stays responsive and a modal progress dialog is shown."></input>
+    <input type="button" value="Encode (on Main Thread)" onclick="runEncodeImageFile()" title="Legacy/testing path: encodes on the main thread (freezes the UI). Also runs the on-main DTO validation check."></input>
     <br>
+    <div style="margin: 2px 0 0 60px; font-size: 0.85em; color: var(--ink-dim, #666); word-break: break-all;">
+        Loaded:
+        <span id="loaded-source-uri-display" title="URI/filename of the currently loaded source image">(none)</span>
+        <button id="copy-loaded-source-uri-btn" type="button"
+                style="margin-left: 6px; padding: 0 6px; font-size: 0.85em;"
+                title="Copy this URI to the clipboard"
+                disabled>Copy</button>
+    </div>
     <br>
     <select id="filename-dropdown" onchange="onFilenameSelect()">
-    <option value="">--Select Image File--</option>
+    <option value="">--Select Example Image--</option>
     <option value="assets/desk.exr">desk.exr</option>
     <option value="assets/MtTamWest.exr">MtTamWest.exr</option>
     <option value="assets/sponza.exr">sponza.exr</option>
@@ -2532,18 +4730,22 @@
     <option value="assets/base.png">base.png</option>
 
     </select>
+        
+    <br><br>
 
-    <br>
+    <input type="button" value="Download Encoded .KTX2/.DDS File" onclick="downloadEncodedFile()">
+    <input type="button" value="Paste and Encode Image from Clipboard" onclick="pasteImageFromClipboard()">
 
-    <div id="drop-area" style="width: 30%; height: 75px; border: 2px dashed #ccc; display: flex; justify-content: center; align-items: center; margin-top: 20px;">
-    <p>Drag and drop a .KTX2 or image file here, or click to select a file.</p>
-    <input type="file" id="file-input" style="display: none;">
-    </div>
-    <br>
-
-    <input type="button" value="Download Encoded .KTX2 File" onclick="downloadEncodedFile()">
-    <input type="button" value="Save Framebuffer as .PNG" onclick="saveFramebufferAsPNG()">
-
+    <hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">
+    <b>Encoding Settings Preset:</b>
+    <select id="encoding-preset"
+            onchange="applyEncodingPreset(this.value)"
+            title="Encode-time presets. Sets sRGB perceptual flag and XUASTC LDR channel weights. Display-side options unchanged. Individual fields stay editable.">
+    <option value="srgb_photo" selected
+            title="sRGB perceptual: ON. Channel weights R=3 G=11 B=1 A=11 (RGB Rec. 709 luminance). Sharpening: Disabled. Encode deblocking: Auto. Deblocking-aware encoding: ON.">sRGB Photo (default)</option>
+    <option value="linear_texture"
+            title="sRGB perceptual: OFF. Channel weights R=1 G=1 B=1 A=1 (equal). Sharpening: Disabled. Encode deblocking: Disabled. Deblocking-aware encoding: OFF. Disables perceptual ops that distort linear data.">Linear Texture / Normal Map</option>
+    </select>
     <hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">
     
     <b>KTX2 Texture Format to Encode:</b>
@@ -2554,7 +4756,7 @@
     <option value="3">RDO ASTC HDR 6x6</option>
     <option value="4">UASTC HDR 6x6 Intermediate</option>
 
-    <option value="5">XUASTC LDR 4x4</option>
+    <option value="5" selected>XUASTC LDR 4x4</option>
     <option value="6">XUASTC LDR 5x4</option>
     <option value="7">XUASTC LDR 5x5</option>
     <option value="8">XUASTC LDR 6x5</option>
@@ -2583,16 +4785,32 @@
     <option value="30">ASTC LDR 10x10</option>
     <option value="31">ASTC LDR 12x10</option>
     <option value="32">ASTC LDR 12x12</option>
+    <option value="33">XUBC7</option>
 
     </select>
     
+    <br><br>
+
+    <b>XUASTC LDR Syntax:</b>
+    <select id="xuastc_ldr_syntax">
+    <option value="0" selected>Full arithmetic (slowest transcoding, highest compression)</option>
+    <option value="1">Hybrid arithmetic+Zstd</option>
+    <option value="2">Full ZStd (fastest transcoding, lowest compression)</option>
+    </select>
+
+    <br><br>
+
+    <b>XUBC7 RDO Level (higher=smaller):</b>
+    <input type="range" id="xubc7_rdo_level_slider" min="0" max="100" step="1" value="0">
+    <span id="xubc7_rdo_level_value">0</span>
+            
     <br>
     <hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">
     
     <b>Primary compression quality/effort options:</b>
 
     <br>
-    Use unified quality/effort options (overrides below low-level options):
+    Use unified quality/effort options (overrides many below low-level options):
     <input type="checkbox" id="use_new_style_quality_effort" checked></input>   
 
     <br>
@@ -2602,9 +4820,9 @@
        min="0"
        max="10"
        step="1"
-       value="2"
+       value="3"
        style="width: 300px;">
-    <span id="unified-effort-value">2</span>
+    <span id="unified-effort-value">3</span>
 
     <br><br>
 
@@ -2617,11 +4835,12 @@
        value="80"
        style="width: 300px;">
     <span id="unified-quality-value">80</span>
-
+        
     <br>
     <hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">    
             
     <b>Display/Visualization Options:</b>
+    <input type="button" value="Reset" onclick="resetDisplayOptions()" style="margin-left: 10px;">
     <br>
     
     <input type="button" id="btn-alpha-blend" value="Alpha blend" onclick="alphaBlend()"></input>
@@ -2641,6 +4860,12 @@
     <label for="scale-slider">Exposure:</label>
     <input type="range" id="scale-slider" min="0" max="1" step=".01" value=".5" style="width: 300px;" oninput="updateScale(this.value)">
     <span id="scale-value">1.0000</span>
+    
+    <br>
+
+    <label for="display-zoom-slider">Display Zoom:</label>
+    <input type="range" id="display-zoom-slider" min="0" max="8" step="1" value="1" style="width: 300px;" oninput="updateDisplayZoom(this.value)">
+    <span id="display-zoom-value">1x</span>
         
     <br>
 
@@ -2660,39 +4885,46 @@
     <input type="range" id="array-layer-slider" min="0" max="0" step="1" value="0" style="width: 300px;" oninput="updateArrayLayer(this.value)" disabled>
     <span id="array-layer-value">0</span>
     <input type="number" id="array-layer-input" min="0" max="0" value="0" style="width: 60px; margin-left: 8px;" onchange="updateArrayLayerFromInput(this.value)" disabled>
-
+        
     <br>
 
-    <label for="display-zoom-slider">Display Zoom:</label>
-    <input type="range" id="display-zoom-slider" min="0" max="8" step="1" value="1" style="width: 300px;" oninput="updateDisplayZoom(this.value)">
-    <span id="display-zoom-value">1x</span>
-
-    <br>
-
-    Bilinear Filtering:
+    Canvas Bilinear Filtering:
     <input type="checkbox" id="bilinear-filtering" onclick="toggleBilinearFiltering()">
+    <br>
+    <label for="canvas-colorspace-select">Canvas Color Space:</label>
+    <select id="canvas-colorspace-select" onchange="updateCanvasColorSpace(this.value)">
+      <option value="default" selected>Default (browser)</option>
+      <option value="srgb">sRGB</option>
+      <option value="display-p3">Display P3</option>
+    </select>
+    
+    <br>
+    XUASTC/ASTC LDR: Visualize GPU deblocking edge weights:
+    <input type="checkbox" id="xuastc_ldr_gpu_deblocking_show_edge_weights" onclick="XUASTCGPUDeblockingFilterClicked()"></input>
 
     <br>
 
     <hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">
-	
-	<b>Transcoder Options (Decode Flags):</b>
-
+    
+    <b>Transcoder Options (Decode Flags):</b>
+    
+    <br>
+    
+    <label for="deblocking-filter-select">Deblocking Filter Mode:</label>
+    <select id="deblocking-filter-select" onchange="DeblockingFilterModeChanged()">
+    <option value="0">Disabled</option> 
+    <option value="1" selected>Auto: Use file's FilterID - GPU if enabled by texture file, otherwise disabled</option>    
+    <option value="2">Force GPU deblocking on >=10x8 blocks, ignore file FilterID</option>  
+    <option value="3">Force CPU deblocking on >=10x8 blocks, ignore file FilterID (if available for tex fmt)</option>  
+    </select>
+    
+    <br>
+    Apply deblocking filter to all block sizes when forced, not just to large block sizes:
+    <input type="checkbox" id="xuastc_ldr_force_deblocking_on_all_block_sizes" onclick="XUASTCDeblockingFilterClicked()"></input>
+    
     <br>
     ETC1S: No BC7 Chroma Artifact Filtering (faster transcoding):
     <input type="checkbox" id="etc1s_bc7_transcoder_no_chroma_filtering" onclick="BC7ChromaFilterClicked()"></input>
-
-    <br>
-    XUASTC/ASTC LDR: Disable deblocking filtering (faster):
-    <input type="checkbox" id="xuastc_ldr_disable_deblocking" onclick="XUASTCDeblockingFilterClicked()"></input>
-
-    <br>
-    XUASTC/ASTC LDR: Stronger deblocking filtering:
-    <input type="checkbox" id="xuastc_ldr_stronger_deblocking" onclick="XUASTCDeblockingFilterClicked()"></input>
-
-    <br>
-    XUASTC/ASTC LDR: Use deblocking on all block sizes (slower):
-    <input type="checkbox" id="xuastc_ldr_force_deblocking" onclick="XUASTCDeblockingFilterClicked()"></input>
 
     <br>
     XUASTC LDR 4x4/6x6/8x6: No direct BC7 transcoding (slower/higher quality):
@@ -2704,159 +4936,17 @@
     <input type="checkbox" id="highquality_transcoding" onclick="highQualityTranscodingClicked()">
 
     <br>
-	
-    <hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">    
 
-    <b>Low-level ETC1S LDR Options:</b>
-    <br>
-    ETC1S Quality:
-    <input type="range" min="1" max="255" value="255" class="slider" id="EncodeQuality" style="width: 300px;">
-    <span id="encode-quality-value">255</span>
-
-    <br>
-    <label for="etc1s-comp-level-slider">Effort Level:</label>
-    <input type="range" id="etc1s-comp-level-slider" min="0" max="6" step="1" value="1">
-    <span id="etc1s-comp-level-slider-value">1</span> <!-- Displays the current value -->
-
-    <hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">
-
-    <b>Low-level UASTC LDR 4x4 Options:</b>
-
-    <br>
-    UASTC LDR RDO:
-    <input type="checkbox" id="UASTC_LDR_RDO">
-
-    <label for="rdo-quality-slider">RDO Quality:</label>
-    <input type="range" id="rdo-quality-slider" min="0.1" max="10" step="0.1" value="1.0">
-    <span id="rdo-quality-value">1.0</span> <!-- Displays the current value -->
-
-    <br>
-    <label for="uastc-ldr-quality-slider">UASTC LDR Effort:</label>
-    <input type="range" id="uastc-ldr-quality-slider" min="0" max="3" step="1" value="1">
-    <span id="uastc-ldr-quality-value">1</span> <!-- Displays the current value -->
+    <span title="Only specific opaque-only formats like ETC1 and PVRTC1_RGB support this flag, so textures with alpha can be transcoded to two textures (one for RGB, another for alpha).">Transcode alpha to opaque (ETC1/PVRTC1_RGB):</span>
+    <input type="checkbox" id="transcode_alpha_to_opaque_formats" onclick="alphaToOpaqueFormatsClicked()"
+           title="Only specific opaque-only formats like ETC1 and PVRTC1_RGB support this flag, so textures with alpha can be transcoded to two textures (one for RGB, another for alpha).">
 
     <br>
 
     <hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">
 
-    <b>Low-level UASTC HDR 4x4 Options:</b>
-
-    <br>
-    <label for="uastc-hdr-quality-slider">UASTC HDR Quality:</label>
-    <input type="range" id="uastc-hdr-quality-slider" min="0" max="3" step="1" value="0">
-    <span id="uastc-hdr-quality-value">0</span> <!-- Displays the current value -->
-    <br>
-
-    <hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">
-
-    <b>Low-level ASTC/UASTC HDR 6x6 Options:</b>
-    <br>
-
-    <label for="astc-hdr6x6-comp-level-slider">Effort Level:</label>
-    <input type="range" id="astc-hdr6x6-comp-level-slider" min="0" max="12" step="1" value="0">
-    <span id="astc-hdr6x6-comp-level-value">0</span> <!-- Displays the current value -->
-    <br>
-
-    RDO Quality (Lambda, 0-50k, try 0-5k, higher=smaller):
-    <input type="text" id="astc6x6-rdo-lambda" value="0.0" size="10">
-    <br>
-
-    REC 2020 Colorspace:
-    <input type="checkbox" id="Rec2020">
-
-    <hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">
-
-    <b>LDR->HDR Upconversion Options:</b>
-    <br>
-    Convert LDR images to linear light:
-    <input type="checkbox" id="ConvertLDRToLinear" checked>
-
-    <br>
-    LDR to HDR Upconversion Nit Multiplier:
-    <input type="text" id="ldr-to-hdr-multiplier" value="100.0" size="10"
-        oninput="validateNitMultiplier(this)"
-        placeholder="Enter a value between 0.1 and 1000">
-    <span id="ldr-to-hdr-warning" style="color: red; display: none;">Invalid value!</span>
-    <br>
-
-    <hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">
-    <b>Low-level XUASTC/ASTC LDR 4x4-12x12 Options:</b>
-    <br>
-
-    <b>XUASTC LDR Syntax:</b>
-    <select id="xuastc_ldr_syntax">
-    <option value="0">Full arithmetic (slowest transcoding, highest compression)</option>
-    <option value="1">Hybrid arithmetic+Zstd</option>
-    <option value="2" selected>Full ZStd (fastest transcoding, lowest compression)</option>
-    </select>
-
-    <br>
-
-    <label for="xuastc_ldr_effort_level_slider">Effort Level (higher=slower):</label>
-    <input type="range" id="xuastc_ldr_effort_level_slider" min="0" max="10" step="1" value="2">
-    <span id="xuastc_ldr_effort_level_value">2</span> <!-- Displays the current value -->
-    <br>
-
-    <label for="xuastc_ldr_dct_quality_slider">XUASTC Weight Grid DCT Quality (100=no DCT):</label>
-    <input type="range" id="xuastc_ldr_dct_quality_slider" min="1" max="100" step="1" value="80">
-    <span id="xuastc_ldr_dct_quality_value">80</span> <!-- Displays the current value -->
-
-    <br>
-    Bounded/windowed RDO lossy supercompression:
-    <input type="checkbox" id="XUASTCLossySupercompression" checked>
-
-    <br>
-    No RGB dual plane (lower quality, faster encoding/BC7 transcoding):
-    <input type="checkbox" id="XUASTCDisableRGBDualPlane">
-
-    <br>
-    No 2-3 subset usage (lower quality, faster encoding/BC7 transcoding):
-    <input type="checkbox" id="XUASTCDisableSubsets">
-
-    <br><br>
-    <b>ASTC/XUASTC LDR Bounded/Windowed RDO Params:</b>
-
-    <br>
-    Opaque:
-    <br>
-    <label>Min Acceptable PSNR:                 <input type="number" id="xuastc_ldr_min_psnr"               value="35.0" min="0" max="100" step="0.25"></label>
-    <br>
-    <label>Window Size (Simple) PSNR:           <input type="number" id="xuastc_ldr_thresh_psnr"            value="1.5" min="0" max="100" step="0.25"></label>
-    <br>
-    <label>Window Size (Edge) PSNR:             <input type="number" id="xuastc_ldr_thresh_edge_psnr"       value="1.0" min="0" max="100" step="0.25"></label>
-
-    <br>
-
-    <br>Alpha:<br>
-    <label>Min Acceptable Alpha PSNR:           <input type="number" id="xuastc_ldr_min_alpha_psnr"         value="38.0" min="0" max="100" step="0.25"></label>
-    <br>
-    <label>Window Size (Simple) Alpha PSNR:     <input type="number" id="xuastc_ldr_thresh_alpha_psnr"      value="0.75" min="0" max="100" step="0.25"></label>
-    <br>
-    <label>Window Size (Edge) Alpha Edge PSNR:  <input type="number" id="xuastc_ldr_thresh_edge_alpha_psnr" value=".5" min="0" max="100" step="0.25"></label>
-    <br>
-
-    <hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">
-    <b>Other Options:</b>
-
-    <br>
-    Image is sRGB/use sRGB perceptual metrics:
-    <input type="checkbox" id="SRGB">
-
-    <br>
-    Y flip source image:
-    <input type="checkbox" id="YFlip">
-
-    <br>
-    <br>
-    Debug Output (See Dev Console):
-    <input type="checkbox" id="Debug">
-    Compute Stats (slower encoding):
-    <input type="checkbox" id="ComputeStats" checked>
-
-    <hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">
-
-    <b>Mipmap Generation Options:</b>
-    <br>
+    <details>
+    <summary style="cursor: pointer; font-weight: bold;">Mipmap Generation Options</summary>
 
     Generate mipmap levels:
     <input type="checkbox" id="Mipmaps">
@@ -2895,21 +4985,437 @@
 
     <br>
 
+    Mip Wrapping:
+    <input type="checkbox" id="MipWrapping">
+
     Mip Renormalize:
     <input type="checkbox" id="MipRenormalize">
 
-    Mip Wrapping:
-    <input type="checkbox" id="MipWrapping" checked>
+    </details>
+
+    <hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">
+    <details>
+    <summary style="cursor: pointer; font-weight: bold;">.DDS/.KTX Developer Tools</summary>
+
+    <input type="button" value="Save Framebuffer as .PNG" onclick="saveFramebufferAsPNG()">
+    <input type="button" value="Copy Framebuffer to Clipboard" onclick="copyFramebufferToClipboard()">
+
+    <hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">
+    <b>Export encoded .KTX2 to .DDS:</b>
+    <select id="dds-export-format" title="GPU format to transcode the encoded .KTX2 into when exporting a .DDS file. Note: HDR textures support only BC6H.">
+    <option value="2">BC1 (RGB)</option>
+    <option value="3">BC3 (RGBA)</option>
+    <option value="4">BC4 (R)</option>
+    <option value="5">BC5 (RG)</option>
+    <option value="22">BC6H (HDR RGB)</option>
+    <option value="6" selected>BC7 (RGBA)</option>
+    <option value="13">RGBA32 (uncompressed)</option>
+    </select>
+    <input type="button" value="Download Exported .DDS File" onclick="downloadExportedDDS()">
+
+    <hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">
+    <b>Export encoded .KTX2 to .KTX (v1):</b>
+    <select id="ktx-export-format" title="GPU format to transcode the encoded .KTX2 into when exporting a compressed KTX1 (.ktx) file. Compressed formats only; HDR textures support only BC6H / ASTC HDR; PVRTC1 needs power-of-2 dimensions. For ASTC, the chosen block size must match the .KTX2 texture's block size.">
+    <option value="2">BC1 (RGB)</option>
+    <option value="3">BC3 (RGBA)</option>
+    <option value="4">BC4 (R)</option>
+    <option value="5">BC5 (RG)</option>
+    <option value="22">BC6H (HDR RGB)</option>
+    <option value="6" selected>BC7 (RGBA)</option>
+    <option value="0">ETC1 (RGB)</option>
+    <option value="1">ETC2 (RGBA)</option>
+    <option value="20">EAC R11</option>
+    <option value="21">EAC RG11</option>
+    <option value="8">PVRTC1 4bpp RGB</option>
+    <option value="9">PVRTC1 4bpp RGBA</option>
+    <option value="18">PVRTC2 4bpp RGB</option>
+    <option value="19">PVRTC2 4bpp RGBA</option>
+    <option value="10">ASTC LDR 4x4</option>
+    <option value="28">ASTC LDR 5x4</option>
+    <option value="29">ASTC LDR 5x5</option>
+    <option value="30">ASTC LDR 6x5</option>
+    <option value="31">ASTC LDR 6x6</option>
+    <option value="32">ASTC LDR 8x5</option>
+    <option value="33">ASTC LDR 8x6</option>
+    <option value="34">ASTC LDR 10x5</option>
+    <option value="35">ASTC LDR 10x6</option>
+    <option value="36">ASTC LDR 8x8</option>
+    <option value="37">ASTC LDR 10x8</option>
+    <option value="38">ASTC LDR 10x10</option>
+    <option value="39">ASTC LDR 12x10</option>
+    <option value="40">ASTC LDR 12x12</option>
+    <option value="23">ASTC HDR 4x4</option>
+    <option value="27">ASTC HDR 6x6</option>
+    </select>
+    <input type="button" value="Download Exported .KTX File" onclick="downloadExportedKTX()">
+
+    <hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">
+    <b>Encode loaded source image directly to .DDS:</b>
+    <br>
+    <label><input type="checkbox" id="dds-encode-download"> Download encoded .DDS file when done</label>
+    <br>
+    DDS Texture Format to Encode: <select id="dds-encode-format" title="Physical DDS format to encode the loaded SOURCE IMAGE into (direct, high-quality; not via KTX2).">
+      <option value="cDDSFmtBC1">BC1</option>
+      <option value="cDDSFmtBC2">BC2</option>
+      <option value="cDDSFmtBC3">BC3</option>
+      <option value="cDDSFmtBC4">BC4 (R)</option>
+      <option value="cDDSFmtBC5">BC5 (RG)</option>
+      <option value="cDDSFmtBC7" selected>BC7</option>
+      <option value="cDDSFmtA8R8G8B8">A8R8G8B8 (BGRA)</option>
+      <option value="cDDSFmtA8B8G8R8">A8B8G8R8 (RGBA)</option>
+      <option value="cDDSFmtR8">R8</option>
+      <option value="cDDSFmtR8G8">R8G8</option>
+      <option value="cDDSFmtR5G6B5">R5G6B5</option>
+      <option value="cDDSFmtA1R5G5B5">A1R5G5B5</option>
+      <option value="cDDSFmtA4R4G4B4">A4R4G4B4</option>
+    </select>
+    <input type="button" value="Encode DDS!" onclick="encodeDDSViaWorker()" title="Encode the loaded source image directly to a .DDS on a background worker, then display it like an opened .dds file.">
+    <br>
+    <br>
+    <span title="BC7-only options (ignored for non-BC7 formats).">
+      <label for="dds-encode-bc7-encoder">BC7 Encoder:</label>
+      <select id="dds-encode-bc7-encoder">
+        <option value="0" selected>bc7f (fast, default)</option>
+        <option value="1">bc7e_scalar (slower, higher quality)</option>
+      </select>
+      <br>
+      <br>
+      <label for="dds-encode-bc7f-level">bc7f options:</label>
+      <select id="dds-encode-bc7f-level" title="bc7f analytical level (only used when the bc7f encoder is selected).">
+        <option value="0">analytical</option>
+        <option value="1" selected>partial</option>
+        <option value="2">non-analytical</option>
+      </select>
+      <br>
+      <br>
+      <label for="dds-encode-bc7e-level">bc7e_scalar level:</label>
+      <select id="dds-encode-bc7e-level" title="bc7e_scalar quality level 0-6, higher=slower/better (only used when the bc7e_scalar encoder is selected).">
+        <option value="0">0</option>
+        <option value="1">1</option>
+        <option value="2" selected>2</option>
+        <option value="3">3</option>
+        <option value="4">4</option>
+        <option value="5">5</option>
+        <option value="6">6</option>
+      </select>
+    </span>
+
+    </details>
+    
+    <hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">
+    <details>
+    <summary style="cursor: pointer; font-weight: bold;">Low-level XUASTC/ASTC LDR 4x4-12x12 Options</summary>
+    
+    <br>
+
+    <label for="xuastc_ldr_effort_level_slider">Effort Level (higher=slower):</label>
+    <input type="range" id="xuastc_ldr_effort_level_slider" min="0" max="10" step="1" value="2">
+    <span id="xuastc_ldr_effort_level_value">2</span> <!-- Displays the current value -->
+    <br>
+
+    <label for="xuastc_ldr_dct_quality_slider">XUASTC Weight Grid DCT Quality (100=no DCT):</label>
+    <input type="range" id="xuastc_ldr_dct_quality_slider" min="1" max="100" step="1" value="80">
+    <span id="xuastc_ldr_dct_quality_value">80</span> <!-- Displays the current value -->
+
+    <br><br>
+        
+    <label for="encoding_deblocking_filter_select">Global Optimization (SCD)/Deblocking (FilterID stored in file):</label>
+    <select id="encoding_deblocking_filter_select">
+    <option value="0">Disabled (no SCD, no filtering)</option> 
+    <option value="1" selected>Auto: Use SCD+filtering only on largest (>=10x8) block sizes</option>  
+    <option value="2">Enable SCD+filtering on all block sizes</option>   
+    <option value="3">Enable SCD, disable filtering</option>   
+    <option value="4">Disable SCD, enable filtering on largest block sizes</option>   
+    <option value="5">Disable SCD, enable filtering on all block sizes</option>   
+    </select>
+    
+    <br>
+    <label for="deblocking-num-passes-slider">Deblocking Passes (2-255, 256=auto depending on effort):</label>
+    <input type="range"
+       id="deblocking-num-passes-slider"
+       min="2"
+       max="256"
+       step="1"
+       value="256"
+       style="width: 300px;">
+    <span id="deblocking-num-passes-value">256</span>
+    
+    <br><br>
+    Bounded/windowed RDO lossy supercompression:
+    <input type="checkbox" id="XUASTCLossySupercompression" checked>
+
+    <br>
+    No RGB dual plane (lower quality, faster encoding/BC7 transcoding):
+    <input type="checkbox" id="XUASTCDisableRGBDualPlane">
+
+    <br>
+    No 2-3 subset usage (lower quality, faster encoding/BC7 transcoding):
+    <input type="checkbox" id="XUASTCDisableSubsets">
+    
+    <br>
+    Enable prefiltering/blurred candidates (higher quality, slower):
+    <input type="checkbox" id="XUASTCUseBlur">
+    
+    <br>
+    Heavy subset usage (higher quality at lowest bitrates, slower):
+    <input type="checkbox" id="XUASTCHeavySubsetUsage">
+    
+    <br><br>
+    <label for="XUASTCLDRCompressor">LDR Compressor:</label>
+    <select id="XUASTCLDRCompressor"
+            title="Selects the encoder backend for XUASTC LDR. The ASTCENC and merged modes require astcenc to have been enabled at compile time.">
+      <option value="cAuto" selected>Auto (tied to effort): ASTCF or merge basisu+ASTCF</option>
+      <option value="cBasisU">Use basisu's original ASTC encoder</option>
+      <option value="cASTCENC">Use ASTCENC</option>
+      <option value="cASTCF">Use ASTCF</option>
+      <option value="cBasisU_and_ASTCENC">Merge basisu+ASTCENC</option>
+      <option value="cBasisU_and_ASTCF">Merge basisu+ASTCF</option>
+      <option value="cUseAll">Merge All</option>
+    </select>
+    
+    <br>
+    
+    <br>
+    <label for="XUASTCSharpenMode">Sharpening Mode:</label>
+    <select id="XUASTCSharpenMode">
+    <option value="0" selected>Disabled</option> 
+    <option value="1">Auto: On 10x8 or larger block sizes</option>    
+    <option value="2">All block sizes</option>  
+    </select>
+    
+    <br>
+    <label>Sharpening Strength: </label>
+    <input type="number" id="XUASTCSharpenAmount" value="1.1" min="0.000125" max="10.0" step="0.1" style="width: 80px;">
+
+    <br><br>
+    <b>ASTC/XUASTC LDR Bounded/Windowed RDO Params:</b>
+
+    <br>
+    Opaque:
+    <br>
+    <label>Min Acceptable PSNR:                 <input type="number" id="xuastc_ldr_min_psnr"               value="35.0" min="0" max="100" step="0.25"></label>
+    <br>
+    <label>Window Size (Simple) PSNR:           <input type="number" id="xuastc_ldr_thresh_psnr"            value="1.5" min="0" max="100" step="0.25"></label>
+    <br>
+    <label>Window Size (Edge) PSNR:             <input type="number" id="xuastc_ldr_thresh_edge_psnr"       value="1.0" min="0" max="100" step="0.25"></label>
+
+    <br>
+
+    <br>Alpha:<br>
+    <label>Min Acceptable Alpha PSNR:           <input type="number" id="xuastc_ldr_min_alpha_psnr"         value="38.0" min="0" max="100" step="0.25"></label>
+    <br>
+    <label>Window Size (Simple) Alpha PSNR:     <input type="number" id="xuastc_ldr_thresh_alpha_psnr"      value="0.75" min="0" max="100" step="0.25"></label>
+    <br>
+    <label>Window Size (Edge) Alpha Edge PSNR:  <input type="number" id="xuastc_ldr_thresh_edge_alpha_psnr" value=".5" min="0" max="100" step="0.25"></label>
+    <br>
+    </details>
 
     <hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">
 
-    <b>Log Output:</b>
+    <details>
+    <summary style="cursor: pointer; font-weight: bold;">Low-level XUBC7 Options</summary>
+
+    <br>
+
+    <label for="xubc7_num_stripes_slider">Number of Stripes (1-16, more=faster encode/decode, slightly larger):</label>
+    <input type="range" id="xubc7_num_stripes_slider" min="1" max="16" step="1" value="8">
+    <span id="xubc7_num_stripes_value">8</span> <!-- Displays the current value -->
+    <br>
+    <br>
+
+    <label for="xubc7_encoder_select">BC7 Base Encoder:</label>
+    <select id="xubc7_encoder_select">
+       <option value="0" selected>bc7f (fast, default)</option>
+       <option value="1">bc7e_scalar (slower, higher quality)</option>
+    </select>
+    <br>
+    <br>
+
+    <label for="xubc7_bc7e_scalar_level_slider">bc7e_scalar Level (0-6, higher=slower/better; only used when bc7e_scalar selected):</label>
+    <input type="range" id="xubc7_bc7e_scalar_level_slider" min="0" max="6" step="1" value="2">
+    <span id="xubc7_bc7e_scalar_level_value">2</span> <!-- Displays the current value -->
+    <br>
+    </details>
+
+    <hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">
+
+    <details>
+    <summary style="cursor: pointer; font-weight: bold;">Low-level ETC1S LDR Options</summary>
+    <br>
+    ETC1S Quality:
+    <input type="range" min="1" max="255" value="255" class="slider" id="EncodeQuality" style="width: 300px;">
+    <span id="encode-quality-value">255</span>
+
+    <br>
+    <label for="etc1s-comp-level-slider">Effort Level:</label>
+    <input type="range" id="etc1s-comp-level-slider" min="0" max="6" step="1" value="1">
+    <span id="etc1s-comp-level-slider-value">1</span> <!-- Displays the current value -->
+    </details>
+
+    <hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">
+
+    <details>
+    <summary style="cursor: pointer; font-weight: bold;">Low-level UASTC LDR 4x4 Options</summary>
+
+    <br>
+    UASTC LDR RDO:
+    <input type="checkbox" id="UASTC_LDR_RDO">
+
+    <label for="rdo-quality-slider">RDO Quality:</label>
+    <input type="range" id="rdo-quality-slider" min="0.1" max="10" step="0.1" value="1.0">
+    <span id="rdo-quality-value">1.0</span> <!-- Displays the current value -->
+
+    <br>
+    <label for="uastc-ldr-quality-slider">UASTC LDR Effort:</label>
+    <input type="range" id="uastc-ldr-quality-slider" min="0" max="4" step="1" value="1">
+    <span id="uastc-ldr-quality-value">1</span> <!-- Displays the current value -->
+
+    <br>
+    </details>
+
+    <hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">
+
+    <details>
+    <summary style="cursor: pointer; font-weight: bold;">Low-level UASTC HDR 4x4 Options</summary>
+
+    <br>
+    <label for="uastc-hdr-quality-slider">UASTC HDR Effort:</label>
+    <input type="range" id="uastc-hdr-quality-slider" min="0" max="4" step="1" value="0">
+    <span id="uastc-hdr-quality-value">0</span> <!-- Displays the current value -->
+    <br>
+    </details>
+
+    <hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">
+
+    <details>
+    <summary style="cursor: pointer; font-weight: bold;">Low-level ASTC/UASTC HDR 6x6 Options</summary>
+    <br>
+
+    <label for="astc-hdr6x6-comp-level-slider">Effort Level:</label>
+    <input type="range" id="astc-hdr6x6-comp-level-slider" min="0" max="12" step="1" value="0">
+    <span id="astc-hdr6x6-comp-level-value">0</span> <!-- Displays the current value -->
+    <br>
+
+    RDO Quality (Lambda, 0-50k, try 0-5k, higher=smaller):
+    <input type="text" id="astc6x6-rdo-lambda" value="0.0" size="10">
+    <br>
+        
+    REC 2020 Colorspace (impacts error metrics, KTX2 DFD Gamut):
+    <input type="checkbox" id="Rec2020">
+        
+    </details>
+
+    <hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">
+
+    <details>
+    <summary style="cursor: pointer; font-weight: bold;">LDR->HDR Upconversion Options</summary>
+    <br>
+    Convert LDR images to linear light:
+    <input type="checkbox" id="ConvertLDRToLinear" checked>
+
+    <br>
+    LDR to HDR Upconversion Nit Multiplier:
+    <input type="text" id="ldr-to-hdr-multiplier" value="100.0" size="10"
+        oninput="validateNitMultiplier(this)"
+        placeholder="Enter a value between 0.1 and 1000">
+    <span id="ldr-to-hdr-warning" style="color: red; display: none;">Invalid value!</span>
+    <br>
+    </details>
+
+    <hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">
+    <b>Other Options:</b>
+
+    <br>
+    Image is sRGB/use sRGB perceptual metrics:
+    <input type="checkbox" id="SRGB">
+        
+    <br>
+    Y flip source image:
+    <input type="checkbox" id="YFlip">
+
+    <br>
+    <br>
+    <b>Channel Weights (XUASTC/ASTC/XUBC7/DDS bc7e_scalar):</b>
+    <br>
+    <label>R: <input type="number" id="xuastc_ldr_weight_r" value="9"  min="1" max="32" step="1" style="width: 60px;" onchange="this.value=Math.max(1,Math.min(32,parseInt(this.value)||1))"></label>
+    <label>G: <input type="number" id="xuastc_ldr_weight_g" value="11" min="1" max="32" step="1" style="width: 60px;" onchange="this.value=Math.max(1,Math.min(32,parseInt(this.value)||1))"></label>
+    <label>B: <input type="number" id="xuastc_ldr_weight_b" value="1"  min="1" max="32" step="1" style="width: 60px;" onchange="this.value=Math.max(1,Math.min(32,parseInt(this.value)||1))"></label>
+    <label>A: <input type="number" id="xuastc_ldr_weight_a" value="11" min="1" max="32" step="1" style="width: 60px;" onchange="this.value=Math.max(1,Math.min(32,parseInt(this.value)||1))"></label>
+
+    <br>
+    <br>
+    <b>Channel Swizzle (each output channel's source index 0-3; default 0,1,2,3 = no swizzle):</b>
+    <br>
+    <label>R: <input type="number" id="swizzle_r" value="0" min="0" max="3" step="1" style="width: 60px;" onchange="this.value=Math.max(0,Math.min(3,parseInt(this.value)||0))"></label>
+    <label>G: <input type="number" id="swizzle_g" value="1" min="0" max="3" step="1" style="width: 60px;" onchange="this.value=Math.max(0,Math.min(3,parseInt(this.value)||0))"></label>
+    <label>B: <input type="number" id="swizzle_b" value="2" min="0" max="3" step="1" style="width: 60px;" onchange="this.value=Math.max(0,Math.min(3,parseInt(this.value)||0))"></label>
+    <label>A: <input type="number" id="swizzle_a" value="3" min="0" max="3" step="1" style="width: 60px;" onchange="this.value=Math.max(0,Math.min(3,parseInt(this.value)||0))"></label>
+
+    <br>
+    <br>
+    Debug Output (See Dev Console):
+    <input type="checkbox" id="Debug">
+
+    <br>
+    Clear Dev Console on each encode:
+    <input type="checkbox" id="clear-console-on-encode">
+    <br>
+    Encode on worker thread by default (on image load):
+    <input type="checkbox" id="encode-on-worker-default" checked>
+    <br>
+    Auto-close encode progress dialog when done (uncheck to study debug output):
+    <input type="checkbox" id="encode-modal-autoclose" checked>
+    <br>
+    Compute Stats (slower encoding):
+    <input type="checkbox" id="ComputeStats">
+
+    <br>
+    Print Stats:
+    <input type="checkbox" id="PrintStats">
+
+    <hr style="width: 40%; margin: 10px 0; background-color: #ccc; border: none; height: 1px;">
+
+    <details>
+    <summary style="cursor: pointer; font-weight: bold;">
+      Development Log Output
+      <button type="button"
+              onclick="event.preventDefault(); event.stopPropagation(); logClear();"
+              style="margin-left: 10px; font-weight: normal;">
+        Clear
+      </button>
+    </summary>
     <div id="log-panel" class="log-panel">
     </div>
+    </details>
 
+    <div style="margin-top: 6px;">
+      <label><input type="checkbox" id="disable-logging" onchange="setLoggingDisabled(this.checked)" checked> Disable logging</label>
+    </div>
     <div id="busy-modal" style="position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background-color: rgba(0,0,0,0.85); z-index: 9999; font-size: 18px; color: white; display: none; padding: 20px 40px; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.5);">
     Encoding... Please wait.
     </div>
+
+    <!-- Modal busy dialog for WORKER encodes. showModal() makes it truly modal
+         (top layer + backdrop + blocks all interaction with the page behind it).
+         oncancel prevents ESC from dismissing it (no cancel during encode). The
+         <progress> is indeterminate ("busy") for now; set .value/.max later for a
+         real progress bar. The log <pre> streams the worker's stdout/stderr live. -->
+    <style>
+      #encode-busy-dialog::backdrop { background: rgba(0,0,0,0.55); }
+      /* Fixed size so the dialog does NOT grow/shrink as the live log streams in. */
+      #encode-busy-dialog { box-sizing: border-box; width: 70vw; border: none; border-radius: 10px; padding: 22px 26px; box-shadow: 0 8px 40px rgba(0,0,0,0.5); }
+      #encode-busy-log { box-sizing: border-box; width: 100%; height: 42vh; margin: 12px 0 0 0; overflow: auto; background: #111; color: #b8f5b8; font: 12px/1.35 ui-monospace, monospace; padding: 8px 10px; border-radius: 6px; white-space: pre-wrap; text-align: left; }
+    </style>
+    <!-- ESC is blocked while the Close button is disabled (i.e. during encoding); allowed once it's enabled. -->
+    <dialog id="encode-busy-dialog" oncancel="if (document.getElementById('encode-busy-close').disabled) event.preventDefault();">
+      <div style="font-size: 18px; font-weight: bold;">Encoding&hellip;</div>
+      <progress id="encode-busy-progress" style="width: 100%; height: 16px; margin-top: 12px;"></progress>
+      <pre id="encode-busy-log"></pre>
+      <div style="margin-top: 12px; display: flex; align-items: center; gap: 16px;">
+        <label style="font-size: 13px;"><input type="checkbox" id="encode-busy-autoclose" checked onchange="var m=document.getElementById('encode-modal-autoclose'); if (m) m.checked = this.checked;"> Automatically close when done</label>
+        <button type="button" id="encode-busy-close" onclick="hideEncodeBusy()" disabled style="margin-left: auto; padding: 8px 28px; font-size: 15px; font-weight: bold; cursor: pointer;">Close</button>
+      </div>
+    </dialog>
 
   </div>
     
@@ -2945,6 +5451,15 @@ function isWasmThreadingSupported()
 
 async function loadBasisModule()
 {
+    // Safari 26.0-26.2 has a WebKit heap-grow bug that crashes multithreaded encoding.
+    // Show a persistent warning; getNumWorkerThreads() forces single-threaded for both
+    // encode paths when this is detected.
+    if (isBuggySafari())
+    {
+        const banner = document.getElementById('safari-bug-banner');
+        if (banner) banner.style.display = 'block';
+    }
+
     // Determine if WASM threading and WASM64 are available
     const threadingSupported = window.wasmFeatureDetect ? await wasmFeatureDetect.threads() : isWasmThreadingSupported();
     const wasm64Supported = window.wasmFeatureDetect ? await wasmFeatureDetect.memory64() : false;
@@ -2984,7 +5499,12 @@ async function loadBasisModule()
                 }
 
                 if (!wasm64Supported)
-                    threadingIndicator.innerText += " WASM64 is NOT supported.";
+                {
+                    threadingIndicator.innerText += " WASM64 is NOT supported. Without WASM64 the maximum image size is limited (to avoid running out of memory).";
+                    // Safari has no WASM64 support yet -- point users to a browser that does.
+                    if (isSafari())
+                        threadingIndicator.innerText += " For WASM64 support, use Chrome or Firefox.";
+                }
                 else
                     threadingIndicator.innerText += " Using WASM64.";
 
@@ -3060,6 +5580,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Open file picker on click
   dropArea.addEventListener('click', () => {
+      fileInput.value = '';  // Clear so re-selecting the same file triggers 'change'
       fileInput.click();
   });
 
@@ -3071,6 +5592,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // Function to process the file
+  window.processFile = processFile;
   function processFile(file)
   {
       if (!file)
@@ -3095,17 +5617,24 @@ document.addEventListener('DOMContentLoaded', () => {
           
           const lowerName = file.name.toLowerCase();
 
-          if (lowerName.endsWith(".ktx2")) 
+          if (lowerName.endsWith(".ktx2"))
           {
-              curLoadedKTX2Data  = arrayBuffer;
-              curLoadedKTX2URI   = file.name;
-
+              // transcodeTexture() owns the source globals (set on success only), so a
+              // failed load leaves the previously-loaded source intact.
               transcodeTexture(arrayBuffer, file.name);
+              return;
+          }
+          else if (lowerName.endsWith(".dds"))
+          {
+              // New: view/transcode a .DDS source. transcodeDDSTexture() owns the source
+              // globals (set on success only) and clears the KTX2 source, keeping the
+              // viewer correctly tri-state even on a failed load.
+              transcodeDDSTexture(arrayBuffer, file.name);
               return;
           }
           else
           {
-              compressImage(arrayBuffer, file.name);
+              loadAndCompressImage(arrayBuffer, file.name);
           }
 
           elem('imagefile').value = '<externally loaded>';
@@ -3182,6 +5711,45 @@ document.addEventListener('DOMContentLoaded', () => {
     viewer.scrollTop  = texY * newZoom - mouseY;
 
   }, { passive: false });
+});
+// Keyboard shortcuts: Ctrl/Cmd+V to paste an image, Ctrl/Cmd+C to copy the framebuffer.
+document.addEventListener('DOMContentLoaded', () => {
+  function isEditableTarget(t)
+  {
+    return t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
+  }
+  // Paste: handled via the native 'paste' event for synchronous access to clipboard
+  // data (no permission prompt, works in file:// contexts). Returns a File directly.
+  document.addEventListener('paste', e => {
+    if (isEditableTarget(e.target)) return;
+    const items = e.clipboardData && e.clipboardData.items;
+    if (!items) return;
+    for (const item of items) {
+      if (item.kind === 'file' && item.type.startsWith('image/')) {
+        const file = item.getAsFile();
+        if (!file) continue;
+          e.preventDefault();
+          updateErrorLine('');
+          window.processFile(file);
+        return;
+      }
+    }
+    // No image item found — could be plain text, files of other types, or empty.
+    e.preventDefault();
+    updateErrorLine('Clipboard does not contain a supported bitmap image.');
+  });
+
+  // Copy: routed through the existing async-clipboard path. Skip when text is
+  // selected (user is trying to copy that text, not the framebuffer).
+  document.addEventListener('keydown', e => {
+    const ctrl = e.ctrlKey || e.metaKey;
+    if (!ctrl || e.shiftKey || e.altKey) return;
+    if (isEditableTarget(e.target)) return;
+    if (e.key !== 'c' && e.key !== 'C') return;
+    if (window.getSelection().toString().length > 0) return;
+    e.preventDefault();
+    copyFramebufferToClipboard();
+  });
 });
 </script>
 </body>

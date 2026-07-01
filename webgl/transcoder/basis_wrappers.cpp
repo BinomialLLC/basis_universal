@@ -19,6 +19,9 @@
 //	  For transcoding raw compressed ETC1S/UASTC LDR/UASTC HDR texture data from non-.basis files (say from KTX2) to GPU texture data.
 //
 // 4. Helpers, transcoder texture format information: See functions getBytesPerBlockOrPixel(), formatHasAlpha(), etc.
+//
+// Note: The thread pool size is setup in the CMakeLists.txt file:
+// set(LINK_THREADS "-s USE_PTHREADS=1 -s PTHREAD_POOL_SIZE=32 -s ENVIRONMENT=web,worker")
 
 // If BASISU_SUPPORT_ENCODING is 1, wrappers for the compressor will be included. Otherwise, only the wrappers for the transcoder will be compiled in.
 #ifndef BASISU_SUPPORT_ENCODING
@@ -49,6 +52,8 @@
 #include "../../encoder/basisu_comp.h"
 #include "../../encoder/basisu_astc_hdr_6x6_enc.h"
 #include "../../encoder/basisu_resampler_filters.h"
+#include "../../encoder/basisu_gpu_texture.h" // for basisu::transcode_ktx2_to_dds()
+#include "../../encoder/basisu_dds_export.h"  // direct source->DDS export (build_dds), distinct from the lossy KTX2->DDS path above
 #endif
 
 #include <emscripten/bind.h>
@@ -175,6 +180,7 @@ static bool copy_to_jsbuffer(const emscripten::val& dstBuffer, const basisu::vec
 
 const uint32_t BASIS_MAGIC = 0xD4ADBEA1;
 const uint32_t KTX2_MAGIC = 0xD4ADBEF2;
+const uint32_t DDS_MAGIC = 0xD4ADBEF3;
 
 struct basis_file_desc
 {
@@ -598,7 +604,17 @@ struct basis_file
         basis_tex_format fmt = m_transcoder.get_basis_tex_format(m_file.data(), m_file.size());
         return basis_tex_format_is_xuastc_ldr(fmt);
     }
-        
+	
+	bool isXUBC7()
+	{
+		assert(m_magic == BASIS_MAGIC);
+        if (m_magic != BASIS_MAGIC)
+            return false;
+
+        basis_tex_format fmt = m_transcoder.get_basis_tex_format(m_file.data(), m_file.size());
+        return basis_tex_format_is_xubc7(fmt);
+	}
+	        
     uint32_t startTranscoding()
     {
         assert(m_magic == BASIS_MAGIC);
@@ -1081,6 +1097,14 @@ struct ktx2_file
             return false;
         return m_transcoder.is_xuastc_ldr();
     }
+	
+	bool isXUBC7()
+	{
+        assert(m_magic == KTX2_MAGIC);
+        if (m_magic != KTX2_MAGIC)
+            return false;
+        return m_transcoder.is_xubc7();
+	}
 
     bool getHasAlpha()
     {
@@ -1171,6 +1195,14 @@ struct ktx2_file
             return 0;
         return m_transcoder.get_ldr_hdr_upconversion_nit_multiplier();
     }
+	
+	uint32_t getDeblockingFilterIndex()
+	{
+		assert(m_magic == KTX2_MAGIC);
+        if (m_magic != KTX2_MAGIC)
+            return 0;
+		return m_transcoder.get_deblocking_filter_index();
+	}
 
     // startTranscoding() must be called before calling getETC1SImageDescImageFlags().
     uint32_t getETC1SImageDescImageFlags(uint32_t level_index, uint32_t layer_index, uint32_t face_index)
@@ -1382,6 +1414,482 @@ struct ktx2_file
         return status;
     }
 
+#if BASISU_SUPPORT_ENCODING
+    // Internal buffer holding the most recent exportToDDS()/exportToKTX() result.
+    basisu::vector<uint8_t> m_export_data;
+
+    // Transcodes this KTX2 file's entire contents (every mip level, array layer,
+    // and cubemap face) to the given transcoder_texture_format and builds a .DDS
+    // file in memory. 'format' must be a DDS-writable BC format (BC1/BC3/BC4/BC5/
+    // BC6H/BC7) or uncompressed RGBA32; anything else fails. Returns the size in
+    // bytes of the generated .DDS (0 on failure); then call getDDSData() to copy
+    // the bytes out into a JS Uint8Array.
+    // NOTE: only available in the encoder build (basis_encoder*.js) -- it relies on
+    // the encoder library (basisu_gpu_texture.cpp), which the transcoder-only build
+    // (basis_transcoder.js) does not link.
+    // srgb_mode: -1 = auto (follow the KTX2's transfer function via is_srgb()),
+    // 0 = force linear/UNORM, 1 = force sRGB. Ignored for formats with no sRGB variant.
+    // decode_flags is a cDecodeFlags* bitmask passed to transcode_image_level()
+    // (e.g. force/disable deblocking, high quality); pass 0 for default behavior.
+    uint32_t exportToDDS(uint32_t format, int srgb_mode = -1, uint32_t decode_flags = 0)
+    {
+        assert(m_magic == KTX2_MAGIC);
+        if (m_magic != KTX2_MAGIC)
+            return 0;
+
+        m_export_data.clear();
+
+        if (format >= (uint32_t)transcoder_texture_format::cTFTotalTextureFormats)
+            return 0;
+
+        const transcoder_texture_format fmt = static_cast<transcoder_texture_format>(format);
+
+        if (!basisu::transcode_ktx2_to_dds(m_transcoder, fmt, m_export_data, srgb_mode, decode_flags))
+        {
+#if BASISU_DEBUG_PRINTF
+            printf("ktx2_file::exportToDDS: transcode_ktx2_to_dds() failed\n");
+#endif
+            m_export_data.clear();
+            return 0;
+        }
+
+        return (uint32_t)m_export_data.size();
+    }
+
+    // Like exportToDDS(), but builds a COMPRESSED KTX1 (.ktx) file instead. 'format'
+    // must be a compressed format the KTX writer supports (BC1-7, ETC1/ETC2, ETC2 EAC
+    // R11/RG11, PVRTC1, PVRTC2, ASTC LDR/HDR, UASTC); uncompressed is not supported.
+    // srgb_mode/decode_flags are as for exportToDDS() (srgb_mode only affects ASTC
+    // LDR output here). Returns the size in bytes (0 on failure); then call
+    // getKTXData() to copy the bytes out. Encoder build only.
+    uint32_t exportToKTX(uint32_t format, int srgb_mode = -1, uint32_t decode_flags = 0)
+    {
+        assert(m_magic == KTX2_MAGIC);
+        if (m_magic != KTX2_MAGIC)
+            return 0;
+
+        m_export_data.clear();
+
+        if (format >= (uint32_t)transcoder_texture_format::cTFTotalTextureFormats)
+            return 0;
+
+        const transcoder_texture_format fmt = static_cast<transcoder_texture_format>(format);
+
+        if (!basisu::transcode_ktx2_to_ktx(m_transcoder, fmt, m_export_data, srgb_mode, decode_flags))
+        {
+#if BASISU_DEBUG_PRINTF
+            printf("ktx2_file::exportToKTX: transcode_ktx2_to_ktx() failed\n");
+#endif
+            m_export_data.clear();
+            return 0;
+        }
+
+        return (uint32_t)m_export_data.size();
+    }
+
+    // Copies the bytes produced by the last successful exportToDDS()/exportToKTX()
+    // into the caller-provided JS Uint8Array (which must be at least the returned
+    // size). Returns nonzero on success, 0 on failure.
+    uint32_t getDDSData(const emscripten::val& dst)
+    {
+        assert(m_magic == KTX2_MAGIC);
+        if (m_magic != KTX2_MAGIC)
+            return 0;
+
+        if (m_export_data.empty())
+            return 0;
+
+        return copy_to_jsbuffer(dst, m_export_data);
+    }
+
+    // Identical to getDDSData() (both copy out the last export's bytes); provided as
+    // a parallel name to pair with exportToKTX().
+    uint32_t getKTXData(const emscripten::val& dst)
+    {
+        assert(m_magic == KTX2_MAGIC);
+        if (m_magic != KTX2_MAGIC)
+            return 0;
+
+        if (m_export_data.empty())
+            return 0;
+
+        return copy_to_jsbuffer(dst, m_export_data);
+    }
+#endif // BASISU_SUPPORT_ENCODING
+
+};
+
+// DDS source transcoder wrapper. New functionality (we read/transcode a .DDS file as a SOURCE);
+// this does not replace the KTX2->DDS export path above (exportToDDS()).
+//
+// basist::dds_transcoder is self-contained in the transcoder library and does not require the
+// encoder. It deliberately mirrors ktx2_transcoder's API, including reusing the same
+// ktx2_image_level_info struct -- so this wrapper is a near-copy of ktx2_file with the KTX2-only
+// DFD/key/header machinery removed and a few DDS-specific accessors added.
+//
+// It lives inside the BASISD_SUPPORT_KTX2 block because it reuses the KTX2ImageLevelInfo
+// value_object (registered only when KTX2 support is enabled). KTX2 support is always on in the
+// webgl builds, so this coupling is purely about not duplicating the level-info binding.
+struct dds_file
+{
+    int m_magic = 0;
+    basist::dds_transcoder m_transcoder;
+    basisu::vector<uint8_t> m_file;
+    bool m_is_valid = false;
+
+    dds_file(const emscripten::val& jsBuffer)
+        : m_file(jsBuffer["byteLength"].as<size_t>())
+    {
+        if (!g_basis_initialized_flag)
+        {
+#if BASISU_DEBUG_PRINTF
+            printf("dds_file::dds_file: Must call basis_init() first!\n");
+#endif
+            assert(0);
+            return;
+        }
+
+        const size_t n = jsBuffer["byteLength"].as<size_t>();
+        emscripten::val dstView = emscripten::val(emscripten::typed_memory_view(n, m_file.data()));
+        dstView.call<void>("set", jsBuffer);
+
+        if (!m_transcoder.init(m_file.data(), (uint32_t)m_file.size()))
+        {
+#if BASISU_DEBUG_PRINTF
+            printf("dds_file: m_transcoder.init() failed!\n");
+#endif
+            // Note: a bad .DDS is an expected runtime condition (not an internal bug), so no assert here.
+            m_file.clear();
+            m_magic = DDS_MAGIC;
+            return;
+        }
+
+        m_is_valid = true;
+        m_magic = DDS_MAGIC;
+    }
+
+    bool isValid()
+    {
+        assert(m_magic == DDS_MAGIC);
+        if (m_magic != DDS_MAGIC)
+            return false;
+        return m_is_valid && m_transcoder.is_valid();
+    }
+
+    void close()
+    {
+        assert(m_magic == DDS_MAGIC);
+        if (m_magic != DDS_MAGIC)
+            return;
+        m_file.clear();
+        m_transcoder.clear();
+        m_is_valid = false;
+    }
+
+    // The image's original width, i.e. before being potentially expanded up to blocks.
+    uint32_t getWidth()
+    {
+        assert(m_magic == DDS_MAGIC);
+        if (m_magic != DDS_MAGIC)
+            return 0;
+        return m_transcoder.get_width();
+    }
+
+    // The image's original height, i.e. before being potentially expanded up to blocks.
+    uint32_t getHeight()
+    {
+        assert(m_magic == DDS_MAGIC);
+        if (m_magic != DDS_MAGIC)
+            return 0;
+        return m_transcoder.get_height();
+    }
+
+    // Mip-map levels (>=1)
+    uint32_t getLevels()
+    {
+        assert(m_magic == DDS_MAGIC);
+        if (m_magic != DDS_MAGIC)
+            return 0;
+        return m_transcoder.get_levels();
+    }
+
+    // Array elements; 0 == not an array (ktx2 convention)
+    uint32_t getLayers()
+    {
+        assert(m_magic == DDS_MAGIC);
+        if (m_magic != DDS_MAGIC)
+            return 0;
+        return m_transcoder.get_layers();
+    }
+
+    // 6 == cubemap, else 1
+    uint32_t getFaces()
+    {
+        assert(m_magic == DDS_MAGIC);
+        if (m_magic != DDS_MAGIC)
+            return 0;
+        return m_transcoder.get_faces();
+    }
+
+    bool getIsCubemap()
+    {
+        assert(m_magic == DDS_MAGIC);
+        if (m_magic != DDS_MAGIC)
+            return false;
+        return m_transcoder.get_is_cubemap();
+    }
+
+    // Format-declared alpha presence (NOT a scan of the pixel data). See dds_transcoder::get_has_alpha().
+    bool getHasAlpha()
+    {
+        assert(m_magic == DDS_MAGIC);
+        if (m_magic != DDS_MAGIC)
+            return false;
+        return m_transcoder.get_has_alpha() != 0;
+    }
+
+    bool isSRGB()
+    {
+        assert(m_magic == DDS_MAGIC);
+        if (m_magic != DDS_MAGIC)
+            return false;
+        return m_transcoder.is_srgb();
+    }
+
+    // The format physically contained in the DDS, expressed as a transcoder_texture_format
+    // (e.g. cTFBC7_RGBA). This is what a passthrough transcode emits.
+    uint32_t getFormat()
+    {
+        assert(m_magic == DDS_MAGIC);
+        if (m_magic != DDS_MAGIC)
+            return 0;
+        return (uint32_t)m_transcoder.get_format();
+    }
+
+    // The EXACT physical format stored in the file (a basist::dds_format value). More specific than
+    // getFormat()/getSourceKind() -- distinguishes A8R8G8B8 vs X8R8G8B8, R5G6B5 vs A1R5G5B5, etc.
+    uint32_t getDDSFormat()
+    {
+        assert(m_magic == DDS_MAGIC);
+        if (m_magic != DDS_MAGIC)
+            return 0;
+        return (uint32_t)m_transcoder.get_dds_format();
+    }
+
+    // What's physically stored in the file (a dds_transcoder::source_kind value: compressed block kind
+    // or generic uncompressed).
+    uint32_t getSourceKind()
+    {
+        assert(m_magic == DDS_MAGIC);
+        if (m_magic != DDS_MAGIC)
+            return 0;
+        return (uint32_t)m_transcoder.get_source_kind();
+    }
+
+    // True if this DDS's contents can be transcoded to format (a transcoder_texture_format).
+    bool isTranscodeFormatSupported(uint32_t format)
+    {
+        assert(m_magic == DDS_MAGIC);
+        if (m_magic != DDS_MAGIC)
+            return false;
+        if (format >= (uint32_t)transcoder_texture_format::cTFTotalTextureFormats)
+            return false;
+        return m_transcoder.is_transcode_format_supported(static_cast<transcoder_texture_format>(format));
+    }
+
+    ktx2_image_level_info getImageLevelInfo(uint32_t level_index, uint32_t layer_index, uint32_t face_index)
+    {
+        ktx2_image_level_info info;
+        memset(&info, 0, sizeof(info));
+
+        assert(m_magic == DDS_MAGIC);
+        if (m_magic != DDS_MAGIC)
+            return info;
+
+        if (!m_transcoder.get_image_level_info(info, level_index, layer_index, face_index))
+        {
+            assert(0);
+            return info;
+        }
+
+        return info;
+    }
+
+    // format is transcoder_texture_format
+    uint32_t getImageTranscodedSizeInBytes(uint32_t level_index, uint32_t layer_index, uint32_t face_index, uint32_t format)
+    {
+        assert(m_magic == DDS_MAGIC);
+        if (m_magic != DDS_MAGIC)
+            return 0;
+
+        if (format >= (int)transcoder_texture_format::cTFTotalTextureFormats)
+        {
+            assert(0);
+            return 0;
+        }
+
+        const transcoder_texture_format tex_format = static_cast<transcoder_texture_format>(format);
+
+        ktx2_image_level_info info;
+        if (!m_transcoder.get_image_level_info(info, level_index, layer_index, face_index))
+        {
+            assert(0);
+            return 0;
+        }
+
+        return basis_compute_transcoded_image_size_in_bytes(tex_format, info.m_orig_width, info.m_orig_height);
+    }
+
+    // Must be called before transcodeImage() can be called. For DDS there are no global tables to
+    // unpack, so this just verifies init() succeeded. Safe to call repeatedly.
+    uint32_t startTranscoding()
+    {
+        assert(m_magic == DDS_MAGIC);
+        if (m_magic != DDS_MAGIC)
+            return 0;
+
+        return m_transcoder.start_transcoding();
+    }
+
+    // Here for parity with KTX2File; prefer transcodeImageWithFlags().
+    // get_alpha_for_opaque_formats defaults to false; channel0/channel1 default to -1.
+    // format is transcoder_texture_format
+    uint32_t transcodeImage(const emscripten::val& dst, uint32_t level_index, uint32_t layer_index, uint32_t face_index, uint32_t format, uint32_t get_alpha_for_opaque_formats, int channel0, int channel1)
+    {
+        assert(m_magic == DDS_MAGIC);
+        if (m_magic != DDS_MAGIC)
+            return 0;
+
+        if (format >= (int)transcoder_texture_format::cTFTotalTextureFormats)
+            return 0;
+
+        const transcoder_texture_format transcoder_format = static_cast<transcoder_texture_format>(format);
+
+        ktx2_image_level_info info;
+        if (!m_transcoder.get_image_level_info(info, level_index, layer_index, face_index))
+            return 0;
+
+        uint32_t orig_width = info.m_orig_width, orig_height = info.m_orig_height;
+
+        basisu::vector<uint8_t> dst_data;
+
+        uint32_t flags = get_alpha_for_opaque_formats ? cDecodeFlagsTranscodeAlphaDataToOpaqueFormats : 0;
+
+        const uint32_t transcoded_size_in_bytes = getImageTranscodedSizeInBytes(level_index, layer_index, face_index, format);
+
+        if (!dst_data.try_resize(transcoded_size_in_bytes))
+            return 0;
+
+        uint32_t status;
+
+        if (basis_transcoder_format_is_uncompressed(transcoder_format))
+        {
+            // dds_transcoder::transcode_image_level() has no trailing ktx2_transcoder_state* (DDS has no per-thread state).
+            status = m_transcoder.transcode_image_level(
+                level_index, layer_index, face_index,
+                dst_data.data(), orig_width * orig_height,
+                transcoder_format,
+                flags,
+                orig_width,
+                orig_height,
+                channel0, channel1);
+        }
+        else
+        {
+            const uint32_t bytes_per_block = basis_get_bytes_per_block_or_pixel(transcoder_format);
+
+            status = m_transcoder.transcode_image_level(
+                level_index, layer_index, face_index,
+                dst_data.data(), dst_data.size() / bytes_per_block,
+                transcoder_format,
+                flags,
+                0,
+                0,
+                channel0, channel1);
+        }
+
+        const size_t n = dst_data.size();
+        emscripten::val srcView = emscripten::val(emscripten::typed_memory_view(n, dst_data.data()));
+        dst.call<void>("set", srcView);   // 'dst' must be a Uint8Array (or compatible TypedArray)
+
+        return status;
+    }
+
+    // like transcodeImage(), but takes an explicit cDecodeFlags* bitmask.
+    // format is transcoder_texture_format
+    uint32_t transcodeImageWithFlags(const emscripten::val& dst, uint32_t level_index, uint32_t layer_index, uint32_t face_index, uint32_t format, uint32_t flags, int channel0, int channel1)
+    {
+        assert(m_magic == DDS_MAGIC);
+        if (m_magic != DDS_MAGIC)
+            return 0;
+
+        if (format >= (int)transcoder_texture_format::cTFTotalTextureFormats)
+            return 0;
+
+        const transcoder_texture_format transcoder_format = static_cast<transcoder_texture_format>(format);
+
+        ktx2_image_level_info info;
+        if (!m_transcoder.get_image_level_info(info, level_index, layer_index, face_index))
+            return 0;
+
+        uint32_t orig_width = info.m_orig_width, orig_height = info.m_orig_height;
+
+        basisu::vector<uint8_t> dst_data;
+
+        const uint32_t transcoded_size_in_bytes = getImageTranscodedSizeInBytes(level_index, layer_index, face_index, format);
+
+        if (!dst_data.try_resize(transcoded_size_in_bytes))
+            return 0;
+
+        uint32_t status;
+
+        if (basis_transcoder_format_is_uncompressed(transcoder_format))
+        {
+            status = m_transcoder.transcode_image_level(
+                level_index, layer_index, face_index,
+                dst_data.data(), orig_width * orig_height,
+                transcoder_format,
+                flags,
+                orig_width,
+                orig_height,
+                channel0, channel1);
+        }
+        else
+        {
+            const uint32_t bytes_per_block = basis_get_bytes_per_block_or_pixel(transcoder_format);
+
+            status = m_transcoder.transcode_image_level(
+                level_index, layer_index, face_index,
+                dst_data.data(), dst_data.size() / bytes_per_block,
+                transcoder_format,
+                flags,
+                0,
+                0,
+                channel0, channel1);
+        }
+
+        const size_t n = dst_data.size();
+        emscripten::val srcView = emscripten::val(emscripten::typed_memory_view(n, dst_data.data()));
+        dst.call<void>("set", srcView);  // dst = JS Uint8Array
+
+        return status;
+    }
+
+#if BASISU_SUPPORT_ENCODING
+    // Human-readable name for a basist::dds_format value. Encoder build only:
+    // basisu::get_dds_format_string() lives in the encoder library (basisu_gpu_texture.cpp), which the
+    // transcoder-only build (basis_transcoder.js) does not link. Transcoder-only callers can map the
+    // dds_format enum to a name in JS instead.
+    std::string getDDSFormatString(uint32_t format)
+    {
+        assert(m_magic == DDS_MAGIC);
+        if (m_magic != DDS_MAGIC)
+            return std::string("");
+        if (format >= (uint32_t)basist::dds_format::cTotalDDSFormats)
+            return std::string("?");
+        return std::string(basisu::get_dds_format_string(static_cast<basist::dds_format>(format)));
+    }
+#endif // BASISU_SUPPORT_ENCODING
 };
 #endif // BASISD_SUPPORT_KTX2
 
@@ -1391,7 +1899,8 @@ enum class ldr_image_type
 {
     cRGBA32 = 0,
     cPNGImage = 1,
-    cJPGImage = 2
+    cJPGImage = 2,
+	cQOIImage = 3
 };
 
 enum xuastc_ldr_syntax
@@ -1410,6 +1919,9 @@ class basis_encoder
 
 public:
     basis_compressor_params m_params;
+
+    // DDS export options (format + BC7 packer knobs) consumed by encode_to_dds(). Independent of m_params.
+    dds_export_params m_dds_params;
 
     basis_encoder()
     {
@@ -1456,6 +1968,20 @@ public:
             {
 #if BASISU_DEBUG_PRINTF
                 printf("basis_encoder::set_slice_source_image: Failed parsing provided JPG file!\n");
+#endif
+                return false;
+            }
+
+            src_image_width = src_img.get_width();
+            src_image_height = src_img.get_height();
+        }
+		else if (img_type == ldr_image_type::cQOIImage)
+        {
+            // It's a QOI file, so try and parse it.
+            if (!load_qoi(src_image_buf.data(), src_image_buf.size(), src_img))
+            {
+#if BASISU_DEBUG_PRINTF
+                printf("basis_encoder::set_slice_source_image: Failed parsing provided QOI file!\n");
 #endif
                 return false;
             }
@@ -1514,14 +2040,15 @@ public:
         if (!load_image_hdr(src_image_buf.get_ptr(), src_image_buf.size(), src_img, src_image_width, src_image_height, img_type, ldr_srgb_to_linear_conversion, ldr_to_hdr_nit_multiplier))
             return false;
 
-        if ((img_type == hdr_image_type::cHITPNGImage) || (img_type == hdr_image_type::cHITJPGImage))
+        if ((img_type == hdr_image_type::cHITPNGImage) || (img_type == hdr_image_type::cHITJPGImage) || 
+		    (img_type == hdr_image_type::cHITQOIImage) || (img_type == hdr_image_type::cHITRGBA8Image))
         {
             // Because we're loading the image ourselves we need to add these tags so the UI knows how to tone map LDR upconverted outputs. 
             // Normally basis_compressor adds them when it loads the images itself from source files.
-            basist::ktx2_add_key_value(m_params.m_ktx2_key_values, "LDRUpconversionMultiplier", fmt_string("{}", ldr_to_hdr_nit_multiplier));
+            basist::add_key_value(m_params.m_key_values, "LDRUpconversionMultiplier", fmt_string("{}", ldr_to_hdr_nit_multiplier));
 
             if (ldr_srgb_to_linear_conversion)
-                basist::ktx2_add_key_value(m_params.m_ktx2_key_values, "LDRUpconversionSRGBToLinear", "1");
+                basist::add_key_value(m_params.m_key_values, "LDRUpconversionSRGBToLinear", "1");
         }
                 		
         return true;
@@ -1585,7 +2112,7 @@ public:
 
         params.m_multithreading = enable_threading;
 
-        params.m_status_output = params.m_debug;
+        //params.m_status_output = params.m_debug;
 
         params.m_read_source_images = false;
         params.m_write_output_basis_or_ktx2_files = false;
@@ -1622,7 +2149,8 @@ public:
         m_last_encode_mip0_rgba_psnr = 0.0f;
         if (comp.get_stats().size())
         {
-            float psnr = comp.get_stats()[0].m_basis_rgba_avg_psnr;
+			// This is just for display: print the highest PSNR of either, because depending on the texture type (XUASTC, XUBC7, etc.) these will be in different transcoded formats.
+            float psnr = maximum(comp.get_stats()[0].m_basis_rgba_avg_psnr, comp.get_stats()[0].m_bc7_rgba_avg_psnr);
             
             if (psnr == 0.0f)
                 psnr = comp.get_stats()[0].m_basis_rgb_avg_psnr; // HDR, not RGBA though
@@ -1650,7 +2178,119 @@ public:
         }
     }
 
-    float get_last_encode_mip0_rgba_psnr() const 
+    // Encodes the provided source slice(s) directly to an in-memory DX10 .DDS file (NOT via KTX2).
+    // This is the high-quality, single-hop source->DDS path: it runs the compressor in
+    // process_source_images() mode (all the image loading/mipmap/array/cubemap prep, no GPU encode),
+    // then build_dds() packs the prepared slices into the format selected via setDDSFormat()/setDDS*().
+    // The DDS bytes are copied into the caller-provided buffer exactly like encode(); returns the
+    // file size in bytes (0 on failure). LDR only for now (HDR DDS export is a future addition).
+    uint32_t encode_to_dds(const emscripten::val& dst_dds_file_js_val)
+    {
+        if (!g_basis_initialized_flag)
+        {
+#if BASISU_DEBUG_PRINTF
+            printf("basis_encoder::encode_to_dds: Must call basis_init() first!\n");
+#endif
+            assert(0);
+            return 0;
+        }
+
+        uint32_t num_new_threads = 0;
+        bool enable_threading = false;
+
+#if WASM_THREADS_ENABLED
+        if ((emscripten_has_threading_support()) && (m_threading_enabled) && (m_num_extra_worker_threads))
+        {
+            enable_threading = true;
+            num_new_threads = m_num_extra_worker_threads;
+        }
+#endif
+
+        job_pool jpool(1 + num_new_threads);
+
+        // NOTE: we alias m_params (like encode() does) rather than copy it, to avoid an expensive
+        // deep copy of the source images in 32-bit WASM. This permanently sets the format mode to
+        // the LDR prep path, which is consistent with how encode() permanently mutates m_params.
+        basis_compressor_params &params = m_params;
+
+        // Same WASM out-of-memory guard as encode().
+        uint64_t total_src_texels = 0;
+
+        for (uint32_t i = 0; i < m_params.m_source_images.size(); i++)
+            total_src_texels += m_params.m_source_images[i].get_total_pixels();
+
+        for (uint32_t i = 0; i < m_params.m_source_images_hdr.size(); i++)
+            total_src_texels += m_params.m_source_images_hdr[i].get_total_pixels();
+
+        // DDS export only prepares the source images (no heavy GPU encode), so the higher limit applies.
+        uint32_t max_pixels_thresh = BASISU_ENCODER_MAX_SOURCE_IMAGE_PIXELS_HIGHER_LIMIT;
+
+        if (total_src_texels > max_pixels_thresh)
+        {
+            printf("ERROR: basis_encoder::encode_to_dds(): The total number of source texels to prepare %llu is greater than %u, which is likely too large for WASM (above BASISU_ENCODER_MAX_SOURCE_IMAGE_PIXELS in basis_wrappers.cpp).",
+                total_src_texels, max_pixels_thresh);
+            return 0;
+        }
+
+        params.m_pJob_pool = &jpool;
+        params.m_multithreading = enable_threading;
+        params.m_read_source_images = false;
+        params.m_write_output_basis_or_ktx2_files = false;
+
+        // build_dds() consumes the prepared source slices, so drive the appropriate preparation path
+        // based on the input type: XUBC7 (LDR) for LDR inputs, UASTC_HDR_4x4 for HDR inputs. HDR DDS
+        // export is NOT implemented in build_dds() yet, so for HDR inputs the export below will fail
+        // for now - but selecting the HDR prep mode here means we're ready once an HDR build_dds()
+        // path (and HDR DDS formats) are added.
+        // We remember the caller's format mode and restore it after init() (which takes its own copy of
+        // params), so reusing this BasisEncoder for a later encode() isn't silently changed by our spoof.
+        const basist::basis_tex_format orig_format_mode = m_params.get_format_mode();
+        const bool is_hdr_input = !m_params.m_source_images_hdr.empty();
+        params.set_format_mode(is_hdr_input ? basist::basis_tex_format::cUASTC_HDR_4x4 : basist::basis_tex_format::cXUBC7);
+
+        basis_compressor comp;
+
+        const bool init_ok = comp.init(params);
+
+        // init() copied params, so restore the caller's format mode on m_params now (regardless of outcome).
+        params.set_format_mode(orig_format_mode);
+
+        if (!init_ok)
+        {
+#if BASISU_DEBUG_PRINTF
+            printf("basis_encoder::encode_to_dds: Failed initializing BasisU compressor! One or more provided parameters may be invalid.\n");
+#endif
+            return 0;
+        }
+
+        basis_compressor::error_code ec = comp.process_source_images();
+
+        if (ec != basis_compressor::cECSuccess)
+        {
+#if BASISU_DEBUG_PRINTF
+            printf("basis_encoder::encode_to_dds: process_source_images() failed with status %u!\n", (uint32_t)ec);
+#endif
+            return 0;
+        }
+
+        uint8_vec dds_data;
+        std::string error_msg;
+        if (!build_dds(dds_data, comp, m_dds_params, error_msg))
+        {
+#if BASISU_DEBUG_PRINTF
+            printf("basis_encoder::encode_to_dds: build_dds() failed: %s\n", error_msg.c_str());
+#endif
+            return 0;
+        }
+
+        // Copy the .dds file bytes to the caller's buffer (same mechanism as encode()).
+        if (!copy_to_jsbuffer(dst_dds_file_js_val, dds_data))
+            return 0;
+
+        return (uint32_t)dds_data.size();
+    }
+
+    float get_last_encode_mip0_rgba_psnr() const
     {
         return m_last_encode_mip0_rgba_psnr;
     }
@@ -1856,7 +2496,26 @@ bool transcode_uastc_image2(
     basisu::vector<uint8_t> temp_output_blocks(output_blocks_len);
 
 	bool status = false;	
-    if (basis_tex_format_is_astc_ldr(src_tex_format) || basis_tex_format_is_xuastc_ldr(src_tex_format))
+	if (basis_tex_format_is_xubc7(src_tex_format))
+	{
+		basisu_lowlevel_xubc7_transcoder transcoder;
+
+        status = transcoder.transcode_image(
+            src_tex_format,
+            (transcoder_texture_format)target_format,
+            &temp_output_blocks[0], output_blocks_buf_size_in_blocks_or_pixels,
+            &temp_comp_data[0], temp_comp_data.size(),
+            src_num_blocks_x, src_num_blocks_y, orig_width, orig_height, level_index,
+            slice_offset, slice_length,
+            decode_flags,
+            has_alpha,
+            is_video,
+            output_row_pitch_in_blocks_or_pixels,
+            nullptr,
+            output_rows_in_pixels,
+            channel0, channel1);
+	}
+    else if (basis_tex_format_is_astc_ldr(src_tex_format) || basis_tex_format_is_xuastc_ldr(src_tex_format))
     {
         basisu_lowlevel_xuastc_ldr_transcoder transcoder;
 
@@ -2093,6 +2752,13 @@ bool is_basis_tex_format_xuastc_ldr(uint32_t file_fmt)
 }
 
 // file_fmt is basis_tex_format
+bool is_basis_tex_format_xubc7(uint32_t file_fmt)
+{
+    assert(file_fmt < (uint32_t)basis_tex_format::cTotalFormats);
+    return basis_tex_format_is_xubc7((basis_tex_format)file_fmt);
+}
+
+// file_fmt is basis_tex_format
 bool is_basis_tex_format_astc_ldr(uint32_t file_fmt)
 {
     assert(file_fmt < (uint32_t)basis_tex_format::cTotalFormats);
@@ -2143,6 +2809,13 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
   
   function("setDebugFlags", &set_debug_flags_wrapper);
   function("getDebugFlags", &get_debug_flags_wrapper);
+
+#if BASISU_SUPPORT_ENCODING  
+  function("listConvars",  &basisu::list_convars);
+  function("printConvar",  &basisu::print_convar);
+  function("resetConvar",  &basisu::reset_convar);
+  function("setConvar",    &basisu::set_convar);
+#endif  
     
   // Expose BasisFileDesc structure
   value_object<basis_file_desc>("BasisFileDesc")
@@ -2306,6 +2979,8 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
         .value("cASTC_LDR_10x10", basis_tex_format::cASTC_LDR_10x10)
         .value("cASTC_LDR_12x10", basis_tex_format::cASTC_LDR_12x10)
         .value("cASTC_LDR_12x12", basis_tex_format::cASTC_LDR_12x12)
+		// XUBC7
+		.value("cXUBC7", basis_tex_format::cXUBC7)
     ;
 
   // .basis file transcoder object. If all you want to do is transcode already encoded .basis files, this is all you really need.
@@ -2346,6 +3021,9 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
     }))
     .function("isXUASTC_LDR", optional_override([](basis_file& self) {
       return self.isXUASTC_LDR();
+    }))
+	.function("isXUBC7", optional_override([](basis_file& self) {
+      return self.isXUBC7();
     }))
     .function("getNumImages", optional_override([](basis_file& self) {
       return self.getNumImages();
@@ -2404,7 +3082,6 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
     .value("cDecodeFlagsHighQuality", cDecodeFlagsHighQuality)
     .value("cDecodeFlagsNoETC1SChromaFiltering", cDecodeFlagsNoETC1SChromaFiltering)
     .value("cDecodeFlagsNoDeblockFiltering", cDecodeFlagsNoDeblockFiltering)
-    .value("cDecodeFlagsStrongerDeblockFiltering", cDecodeFlagsStrongerDeblockFiltering)
     .value("cDecodeFlagsForceDeblockFiltering", cDecodeFlagsForceDeblockFiltering)
     .value("cDecodeFlagXUASTCLDRDisableFastBC7Transcoding", cDecodeFlagXUASTCLDRDisableFastBC7Transcoding)
   ;
@@ -2437,6 +3114,7 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
   constant("KTX2_KDF_DF_MODEL_UASTC", KTX2_KDF_DF_MODEL_UASTC_LDR_4X4);
   constant("KTX2_KDF_DF_MODEL_UASTC_HDR_6X6_INTERMEDIATE", KTX2_KDF_DF_MODEL_UASTC_HDR_6X6_INTERMEDIATE);
   constant("KTX2_KDF_DF_MODEL_XUASTC_LDR_INTERMEDIATE", KTX2_KDF_DF_MODEL_XUASTC_LDR_INTERMEDIATE);
+  constant("KTX2_KDF_DF_MODEL_XUBC7", KTX2_KDF_DF_MODEL_XUBC7);
   
   constant("KTX2_IMAGE_IS_P_FRAME", KTX2_IMAGE_IS_P_FRAME);
   constant("KTX2_UASTC_BLOCK_SIZE", KTX2_UASTC_BLOCK_SIZE);
@@ -2541,6 +3219,7 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
         .function("isETC1S", &ktx2_file::isETC1S)
         .function("isASTC_LDR", &ktx2_file::isASTC_LDR)
         .function("isXUASTC_LDR", &ktx2_file::isXUASTC_LDR)
+		.function("isXUBC7", &ktx2_file::isXUBC7)
         .function("getHasAlpha", &ktx2_file::getHasAlpha)
         .function("getDFDColorModel", &ktx2_file::getDFDColorModel)
         .function("getDFDColorPrimaries", &ktx2_file::getDFDColorPrimaries)
@@ -2552,12 +3231,88 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
         .function("getDFDChannelID1", &ktx2_file::getDFDChannelID1)
         .function("isVideo", &ktx2_file::isVideo)
         .function("getLDRHDRUpconversionNitMultiplier", &ktx2_file::getLDRHDRUpconversionNitMultiplier)
+		.function("getDeblockingFilterIndex", &ktx2_file::getDeblockingFilterIndex)
         .function("getETC1SImageDescImageFlags", &ktx2_file::getETC1SImageDescImageFlags)
         .function("getImageLevelInfo", &ktx2_file::getImageLevelInfo)
         .function("getImageTranscodedSizeInBytes", &ktx2_file::getImageTranscodedSizeInBytes)
         .function("startTranscoding", &ktx2_file::startTranscoding)
         .function("transcodeImage", &ktx2_file::transcodeImage)
         .function("transcodeImageWithFlags", &ktx2_file::transcodeImageWithFlags)
+#if BASISU_SUPPORT_ENCODING
+        // DDS/KTX export (encoder build only -- needs the encoder library).
+        .function("exportToDDS", &ktx2_file::exportToDDS)
+        .function("getDDSData", &ktx2_file::getDDSData)
+        .function("exportToKTX", &ktx2_file::exportToKTX)
+        .function("getKTXData", &ktx2_file::getKTXData)
+#endif
+      ;
+
+  // The EXACT physical low-level format stored in a .DDS file (basist::dds_format), as reported by
+  // DDSFile.getDDSFormat(). Distinct from transcoder_texture_format (the closest transcodable format).
+  enum_<basist::dds_format>("dds_format")
+      .value("cInvalid", basist::dds_format::cInvalid)
+      .value("cBC1", basist::dds_format::cBC1)
+      .value("cBC2", basist::dds_format::cBC2)
+      .value("cBC3", basist::dds_format::cBC3)
+      .value("cBC4", basist::dds_format::cBC4)
+      .value("cBC5", basist::dds_format::cBC5)
+      .value("cBC7", basist::dds_format::cBC7)
+      .value("cR5G6B5", basist::dds_format::cR5G6B5)
+      .value("cA1R5G5B5", basist::dds_format::cA1R5G5B5)
+      .value("cX1R5G5B5", basist::dds_format::cX1R5G5B5)
+      .value("cA4R4G4B4", basist::dds_format::cA4R4G4B4)
+      .value("cX4R4G4B4", basist::dds_format::cX4R4G4B4)
+      .value("cR8G8B8", basist::dds_format::cR8G8B8)
+      .value("cB8G8R8", basist::dds_format::cB8G8R8)
+      .value("cA8R8G8B8", basist::dds_format::cA8R8G8B8)
+      .value("cX8R8G8B8", basist::dds_format::cX8R8G8B8)
+      .value("cA8B8G8R8", basist::dds_format::cA8B8G8R8)
+      .value("cX8B8G8R8", basist::dds_format::cX8B8G8R8)
+      .value("cR8", basist::dds_format::cR8)
+      .value("cR8G8", basist::dds_format::cR8G8)
+      .value("cA8", basist::dds_format::cA8)
+      .value("cL8", basist::dds_format::cL8)
+      .value("cA8L8", basist::dds_format::cA8L8)
+      .value("cTotalDDSFormats", basist::dds_format::cTotalDDSFormats)
+      ;
+
+  // What's physically stored in the file (dds_transcoder::source_kind): compressed block kind or generic uncompressed.
+  enum_<basist::dds_transcoder::source_kind>("dds_source_kind")
+      .value("cInvalid", basist::dds_transcoder::source_kind::cInvalid)
+      .value("cBC1", basist::dds_transcoder::source_kind::cBC1)
+      .value("cBC3", basist::dds_transcoder::source_kind::cBC3)
+      .value("cBC4", basist::dds_transcoder::source_kind::cBC4)
+      .value("cBC5", basist::dds_transcoder::source_kind::cBC5)
+      .value("cBC7", basist::dds_transcoder::source_kind::cBC7)
+      .value("cUncompressed", basist::dds_transcoder::source_kind::cUncompressed)
+      ;
+
+  // DDS source transcoder class (read & transcode a .DDS as a source). Mirrors KTX2File.
+  class_<dds_file>("DDSFile")
+      .constructor<const emscripten::val&>()
+        .function("isValid", &dds_file::isValid)
+        .function("close", &dds_file::close)
+        .function("getWidth", &dds_file::getWidth)
+        .function("getHeight", &dds_file::getHeight)
+        .function("getLevels", &dds_file::getLevels)
+        .function("getLayers", &dds_file::getLayers)
+        .function("getFaces", &dds_file::getFaces)
+        .function("getIsCubemap", &dds_file::getIsCubemap)
+        .function("getHasAlpha", &dds_file::getHasAlpha)
+        .function("isSRGB", &dds_file::isSRGB)
+        .function("getFormat", &dds_file::getFormat)
+        .function("getDDSFormat", &dds_file::getDDSFormat)
+        .function("getSourceKind", &dds_file::getSourceKind)
+        .function("isTranscodeFormatSupported", &dds_file::isTranscodeFormatSupported)
+        .function("getImageLevelInfo", &dds_file::getImageLevelInfo)
+        .function("getImageTranscodedSizeInBytes", &dds_file::getImageTranscodedSizeInBytes)
+        .function("startTranscoding", &dds_file::startTranscoding)
+        .function("transcodeImage", &dds_file::transcodeImage)
+        .function("transcodeImageWithFlags", &dds_file::transcodeImageWithFlags)
+#if BASISU_SUPPORT_ENCODING
+        // Encoder build only -- get_dds_format_string() lives in the encoder library.
+        .function("getDDSFormatString", &dds_file::getDDSFormatString)
+#endif
       ;
 
 #endif // BASISD_SUPPORT_KTX2
@@ -2616,12 +3371,15 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
 		.value("cHITEXRImage", hdr_image_type::cHITEXRImage)
 		.value("cHITHDRImage", hdr_image_type::cHITHDRImage)
         .value("cHITJPGImage", hdr_image_type::cHITJPGImage)
+		.value("cHITQOIImage", hdr_image_type::cHITQOIImage)
+		.value("cHITRGBA8Image", hdr_image_type::cHITRGBA8Image)
 	;
 
     enum_<ldr_image_type>("ldr_image_type")
         .value("cRGBA32", ldr_image_type::cRGBA32)
         .value("cPNGImage", ldr_image_type::cPNGImage)
         .value("cJPGImage", ldr_image_type::cJPGImage)
+		.value("cQOIImage", ldr_image_type::cQOIImage)
 	;
 
     enum_<xuastc_ldr_syntax>("xuastc_ldr_syntax")
@@ -2630,6 +3388,84 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
         .value("cFullZStd", xuastc_ldr_syntax::cFullZStd)
         .value("cTotal", xuastc_ldr_syntax::cTotal)
     ;
+	
+	enum_<xuastc_ldr_sharpen_mode>("xuastc_ldr_sharpen_mode")
+        .value("cDisabled", xuastc_ldr_sharpen_mode::cDisabled)
+        .value("cOnlyLargestBlocks", xuastc_ldr_sharpen_mode::cOnlyLargestBlocks)
+        .value("cAllBlockSizes", xuastc_ldr_sharpen_mode::cAllBlockSizes)
+        .value("cTotal", xuastc_ldr_sharpen_mode::cTotal)
+    ;
+	
+	enum_<xuastc_ldr_astc_comp_selection>("xuastc_ldr_astc_comp_selection")
+	    .value("cAuto", xuastc_ldr_astc_comp_selection::cAuto)
+        .value("cBasisU", xuastc_ldr_astc_comp_selection::cBasisU)
+        .value("cASTCENC", xuastc_ldr_astc_comp_selection::cASTCENC)
+		.value("cASTCF", xuastc_ldr_astc_comp_selection::cASTCF)
+        .value("cBasisU_and_ASTCENC", xuastc_ldr_astc_comp_selection::cBasisU_and_ASTCENC)
+		.value("cBasisU_and_ASTCF", xuastc_ldr_astc_comp_selection::cBasisU_and_ASTCF)
+		.value("cUseAll", xuastc_ldr_astc_comp_selection::cUseAll)
+		.value("cTotal", xuastc_ldr_astc_comp_selection::cTotal)
+    ;
+	
+	enum_<xuastc_ldr_deblocking_mode>("xuastc_ldr_deblocking_mode")
+        .value("cDisabled", xuastc_ldr_deblocking_mode::cDisabled)
+        .value("cUseSCDAndFilteringOnlyLargestBlocks", xuastc_ldr_deblocking_mode::cUseSCDAndFilteringOnlyLargestBlocks)
+        .value("cUseSCDAndFilteringAllBlockSizes", xuastc_ldr_deblocking_mode::cUseSCDAndFilteringAllBlockSizes)
+		.value("cUseSCDNoFiltering", xuastc_ldr_deblocking_mode::cUseSCDNoFiltering)
+		.value("cNoSCDButEnableFilteringOnLargestBlocks", xuastc_ldr_deblocking_mode::cNoSCDButEnableFilteringOnLargestBlocks)
+		.value("cNoSCDButEnableFilteringOnAllBlocks", xuastc_ldr_deblocking_mode::cNoSCDButEnableFilteringOnAllBlocks)
+        .value("cTotal", xuastc_ldr_deblocking_mode::cTotal)
+    ;
+
+	// Which BC7 base encoder XUBC7 packs with (see setXUBC7Encoder).
+	enum_<xbc7::bc7_encoder_type>("xubc7_bc7_encoder_type")
+        .value("cBC7F", xbc7::bc7_encoder_type::cBC7F)
+        .value("cBC7E_Scalar", xbc7::bc7_encoder_type::cBC7E_Scalar)
+    ;
+
+	// The output formats supported by direct DDS export / encodeToDDS (see setDDSFormat/setDDSFormatEnum).
+	// NOTE: distinct from the reader-side "dds_format" enum (basist::dds_format) used by the lossy
+	// KTX2->DDS exportToDDS() path - use THIS enum (cDDSFmt*) when creating DDS files via encodeToDDS().
+	enum_<dds_output_format>("dds_output_format")
+        .value("cDDSFmtInvalid", cDDSFmtInvalid)
+        .value("cDDSFmtBC1", cDDSFmtBC1)
+        .value("cDDSFmtBC2", cDDSFmtBC2)
+        .value("cDDSFmtBC3", cDDSFmtBC3)
+        .value("cDDSFmtBC4", cDDSFmtBC4)
+        .value("cDDSFmtBC5", cDDSFmtBC5)
+        .value("cDDSFmtBC7", cDDSFmtBC7)
+        .value("cDDSFmtA8R8G8B8", cDDSFmtA8R8G8B8)
+        .value("cDDSFmtA8B8G8R8", cDDSFmtA8B8G8R8)
+        .value("cDDSFmtR8", cDDSFmtR8)
+        .value("cDDSFmtR8G8", cDDSFmtR8G8)
+        .value("cDDSFmtR5G6B5", cDDSFmtR5G6B5)
+        .value("cDDSFmtA1R5G5B5", cDDSFmtA1R5G5B5)
+        .value("cDDSFmtA4R4G4B4", cDDSFmtA4R4G4B4)
+        .value("cDDSFmtTotal", cDDSFmtTotal)
+    ;
+
+	// Which BC7 base packer build_dds() uses for "bc7" DDS output (see setDDSBC7Encoder).
+	enum_<dds_bc7_encoder>("dds_bc7_encoder")
+        .value("cDDSBC7Encoder_BC7F", cDDSBC7Encoder_BC7F)
+        .value("cDDSBC7Encoder_BC7E_Scalar", cDDSBC7Encoder_BC7E_Scalar)
+    ;
+
+	// bc7f packer quality level for "bc7" DDS output (see setDDSBC7FLevel).
+	enum_<dds_bc7f_level>("dds_bc7f_level")
+        .value("cDDSBC7FLevel_Analytical", cDDSBC7FLevel_Analytical)
+        .value("cDDSBC7FLevel_PartiallyAnalytical", cDDSBC7FLevel_PartiallyAnalytical)
+        .value("cDDSBC7FLevel_NonAnalytical", cDDSBC7FLevel_NonAnalytical)
+    ;
+
+	// DDS export helpers: canonical token string for a dds_output_format value, and whether a format has
+	// a distinct sRGB DXGI variant (so a caller can label output, e.g. "BC7 (sRGB)"). Take the int value
+	// of a dds_output_format (e.g. Module.dds_output_format.cDDSFmtBC7.value).
+	function("getDDSOutputFormatString", optional_override([](int format) {
+        return std::string(get_dds_output_format_string((dds_output_format)format));
+    }));
+	function("ddsOutputFormatHasSRGBVariant", optional_override([](int format) {
+        return dds_output_format_has_srgb_variant((dds_output_format)format);
+    }));
 
   // Compression/encoding object.
   // You create this object, call the set() methods to fill in the parameters/source images/options, call encode(), and you get back a .basis or .KTX2 file.
@@ -2642,6 +3478,15 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
     // At the minimum, you must provided at least 1 source slice by calling setSliceSourceImage() or setSliceSourceImageHDR() (for UASTC HDR) before calling this method.
     .function("encode", optional_override([](basis_encoder& self, const emscripten::val& dst_basis_file_js_val) {
         return self.encode(dst_basis_file_js_val);
+    }))
+
+    // Encodes the provided source slice(s) directly to an in-memory DX10 .DDS file (high-quality,
+    // single-hop, NOT via KTX2). Configure the output via setDDSFormat()/setDDSBC7*() first. The DDS
+    // bytes are written into the caller-provided buffer; returns the file size in bytes (0 on failure).
+    // Like encode(), there is no size-query: pass a buffer large enough for the whole .DDS (size depends
+    // on the format + mip/array/cubemap layout); if it's too small this fails and returns 0.
+    .function("encodeToDDS", optional_override([](basis_encoder& self, const emscripten::val& dst_dds_file_js_val) {
+        return self.encode_to_dds(dst_dds_file_js_val);
     }))
 
     .function("getLastEncodeMip0RGBAPSNR", optional_override([](basis_encoder& self) {
@@ -2681,6 +3526,7 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
     // If effort==-1, no effort related parameters will be modified.
 	// If quality==-1, no quality related parameters will be modified.
     // These values directly correspond to the command line tool's "-effort X" and "-quality X" unified codec compression options. 
+	// If set_defaults is true (recommended) and quality is -1, the default quality settings will be used, otherwise the quality settings will remain unchanged. Same for effort.
     .function("setFormatModeAndQualityEffort", optional_override([](basis_encoder& self, int tex_format, int quality, int effort, bool set_defaults) {
       assert((tex_format >= 0) && (tex_format < (uint32_t)basis_tex_format::cTotalFormats));
       assert((effort >= -1) && (effort <= 10));
@@ -2754,10 +3600,23 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
     // All formats (but formats without alpha will ignore a)
     .function("setSwizzle", optional_override([](basis_encoder& self, uint32_t r, uint32_t g, uint32_t b, uint32_t a) {
         assert((r < 4) && (g < 4) && (b < 4) && (a < 4));
-        self.m_params.m_swizzle[0] = (char)r;
-        self.m_params.m_swizzle[1] = (char)g;
-        self.m_params.m_swizzle[2] = (char)b;
-        self.m_params.m_swizzle[3] = (char)a;
+        // Clamp to the valid [0,3] range (the assert flags bad values in debug; the clamp keeps release safe).
+        self.m_params.m_swizzle[0] = (uint8_t)clamp<uint32_t>(r, 0u, 3u);
+        self.m_params.m_swizzle[1] = (uint8_t)clamp<uint32_t>(g, 0u, 3u);
+        self.m_params.m_swizzle[2] = (uint8_t)clamp<uint32_t>(b, 0u, 3u);
+        self.m_params.m_swizzle[3] = (uint8_t)clamp<uint32_t>(a, 0u, 3u);
+    }))
+
+    // Sets the swizzle for a SINGLE output channel: output channel out_channel reads from source channel
+    // src_channel. Both indices are [0,3] (0=R,1=G,2=B,3=A). The full swizzle defaults to identity
+    // (0,1,2,3 = no swizzle). Unlike setSwizzle(), this VALIDATES at runtime and returns false (leaving
+    // the swizzle unchanged) if either index is out of [0,3]. All formats (formats without alpha ignore
+    // the alpha output, index 3).
+    .function("setSwizzleComponent", optional_override([](basis_encoder& self, uint32_t out_channel, uint32_t src_channel) {
+        if ((out_channel > 3) || (src_channel > 3))
+            return false;
+        self.m_params.m_swizzle[out_channel] = (uint8_t)src_channel;
+        return true;
     }))
 
     // ASTC HDR 6x6 options
@@ -2882,13 +3741,49 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
 
     // setNormalMapMode is the same as the basisu.exe "-normal_map" option. It tunes several codec parameters so compression works better on normal maps.
     // ETC1S/UASTC LDR 4x4/UASTC HDR 4x4
-    .function("setNormalMap", optional_override([](basis_encoder& self) {
-        self.m_params.m_perceptual = false;
-        self.m_params.m_mip_srgb = false;
+    .function("setNormalMapPreset", optional_override([](basis_encoder& self) {
+        
+		self.m_params.set_srgb_options(false);
+		
         self.m_params.m_no_selector_rdo = true;
         self.m_params.m_no_endpoint_rdo = true;
+		
+		self.m_params.set_xuastc_ldr_srgb_channel_weights(false);
+		
+		self.m_params.m_xuastc_ldr_sharpen_mode = (int)xuastc_ldr_sharpen_mode::cDisabled;
+		self.m_params.m_xuastc_ldr_deblocking_mode = (int)xuastc_ldr_deblocking_mode::cDisabled;
+    }))
+	
+	// -photo or -srgb option (the codec's defaults)
+	.function("setPhotoPreset", optional_override([](basis_encoder& self) {
+        
+		self.m_params.set_srgb_options(true);
+		
+        self.m_params.m_no_selector_rdo = false;
+        self.m_params.m_no_endpoint_rdo = false;
+		
+		self.m_params.set_xuastc_ldr_srgb_channel_weights(true);
+		
+		self.m_params.m_xuastc_ldr_sharpen_mode = (int)xuastc_ldr_sharpen_mode::cDisabled;
+		self.m_params.m_xuastc_ldr_deblocking_mode = (int)xuastc_ldr_deblocking_mode::cUseSCDAndFilteringOnlyLargestBlocks;
     }))
 
+    // -linear option	
+	.function("setLinearPreset", optional_override([](basis_encoder& self) {
+        
+		self.m_params.set_srgb_options(false);
+		
+		self.m_params.set_xuastc_ldr_srgb_channel_weights(false);
+    }))
+	
+	// -srgb option	
+	.function("setSRGBPreset", optional_override([](basis_encoder& self) {
+        
+		self.m_params.set_srgb_options(true);
+		
+		self.m_params.set_xuastc_ldr_srgb_channel_weights(true);
+    }))
+        
     // Sets ETC1S selector RDO threshold
     // Default is BASISU_DEFAULT_SELECTOR_RDO_THRESH, range is [0,1e+10]
     // ETC1S
@@ -2925,7 +3820,13 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
     // All formats
     .function("setKTX2AndBasisSRGBTransferFunc", optional_override([](basis_encoder& self, bool srgb_transfer_func) {
         self.m_params.m_ktx2_and_basis_srgb_transfer_function = srgb_transfer_func;
-        }))
+    }))
+		
+	// Sets all the sRGB-related options (m_perceptual, m_mip_srgb, m_ktx2_and_basis_srgb_transfer_function) to the specified value, ensuring they are all kept in sync.
+	// For ASTC/XUASTC LDR, also see the channel weights below: m_xuastc_ldr_channel_weights. They default to 3,11,1,11.
+    .function("setSRGBOptions", optional_override([](basis_encoder& self, bool srgb_flag) {
+        self.m_params.set_srgb_options(srgb_flag);
+    }))
 
     // --- Mip-map options (format independent)
 
@@ -3067,6 +3968,7 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
     }))
 
     // Sets the ASTC/XUASTC LDR channel weights
+	// The default channel weights are 3,11,1,11 - so override them for linear content (like normal maps or non-sRGB content).
     .function("setASTCOrXUASTCLDRWeights", optional_override([](basis_encoder& self, uint32_t x, uint32_t y, uint32_t z, uint32_t w) {
         self.m_params.m_xuastc_ldr_channel_weights[0] = x;
         self.m_params.m_xuastc_ldr_channel_weights[1] = y;
@@ -3090,6 +3992,110 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
             break;
         }
     }))
+	
+	// Enable/disable XUASTC LDR blur candidates (very slow)
+	.function("setXUASTCLDRUseBlurring", optional_override([](basis_encoder& self, bool use_blurring) {
+        self.m_params.m_xuastc_ldr_blurring = use_blurring;
+    }))
+	
+	// Enable/disable astcenc utilization (library support must have been compiled in), compressor_mode is enum xuastc_ldr_astc_comp_selection
+	.function("setXUASTCLDRSelectCompressor", optional_override([](basis_encoder& self, int compressor_mode) {
+        self.m_params.m_xuastc_ldr_astc_comp_selection = compressor_mode;
+    }))
+	
+	.function("setXUASTCLDRSharpenMode", optional_override([](basis_encoder& self, int sharpen_mode) {
+        self.m_params.m_xuastc_ldr_sharpen_mode = sharpen_mode;
+    }))
+	
+	.function("setXUASTCLDRSharpenAmount", optional_override([](basis_encoder& self, float sharpen_amount) {
+        self.m_params.m_xuastc_ldr_sharpen_amount = sharpen_amount;
+    }))
+	
+	// Enable/disable deblocking on large block sizes during encoding (also writes the DeblockFilterID key to the output ktx2 file)
+	// deblocking_mode is enum xuastc_ldr_deblocking_mode
+	.function("setXUASTCLDRDeblockingMode", optional_override([](basis_encoder& self, int deblocking_mode) {
+        self.m_params.m_xuastc_ldr_deblocking_mode = deblocking_mode;
+    }))
+	
+    // Sets the # of deblocking passes utilized [2,256], 256=auto (set automatically from XUASTC LDR effort level)
+	.function("setXUASTCLDRNumDeblockingPasses", optional_override([](basis_encoder& self, int num_passes) {
+        self.m_params.m_xuastc_ldr_num_deblocking_passes = num_passes;
+    }))
+	
+	// Try simplified latent configs (better low bitrate quality)
+	.function("setXUASTCLDRHeavySubsetUsage", optional_override([](basis_encoder& self, bool flag) {
+        self.m_params.m_xuastc_ldr_heavy_subset_usage = flag;
+    }))
+	
+	// --- XUBC7 related options
+	.function("setXUBC7EffortLevel", optional_override([](basis_encoder& self, int effort_level) {
+        self.m_params.m_xubc7_effort_level = effort_level;
+    }))	
+	
+	.function("setXUBC7RDOLevel", optional_override([](basis_encoder& self, int rdo_level) {
+        self.m_params.m_xubc7_rdo_level = rdo_level;
+    }))
+
+	.function("setXUBC7NumStripes", optional_override([](basis_encoder& self, int num_stripes) {
+        self.m_params.m_xubc7_num_stripes = num_stripes;
+    }))
+
+	// Selects the BC7 base encoder XUBC7 packs with: cBC7F = built-in fast packer
+	// (default), cBC7E_Scalar = slower, higher quality. encoder is enum
+	// xubc7_bc7_encoder_type.
+	.function("setXUBC7Encoder", optional_override([](basis_encoder& self, int encoder) {
+        self.m_params.m_xubc7_encoder = encoder;
+    }))
+
+	// bc7e_scalar quality level [0,6] (only used when the encoder is bc7e_scalar).
+	.function("setXUBC7BC7EScalarLevel", optional_override([](basis_encoder& self, int level) {
+        self.m_params.m_xubc7_bc7e_scalar_level = level;
+    }))
+
+	// --- DDS export options (used by encodeToDDS()) ---
+
+	// Sets the DDS output format from a token (case-insensitive), e.g. "bc1","bc2","bc3","bc4","bc5",
+	// "bc7","a8r8g8b8","a8b8g8r8","r8","r8g8","r5g6b5","a1r5g5b5","a4r4g4b4". Returns false on an
+	// unrecognized token (and leaves the format unchanged). The sRGB-vs-UNORM DXGI variant is taken
+	// from the sRGB transfer-function flag (setKTX2SRGBTransferFunc), not from this token.
+	.function("setDDSFormat", optional_override([](basis_encoder& self, std::string token) {
+        dds_output_format fmt;
+        if (!parse_dds_output_format(token.c_str(), fmt))
+            return false;
+        self.m_dds_params.m_format = fmt;
+        return true;
+    }))
+
+	// Sets the DDS output format directly from a dds_output_format enum value (e.g.
+	// Module.dds_output_format.cDDSFmtBC7.value). Returns false on an out-of-range value (the
+	// format is left unchanged); cDDSFmtInvalid/cDDSFmtTotal are not valid selections.
+	.function("setDDSFormatEnum", optional_override([](basis_encoder& self, int format) {
+        if ((format <= (int)cDDSFmtInvalid) || (format >= (int)cDDSFmtTotal))
+            return false;
+        self.m_dds_params.m_format = (dds_output_format)format;
+        return true;
+    }))
+
+	// "bc7" DDS only: selects the BC7 base packer. encoder is enum dds_bc7_encoder
+	// (cDDSBC7Encoder_BC7F = built-in fast packer (default), cDDSBC7Encoder_BC7E_Scalar = slower/better).
+	// Returns false on an unrecognized value (the encoder is left unchanged).
+	.function("setDDSBC7Encoder", optional_override([](basis_encoder& self, int encoder) {
+        if ((encoder != cDDSBC7Encoder_BC7F) && (encoder != cDDSBC7Encoder_BC7E_Scalar))
+            return false;
+        self.m_dds_params.m_bc7_encoder = (dds_bc7_encoder)encoder;
+        return true;
+    }))
+
+	// "bc7" DDS only (bc7f packer): quality level, enum dds_bc7f_level [0,2]
+	// (0=analytical, 1=partially analytical (default), 2=non analytical / slowest-best).
+	.function("setDDSBC7FLevel", optional_override([](basis_encoder& self, int level) {
+        self.m_dds_params.m_bc7f_level = clamp(level, (int)cDDSBC7FLevel_Analytical, (int)cDDSBC7FLevel_NonAnalytical);
+    }))
+
+	// "bc7" DDS only (bc7e_scalar packer): quality level [0,6], 0=ultrafast..6=slowest.
+	.function("setDDSBC7EScalarLevel", optional_override([](basis_encoder& self, int level) {
+        self.m_dds_params.m_bc7e_scalar_level = clamp(level, 0, 6);
+    }))
 
     // --- Low level options
 
@@ -3108,11 +4114,19 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
     .function("setComputeStats", optional_override([](basis_encoder& self, bool compute_stats_flag) {
         self.m_params.m_compute_stats = compute_stats_flag;
     }))
+	
+	.function("setPrintStats", optional_override([](basis_encoder& self, bool print_stats_flag) {
+        self.m_params.m_print_stats = print_stats_flag;
+    }))
 
     // Write output .PNG/.EXR files for debugging
     // All formats
     .function("setDebugImages", optional_override([](basis_encoder& self, bool debug_images_flag) {
         self.m_params.m_debug_images = debug_images_flag;
+    }))
+	
+	.function("setStatusOutput", optional_override([](basis_encoder& self, bool status_output) {
+        self.m_params.m_status_output = status_output;
     }))
 
   ;
