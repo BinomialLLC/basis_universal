@@ -103,6 +103,9 @@ class BasisuWasmTranscoder:
     def basis_tex_format_is_astc_ldr(self, basis_tex_fmt_u32: int) -> bool:
         return bool(self.exports["bt_basis_tex_format_is_astc_ldr"](self.store, basis_tex_fmt_u32))
 
+    def basis_tex_format_is_xubc7(self, basis_tex_fmt_u32: int) -> bool:
+        return bool(self.exports["bt_basis_tex_format_is_xubc7"](self.store, basis_tex_fmt_u32))
+
     def basis_tex_format_get_block_width(self, basis_tex_fmt_u32: int) -> int:
         return self.exports["bt_basis_tex_format_get_block_width"](self.store, basis_tex_fmt_u32)
 
@@ -211,11 +214,17 @@ class BasisuWasmTranscoder:
     def ktx2_is_xuastc_ldr(self, handle: int) -> bool:
         return bool(self.exports["bt_ktx2_is_xuastc_ldr"](self.store, handle))
 
+    def ktx2_is_xubc7(self, handle: int) -> bool:
+        return bool(self.exports["bt_ktx2_is_xubc7"](self.store, handle))
+
     def ktx2_get_block_width(self, handle: int) -> int:
         return self.exports["bt_ktx2_get_block_width"](self.store, handle)
 
     def ktx2_get_block_height(self, handle: int) -> int:
         return self.exports["bt_ktx2_get_block_height"](self.store, handle)
+
+    def ktx2_get_deblocking_filter_index(self, handle: int) -> int:
+        return self.exports["bt_ktx2_get_deblocking_filter_index"](self.store, handle)
 
     def ktx2_has_alpha(self, handle: int) -> bool:
         return bool(self.exports["bt_ktx2_has_alpha"](self.store, handle))

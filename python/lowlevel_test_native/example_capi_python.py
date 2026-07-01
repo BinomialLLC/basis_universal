@@ -271,11 +271,13 @@ def transcode_ktx2_file(ktx2_data: bytes) -> int:
     basis_tex_format = bt.ktx2_get_basis_tex_format(ktx2_handle)
     block_width  = bt.ktx2_get_block_width(ktx2_handle)
     block_height = bt.ktx2_get_block_height(ktx2_handle)
+    deblocking_filter_index = bt.ktx2_get_deblocking_filter_index(ktx2_handle)
     is_srgb = bt.ktx2_is_srgb(ktx2_handle)
 
     print(f"KTX2 Dimensions: {width}x{height}, Levels={levels}, Faces={faces}, Layers={layers}")
     print(f"basis_tex_format: {basis_tex_format}")
     print(f"Block dimensions: {block_width}x{block_height}")
+    print(f"deblocking_filter_index: {deblocking_filter_index}")
     print(f"is sRGB: {is_srgb}")
 
     if layers < 1:
@@ -314,12 +316,16 @@ def transcode_ktx2_file(ktx2_data: bytes) -> int:
                 rgba_ofs = bt.alloc(trans_size_rgba)
                 print(f"  RGBA buf ofs=0x{rgba_ofs:x}, size={trans_size_rgba}")
 
+                # The transcoder wants the output buffer size in blocks (GPU formats) or pixels (uncompressed),
+                # NOT bytes -- it's used as a buffer-overrun guard. For RGBA32 that's the pixel count.
+                rgba_buf_pixels = trans_size_rgba // bt.basis_get_bytes_per_block_or_pixel(TF.TF_RGBA32)
+
                 decode_flags = 0
                 ok = bt.ktx2_transcode_image_level(
                     ktx2_handle,
                     level_index, layer_index, face_index,
                     rgba_ofs,
-                    trans_size_rgba,
+                    rgba_buf_pixels,
                     TF.TF_RGBA32,
                     decode_flags,
                     0, 0, -1, -1,
@@ -346,11 +352,14 @@ def transcode_ktx2_file(ktx2_data: bytes) -> int:
                 astc_ofs = bt.alloc(trans_size_astc)
                 print(f"  ASTC buf ofs=0x{astc_ofs:x}, size={trans_size_astc}")
 
+                # Buffer size in blocks (not bytes) -- ASTC is 16 bytes/block.
+                astc_buf_blocks = trans_size_astc // bt.basis_get_bytes_per_block_or_pixel(target_tf)
+
                 ok = bt.ktx2_transcode_image_level(
                     ktx2_handle,
                     level_index, layer_index, face_index,
                     astc_ofs,
-                    trans_size_astc,
+                    astc_buf_blocks,
                     target_tf,
                     0, 0, 0, -1, -1,
                     trans_state

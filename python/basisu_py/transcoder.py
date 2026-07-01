@@ -103,6 +103,7 @@ class Transcoder:
             # basis_tex_format helpers
             ("basis_tex_format_is_xuastc_ldr", "basis_tex_format_is_xuastc_ldr"),
             ("basis_tex_format_is_astc_ldr",   "basis_tex_format_is_astc_ldr"),
+            ("basis_tex_format_is_xubc7",      "basis_tex_format_is_xubc7"),
             ("basis_tex_format_get_block_width",  "basis_tex_format_get_block_width"),
             ("basis_tex_format_get_block_height", "basis_tex_format_get_block_height"),
             ("basis_tex_format_is_hdr", "basis_tex_format_is_hdr"),
@@ -138,6 +139,7 @@ class Transcoder:
 
             ("ktx2_get_block_width",  "ktx2_get_block_width"),
             ("ktx2_get_block_height", "ktx2_get_block_height"),
+            ("ktx2_get_deblocking_filter_index", "ktx2_get_deblocking_filter_index"),
             
             ("ktx2_has_alpha",        "ktx2_has_alpha"),
 
@@ -151,6 +153,7 @@ class Transcoder:
             ("ktx2_is_uastc_ldr_4x4",  "ktx2_is_uastc_ldr_4x4"),
             ("ktx2_is_xuastc_ldr",     "ktx2_is_xuastc_ldr"),
             ("ktx2_is_astc_ldr",       "ktx2_is_astc_ldr"),
+            ("ktx2_is_xubc7",          "ktx2_is_xubc7"),
             ("ktx2_is_video",          "ktx2_is_video"),
             ("ktx2_get_ldr_hdr_upconversion_nit_multiplier", "ktx2_get_ldr_hdr_upconversion_nit_multiplier"),
             
@@ -250,6 +253,7 @@ class Transcoder:
     def is_uastc_ldr_4x4(self, ktx2_handle):  return bool(self.ktx2_is_uastc_ldr_4x4(ktx2_handle.handle))
     def is_xuastc_ldr(self, ktx2_handle): return bool(self.ktx2_is_xuastc_ldr(ktx2_handle.handle))
     def is_astc_ldr(self, ktx2_handle):   return bool(self.ktx2_is_astc_ldr(ktx2_handle.handle))
+    def is_xubc7(self, ktx2_handle):      return bool(self.ktx2_is_xubc7(ktx2_handle.handle))
     
     # ---- DFD access
     def get_dfd_flags(self, ktx2_handle):   return self.ktx2_get_dfd_flags(ktx2_handle.handle)
@@ -263,6 +267,7 @@ class Transcoder:
     # ---- Block dimensions ----
     def get_block_width(self, ktx2_handle):  return self.ktx2_get_block_width(ktx2_handle.handle)
     def get_block_height(self, ktx2_handle): return self.ktx2_get_block_height(ktx2_handle.handle)
+    def get_deblocking_filter_index(self, ktx2_handle): return self.ktx2_get_deblocking_filter_index(ktx2_handle.handle)
     
     # -----------------------------------------------------------------------
     # Explicit: start transcoding on an already-open KTX2 file
@@ -502,7 +507,7 @@ class Transcoder:
           "PVRTC1", "PVRTC2",
           "ETC1", "ETC2", "ETC2_EAC_R11", "ETC2_EAC_RG11",
           "ATC", "FXT1",
-          "RGBA32", "RGB_HALF", "RGBA_HALF", "RGB_FLOAT", "RGBA_FLOAT",
+          "RGBA32", "RGB_HALF", "RGBA_HALF",
           "RGB_9E5"
 
         Returns:
@@ -522,10 +527,10 @@ class Transcoder:
         if s in ("RGBA32", "RGBA8", "UNCOMPRESSED"):
             tfmt = TranscoderTextureFormat.TF_RGBA32
 
-        elif s in ("RGBHALF", "RGB16F", "RGB_FLOAT", "RGBFLOAT"):
+        elif s in ("RGBHALF", "RGB16F"):
             tfmt = TranscoderTextureFormat.TF_RGB_HALF
 
-        elif s in ("RGBAHALF", "RGBA16F", "RGBA_FLOAT", "RGBAFLOAT"):
+        elif s in ("RGBAHALF", "RGBA16F"):
             tfmt = TranscoderTextureFormat.TF_RGBA_HALF
 
         elif s in ("RGB9E5", "RGB_9E5"):

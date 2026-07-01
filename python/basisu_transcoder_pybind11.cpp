@@ -8,7 +8,7 @@
 
 namespace py = pybind11;
 
-// wasm_bool_t is uint32_t — convert to Python bool
+// wasm_bool_t is uint32_t - convert to Python bool
 static inline bool to_bool(wasm_bool_t v) { return v != 0; }
 
 PYBIND11_MODULE(basisu_transcoder_python, m) {
@@ -41,6 +41,9 @@ PYBIND11_MODULE(basisu_transcoder_python, m) {
 
     m.def("basis_tex_format_is_astc_ldr",
           [](uint32_t fmt) { return to_bool(bt_basis_tex_format_is_astc_ldr(fmt)); });
+
+    m.def("basis_tex_format_is_xubc7",
+          [](uint32_t fmt) { return to_bool(bt_basis_tex_format_is_xubc7(fmt)); });
 
     m.def("basis_tex_format_get_block_width",
           &bt_basis_tex_format_get_block_width);
@@ -138,9 +141,14 @@ PYBIND11_MODULE(basisu_transcoder_python, m) {
     m.def("ktx2_is_xuastc_ldr",
           [](uint64_t h) { return to_bool(bt_ktx2_is_xuastc_ldr(h)); });
 
+    m.def("ktx2_is_xubc7",
+          [](uint64_t h) { return to_bool(bt_ktx2_is_xubc7(h)); });
+
     m.def("ktx2_get_block_width", &bt_ktx2_get_block_width);
 	
     m.def("ktx2_get_block_height", &bt_ktx2_get_block_height);
+
+    m.def("ktx2_get_deblocking_filter_index", &bt_ktx2_get_deblocking_filter_index);
 
     m.def("ktx2_has_alpha",
           [](uint64_t h) { return to_bool(bt_ktx2_has_alpha(h)); });

@@ -46,6 +46,9 @@ class BasisTexFormat:
     cASTC_LDR_12x10= 31
     cASTC_LDR_12x12= 32
 
+    # Supercompressed BC7
+    cXUBC7 = 33
+
 # ============================================================
 # Unified quality level: 1-100 (higher=better quality, 100 disables some codec options)
 # ============================================================
@@ -105,6 +108,17 @@ class BasisFlags:
     TEXTURE_TYPE_VIDEO_FRAMES   = 3 << 25
     TEXTURE_TYPE_SHIFT          = 25
     TEXTURE_TYPE_MASK           = 3
+
+    # ASTC/XUASTC LDR deblocking control (default: deblock block sizes >= 80 texels/block)
+    DISABLE_DEBLOCKING          = 1 << 27
+    FORCE_DEBLOCKING            = 1 << 28
+
+    # XUBC7 only: BC7 base-encoder selection, packed into a 3-bit field.
+    # Field 0 = bc7f (default fast packer); 1-7 = bc7e_scalar at level 0-6 (field = level + 1).
+    # Build a bc7e_scalar value as: ((level + 1) << XUBC7_BASE_ENCODER_SHIFT)
+    XUBC7_BASE_ENCODER_BC7F     = 0 << 29
+    XUBC7_BASE_ENCODER_SHIFT    = 29
+    XUBC7_BASE_ENCODER_MASK     = 7
 
     VERBOSE = PRINT_STATS | PRINT_STATUS
     MIPMAP_CLAMP = GEN_MIPS_CLAMP
@@ -175,9 +189,8 @@ class TranscodeDecodeFlags:
     TRANSCODE_ALPHA_TO_OPAQUE               = 4
     BC1_FORBID_THREE_COLOR_BLOCKS           = 8
     OUTPUT_HAS_ALPHA_INDICES                = 16
-    HIGH_QUALITY                             = 32
-    NO_ETC1S_CHROMA_FILTERING                = 64
+    HIGH_QUALITY                            = 32
+    NO_ETC1S_CHROMA_FILTERING               = 64
     NO_DEBLOCK_FILTERING                    = 128
-    STRONGER_DEBLOCK_FILTERING              = 256
     FORCE_DEBLOCK_FILTERING                 = 512
     XUASTC_LDR_DISABLE_FAST_BC7_TRANSCODING = 1024

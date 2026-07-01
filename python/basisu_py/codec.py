@@ -101,6 +101,7 @@ class Encoder:
 
         params = enc.new_params()
 
+        buf_ptr = None
         try:
             buf_ptr = enc.alloc(len(bytes_data))
 
@@ -137,6 +138,7 @@ class Encoder:
 
         params = enc.new_params()
 
+        buf_ptr = None
         try:
             buf_ptr = enc.alloc(len(bytes_data))
             enc.write_bytes(buf_ptr, bytes_data)

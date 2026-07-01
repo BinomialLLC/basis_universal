@@ -80,7 +80,9 @@ def test_backend(name, backend):
         print(f"  is_uastc_ldr_4x4  = {t.is_uastc_ldr_4x4(raw)}")
         print(f"  is_xuastc_ldr = {t.is_xuastc_ldr(raw)}")
         print(f"  is_astc_ldr   = {t.is_astc_ldr(raw)}")
+        print(f"  is_xubc7      = {t.is_xubc7(raw)}")
         print(f"  block dims = {t.get_block_width(raw)} x {t.get_block_height(raw)}")
+        print(f"  deblocking_filter_index = {t.get_deblocking_filter_index(raw)}")
 
     except Exception as e:
         print("  [FAIL] get_* metadata error:", e)
@@ -113,6 +115,7 @@ def test_backend(name, backend):
     try:
         print(f"    is_xuastc_ldr = {t.basis_tex_format_is_xuastc_ldr(fmt)}")
         print(f"    is_astc_ldr   = {t.basis_tex_format_is_astc_ldr(fmt)}")
+        print(f"    is_xubc7      = {t.basis_tex_format_is_xubc7(fmt)}")
         print(f"    block W/H     = {t.basis_tex_format_get_block_width(fmt)} x "
               f"{t.basis_tex_format_get_block_height(fmt)}")
         print(f"    is_hdr        = {t.basis_tex_format_is_hdr(fmt)}")
