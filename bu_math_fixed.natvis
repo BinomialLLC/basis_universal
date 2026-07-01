@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AutoVisualizer xmlns="http://schemas.microsoft.com/vstudio/debugger/natvis/2010">
+
+  <!-- bu_math::fixed<FRAC_BITS>: shows the floating point value and the raw
+       integer side by side, for ALL FRAC_BITS instantiations ($T1 is the
+       template argument). Covers fixed16_16, fixed8_24, fixed24_8, etc., and
+       applies elementwise inside arrays, vectors, and watch expressions. -->
+  <Type Name="bu_math::fixed&lt;*&gt;">
+    <DisplayString>{(double)v / (double)(1 &lt;&lt; $T1),g} (raw {v})</DisplayString>
+    <Expand>
+      <Item Name="[value]">(double)v / (double)(1 &lt;&lt; $T1)</Item>
+      <Item Name="[raw]">v</Item>
+      <Item Name="[raw hex]">v,x</Item>
+      <Item Name="[int part (floor)]">v &gt;&gt; $T1</Item>
+      <Item Name="[frac raw]">v &amp; ((1 &lt;&lt; $T1) - 1)</Item>
+      <Item Name="[frac bits]">$T1</Item>
+    </Expand>
+  </Type>
+
+</AutoVisualizer>

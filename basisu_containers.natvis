@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AutoVisualizer xmlns="http://schemas.microsoft.com/vstudio/debugger/natvis/2010">
+
+	<!-- basisu::vector<T>
+       Collapsed:  { size=37 }   or   { empty (capacity=64) }
+       Expanded:   [size], [capacity], then elements like a native array. -->
+	<Type Name="basisu::vector&lt;*&gt;">
+		<DisplayString Condition="m_size == 0">{{ empty (capacity={m_capacity}) }}</DisplayString>
+		<DisplayString>{{ size={m_size} }}</DisplayString>
+		<Expand>
+			<Item Name="[size]">m_size</Item>
+			<Item Name="[capacity]">m_capacity</Item>
+			<ArrayItems>
+				<Size>m_size</Size>
+				<ValuePointer>m_p</ValuePointer>
+			</ArrayItems>
+		</Expand>
+	</Type>
+
+	<!-- basisu::vector2D<T>
+       Collapsed:  { 16 x 16 }
+       Expanded:   [width], [height], elements indexed [row][col] (row-major,
+       matching x + y * m_width), plus [data (flat)] as a plain linear view
+       through the vector visualizer above. -->
+	<Type Name="basisu::vector2D&lt;*&gt;">
+		<DisplayString>{{ {m_width} x {m_height} }}</DisplayString>
+		<Expand>
+			<Item Name="[width (cols)]">m_width</Item>
+			<Item Name="[height (rows)]">m_height</Item>
+			<Item Name="[data (flat)]">m_values</Item>
+			<ArrayItems Condition="m_width != 0 &amp;&amp; m_height != 0">
+				<Direction>Forward</Direction>
+				<Rank>2</Rank>
+				<Size>$i == 0 ? m_height : m_width</Size>
+				<ValuePointer>m_values.m_p</ValuePointer>
+			</ArrayItems>
+		</Expand>
+	</Type>
+
+	<!-- basisu::image
+       Collapsed:  { 1024 x 768 }   (pitch shown when it differs from width)
+       Expanded:   dims, pitch, [pixels (flat)], then pixels as [y][x].
+       IMPORTANT: rows are strided by m_pitch, not m_width. When they're equal
+       (the common case) the 2D view is exactly [y][x] over the image. When
+       pitch > width, the second view is used: rows run to m_pitch so element
+       addressing stays correct ([y][x] valid for x < width; columns beyond
+       are the padding pixels). -->
+	<Type Name="basisu::image">
+		<DisplayString Condition="m_width == 0">{{ empty image }}</DisplayString>
+		<DisplayString Condition="m_pitch != m_width">{{ {m_width} x {m_height} (pitch {m_pitch}) }}</DisplayString>
+		<DisplayString>{{ {m_width} x {m_height} }}</DisplayString>
+		<Expand>
+			<Item Name="[width]">m_width</Item>
+			<Item Name="[height]">m_height</Item>
+			<Item Name="[pitch]">m_pitch</Item>
+			<Item Name="[pixels (flat)]">m_pixels</Item>
+			<ArrayItems Condition="m_width != 0 &amp;&amp; m_pitch == m_width">
+				<Direction>Forward</Direction>
+				<Rank>2</Rank>
+				<Size>$i == 0 ? m_height : m_width</Size>
+				<ValuePointer>m_pixels.m_p</ValuePointer>
+			</ArrayItems>
+			<ArrayItems Condition="m_width != 0 &amp;&amp; m_pitch != m_width">
+				<Direction>Forward</Direction>
+				<Rank>2</Rank>
+				<Size>$i == 0 ? m_height : m_pitch</Size>
+				<ValuePointer>m_pixels.m_p</ValuePointer>
+			</ArrayItems>
+		</Expand>
+	</Type>
+
+	<!-- color_rgba: show components as integers instead of char literals
+       ('\xff' etc), so pixel data is actually readable. Covers both the
+       basisu and basist variants. Remove these two entries if you prefer
+       the default struct expansion. -->
+	<Type Name="basisu::color_rgba">
+		<DisplayString>{{ {(unsigned)r}, {(unsigned)g}, {(unsigned)b}, {(unsigned)a} }}</DisplayString>
+		<Expand>
+			<Item Name="r">(unsigned)r</Item>
+			<Item Name="g">(unsigned)g</Item>
+			<Item Name="b">(unsigned)b</Item>
+			<Item Name="a">(unsigned)a</Item>
+		</Expand>
+	</Type>
+
+	<Type Name="basist::color_rgba">
+		<DisplayString>{{ {(unsigned)r}, {(unsigned)g}, {(unsigned)b}, {(unsigned)a} }}</DisplayString>
+		<Expand>
+			<Item Name="r">(unsigned)r</Item>
+			<Item Name="g">(unsigned)g</Item>
+			<Item Name="b">(unsigned)b</Item>
+			<Item Name="a">(unsigned)a</Item>
+		</Expand>
+	</Type>
+
+</AutoVisualizer>
