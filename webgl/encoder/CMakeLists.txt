@@ -3,7 +3,10 @@ project(basisu_encoder_js)
 
 # Toggle Zstd support for KTX2 (ON by default).
 option(KTX2_ZSTANDARD "Enable KTX2 Zstandard support" TRUE)
+option(SUPPORT_ASTCENC "Enable astcenc support" FALSE)
+
 message("KTX2_ZSTANDARD=${KTX2_ZSTANDARD}")
+message("SUPPORT_ASTCENC=${SUPPORT_ASTCENC}")
 
 # Only for Emscripten builds.
 if(EMSCRIPTEN)
@@ -56,6 +59,8 @@ if(EMSCRIPTEN)
     ../../encoder/basisu_resample_filters.cpp
     ../../encoder/basisu_ssim.cpp
     ../../encoder/basisu_uastc_enc.cpp
+    ../../encoder/basisu_bc7e_scalar.cpp
+    ../../encoder/basisu_dds_export.cpp
     ../../encoder/basisu_bc7enc.cpp
     ../../encoder/basisu_kernels_sse.cpp
     ../../encoder/basisu_opencl.cpp
@@ -67,13 +72,46 @@ if(EMSCRIPTEN)
     ../../encoder/basisu_astc_hdr_common.cpp
     ../../encoder/basisu_astc_ldr_common.cpp
     ../../encoder/basisu_astc_ldr_encode.cpp
+	../../encoder/basisu_astc_ldr_fencode.cpp
     ../../encoder/basisu_tinyexr.cpp
+	../../encoder/basisu_xbc7_encode.cpp
   )
+  
   if(KTX2_ZSTANDARD)
     list(APPEND SRC_LIST ../../zstd/zstd.c)
     set(ZSTD_DEFINITION BASISD_SUPPORT_KTX2_ZSTD=1)
   else()
     set(ZSTD_DEFINITION BASISD_SUPPORT_KTX2_ZSTD=0)
+  endif()
+  
+  if(SUPPORT_ASTCENC)
+    list(APPEND SRC_LIST 
+  		../../encoder/3rdparty/astc-encoder-main/Source/astcenc_averages_and_directions.cpp
+		../../encoder/3rdparty/astc-encoder-main/Source/astcenc_block_sizes.cpp
+		../../encoder/3rdparty/astc-encoder-main/Source/astcenc_color_quantize.cpp
+		../../encoder/3rdparty/astc-encoder-main/Source/astcenc_color_unquantize.cpp
+		../../encoder/3rdparty/astc-encoder-main/Source/astcenc_compress_symbolic.cpp
+		../../encoder/3rdparty/astc-encoder-main/Source/astcenc_compute_variance.cpp
+		../../encoder/3rdparty/astc-encoder-main/Source/astcenc_decompress_symbolic.cpp
+		../../encoder/3rdparty/astc-encoder-main/Source/astcenc_diagnostic_trace.cpp
+		../../encoder/3rdparty/astc-encoder-main/Source/astcenc_entry.cpp
+		../../encoder/3rdparty/astc-encoder-main/Source/astcenc_find_best_partitioning.cpp
+		../../encoder/3rdparty/astc-encoder-main/Source/astcenc_ideal_endpoints_and_weights.cpp
+		../../encoder/3rdparty/astc-encoder-main/Source/astcenc_image.cpp
+		../../encoder/3rdparty/astc-encoder-main/Source/astcenc_integer_sequence.cpp
+		../../encoder/3rdparty/astc-encoder-main/Source/astcenc_mathlib.cpp
+		../../encoder/3rdparty/astc-encoder-main/Source/astcenc_mathlib_softfloat.cpp
+		../../encoder/3rdparty/astc-encoder-main/Source/astcenc_partition_tables.cpp
+		../../encoder/3rdparty/astc-encoder-main/Source/astcenc_percentile_tables.cpp
+		../../encoder/3rdparty/astc-encoder-main/Source/astcenc_pick_best_endpoint_format.cpp
+		../../encoder/3rdparty/astc-encoder-main/Source/astcenc_quantization.cpp
+		../../encoder/3rdparty/astc-encoder-main/Source/astcenc_symbolic_physical.cpp
+		../../encoder/3rdparty/astc-encoder-main/Source/astcenc_weight_align.cpp
+		../../encoder/3rdparty/astc-encoder-main/Source/astcenc_weight_quant_xfer_tables.cpp
+	)
+	set(ASTCENC_DEFINITION BASISU_SUPPORT_ASTCENC=1)
+  else()
+	set(ASTCENC_DEFINITION BASISU_SUPPORT_ASTCENC=0)
   endif()
 
   # Common preprocessor defines (same as your original)
@@ -89,11 +127,12 @@ if(EMSCRIPTEN)
     BASISU_SUPPORT_SSE=0
     BASISD_SUPPORT_XUASTC=1
     ${ZSTD_DEFINITION}
+	${ASTCENC_DEFINITION}
   )
 
   # Base link flags 
-  set(LINK_BASE "--bind -s ALLOW_MEMORY_GROWTH=1 -s INITIAL_MEMORY=536870912 -s STACK_SIZE=2097152 -s MODULARIZE=1 -s EXPORT_NAME=BASIS -s EXPORTED_RUNTIME_METHODS=['HEAP8']")
-  set(LINK_THREADS "-s USE_PTHREADS=1 -s PTHREAD_POOL_SIZE=18 -s ENVIRONMENT=web,worker")
+  set(LINK_BASE "--bind -s ALLOW_MEMORY_GROWTH=1 -s INITIAL_MEMORY=134217728 -s STACK_SIZE=2097152 -s MODULARIZE=1 -s EXPORT_NAME=BASIS -s EXPORTED_RUNTIME_METHODS=['HEAP8']")
+  set(LINK_THREADS "-s USE_PTHREADS=1 -s PTHREAD_POOL_SIZE=32 -s ENVIRONMENT=web,worker")
   set(LINK_WASM64  "-s MEMORY64=1 -sWASM_BIGINT=1 --profiling-funcs")
 
   # Helper to avoid repetition
@@ -123,7 +162,7 @@ if(EMSCRIPTEN)
     endif()
 	
     if(${use_wasm64})
-      set(_lf "${_lf} ${LINK_WASM64} -s INITIAL_MEMORY=1073741824 -s MAXIMUM_MEMORY=16106127360")
+      set(_lf "${_lf} ${LINK_WASM64} -s INITIAL_MEMORY=134217728 -s MAXIMUM_MEMORY=16106127360")
     endif()
 	
     set_target_properties(${target} PROPERTIES LINK_FLAGS "${_lf}")
