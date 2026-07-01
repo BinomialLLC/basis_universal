@@ -26,6 +26,7 @@ option(BASISU_EXAMPLES "build examples" TRUE)
 option(BASISU_WASM_THREADING "Enable WASI threading support" OFF)
 option(BASISU_BUILD_PYTHON "Build native Python module via pybind11" OFF)
 option(BASISU_DISABLE_ANDROID_ASTC_DECOMP "Disable Android ASTC decompressor" OFF)
+option(BASISU_SUPPORT_ASTCENC "Enable astcenc support in encoder" FALSE)
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/bin)
 
@@ -97,6 +98,7 @@ message("Initial BASISU_OPENCL=${BASISU_OPENCL}")
 message("Initial BASISU_SAN=${BASISU_SAN}")
 message("Initial BASISU_EXAMPLES=${BASISU_EXAMPLES}")
 message("Initial BASISU_DISABLE_ANDROID_ASTC_DECOMP=${BASISU_DISABLE_ANDROID_ASTC_DECOMP}")
+message("Initial BASISU_SUPPORT_ASTCENC=${BASISU_SUPPORT_ASTCENC}")
 
 if ((NOT MSVC) AND BASISU_OPENCL)
     # With MSVC builds we use the Khronos lib/include files in the project's "OpenCL" directory, to completely avoid requiring fiddly to install vendor SDK's.
@@ -237,9 +239,13 @@ set(ENCODER_LIB_SRC_LIST
     encoder/basisu_resample_filters.cpp
     encoder/basisu_ssim.cpp
     encoder/basisu_uastc_enc.cpp
+    encoder/basisu_bc7e_scalar.cpp
+    encoder/basisu_dds_export.cpp
     encoder/basisu_bc7enc.cpp
     encoder/jpgd.cpp
     encoder/basisu_kernels_sse.cpp
+    encoder/basisu_bc15_spmd.cpp
+    encoder/basisu_bc15_spmd_sse.cpp
     encoder/basisu_opencl.cpp
     encoder/pvpngreader.cpp
     encoder/basisu_uastc_hdr_4x4_enc.cpp
@@ -247,6 +253,8 @@ set(ENCODER_LIB_SRC_LIST
     encoder/basisu_astc_hdr_common.cpp
     encoder/basisu_astc_ldr_common.cpp
     encoder/basisu_astc_ldr_encode.cpp
+	encoder/basisu_astc_ldr_fencode.cpp
+    encoder/basisu_xbc7_encode.cpp
     encoder/basisu_tinyexr.cpp
     transcoder/basisu_transcoder.cpp
     encoder/basisu_astc_hdr_6x6_enc.h
@@ -270,9 +278,13 @@ set(ENCODER_LIB_SRC_LIST
     encoder/basisu_resampler.h
     encoder/basisu_ssim.h
     encoder/basisu_uastc_enc.h
+    encoder/basisu_bc7e_scalar.h
+    encoder/basisu_dds_export.h
     encoder/basisu_uastc_hdr_4x4_enc.h
     encoder/basisu_astc_ldr_common.h
     encoder/basisu_astc_ldr_encode.h
+	encoder/basisu_astc_ldr_fencode.h
+    encoder/basisu_xbc7_encode.h
     encoder/cppspmd_flow.h
     encoder/cppspmd_math_declares.h
     encoder/cppspmd_math.h
@@ -301,6 +313,33 @@ if (NOT BASISU_DISABLE_ANDROID_ASTC_DECOMP)
     )
 endif()
 
+if (BASISU_SUPPORT_ASTCENC)
+    list(APPEND ENCODER_LIB_SRC_LIST
+        encoder/3rdparty/astc-encoder-main/Source/astcenc_averages_and_directions.cpp
+        encoder/3rdparty/astc-encoder-main/Source/astcenc_block_sizes.cpp
+        encoder/3rdparty/astc-encoder-main/Source/astcenc_color_quantize.cpp
+        encoder/3rdparty/astc-encoder-main/Source/astcenc_color_unquantize.cpp
+        encoder/3rdparty/astc-encoder-main/Source/astcenc_compress_symbolic.cpp
+        encoder/3rdparty/astc-encoder-main/Source/astcenc_compute_variance.cpp
+        encoder/3rdparty/astc-encoder-main/Source/astcenc_decompress_symbolic.cpp
+        encoder/3rdparty/astc-encoder-main/Source/astcenc_diagnostic_trace.cpp
+        encoder/3rdparty/astc-encoder-main/Source/astcenc_entry.cpp
+        encoder/3rdparty/astc-encoder-main/Source/astcenc_find_best_partitioning.cpp
+        encoder/3rdparty/astc-encoder-main/Source/astcenc_ideal_endpoints_and_weights.cpp
+        encoder/3rdparty/astc-encoder-main/Source/astcenc_image.cpp
+        encoder/3rdparty/astc-encoder-main/Source/astcenc_integer_sequence.cpp
+        encoder/3rdparty/astc-encoder-main/Source/astcenc_mathlib.cpp
+        encoder/3rdparty/astc-encoder-main/Source/astcenc_mathlib_softfloat.cpp
+        encoder/3rdparty/astc-encoder-main/Source/astcenc_partition_tables.cpp
+        encoder/3rdparty/astc-encoder-main/Source/astcenc_percentile_tables.cpp
+        encoder/3rdparty/astc-encoder-main/Source/astcenc_pick_best_endpoint_format.cpp
+        encoder/3rdparty/astc-encoder-main/Source/astcenc_quantization.cpp
+        encoder/3rdparty/astc-encoder-main/Source/astcenc_symbolic_physical.cpp
+        encoder/3rdparty/astc-encoder-main/Source/astcenc_weight_align.cpp
+        encoder/3rdparty/astc-encoder-main/Source/astcenc_weight_quant_xfer_tables.cpp
+    )
+endif()
+
 if (BASISU_ZSTD)
     set(ENCODER_LIB_SRC_LIST ${ENCODER_LIB_SRC_LIST} zstd/zstd.c)
 endif()
@@ -308,8 +347,14 @@ endif()
 # Create the static library
 add_library(basisu_encoder STATIC ${ENCODER_LIB_SRC_LIST})
 
+if (BASISU_SUPPORT_ASTCENC)
+    target_compile_definitions(basisu_encoder PRIVATE BASISU_SUPPORT_ASTCENC=1)
+else()
+    target_compile_definitions(basisu_encoder PRIVATE BASISU_SUPPORT_ASTCENC=0)
+endif()
+
 # Create the basisu executable and link against the static library
-add_executable(basisu basisu_tool.cpp)
+add_executable(basisu basisu_tool.cpp basisu_text_image.cpp basisu_tool_test_codecs.inl)
 target_link_libraries(basisu PRIVATE basisu_encoder)
 
 # Create the new example executable and link against the static library
@@ -355,7 +400,7 @@ if (BASISU_BUILD_WASM)
         
     endif()
 
-    # 256 MB initial, 3.5 GB max � safe defaults for BasisU
+    # 256 MB initial, 3.5 GB max - safe defaults for BasisU
     target_link_options(basisu PRIVATE
         -Wl,--initial-memory=268435456
         -Wl,--max-memory=3758096384
@@ -387,19 +432,24 @@ endif()
 #endif()
 
 if (BASISU_ZSTD)
+    # Note: the static encoder library MUST be compiled with the same value, otherwise its TUs
+    # (transcoder, basisu_comp, basisu_xbc7_encode, basisu_astc_ldr_encode) default to ZSTD=1 and
+    # emit ZSTD_* calls that won't link when zstd.c is excluded.
+    target_compile_definitions(basisu_encoder PRIVATE BASISD_SUPPORT_KTX2_ZSTD=1)
     target_compile_definitions(basisu PRIVATE BASISD_SUPPORT_KTX2_ZSTD=1)
     if(BASISU_EXAMPLES)
         target_compile_definitions(example PRIVATE BASISD_SUPPORT_KTX2_ZSTD=1)
         target_compile_definitions(example_capi PRIVATE BASISD_SUPPORT_KTX2_ZSTD=1)
         target_compile_definitions(example_transcoding PRIVATE BASISD_SUPPORT_KTX2_ZSTD=1)
-    endif()         
+    endif()
 else()
+    target_compile_definitions(basisu_encoder PRIVATE BASISD_SUPPORT_KTX2_ZSTD=0)
     target_compile_definitions(basisu PRIVATE BASISD_SUPPORT_KTX2_ZSTD=0)
     if(BASISU_EXAMPLES)
         target_compile_definitions(example PRIVATE BASISD_SUPPORT_KTX2_ZSTD=0)
         target_compile_definitions(example_capi PRIVATE BASISD_SUPPORT_KTX2_ZSTD=0)
         target_compile_definitions(example_transcoding PRIVATE BASISD_SUPPORT_KTX2_ZSTD=0)
-    endif()                 
+    endif()
 endif()
 
 if (NOT MSVC)

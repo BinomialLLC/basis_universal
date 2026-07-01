@@ -20,7 +20,13 @@
 
 namespace basisu
 {
-	void basisu_file::create_header(const basisu_backend_output &encoder_output, basist::basis_texture_type tex_type, uint32_t userdata0, uint32_t userdata1, bool y_flipped, uint32_t us_per_frame)
+	void basisu_file::create_header(
+		const basisu_backend_output& encoder_output,
+		basist::basis_texture_type tex_type,
+		uint32_t userdata0,
+		uint32_t userdata1,
+		bool y_flipped,
+		uint32_t us_per_frame)
 	{
 		m_header.m_header_size = sizeof(basist::basis_file_header);
 
@@ -93,11 +99,17 @@ namespace basisu
 		m_header.m_tables_file_size = (uint32_t)encoder_output.m_slice_image_tables.size();
 
 		m_header.m_slice_desc_file_ofs = m_slice_descs_file_ofs;
+
+		if (m_kv_data_file_size)
+		{
+			m_header.m_extended_file_ofs = m_kv_data_file_ofs;
+			m_header.m_extended_file_size = m_kv_data_file_size;
+		}
 	}
 
-	bool basisu_file::create_image_descs(const basisu_backend_output &encoder_output)
+	bool basisu_file::create_image_descs(const basisu_backend_output& encoder_output)
 	{
-		const basisu_backend_slice_desc_vec &slice_descs = encoder_output.m_slice_desc;
+		const basisu_backend_slice_desc_vec& slice_descs = encoder_output.m_slice_desc;
 
 		m_images_descs.resize(slice_descs.size());
 
@@ -143,11 +155,14 @@ namespace basisu
 		return true;
 	}
 
-	void basisu_file::create_comp_data(const basisu_backend_output &encoder_output)
+	void basisu_file::create_comp_data(const basisu_backend_output& encoder_output, const uint8_vec& kv_data)
 	{
-		const basisu_backend_slice_desc_vec &slice_descs = encoder_output.m_slice_desc;
+		const basisu_backend_slice_desc_vec& slice_descs = encoder_output.m_slice_desc;
 
-		append_vector(m_comp_data, reinterpret_cast<const uint8_t *>(&m_header), sizeof(m_header));
+		append_vector(m_comp_data, reinterpret_cast<const uint8_t*>(&m_header), sizeof(m_header));
+
+		assert(m_comp_data.size() == m_kv_data_file_ofs);
+		append_vector(m_comp_data, reinterpret_cast<const uint8_t*>(&kv_data[0]), kv_data.size());
 
 		assert(m_comp_data.size() == m_slice_descs_file_ofs);
 		append_vector(m_comp_data, reinterpret_cast<const uint8_t*>(&m_images_descs[0]), m_images_descs.size() * sizeof(m_images_descs[0]));
@@ -182,7 +197,7 @@ namespace basisu
 
 	void basisu_file::fixup_crcs()
 	{
-		basist::basis_file_header *pHeader = reinterpret_cast<basist::basis_file_header *>(&m_comp_data[0]);
+		basist::basis_file_header* pHeader = reinterpret_cast<basist::basis_file_header*>(&m_comp_data[0]);
 
 		pHeader->m_data_size = m_total_file_size - sizeof(basist::basis_file_header);
 		pHeader->m_data_crc16 = basist::crc16(&m_comp_data[0] + sizeof(basist::basis_file_header), m_total_file_size - sizeof(basist::basis_file_header), 0);
@@ -193,24 +208,119 @@ namespace basisu
 		pHeader->m_ver = BASIS_FILE_VERSION;// basist::basis_file_header::cBASISFirstVersion;
 	}
 
-	bool basisu_file::init(const basisu_backend_output &encoder_output, basist::basis_texture_type tex_type, uint32_t userdata0, uint32_t userdata1, bool y_flipped, uint32_t us_per_frame)
+	bool basisu_file::check_key(const uint8_vec& k)
+	{
+		if (!k.size())
+			return false;
+
+		if (k.back() != '\0')
+			return false;
+
+		for (uint32_t i = 0; i < k.size(); i++)
+		{
+			const uint8_t c = k[i];
+
+			if (!c)
+			{
+				if (i != (k.size() - 1))
+					return false;
+			}
+		}
+
+		// String len (not including null terminator) must be [1,255] bytes.
+		if ((k.size() - 1) > 255)
+			return false;
+
+		return true;
+	}
+
+	bool basisu_file::create_key_value_data(uint8_vec& kv_data, const basist::key_value_vec& key_values)
+	{
+		kv_data.resize(0);
+
+		if (!key_values.size())
+			return true;
+
+		if (key_values.size() > UINT32_MAX)
+			return false;
+				
+		kv_data.reserve(4096);
+
+		basist::basis_key_value_data_header kv_header;
+		clear_obj(kv_header);
+
+		kv_header.m_num = (uint32_t)key_values.size();
+
+		for (uint32_t i = 0; i < key_values.size(); i++)
+		{
+			const basist::key_value& kv = key_values[i];
+
+			// The key must be a null terminated C-style string of [1,255] characters.
+			if (!check_key(kv.m_key))
+				return false;
+						
+			assert(kv.m_key.size());
+			assert((kv.m_key.size() - 1) <= UINT8_MAX);
+
+			kv_data.push_back((uint8_t)(kv.m_key.size() - 1));
+
+			// The value is assumed binary, but it could be a null terminated string. We just pass it through unchanged.
+			if (kv.m_value.size() > UINT32_MAX)
+				return false;
+
+			kv_data.push_back(kv.m_value.size() & 0xFF);
+			kv_data.push_back((kv.m_value.size() >> 8) & 0xFF);
+			kv_data.push_back((kv.m_value.size() >> 16) & 0xFF);
+			kv_data.push_back((kv.m_value.size() >> 24) & 0xFF);
+
+			// remove key's null terminator
+			uint8_vec temp_key(kv.m_key);
+			assert(temp_key.back() == '\0');
+			temp_key.pop_back(); 
+			kv_data.append(temp_key);
+
+			kv_data.append(kv.m_value);
+		}
+
+		assert(kv_data.size());
+		
+		if (kv_data.size() > UINT32_MAX)
+			return false;
+
+		kv_header.m_crc16 = basist::crc16(kv_data.get_ptr(), kv_data.size(), 0);
+		kv_header.m_sig = basist::cBASISKVDataSig;
+
+		kv_data.insert(0, (const uint8_t *)&kv_header, sizeof(kv_header));
+		
+		if (kv_data.size() > UINT32_MAX)
+			return false;
+
+		return true;
+	}
+
+	bool basisu_file::init(const basisu_backend_output &encoder_output, basist::basis_texture_type tex_type, uint32_t userdata0, uint32_t userdata1, bool y_flipped, uint32_t us_per_frame, const basist::key_value_vec& key_values)
 	{
 		clear();
+
+		uint8_vec kv_data;
+		if (!create_key_value_data(kv_data, key_values))
+		{
+			error_printf("basisu_file::init: Failed creating key value data!\n");
+			return false;
+		}
 
 		const basisu_backend_slice_desc_vec &slice_descs = encoder_output.m_slice_desc;
 
 		// The Basis file uses 32-bit fields for lots of stuff, so make sure it's not too large.
-		uint64_t check_size = 0;
+		uint64_t check_size = (uint64_t)sizeof(basist::basis_file_header) + kv_data.size() + (uint64_t)sizeof(basist::basis_slice_desc) * slice_descs.size();
+		
 		if (!encoder_output.m_uses_global_codebooks)
 		{
-			check_size = (uint64_t)sizeof(basist::basis_file_header) + (uint64_t)sizeof(basist::basis_slice_desc) * slice_descs.size() +
-			(uint64_t)encoder_output.m_endpoint_palette.size() + (uint64_t)encoder_output.m_selector_palette.size() + (uint64_t)encoder_output.m_slice_image_tables.size();
+			check_size += (uint64_t)encoder_output.m_endpoint_palette.size() + (uint64_t)encoder_output.m_selector_palette.size();
 		}
-		else
-		{
-			check_size = (uint64_t)sizeof(basist::basis_file_header) + (uint64_t)sizeof(basist::basis_slice_desc) * slice_descs.size() +
-				(uint64_t)encoder_output.m_slice_image_tables.size();
-		}
+		
+		check_size += (uint64_t)encoder_output.m_slice_image_tables.size();
+		
 		if (check_size >= 0xFFFF0000ULL)
 		{
 			error_printf("basisu_file::init: File is too large!\n");
@@ -218,7 +328,13 @@ namespace basisu
 		}
 
 		m_header_file_ofs = 0;
-		m_slice_descs_file_ofs = sizeof(basist::basis_file_header);
+		
+		m_kv_data_file_ofs = sizeof(basist::basis_file_header); // key-value data goes right after the header
+		assert(kv_data.size() <= UINT32_MAX);
+		m_kv_data_file_size = (uint32_t)kv_data.size();
+
+		m_slice_descs_file_ofs = m_kv_data_file_ofs + (uint32_t)kv_data.size();
+		
 		if (encoder_output.m_tex_format == basist::basis_tex_format::cETC1S)
 		{
 			if (encoder_output.m_uses_global_codebooks)
@@ -243,9 +359,12 @@ namespace basisu
 			m_first_image_file_ofs = m_slice_descs_file_ofs + sizeof(basist::basis_slice_desc) * (uint32_t)slice_descs.size();
 		}
 
+		assert(check_size == m_first_image_file_ofs);
+
 		uint64_t total_file_size = m_first_image_file_ofs;
 		for (uint32_t i = 0; i < encoder_output.m_slice_image_data.size(); i++)
 			total_file_size += encoder_output.m_slice_image_data[i].size();
+					
 		if (total_file_size >= 0xFFFF0000ULL)
 		{
 			error_printf("basisu_file::init: File is too large!\n");
@@ -259,7 +378,7 @@ namespace basisu
 		if (!create_image_descs(encoder_output))
 			return false;
 
-		create_comp_data(encoder_output);
+		create_comp_data(encoder_output, kv_data);
 
 		fixup_crcs();
 

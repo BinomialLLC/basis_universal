@@ -137,6 +137,15 @@ namespace basisu
 
 			fmt_debug_printf("Low-level XUASTC LDR effort level (0-10): {}\n", m_xuastc_ldr_effort_level);
 		}
+		else if (mode == basist::basis_tex_format::cXUBC7)
+		{
+			if (effort >= 0)
+				m_xubc7_effort_level = clamp<int>(effort, 0, 10);
+			else if (set_defaults)
+				m_xubc7_effort_level = xbc7::DEFAULT_EFFORT_LEVEL;
+
+			fmt_debug_printf("Low-level XUBC7 effort level (0-10): {}\n", m_xubc7_effort_level);
+		}
 		else
 		{
 			assert(0);
@@ -178,6 +187,13 @@ namespace basisu
 
 				// Attempt to derive a reasonable lambda from quality
 				m_rdo_uastc_ldr_4x4_quality_scalar = uastc_ldr_4x4_lambda_from_quality(fquality);
+			}
+			else if (quality == 100)
+			{
+				// Disable RDO postprocessing
+				m_rdo_uastc_ldr_4x4 = false;
+
+				m_rdo_uastc_ldr_4x4_quality_scalar = 1.0f;
 			}
 			else if (set_defaults)
 			{
@@ -224,6 +240,13 @@ namespace basisu
 				m_xuastc_ldr_use_dct = true;
 				m_xuastc_ldr_use_lossy_supercompression = true;
 			}
+			else if (quality == 100)
+			{
+				// Disable DCT + lossy supercompression
+				m_quality_level = -1;
+				m_xuastc_ldr_use_dct = false;
+				m_xuastc_ldr_use_lossy_supercompression = false;
+			}
 			else if (set_defaults)
 			{
 				m_quality_level = -1;
@@ -232,6 +255,19 @@ namespace basisu
 			}
 
 			fmt_debug_printf("Low-level XUASTC quality level (0-100): {}, Use DCT: {}, Use lossy supercompression: {}\n", m_quality_level, m_xuastc_ldr_use_dct, m_xuastc_ldr_use_lossy_supercompression);
+		}
+		else if (mode == basist::basis_tex_format::cXUBC7)
+		{
+			if ((quality >= 0) && (quality <= 100))
+			{
+				m_quality_level = clamp<int>(quality, 1, 100);
+			}
+			else if (set_defaults)
+			{
+				m_quality_level = -1;
+			}
+
+			fmt_debug_printf("Low-level XUBC7 quality level (0-100): {}\n", m_quality_level);
 		}
 		else
 		{
@@ -257,7 +293,8 @@ namespace basisu
 		m_ldr_to_hdr_upconversion_nit_multiplier(1.0f),
 		m_upconverted_any_ldr_images(false),
 		m_any_source_image_has_alpha(false),
-		m_opencl_failed(false)
+		m_opencl_failed(false),
+		m_has_been_processed(false)
 	{
 		debug_printf("basis_compressor::basis_compressor\n");
 		
@@ -414,6 +451,8 @@ namespace basisu
 		m_ldr_to_hdr_upconversion_nit_multiplier = 1.0f;
 		m_upconverted_any_ldr_images = false;
 
+		m_has_been_processed = false;
+
 		m_total_slice_orig_texels = 0;
 		m_basis_file_size = 0;
 		m_basis_bits_per_texel = 0.0f;
@@ -501,6 +540,7 @@ namespace basisu
 			PRINT_BOOL_VALUE(m_read_source_images);
 			PRINT_BOOL_VALUE(m_write_output_basis_or_ktx2_files);
 			PRINT_BOOL_VALUE(m_compute_stats);
+			PRINT_BOOL_VALUE(m_psnr_hvs_m_stats);
 			PRINT_BOOL_VALUE(m_check_for_alpha);
 			PRINT_BOOL_VALUE(m_force_alpha);
 			debug_printf("swizzle: %d,%d,%d,%d\n",
@@ -560,47 +600,68 @@ namespace basisu
 			debug_printf("KTX2 UASTC supercompression: %u\n", m_params.m_ktx2_uastc_supercompression);
 			debug_printf("KTX2 Zstd supercompression level: %i\n", (int)m_params.m_ktx2_zstd_supercompression_level);
 			debug_printf("KTX2/basis sRGB transfer function: %u\n", (int)m_params.m_ktx2_and_basis_srgb_transfer_function);
-			debug_printf("Total KTX2 key values: %u\n", m_params.m_ktx2_key_values.size());
-			for (uint32_t i = 0; i < m_params.m_ktx2_key_values.size(); i++)
+
+			debug_printf("Total key values: %u\n", m_params.m_key_values.size());
+			for (uint32_t i = 0; i < m_params.m_key_values.size(); i++)
 			{
-				debug_printf("Key: \"%s\"\n", m_params.m_ktx2_key_values[i].m_key.data());
-				debug_printf("Value size: %u\n", m_params.m_ktx2_key_values[i].m_value.size());
+				debug_printf(" Key: \"%s\"\n", m_params.m_key_values[i].m_key.data());
+				debug_printf(" Value size: %u\n", m_params.m_key_values[i].m_value.size());
 			}
 
 			PRINT_BOOL_VALUE(m_validate_output_data);
 			PRINT_UINT_VALUE(m_transcode_flags);
 			PRINT_BOOL_VALUE(m_ldr_hdr_upconversion_srgb_to_linear);
 			PRINT_FLOAT_VALUE(m_ldr_hdr_upconversion_nit_multiplier);
+			PRINT_FLOAT_VALUE(m_ldr_hdr_upconversion_black_bias);
 			debug_printf("Allow UASTC HDR 4x4 uber mode: %u\n", m_params.m_uastc_hdr_4x4_options.m_allow_uber_mode);
 			debug_printf("UASTC HDR 4x4 ultra quant: %u\n", m_params.m_uastc_hdr_4x4_options.m_ultra_quant);
 			PRINT_BOOL_VALUE(m_hdr_favor_astc);
 						
 			PRINT_INT_VALUE(m_xuastc_ldr_effort_level);
 			PRINT_BOOL_VALUE(m_xuastc_ldr_blurring);
+			PRINT_INT_VALUE(m_xuastc_ldr_astc_comp_selection);
+			PRINT_INT_VALUE(m_xuastc_ldr_sharpen_mode);
+			PRINT_FLOAT_VALUE(m_xuastc_ldr_sharpen_amount);
+			PRINT_INT_VALUE(m_xuastc_ldr_deblocking_mode);
+			PRINT_UINT_VALUE(m_xuastc_ldr_num_deblocking_passes);
+			PRINT_BOOL_VALUE(m_xuastc_ldr_heavy_subset_usage);
 			PRINT_BOOL_VALUE(m_xuastc_ldr_use_dct);
 			PRINT_BOOL_VALUE(m_xuastc_ldr_use_lossy_supercompression);
 			PRINT_BOOL_VALUE(m_xuastc_ldr_force_disable_subsets);
 			PRINT_BOOL_VALUE(m_xuastc_ldr_force_disable_rgb_dual_plane);
 			PRINT_INT_VALUE(m_xuastc_ldr_syntax);
-
+						
 			debug_printf("XUASTC LDR channel weights: ");
 			for (uint32_t i = 0; i < 4; i++)
 				fmt_debug_printf("{} ", m_params.m_xuastc_ldr_channel_weights[i]);
 			debug_printf("\n");
-
+						
 			PRINT_FLOAT_VALUE(m_ls_min_psnr);
 			PRINT_FLOAT_VALUE(m_ls_thresh_psnr);
 			PRINT_FLOAT_VALUE(m_ls_thresh_edge_psnr);
 			PRINT_FLOAT_VALUE(m_ls_min_alpha_psnr);
 			PRINT_FLOAT_VALUE(m_ls_thresh_alpha_psnr);
 			PRINT_FLOAT_VALUE(m_ls_thresh_edge_alpha_psnr);
-												
+			
+			PRINT_INT_VALUE(m_xuastc_ldr_debug_block_x);
+			PRINT_INT_VALUE(m_xuastc_ldr_debug_block_y);
+
+			PRINT_INT_VALUE(m_xubc7_effort_level);
+			PRINT_INT_VALUE(m_xubc7_rdo_level);
+			PRINT_INT_VALUE(m_xubc7_num_stripes);
+			PRINT_INT_VALUE(m_xubc7_encoder);
+			PRINT_INT_VALUE(m_xubc7_bc7e_scalar_level);
+
+			PRINT_BOOL_VALUE(m_status_output);
+			PRINT_BOOL_VALUE(m_print_stats);
+
 #undef PRINT_BOOL_VALUE
 #undef PRINT_INT_VALUE
 #undef PRINT_UINT_VALUE
 #undef PRINT_FLOAT_VALUE
 
 			fmt_printf("m_format_mode: {}\n", (uint32_t)m_params.get_format_mode());
+			fmt_printf("job pool total threads: {}\n", m_params.m_pJob_pool ? (uint32_t)m_params.m_pJob_pool->get_total_threads() : 0);
 			fmt_printf("\n");
 		}
 
@@ -619,11 +680,26 @@ namespace basisu
 
 	bool basis_compressor::pick_format_mode()
 	{
-		// Unfortunately due to the legacy of this code and backwards API compatibility this is more complex than I would like.
-		m_fmt_mode = basist::basis_tex_format::cETC1S;
 		m_fmt_mode_block_width = 4;
 		m_fmt_mode_block_height = 4;
 
+		if ((uint32_t)m_params.m_format_mode == (uint32_t)basist::basis_tex_format::cXUBC7)
+		{
+			// XUBC7 - must be set using the new format API.
+
+			m_fmt_mode = basist::basis_tex_format::cXUBC7;
+
+			m_params.m_xuastc_or_astc_ldr_basis_tex_format = -1;
+			m_params.m_hdr = false;
+			m_params.m_uastc = true;
+			m_params.m_hdr_mode = hdr_modes::cUASTC_HDR_4X4; // doesn't matter
+			return true;
+		}
+		
+		// Unfortunately due to the legacy of this code and backwards API compatibility this is more complex than I would like.
+		// First assume ETC1S unless we're being overridden.
+		m_fmt_mode = basist::basis_tex_format::cETC1S;
+		
 		if (m_params.m_hdr)
 		{
 			assert(m_params.m_uastc);
@@ -734,6 +810,12 @@ namespace basisu
 				break;
 			}
 
+			case basist::basis_tex_format::cXUBC7:
+			{
+				fmt_debug_printf("Format Mode: cXUBC7\n");
+				break;
+			}
+
 			default:
 				assert(0);
 				break;
@@ -746,6 +828,13 @@ namespace basisu
 	basis_compressor::error_code basis_compressor::process()
 	{
 		debug_printf("basis_compressor::process\n");
+
+		if (m_has_been_processed)
+		{
+			error_printf("basis_compressor::process: process()/process_source_images() may only be called once per init().\n");
+			return cECFailedInitializing;
+		}
+		m_has_been_processed = true;
 
 		if (!read_dds_source_images())
 			return cECFailedReadingSourceImages;
@@ -811,8 +900,19 @@ namespace basisu
 		else if (m_params.m_uastc)
 		{
 			error_code ec = cECFailedEncodeUASTC;
-						
-			if (basis_tex_format_is_xuastc_ldr(m_fmt_mode) || basis_tex_format_is_astc_ldr(m_fmt_mode))
+
+			if (m_fmt_mode == basist::basis_tex_format::cXUBC7)
+			{
+				// XUBC7
+				if (m_params.m_status_output)
+				{
+					fmt_printf("Mode: XUBC7, Effort Level (0-10): {}, Quality level (1-100): {}, RDO level (0-100): {}\n",
+						m_params.m_xubc7_effort_level, m_params.m_quality_level, m_params.m_xubc7_rdo_level);
+				}
+
+				ec = encode_slices_to_xubc7();
+			}
+			else if (basis_tex_format_is_xuastc_ldr(m_fmt_mode) || basis_tex_format_is_astc_ldr(m_fmt_mode))
 			{
 				// XUASTC LDR 4x4-12x12 or ASTC LDR 4x4-12x12
 				if (m_params.m_status_output)
@@ -822,7 +922,7 @@ namespace basisu
 
 					if (basis_tex_format_is_xuastc_ldr(m_fmt_mode))
 					{
-						fmt_printf("Mode: XUASTC LDR {}x{}, Effort Level (0-10): {}, Disable Subsets: {}, Disable RGB Dual Plane: {}\nWeight grid DCT: {}, DCT quality level (1-100): {}, Lossy supercompression: {}, sRGB8 ASTC decode profile: {}, Syntax: {}, Channel weights: {} {} {} {}\n",
+						fmt_printf("Mode: XUASTC LDR {}x{}, Effort Level (0-10): {}, Disable Subsets: {}, Disable RGB Dual Plane: {}\nWeight grid DCT: {}, DCT quality level (1-100): {}, Lossy supercompression: {}\nsRGB8 ASTC decode profile: {}, Syntax: {}, Channel weights: {} {} {} {}\n",
 							block_width, block_height, (int)m_params.m_xuastc_ldr_effort_level, (bool)m_params.m_xuastc_ldr_force_disable_subsets, (bool)m_params.m_xuastc_ldr_force_disable_rgb_dual_plane,
 							(bool)m_params.m_xuastc_ldr_use_dct,
 							(bool)m_params.m_xuastc_ldr_use_dct ? m_params.m_quality_level : 0,
@@ -833,7 +933,7 @@ namespace basisu
 					}
 					else
 					{
-						fmt_printf("Mode: ASTC LDR {}x{}, Effort Level (0-10): {}, Disable Subsets: {}, Disable RGB Dual Plane: {}, sRGB8 ASTC decode profile: {}, Syntax: {}, Channel weights: {} {} {} {}\n",
+						fmt_printf("Mode: ASTC LDR {}x{}, Effort Level (0-10): {}, Disable Subsets: {}, Disable RGB Dual Plane: {}\nsRGB8 ASTC decode profile: {}, Syntax: {}, Channel weights: {} {} {} {}\n",
 							block_width, block_height,
 							(int)m_params.m_xuastc_ldr_effort_level, (bool)m_params.m_xuastc_ldr_force_disable_subsets, (bool)m_params.m_xuastc_ldr_force_disable_rgb_dual_plane,
 							(bool)m_params.m_ktx2_and_basis_srgb_transfer_function,
@@ -863,6 +963,8 @@ namespace basisu
 		}
 		else
 		{
+			assert(m_fmt_mode == basist::basis_tex_format::cETC1S);
+
 			// ETC1S
 			if (m_params.m_status_output)
 				printf("Mode: ETC1S Quality (0-255): %i, Comp Level (Effort, 0-6): %i\n", m_params.m_quality_level, (int)m_params.m_etc1s_compression_level);
@@ -888,6 +990,48 @@ namespace basisu
 
 		if (!write_output_files_and_compute_stats())
 			return cECFailedWritingOutput;
+
+		if (m_params.m_status_output)
+			fmt_printf("basis_compressor::process: Success\n");
+
+		return cECSuccess;
+	}
+
+	// Special-purpose alternative to process(): runs ONLY the source image loading/preparation prefix (identical to the
+	// first stage of process()), then STOPS before block extraction, encoding, or file output. After success the caller
+	// inspects the prepared slices/metadata via the get_slice_*()/get_params()/etc. accessors. See the header for usage.
+	basis_compressor::error_code basis_compressor::process_source_images()
+	{
+		debug_printf("basis_compressor::process_source_images\n");
+
+		if (m_has_been_processed)
+		{
+			error_printf("basis_compressor::process_source_images: process()/process_source_images() may only be called once per init().\n");
+			return cECFailedInitializing;
+		}
+		m_has_been_processed = true;
+
+		if (!read_dds_source_images())
+			return cECFailedReadingSourceImages;
+
+		// Note: After here m_params.m_hdr, m_params.m_uastc and m_fmt_mode, m_fmt_mode_block_width/height cannot be changed.
+		if (!pick_format_mode())
+			return cECFailedInvalidParameters;
+
+		if (!read_source_images())
+			return cECFailedReadingSourceImages;
+
+		if (!validate_texture_type_constraints())
+			return cECFailedValidating;
+
+		if (m_params.m_create_ktx2_file)
+		{
+			if (!validate_ktx2_constraints())
+			{
+				error_printf("Inputs do not satisfy .KTX2 texture constraints: all source images must be the same resolution and have the same number of mipmap levels.\n");
+				return cECFailedValidating;
+			}
+		}
 
 		return cECSuccess;
 	}
@@ -930,6 +1074,9 @@ namespace basisu
 				
 		for (uint32_t slice_index = 0; slice_index < m_slice_descs.size(); slice_index++)
 		{
+			if (m_params.m_status_output)
+				fmt_printf("Encoding slice {}\n", slice_index);
+
 			gpu_image& dst_tex = m_uastc_slice_textures[slice_index];
 			uint8_vec &dst_buf = m_uastc_backend_output.m_slice_image_data[slice_index];
 
@@ -1075,6 +1222,9 @@ namespace basisu
 
 		for (uint32_t slice_index = 0; slice_index < m_slice_descs.size(); slice_index++)
 		{
+			if (m_params.m_status_output)
+				fmt_printf("Encoding slice {}\n", slice_index);
+
 			gpu_image& tex = m_uastc_slice_textures[slice_index];
 			basisu_backend_slice_desc& slice_desc = m_slice_descs[slice_index];
 			(void)slice_desc;
@@ -1320,6 +1470,8 @@ namespace basisu
 		block_width = basist::basis_get_block_width(transcoder_tex_fmt);
 		block_height = basist::basis_get_block_height(transcoder_tex_fmt);
 
+		const bool very_large_blocks_flag = (block_width * block_height) >= basist::BASISU_DEBLOCKING_BLOCK_SIZE_THRESHOLD;
+				
 #if defined(_DEBUG) || defined(DEBUG)
 		// sanity checking
 		{
@@ -1343,12 +1495,116 @@ namespace basisu
 		astc_ldr::astc_ldr_encode_config cfg;
 		cfg.m_astc_block_width = block_width;
 		cfg.m_astc_block_height = block_height;
-		cfg.m_block_blurring_p1 = m_params.m_xuastc_ldr_blurring; // experimental, not recommended, very slow
-		cfg.m_block_blurring_p2 = m_params.m_xuastc_ldr_blurring; // experimental, not recommended, very slow
+		cfg.m_block_blurring_p1 = m_params.m_xuastc_ldr_blurring;
+		cfg.m_block_blurring_p2 = m_params.m_xuastc_ldr_blurring; 
 		cfg.m_effort_level = clamp<int>(m_params.m_xuastc_ldr_effort_level, astc_ldr::EFFORT_LEVEL_MIN, astc_ldr::EFFORT_LEVEL_MAX);
 		cfg.m_force_disable_subsets = m_params.m_xuastc_ldr_force_disable_subsets;
 		cfg.m_force_disable_rgb_dual_plane = m_params.m_xuastc_ldr_force_disable_rgb_dual_plane;
 		cfg.m_astc_decode_mode_srgb = m_params.m_ktx2_and_basis_srgb_transfer_function;
+		
+		cfg.m_use_astcenc = false;
+		cfg.m_use_astcf = false;
+		cfg.m_merge_basisu_into_output = false;
+
+		switch (m_params.m_xuastc_ldr_astc_comp_selection)
+		{
+		case (int)xuastc_ldr_astc_comp_selection::cAuto:
+		{
+			switch (cfg.m_effort_level)
+			{
+			case 0:
+			{
+				if ((block_width == 4) && (block_height == 4))
+				{
+					// special case: switches to bc7f->ASTC LDR 4x4 transcoding
+				}
+				else
+				{
+					cfg.m_use_astcf = true;
+				}
+
+				break;
+			}
+			case 1:
+			case 2:
+			{
+				cfg.m_use_astcf = true;
+				break;
+			}
+			case 3:
+			{
+				if (((block_width * block_height) > 64) || (m_any_source_image_has_alpha))
+					cfg.m_merge_basisu_into_output = true;
+
+				cfg.m_use_astcf = true;
+				break;
+			}
+			case 4:
+			{
+				cfg.m_merge_basisu_into_output = true;
+				cfg.m_use_astcf = true;
+				break;
+			}
+			default:
+			{
+				cfg.m_use_astcf = true;
+				cfg.m_merge_basisu_into_output = true;
+				break;
+			}
+			}
+
+			break;
+		}
+		case (int)xuastc_ldr_astc_comp_selection::cBasisU:
+		{
+			break;
+		}
+		case (int)xuastc_ldr_astc_comp_selection::cASTCENC:
+		{
+			cfg.m_use_astcenc = true;
+			break;
+		}
+		case (int)xuastc_ldr_astc_comp_selection::cASTCF:
+		{
+			cfg.m_use_astcf = true;
+			break;
+		}
+		case (int)xuastc_ldr_astc_comp_selection::cBasisU_and_ASTCENC:
+		{
+			cfg.m_use_astcenc = true;
+			cfg.m_merge_basisu_into_output = true;
+			break;
+		}
+		case (int)xuastc_ldr_astc_comp_selection::cBasisU_and_ASTCF:
+		{
+			cfg.m_use_astcf = true;
+			cfg.m_merge_basisu_into_output = true;
+			break;
+		}
+		case (int)xuastc_ldr_astc_comp_selection::cUseAll:
+		{
+			cfg.m_use_astcenc = true;
+			cfg.m_use_astcf = true;
+			cfg.m_merge_basisu_into_output = true;
+			break;
+		}
+		default:
+		{
+			fmt_error_printf("Invalid m_xuastc_ldr_astc_comp_selection\n");
+			return cECFailedInvalidParameters;
+		}
+		}
+
+		cfg.m_sharpen_flag = false;
+		if (m_params.m_xuastc_ldr_sharpen_mode == (int)xuastc_ldr_sharpen_mode::cAllBlockSizes)
+			cfg.m_sharpen_flag = true;
+		else if (m_params.m_xuastc_ldr_sharpen_mode == (int)xuastc_ldr_sharpen_mode::cOnlyLargestBlocks)
+		{
+			// only 10x8 or larger
+			cfg.m_sharpen_flag = very_large_blocks_flag;
+		}
+
+		cfg.m_sharpen_amount = m_params.m_xuastc_ldr_sharpen_amount;
 		
 		cfg.m_compressed_syntax = (basist::astc_ldr_t::xuastc_ldr_syntax)(int)m_params.m_xuastc_ldr_syntax;
 		if (cfg.m_compressed_syntax >= basist::astc_ldr_t::xuastc_ldr_syntax::cTotal)
@@ -1359,7 +1615,7 @@ namespace basisu
 
 		if (basist::basis_tex_format_is_xuastc_ldr(m_fmt_mode))
 		{
-			if (m_params.m_quality_level >= 0)
+			if ((m_params.m_quality_level >= astc_ldr::DCT_QUALITY_MIN) && (m_params.m_quality_level < astc_ldr::DCT_QUALITY_MAX))
 			{
 				// Enable weight grid DCT
 				cfg.m_dct_quality = static_cast<float>(clamp<int>(m_params.m_quality_level, astc_ldr::DCT_QUALITY_MIN, astc_ldr::DCT_QUALITY_MAX));
@@ -1367,10 +1623,10 @@ namespace basisu
 			}
 			else
 			{
-				// No DCT quality level specified, but they wanted DCT - display warning
+				// <= 0 or >= 100 DCT quality level specified, but they wanted DCT - display warning
 				if (m_params.m_xuastc_ldr_use_dct)
 				{
-					printf("Warning: m_xuastc_ldr_use_dct enabled, but m_quality_level was -1 (not set). Not using DCT. Quality level must range from 1-100.\n");
+					printf("Warning: m_xuastc_ldr_use_dct enabled, but quality level must range from [1,100).\n");
 				}
 			}
 		}
@@ -1387,12 +1643,109 @@ namespace basisu
 		cfg.m_replacement_min_psnr_alpha = m_params.m_ls_min_alpha_psnr;
 		cfg.m_psnr_trial_diff_thresh_alpha = m_params.m_ls_thresh_alpha_psnr;
 		cfg.m_psnr_trial_diff_thresh_edge_alpha = m_params.m_ls_thresh_edge_alpha_psnr;
+
+		cfg.m_debug_block_x = m_params.m_xuastc_ldr_debug_block_x;
+		cfg.m_debug_block_y = m_params.m_xuastc_ldr_debug_block_y;
 				
 		cfg.m_debug_output = m_params.m_debug;
 		cfg.m_debug_images = m_params.m_debug_images;
+		cfg.m_debug_output_image_metrics = m_params.m_compute_stats && m_params.m_print_stats;
+
+		// By default: No SCD, no deblocking post filtering
+		cfg.m_scd_enabled = false;
+		cfg.m_scd_will_postfilter = false;
+		cfg.m_num_scd_passes = 0;
+						
+		// SCD passes will factor in a chroma mismatch penality into the composite scores if m_params.m_perceptual is true (the default).
+		cfg.m_scd_preserve_chroma = m_params.m_perceptual;
+				
+		// apply deblocking mode
+		if (((very_large_blocks_flag) && (m_params.m_xuastc_ldr_deblocking_mode == (int)xuastc_ldr_deblocking_mode::cUseSCDAndFilteringOnlyLargestBlocks)) ||
+			(m_params.m_xuastc_ldr_deblocking_mode == (int)xuastc_ldr_deblocking_mode::cUseSCDAndFilteringAllBlockSizes))
+		{
+			cfg.m_scd_enabled = true;
+						
+			cfg.m_scd_will_postfilter = true;
+		}
+		else if (m_params.m_xuastc_ldr_deblocking_mode == (int)xuastc_ldr_deblocking_mode::cUseSCDNoFiltering)
+		{
+			cfg.m_scd_enabled = true;
+		}
+		else if ( (m_params.m_xuastc_ldr_deblocking_mode == (int)xuastc_ldr_deblocking_mode::cNoSCDButEnableFilteringOnAllBlocks) ||
+				((very_large_blocks_flag) && (m_params.m_xuastc_ldr_deblocking_mode == (int)xuastc_ldr_deblocking_mode::cNoSCDButEnableFilteringOnLargestBlocks)) )
+		{
+			cfg.m_scd_will_postfilter = true;
+		}
+
+		if (cfg.m_scd_will_postfilter)
+		{
+			// Write the key-value field with the deblocking filter ID (there's only one defined currently)
+			const uint32_t DEBLOCK_FILTER_ID = 1;
+			basist::add_key_value(m_params.m_key_values, BASISU_DEBLOCK_FILTER_ID_NAME, fmt_string("{}", DEBLOCK_FILTER_ID));
+		}
+
+		if (m_params.m_xuastc_ldr_num_deblocking_passes >= 256)
+		{
+			switch (cfg.m_effort_level)
+			{
+			case 0:
+			case 1:
+				cfg.m_num_scd_passes = 0;
+				break;
+			case 2:
+				cfg.m_num_scd_passes = 2;
+				break;
+			case 3:
+				cfg.m_num_scd_passes = 8;
+				break;
+			case 4:
+				cfg.m_num_scd_passes = 10;
+				break;
+			case 5:
+				cfg.m_num_scd_passes = 12;
+				break;
+			case 6:
+				cfg.m_num_scd_passes = 14;
+				break;
+			case 7:
+				cfg.m_num_scd_passes = 16;
+				break;
+			case 8:
+			case 9:
+				cfg.m_num_scd_passes = 20;
+				break;
+			case 10:
+			default:
+				cfg.m_num_scd_passes = 32;
+				break;
+			}
+		}
+		else if (cfg.m_scd_enabled)
+		{
+			cfg.m_num_scd_passes = m_params.m_xuastc_ldr_num_deblocking_passes;
+		}
+
+		if (!cfg.m_num_scd_passes)
+		{
+			cfg.m_scd_enabled = false;
+		}
+
+		cfg.m_try_simplified_latent_configs = m_params.m_xuastc_ldr_heavy_subset_usage;
+
+		if (m_params.m_status_output)
+		{
+			fmt_printf("Prefiltering/blurring: {}, Sharpening: {} (Amount: {}), SCD/Deblocking Passes: {} (Factor in CPU/GPU Post-Filtering: {}), Heavy subset usage: {}, Compressor: {}\n", 
+				cfg.m_block_blurring_p1 || cfg.m_block_blurring_p2,
+				cfg.m_sharpen_flag, cfg.m_sharpen_amount, cfg.m_scd_enabled, cfg.m_scd_will_postfilter,
+				cfg.m_try_simplified_latent_configs,
+				m_params.m_xuastc_ldr_astc_comp_selection);
+		}
 								
 		for (uint32_t slice_index = 0; slice_index < m_slice_descs.size(); slice_index++)
 		{
+			if (m_params.m_status_output)
+				fmt_printf("Encoding slice {}\n", slice_index);
+
 			gpu_image& dst_tex = m_uastc_slice_textures[slice_index];
 						
 			basisu_backend_slice_desc& slice_desc = m_slice_descs[slice_index];
@@ -1471,6 +1824,151 @@ namespace basisu
 		return cECSuccess;
 	}
 
+	basis_compressor::error_code basis_compressor::encode_slices_to_xubc7()
+	{
+		if (m_params.m_debug)
+			debug_printf("basis_compressor::encode_slices_to_xubc7\n");
+
+		m_uastc_slice_textures.resize(m_slice_descs.size());
+
+		const texture_format tex_fmt = texture_format::cBC7;
+		//const basist::transcoder_texture_format transcoder_tex_fmt = basist::transcoder_texture_format::cTFBC7_RGBA;
+		//BASISU_NOTE_UNUSED(transcoder_tex_fmt);
+
+		//const uint32_t block_width = 4, block_height = 4;
+		
+		for (uint32_t slice_index = 0; slice_index < m_slice_descs.size(); slice_index++)
+			m_uastc_slice_textures[slice_index].init(tex_fmt, m_slice_descs[slice_index].m_orig_width, m_slice_descs[slice_index].m_orig_height);
+
+		m_uastc_backend_output.m_tex_format = m_fmt_mode;
+
+		m_uastc_backend_output.m_etc1s = false;
+		m_uastc_backend_output.m_srgb = m_params.m_ktx2_and_basis_srgb_transfer_function;
+		m_uastc_backend_output.m_slice_desc = m_slice_descs;
+		m_uastc_backend_output.m_slice_image_data.resize(m_slice_descs.size());
+		m_uastc_backend_output.m_slice_image_crcs.resize(m_slice_descs.size());
+
+		xbc7::pack_options options;
+		options.m_dct_q = (m_params.m_quality_level < 0) ? 100 : clamp<int>(m_params.m_quality_level, 1, 100);
+		options.set_rdo_level(m_params.m_xubc7_rdo_level);
+
+		options.m_weights[0] = m_params.m_xuastc_ldr_channel_weights[0];
+		options.m_weights[1] = m_params.m_xuastc_ldr_channel_weights[1];
+		options.m_weights[2] = m_params.m_xuastc_ldr_channel_weights[2];
+		options.m_weights[3] = m_params.m_xuastc_ldr_channel_weights[3];
+
+		if ((options.m_dct_q >= 90) && (m_params.m_xubc7_effort_level >= 3))
+		{
+			options.m_optimize_weights_after_bc7f = true;
+		}
+
+		if (m_params.m_xubc7_effort_level <= 1)
+		{
+			options.m_bc7_pack_flags = basist::bc7f::cPackBC7FlagDefault;
+		}
+		else if (m_params.m_xubc7_effort_level == 10)
+		{
+			options.m_bc7_pack_flags = basist::bc7f::cPackBC7FlagDefaultNonAnalytical;
+		}
+
+		options.m_effort_level = clamp<uint32_t>(m_params.m_xubc7_effort_level, 0, 10);
+
+		options.m_bc7_encoder = (xbc7::bc7_encoder_type)(int)m_params.m_xubc7_encoder;
+		options.m_bc7e_scalar_level = clamp<uint32_t>(m_params.m_xubc7_bc7e_scalar_level, xbc7::BC7E_SCALAR_MIN_LEVEL, xbc7::BC7E_SCALAR_MAX_LEVEL);
+		options.m_perceptual = m_params.m_perceptual;
+
+		options.m_debug_output = m_params.m_debug;
+		options.m_print_stats = m_params.m_compute_stats && m_params.m_print_stats;
+		options.m_debug_images = m_params.m_debug_images;
+
+		options.m_pJob_pool = m_params.m_pJob_pool;
+		
+		const uint32_t desired_num_stripes = m_params.m_xubc7_num_stripes; // [1,16]; set_num_stripes_for_image() re-clamps per image
+		
+		//options.m_debug_file_prefix = fmt_string("slice_{}_", slice_index);
+
+		if (m_params.m_status_output)
+		{
+			fmt_printf("XUBC7 encoder: {} (bc7e_scalar level: {}), effort: {}, RDO level [0,100]: {}, Desired stripes [1,16]: {}\n",
+				(options.m_bc7_encoder == xbc7::bc7_encoder_type::cBC7E_Scalar) ? "bc7e_scalar" : "bc7f", options.m_bc7e_scalar_level,
+				m_params.m_xubc7_effort_level, m_params.m_xubc7_rdo_level, desired_num_stripes);
+		}
+
+		for (uint32_t slice_index = 0; slice_index < m_slice_descs.size(); slice_index++)
+		{
+			if (m_params.m_status_output)
+				fmt_printf("Encoding slice {}\n", slice_index);
+
+			gpu_image& dst_tex = m_uastc_slice_textures[slice_index];
+
+			basisu_backend_slice_desc& slice_desc = m_slice_descs[slice_index];
+			(void)slice_desc;
+
+			const image& slice_source_image = m_slice_images[slice_index];
+			const image* pSource_image = &slice_source_image;
+
+			image temp_image;
+			if ((slice_source_image.get_width() != slice_desc.m_orig_width) || (slice_source_image.get_height() != slice_desc.m_orig_height))
+			{
+				// Copy to actual/original dimensions so PSNR statistics are calculated correctly. (There's no need to pad the image to multiples of the block dimensions.)
+				temp_image = slice_source_image;
+				temp_image.crop(slice_desc.m_orig_width, slice_desc.m_orig_height);
+				pSource_image = &temp_image;
+			}
+
+			options.m_debug_file_prefix = fmt_string("slice_{}_", slice_index);
+			
+			options.set_num_stripes_for_image(*pSource_image, desired_num_stripes);
+
+			if (m_params.m_debug)
+				fmt_debug_printf("----------------------------------------------------------------------------\n");
+						
+			uint8_vec intermediate_tex_data;
+			vector2D<basist::bc7u::log_bc7_block> coded_log_blocks;
+
+			bool comp_status = xbc7::pack_image(*pSource_image, options, intermediate_tex_data, coded_log_blocks);
+			if (!comp_status)
+				return cECFailedEncodeUASTC;
+
+			if (m_params.m_debug)
+				fmt_debug_printf("----------------------------------------------------------------------------\n");
+
+			const uint32_t num_blocks_x = dst_tex.get_blocks_x();
+			const uint32_t num_blocks_y = dst_tex.get_blocks_y();
+
+			assert(coded_log_blocks.get_width() == num_blocks_x);
+			assert(coded_log_blocks.get_height() == num_blocks_y);
+
+			for (uint32_t by = 0; by < num_blocks_y; by++)
+			{
+				for (uint32_t bx = 0; bx < num_blocks_x; bx++)
+				{
+					const basist::bc7u::log_bc7_block& log_blk = coded_log_blocks(bx, by);
+
+					bool pack_status = basist::bc7u::pack_bc7(log_blk, static_cast<basist::bc7u::phys_bc7_block*>(dst_tex.get_block_ptr(bx, by)));
+					if (!pack_status)
+					{
+						error_printf("basis_compressor::encode_slices_to_xubc7: basist::bc7u::pack_bc7() failed!\n");
+						return cECFailedEncodeUASTC;
+					}
+
+				} // bx
+			} // by
+
+			uint8_vec& dst_buf = m_uastc_backend_output.m_slice_image_data[slice_index];
+
+			assert(intermediate_tex_data.size_in_bytes());
+
+			dst_buf.resize(intermediate_tex_data.size_in_bytes());
+			memcpy(&dst_buf[0], intermediate_tex_data.get_ptr(), intermediate_tex_data.size_in_bytes());
+
+			m_uastc_backend_output.m_slice_image_crcs[slice_index] = basist::crc16(dst_buf.get_ptr(), dst_buf.size_in_bytes(), 0);
+			
+		} // slice_index
+
+		return cECSuccess;
+	}
+
 	basis_compressor::error_code basis_compressor::encode_slices_to_uastc_4x4_ldr()
 	{
 		debug_printf("basis_compressor::encode_slices_to_uastc_4x4_ldr\n");
@@ -1487,6 +1985,9 @@ namespace basisu
 				
 		for (uint32_t slice_index = 0; slice_index < m_slice_descs.size(); slice_index++)
 		{
+			if (m_params.m_status_output)
+				fmt_printf("Encoding slice {}\n", slice_index);
+
 			gpu_image& tex = m_uastc_slice_textures[slice_index];
 			basisu_backend_slice_desc& slice_desc = m_slice_descs[slice_index];
 			(void)slice_desc;
@@ -2710,8 +3211,8 @@ namespace basisu
 		if ((m_fmt_mode == basist::basis_tex_format::cASTC_HDR_6x6) || (m_fmt_mode == basist::basis_tex_format::cUASTC_HDR_6x6_INTERMEDIATE))
 			return true;
 
-		// No need to extract blocks in XUASTC/ASTC LDR mode either.
-		if (basis_tex_format_is_xuastc_ldr(m_fmt_mode) || basis_tex_format_is_astc_ldr(m_fmt_mode))
+		// No need to extract blocks in XUASTC/ASTC LDR/XUBC7 modes either.
+		if (basis_tex_format_is_xuastc_ldr(m_fmt_mode) || basis_tex_format_is_astc_ldr(m_fmt_mode) || basis_tex_format_is_xubc7(m_fmt_mode))
 			return true;
 				
 		if (m_params.m_hdr)
@@ -2984,6 +3485,9 @@ namespace basisu
 
 		for (uint32_t i = 0; i < m_slice_descs.size(); i++)
 		{
+			if (m_params.m_status_output)
+				fmt_printf("Processing slice {}\n", i);
+
 			const basisu_backend_slice_desc &slice_desc = m_slice_descs[i];
 
 			const uint32_t num_blocks_x = slice_desc.m_num_blocks_x;
@@ -3055,9 +3559,53 @@ namespace basisu
 	{
 		debug_printf("basis_compressor::create_basis_file_and_transcode\n");
 
+		basist::key_value_vec key_values(m_params.m_key_values);
+
+		if (find_key_value(key_values, BASISU_LIB_VERSION_KEY_NAME) != nullptr)
+		{
+			error_printf("basis_compressor::create_basis_file_and_transcode: Key already exists\n");
+			return false;
+		}
+
+		basist::add_key_value(key_values, BASISU_LIB_VERSION_KEY_NAME, fmt_string("{}", BASISU_LIB_VERSION_STRING));
+			
+		if (m_params.m_hdr)
+		{
+			if (m_upconverted_any_ldr_images)
+			{
+				if (find_key_value(key_values, BASISU_LDR_UPCONVERSION_SCALE_KEY_NAME) == nullptr)
+					basist::add_key_value(key_values, BASISU_LDR_UPCONVERSION_SCALE_KEY_NAME, fmt_string("{g}", m_ldr_to_hdr_upconversion_nit_multiplier));
+
+				if (m_params.m_ldr_hdr_upconversion_srgb_to_linear)
+				{
+					if (find_key_value(key_values, BASISU_LDR_UPCONVERSION_SRGB_TO_LIN_KEY_NAME) == nullptr)
+						basist::add_key_value(key_values, BASISU_LDR_UPCONVERSION_SRGB_TO_LIN_KEY_NAME, "1");
+				}
+			}
+
+			if (find_key_value(key_values, BASISU_HDR_MAP_RANGE_KEY_NAME) == nullptr)
+			{
+				// add HDR map range key value
+				basist::basisu_map_range val;
+				val.m_scale = *reinterpret_cast<const uint32_t*>(&m_hdr_image_scale);
+				val.m_offset = 0;
+
+				auto* pNew_key = key_values.enlarge(1);
+
+				const char* pKey_name = BASISU_HDR_MAP_RANGE_KEY_NAME;
+				size_t key_name_len = strlen(pKey_name) + 1;
+
+				pNew_key->m_key.resize(key_name_len);
+				memcpy(pNew_key->m_key.data(), pKey_name, key_name_len);
+
+				pNew_key->m_value.resize(sizeof(val));
+				memcpy(pNew_key->m_value.data(), &val, sizeof(val));
+			}
+		}
+
 		const basisu_backend_output& encoded_output = m_params.m_uastc ? m_uastc_backend_output : m_backend.get_output();
 
-		if (!m_basis_file.init(encoded_output, m_params.m_tex_type, m_params.m_userdata0, m_params.m_userdata1, m_params.m_y_flip, m_params.m_us_per_frame))
+		if (!m_basis_file.init(encoded_output, m_params.m_tex_type, m_params.m_userdata0, m_params.m_userdata1, m_params.m_y_flip, m_params.m_us_per_frame, key_values))
 		{
 			error_printf("basis_compressor::create_basis_file_and_transcode: basisu_backend:init() failed!\n");
 			return false;
@@ -3142,6 +3690,7 @@ namespace basisu
 			basisu::texture_format tex_format;
 			basist::block_format blk_format;
 
+			// Chose first transcode format
 			if (m_params.m_hdr)
 			{
 				// HDR
@@ -3162,12 +3711,21 @@ namespace basisu
 				tex_format = basist::basis_get_texture_format_from_xuastc_or_astc_ldr_basis_tex_format(m_fmt_mode);
 				blk_format = basist::xuastc_get_block_format(transcoder_fmt);
 			}
+			else if (basis_tex_format_is_xubc7(m_fmt_mode))
+			{
+				// Choose ASTC - we'll also transcode to BC7 too as the alternate.
+				tex_format = texture_format::cASTC_LDR_4x4;
+				blk_format = basist::block_format::cASTC_LDR_4x4;
+			}
 			else
 			{
 				// ETC1S
 				tex_format = texture_format::cETC1;
 				blk_format = basist::block_format::cETC1;
 			}
+
+			if (m_params.m_print_stats)
+				fmt_printf("Transcoding to texture format: {}\n", get_texture_format_name(tex_format));
 
 			for (uint32_t slice_iter = 0; slice_iter < m_slice_descs.size(); slice_iter++)
 			{
@@ -3216,6 +3774,7 @@ namespace basisu
 			{
 				if (is_hdr_6x6)
 				{
+					// Transcode to ASTC HDR 6x6
 					assert(basist::basis_is_format_supported(basist::transcoder_texture_format::cTFASTC_HDR_6x6_RGBA, basist::basis_tex_format::cASTC_HDR_6x6));
 					assert(basist::basis_is_format_supported(basist::transcoder_texture_format::cTFASTC_HDR_6x6_RGBA, basist::basis_tex_format::cUASTC_HDR_6x6_INTERMEDIATE));
 
@@ -3236,6 +3795,7 @@ namespace basisu
 				}
 				else
 				{
+					// Transcode to ASTC HDR 4x4
 					assert(basist::basis_is_format_supported(basist::transcoder_texture_format::cTFASTC_HDR_4x4_RGBA, basist::basis_tex_format::cUASTC_HDR_4x4));
 
 					for (uint32_t i = 0; i < m_slice_descs.size(); i++)
@@ -3256,8 +3816,10 @@ namespace basisu
 			}
 			else
 			{
+				// Transcode to BC7
 				if (basist::basis_is_format_supported(basist::transcoder_texture_format::cTFBC7_RGBA, basist::basis_tex_format::cUASTC_LDR_4x4) &&
-					basist::basis_is_format_supported(basist::transcoder_texture_format::cTFBC7_RGBA, basist::basis_tex_format::cETC1S))
+					basist::basis_is_format_supported(basist::transcoder_texture_format::cTFBC7_RGBA, basist::basis_tex_format::cETC1S) &&
+					basist::basis_is_format_supported(basist::transcoder_texture_format::cTFBC7_RGBA, basist::basis_tex_format::cXUBC7))
 				{
 					for (uint32_t i = 0; i < m_slice_descs.size(); i++)
 					{
@@ -3281,6 +3843,7 @@ namespace basisu
 
 			total_alt_transcode_time = tm.get_elapsed_secs();
 
+			// Unpack transcoded GPU textures to raw images
 			for (uint32_t i = 0; i < m_slice_descs.size(); i++)
 			{
 				if (m_params.m_hdr)
@@ -3478,6 +4041,9 @@ namespace basisu
 					{
 						image_stats& s = m_stats[slice_index];
 
+						// The m_basis_* stats are computed against the transcoded ASTC HDR texture (same format printed below).
+						s.m_tex_format = m_decoded_output_textures_astc_hdr[slice_index].get_format();
+
 						if (m_params.m_print_stats)
 						{
 							printf("Slice: %u\n", slice_index);
@@ -3487,6 +4053,7 @@ namespace basisu
 
 						if (m_params.m_print_stats)
 						{
+							fmt_printf("Quality stats vs. transcoded {} (and {} alternate) textures:\n", get_texture_format_name(m_decoded_output_textures_astc_hdr[slice_index].get_format()), get_texture_format_name(m_decoded_output_textures[slice_index].get_format()));
 							printf("\nASTC channels:\n");
 							for (uint32_t i = 0; i < 3; i++)
 							{
@@ -3532,7 +4099,7 @@ namespace basisu
 						}
 
 						im.calc(m_slice_images_hdr[slice_index], m_decoded_output_textures_astc_hdr_unpacked[slice_index], 0, 3, true, true);
-						s.m_basis_rgb_avg_log2_psnr = (float)im.m_psnr;
+						s.m_basis_rgb_avg_astc_hdr_log2_psnr = (float)im.m_psnr;
 						
 						if (m_params.m_print_stats)
 						{
@@ -3634,10 +4201,14 @@ namespace basisu
 							printf("Slice: %u\n", slice_index);
 
 						image_stats& s = m_stats[slice_index];
-												
+
+						// The m_basis_* stats are computed against the transcoded LDR texture (same format printed below).
+						s.m_tex_format = m_decoded_output_textures[slice_index].get_format();
+
 						image_metrics em;
 
-						// ---- .basis stats
+						if (m_params.m_print_stats)
+							fmt_printf("Quality stats vs. transcoded {} texture:\n", get_texture_format_name(m_decoded_output_textures[slice_index].get_format()));
 						em.calc(m_slice_images[slice_index], m_decoded_output_textures_unpacked[slice_index], 0, 3);
 						if (m_params.m_print_stats)
 							em.print("RGB Avg:          ");
@@ -3690,9 +4261,24 @@ namespace basisu
 							}
 						}
 
+						if (m_params.m_psnr_hvs_m_stats)
+						{
+							bool hvs_status = psnr_hvs_compute_metrics(m_slice_images[slice_index], m_decoded_output_textures_unpacked[slice_index], s.m_hvs_metrics);
+							if (!hvs_status)
+								error_printf("psnr_hvs_compute_metrics() failed!\n");
+
+							if (m_params.m_print_stats)
+							{
+								fmt_printf("PSNR-HVS and PSNR-HVS-M metrics:\n");
+								psnr_hvs_print_metrics(s.m_hvs_metrics);
+							}
+						}
+
 						if (m_decoded_output_textures_unpacked_bc7[slice_index].get_width())
 						{
 							// ---- BC7 stats
+							if (m_params.m_print_stats)
+								fmt_printf("Quality stats vs. transcoded {} texture:\n", get_texture_format_name(m_decoded_output_textures_bc7[slice_index].get_format()));
 							em.calc(m_slice_images[slice_index], m_decoded_output_textures_unpacked_bc7[slice_index], 0, 3);
 							if (m_params.m_print_stats)
 								em.print("BC7 RGB Avg:             ");
@@ -3734,6 +4320,19 @@ namespace basisu
 							if (m_params.m_print_stats)
 								em.print("BC7 601 Luma:            ");
 							s.m_bc7_luma_601_psnr = static_cast<float>(em.m_psnr);
+
+							if (m_params.m_psnr_hvs_m_stats)
+							{
+								bool hvs_status2 = psnr_hvs_compute_metrics(m_slice_images[slice_index], m_decoded_output_textures_unpacked_bc7[slice_index], s.m_hvs_metrics_bc7);
+								if (!hvs_status2)
+									error_printf("psnr_hvs_compute_metrics() failed!\n");
+
+								if (m_params.m_print_stats)
+								{
+									fmt_printf("PSNR-HVS and PSNR-HVS-M metrics (BC7):\n");
+									psnr_hvs_print_metrics(s.m_hvs_metrics_bc7);
+								}
+							}
 						}
 
 						if (!m_params.m_uastc)
@@ -4015,6 +4614,23 @@ namespace basisu
 		0x0,0x0,0x0,0x0,		// 9 sampleLower (0.0)
 		0xFF,0xFF,0xFF,0xFF     // 10 sampleHigher (0xFF)
 	};
+
+	// colorModel=KTX2_KDF_DF_MODEL_XUBC7 (0xAA)
+	// Custom supercompressed intermediate format, decodes directly to standard ASTC LDR 4x4-12x12.
+	static uint8_t g_ktx2_xubc7_dfd[44] =
+	{
+		0x2C,0x0,0x0,0x0,		// 0 totalSize
+		0x0,0x0,0x0,0x0,		// 1 descriptorType/vendorId
+		0x2,0x0,0x28,0x0,		// 2 descriptorBlockSize/versionNumber
+		(uint8_t)basist::KTX2_KDF_DF_MODEL_XUBC7,0x1,0x1,0x0,		// 3 flags, transferFunction, colorPrimaries, colorModel
+		0x3,0x3,0x0,0x0,		// 4 texelBlockDimension0-texelBlockDimension3
+		0x10,0x0,0x0,0x0,		// 5 bytesPlane0-bytesPlane3
+		0x0,0x0,0x0,0x0,		// 6 bytesPlane4-bytesPlane7
+		0x0,0x0,0x7F,0x00,		// 7 bitOffset/bitLength/channelType and Qualifer flags (KHR_DF_SAMPLE_DATATYPE_FLOAT etc.)
+		0x0,0x0,0x0,0x0,		// 8 samplePosition0-samplePosition3
+		0x0,0x0,0x0,0x0,		// 9 sampleLower (0)
+		0xFF,0xFF,0xFF,0xFF		// 10 sampleHigher (0xFF)
+	};
 					
 	bool basis_compressor::get_dfd(uint8_vec &dfd, const basist::ktx2_header &header)
 	{
@@ -4025,6 +4641,7 @@ namespace basisu
 
 		const bool is_xuastc_ldr = basis_tex_format_is_xuastc_ldr(m_fmt_mode);
 		const bool is_astc_ldr = basis_tex_format_is_astc_ldr(m_fmt_mode);
+		const bool is_xubc7 = basis_tex_format_is_xubc7(m_fmt_mode);
 
 		// TODO: This was writen before m_fmt_mode existed, refactor to use that exclusively instead.
 
@@ -4044,6 +4661,8 @@ namespace basisu
 		{
 			if (m_params.m_hdr)
 			{
+				assert(!is_xubc7);
+
 				switch (m_params.m_hdr_mode)
 				{
 				case hdr_modes::cUASTC_HDR_4X4:
@@ -4077,7 +4696,13 @@ namespace basisu
 				}
 				}
 			}
-			// Must be LDR UASTC 4x4
+			else if (is_xubc7)
+			{
+				// XUBC7
+				pDFD = g_ktx2_xubc7_dfd;
+				dfd_len = sizeof(g_ktx2_xubc7_dfd);
+			}
+			// Fallback: Must be LDR UASTC 4x4
 			else if (m_any_source_image_has_alpha)
 			{
 				assert(m_fmt_mode == basist::basis_tex_format::cUASTC_LDR_4x4);
@@ -4098,7 +4723,7 @@ namespace basisu
 			// Must be ETC1S.
 			assert(!m_params.m_hdr);
 			assert(m_fmt_mode == basist::basis_tex_format::cETC1S);
-
+			
 			if (m_any_source_image_has_alpha)
 			{
 				pDFD = g_ktx2_etc1s_alpha_dfd;
@@ -4174,7 +4799,7 @@ namespace basisu
 			// TODO: Allow the caller to override this. Derive from swizzle?
 			// Only do this for UASTC LDR 4x4 or XUASTC LDR 4x4-12x12 - and now also ASTC LDR 4x4-12x12, which isn't quite standard, but we need some way of determining if the ASTC data has alpha by examining the KTX2 DFD.
 			if ((m_any_source_image_has_alpha) &&
-				((m_fmt_mode == basist::basis_tex_format::cUASTC_LDR_4x4) || basist::basis_tex_format_is_xuastc_ldr(m_fmt_mode) || basis_tex_format_is_astc_ldr(m_fmt_mode)))
+				((m_fmt_mode == basist::basis_tex_format::cUASTC_LDR_4x4) || basis_tex_format_is_xuastc_ldr(m_fmt_mode) || basis_tex_format_is_astc_ldr(m_fmt_mode) || basis_tex_format_is_xubc7(m_fmt_mode)))
 			{
 				dfd_chan0 |= (basist::KTX2_DF_CHANNEL_UASTC_RGBA << 24);
 			}
@@ -4205,9 +4830,11 @@ namespace basisu
 	{
 		//bool needs_global_data = false;
 		bool can_use_zstd = false;
+
 		bool is_xuastc_ldr = false;
 		bool is_astc_ldr = false;
 		bool is_hdr_6x6i = false;
+		bool is_xubc7 = false;
 
 		switch (m_fmt_mode)
 		{
@@ -4252,7 +4879,7 @@ namespace basisu
 		case basist::basis_tex_format::cXUASTC_LDR_12x10:
 		case basist::basis_tex_format::cXUASTC_LDR_12x12:
 		{
-			// has built-in compression, no need for Zstd
+			// has built-in compression, no need for Zstd, global supercompressed data has seek tables
 			is_xuastc_ldr = true;
 			break;
 		}
@@ -4274,6 +4901,12 @@ namespace basisu
 			// plain ASTC LDR 4x4-12x12 - can use Zstd
 			is_astc_ldr = true;
 			can_use_zstd = true;
+			break;
+		}
+		case basist::basis_tex_format::cXUBC7:
+		{
+			// has built-in compression, global supercompressed data has seek tables
+			is_xubc7 = true;
 			break;
 		}
 		default:
@@ -4344,7 +4977,7 @@ namespace basisu
 		else
 		{
 			// Either ETC1S, UASTC LDR 4x4, or XUASTC/ASTC LDR 4x4-12x12.
-			assert((m_fmt_mode == basist::basis_tex_format::cETC1S) || (m_fmt_mode == basist::basis_tex_format::cUASTC_LDR_4x4) || is_xuastc_ldr || is_astc_ldr);
+			assert((m_fmt_mode == basist::basis_tex_format::cETC1S) || (m_fmt_mode == basist::basis_tex_format::cUASTC_LDR_4x4) || is_xuastc_ldr || is_astc_ldr || is_xubc7);
 
 			if (is_astc_ldr)
 			{
@@ -4523,9 +5156,9 @@ namespace basisu
 
 			header.m_supercompression_scheme = basist::KTX2_SS_BASISLZ;
 		}
-		else if ((is_hdr_6x6i) || (is_xuastc_ldr))
+		else if ((is_hdr_6x6i) || (is_xuastc_ldr) || (is_xubc7))
 		{
-			// The global data for UASTC HDR 6x6 INTERMEDIATE and XUASTC LDR is an array of ktx2_slice_offset_len_desc_std's, which the transcoder needs to locate the variable length compressed slice data.
+			// The global data for UASTC HDR 6x6 INTERMEDIATE/XUASTC LDR/XUBC7 is an array of ktx2_slice_offset_len_desc_std's, which the transcoder needs to locate the variable length compressed slice data.
 			// Note: The original v2.0 release used ktx2_slice_offset_len_desc_orig's
 			basisu::vector<basist::ktx2_slice_offset_len_desc_std> slice_offset_len_descs(total_levels * total_layers * total_faces);
 			memset((void *)slice_offset_len_descs.data(), 0, slice_offset_len_descs.size_in_bytes());
@@ -4560,15 +5193,27 @@ namespace basisu
 						profile = m_uastc_backend_output.m_slice_image_data[slice_index][0] | (m_uastc_backend_output.m_slice_image_data[slice_index][1] << 8);
 					}
 				}
+				else if (is_xubc7)
+				{
+					assert(m_uastc_backend_output.m_slice_image_data[slice_index].size() >= 1);
+
+					if (m_uastc_backend_output.m_slice_image_data[slice_index].size() >= 1)
+					{
+						// First 8-bits is the marker/profile version
+						// TODO high byte is the XUBC7 codec variant index, currently hardcoded to 1 until we have an internal query/introspection API for this
+						profile = m_uastc_backend_output.m_slice_image_data[slice_index][0] | (0x01 << 8);
+					}
+				}
 				else
 				{
-					assert(is_xuastc_ldr);
+					assert(is_xuastc_ldr );
 					assert(m_uastc_backend_output.m_slice_image_data[slice_index].size() >= 1);
 
 					if (m_uastc_backend_output.m_slice_image_data[slice_index].size() >= 1)
 					{
 						// First byte is always the profile index (Zstd, hybrid, arithmetic etc.)
-						profile = m_uastc_backend_output.m_slice_image_data[slice_index][0] | (0x01 << 8); // TODO high byte is the XUASTC LDR codec variant index, currently hardcoded to 1 until we have an internal query/introspection API for this
+						// TODO high byte is the XUASTC LDR codec variant index, currently hardcoded to 1 until we have an internal query/introspection API for this
+						profile = m_uastc_backend_output.m_slice_image_data[slice_index][0] | (0x01 << 8); 
 					}
 				}
 
@@ -4581,22 +5226,22 @@ namespace basisu
 			// Note v2.0 would always write BASISLZ for the supercompression scheme. KTX-Software changes this, and we need to be compatible.
 			//header.m_supercompression_scheme = basist::KTX2_SS_BASISLZ;
 
-			header.m_supercompression_scheme = is_hdr_6x6i ? basist::KTX2_SS_UASTC_HDR_6x6I : basist::KTX2_SS_XUASTC_LDR;
+			header.m_supercompression_scheme = is_hdr_6x6i ? basist::KTX2_SS_UASTC_HDR_6x6I : (is_xubc7 ? basist::KTX2_SS_XUBC7 : basist::KTX2_SS_XUASTC_LDR);
 		}
 		
 		// Key values
-		basist::ktx2_transcoder::key_value_vec key_values(m_params.m_ktx2_key_values);
+		basist::key_value_vec key_values(m_params.m_key_values);
 		
-		basist::ktx2_add_key_value(key_values, "KTXwriter", fmt_string("Basis Universal {}", BASISU_LIB_VERSION_STRING));
+		basist::add_key_value(key_values, "KTXwriter", fmt_string("Basis Universal {}", BASISU_LIB_VERSION_STRING));
 
 		if (m_params.m_hdr)
 		{
 			if (m_upconverted_any_ldr_images)
 			{
-				basist::ktx2_add_key_value(key_values, "LDRUpconversionMultiplier", fmt_string("{}", m_ldr_to_hdr_upconversion_nit_multiplier));
+				basist::add_key_value(key_values, "LDRUpconversionMultiplier", fmt_string("{}", m_ldr_to_hdr_upconversion_nit_multiplier));
 
 				if (m_params.m_ldr_hdr_upconversion_srgb_to_linear)
-					basist::ktx2_add_key_value(key_values, "LDRUpconversionSRGBToLinear", "1");
+					basist::add_key_value(key_values, "LDRUpconversionSRGBToLinear", "1");
 			}
 						
 			// Always write the scale to simplify testing.
@@ -5052,8 +5697,8 @@ namespace basisu
 
 		comp_params.m_write_output_basis_or_ktx2_files = false;
 
-		// sRGB handling - set parameters consistently
-		// sRGB here controls the error metrics, KTX2/.basis transfer function fields, and mipmap filtering
+		// sRGB handling - set parameters consistently. "sRGB" here also applies perceptual metrics, or the opposite of linear RGB(A) metrics.
+		// sRGB here controls the error metrics, KTX2/.basis transfer function fields, mipmap filtering, and ASTC/XUASTC channel weights.
 		const bool srgb_flag = (flags_and_quality & cFlagSRGB) != 0;
 		
 		// Use sRGB colorspace metrics, channel weights
@@ -5064,6 +5709,9 @@ namespace basisu
 		
 		// Correct for sRGB transfer function during mipmapping
 		comp_params.m_mip_srgb = srgb_flag;
+
+		// Set linear or Rec 709 weights (we assume Rec 709 weights if content is sRGB)
+		comp_params.set_xuastc_ldr_srgb_channel_weights(srgb_flag);
 
 		comp_params.m_mip_gen = (flags_and_quality & (cFlagGenMipsWrap | cFlagGenMipsClamp)) != 0;
 		comp_params.m_mip_wrapping = (flags_and_quality & cFlagGenMipsWrap) != 0;
@@ -5096,6 +5744,7 @@ namespace basisu
 			// Valid XUASTC LDR weight grid DCT quality levels are 1-100.
 			if (basist::basis_tex_format_is_xuastc_ldr(mode) && (uastc_rdo_or_dct_quality != 0.0f))
 			{
+				// [1,99]=DCT, 100=no DCT
 				if ((uastc_rdo_or_dct_quality >= (float)BASISU_XUASTC_QUALITY_MIN) && (uastc_rdo_or_dct_quality <= (float)BASISU_XUASTC_QUALITY_MAX)) 
 				{
 					if (uastc_rdo_or_dct_quality < (float)BASISU_XUASTC_QUALITY_MAX)
@@ -5103,7 +5752,7 @@ namespace basisu
 						// Enable weight grid DCT usage, set quality level.
 						comp_params.m_xuastc_ldr_use_dct = true;
 						comp_params.m_quality_level = (int)uastc_rdo_or_dct_quality;
-
+					
 						// Also enable bounded lossy distortion mode in the normally lossless supercompressor for extra savings.
 						comp_params.m_xuastc_ldr_use_lossy_supercompression = true;
 					}
@@ -5127,6 +5776,30 @@ namespace basisu
 				}
 			}
 		}
+		else if (basist::basis_tex_format_is_xubc7(mode))
+		{
+			// XUBC7: configure effort and quality level
+			comp_params.m_xubc7_effort_level = clamp<int>(flags_and_quality & 255, 0, 10);
+
+			if (uastc_rdo_or_dct_quality != 0.0f)
+			{
+				int quality = clamp<int>((int)std::round(uastc_rdo_or_dct_quality), 1, 100);
+				comp_params.m_quality_level = quality;
+			}
+
+			// BC7 base encoder selection (packed 3-bit field in the high flag bits):
+			// 0 = bc7f (the default fast packer); 1-7 = bc7e_scalar at level 0-6.
+			const uint32_t xubc7_base_enc = (flags_and_quality >> cFlagXUBC7BaseEncoderShift) & cFlagXUBC7BaseEncoderMask;
+			if (xubc7_base_enc == 0)
+			{
+				comp_params.m_xubc7_encoder = (int)xbc7::bc7_encoder_type::cBC7F;
+			}
+			else
+			{
+				comp_params.m_xubc7_encoder = (int)xbc7::bc7_encoder_type::cBC7E_Scalar;
+				comp_params.m_xubc7_bc7e_scalar_level = clamp<int>((int)xubc7_base_enc - 1, (int)xbc7::BC7E_SCALAR_MIN_LEVEL, (int)xbc7::BC7E_SCALAR_MAX_LEVEL);
+			}
+		}
 				
 		comp_params.m_create_ktx2_file = (flags_and_quality & cFlagKTX2) != 0;
 						
@@ -5138,6 +5811,9 @@ namespace basisu
 		}
 				
 		comp_params.m_compute_stats = (pStats != nullptr);
+		if (comp_params.m_compute_stats)
+			comp_params.m_psnr_hvs_m_stats = true; // TODO: should put this behind a flag, it's not very fast
+
 		comp_params.m_print_stats = (flags_and_quality & cFlagPrintStats) != 0;
 		comp_params.m_status_output = (flags_and_quality & cFlagPrintStatus) != 0;
 
@@ -5160,6 +5836,16 @@ namespace basisu
 		comp_params.m_astc_hdr_6x6_options.m_rec2020_bt2100_color_gamut = (flags_and_quality & cFlagREC2020) != 0;
 
 		comp_params.m_validate_output_data = (flags_and_quality & cFlagValidateOutput) != 0;
+
+		// The defaults are to use deblocking/sharpening on larger block sizes, unless the user disables them.
+		// More finer grain control could be useful but would need more flags/config.
+		if (flags_and_quality & cFlagDisableDeblocking)
+			comp_params.m_xuastc_ldr_deblocking_mode = (int)xuastc_ldr_deblocking_mode::cDisabled;
+		else if (flags_and_quality & cFlagForceDeblocking)
+			comp_params.m_xuastc_ldr_deblocking_mode = (int)xuastc_ldr_deblocking_mode::cUseSCDAndFilteringAllBlockSizes;
+		
+		//if (flags_and_quality & cFlagDisableSharpening)
+		//	comp_params.m_xuastc_ldr_sharpen_mode = (int)xuastc_ldr_sharpen_mode::cDisabled;
 				
 		// Now set the unified quality/effort level, if they've specified it. 
 		// This will override some of the lower-level options set above, or leave them alone if -1.
@@ -5167,7 +5853,7 @@ namespace basisu
 		{
 			comp_params.set_format_mode_and_quality_effort(mode, quality_level, effort_level, false);
 		}
-
+				
 		// Create the compressor, initialize it, and process the input
 		basis_compressor comp;
 		if (!comp.init(comp_params))

@@ -27,13 +27,21 @@ typedef Byte Bytef;
 #define compress		buminiz::mz_compress
 #define uncompress		buminiz::mz_uncompress
 
+// tinyexr.h is third-party code we use unmodified, so silence its warnings here with SPECIFIC, low-risk
+// disables only.
+// These affect only this translation unit, which contains nothing but the tinyexr implementation include.
 #ifdef _MSC_VER
-#pragma warning (disable: 4060)
-#pragma warning (disable: 4100)
-#pragma warning (disable: 4245)
-#pragma warning (disable: 4505)
-#pragma warning (disable: 4702)
+#pragma warning (disable: 4060) // warning C4060: switch statement contains no 'case' or 'default' labels
+#pragma warning (disable: 4100) // warning C4100: unreferenced formal parameter
+#pragma warning (disable: 4245) // warning C4245: conversion from 'type1' to 'type2', signed/unsigned mismatch
+#pragma warning (disable: 4505) // warning C4505: unreferenced function with internal linkage has been removed
+#pragma warning (disable: 4702) // warning C4702: unreachable code
 #pragma warning (disable: 4530) // warning C4530: C++ exception handler used, but unwind semantics are not enabled. Specify /EHsc
+#endif
+
+#if defined(__GNUC__) // covers both gcc and clang
+#pragma GCC diagnostic ignored "-Wunused-parameter" // tinyexr: unused params in its (de)compress helpers (DecompressPxr24, etc.)
+#pragma GCC diagnostic ignored "-Wunused-function"  // tinyexr: unused static helpers (CompressPxr24, CompressB44, AddIntAttribute)
 #endif
 
 #define TINYEXR_IMPLEMENTATION

@@ -726,7 +726,7 @@ inline void setASTCErrorColorBlock (void* dst, int blockWidth, int blockHeight, 
     }
 }
 
-DecompressResult decodeVoidExtentBlock (void* dst, const Block128& blockData, int blockWidth, int blockHeight, bool isSRGB, bool isLDRMode)
+DecompressResult decodeVoidExtentBlock(void* dst, const Block128& blockData, int blockWidth, int blockHeight, bool isSRGB, bool isLDRMode, bool rejectVoidExtentNaNInf)
 {
     // rg: Adding check here to match ARM's decoder and basisu's.
     // 18.23.Void - Extent Blocks
@@ -773,13 +773,16 @@ DecompressResult decodeVoidExtentBlock (void* dst, const Block128& blockData, in
 
         if (isHDRBlock)
         {
-            for (int c = 0; c < 4; c++)
+            if (rejectVoidExtentNaNInf)
             {
-                if (isFloat16InfOrNan((deFloat16)rgba[c]))
+                for (int c = 0; c < 4; c++)
                 {
-                    //throw InternalError("Infinity or NaN color component in HDR void extent block in ASTC texture (behavior undefined by ASTC specification)");
-                    setASTCErrorColorBlock(dst, blockWidth, blockHeight, isSRGB);
-                    return DECOMPRESS_RESULT_ERROR;
+                    if (isFloat16InfOrNan((deFloat16)rgba[c]))
+                    {
+                        //throw InternalError("Infinity or NaN color component in HDR void extent block in ASTC texture (behavior undefined by ASTC specification)");
+                        setASTCErrorColorBlock(dst, blockWidth, blockHeight, isSRGB);
+                        return DECOMPRESS_RESULT_ERROR;
+                    }
                 }
             }
 
@@ -1754,7 +1757,7 @@ DecompressResult setTexelColors (void* dst, ColorEndpointPair* colorEndpoints, T
     return result;
 }
 
-DecompressResult decompressBlock (void* dst, const Block128& blockData, int blockWidth, int blockHeight, bool isSRGB, bool isLDR)
+DecompressResult decompressBlock(void* dst, const Block128& blockData, int blockWidth, int blockHeight, bool isSRGB, bool isLDR, bool rejectVoidExtentNaNInf)
 {
     DE_ASSERT(isLDR || !isSRGB);
 
@@ -1770,7 +1773,7 @@ DecompressResult decompressBlock (void* dst, const Block128& blockData, int bloc
 
     // Separate path for void-extent.
     if (blockMode.isVoidExtent)
-        return decodeVoidExtentBlock(dst, blockData, blockWidth, blockHeight, isSRGB, isLDR);
+        return decodeVoidExtentBlock(dst, blockData, blockWidth, blockHeight, isSRGB, isLDR, rejectVoidExtentNaNInf);
 
     // Compute weight grid values.
     const int numWeights            = computeNumWeights(blockMode);
@@ -2022,14 +2025,14 @@ static void convert_from_half_to_float_prec(uint32_t n, float* pVals)
 }
 
 // Assumes the decode_unorm8 extension is active (only upper 8 bits used).
-bool decompress_ldr(uint8_t *pDst, const uint8_t * data, bool isSRGB, int blockWidth, int blockHeight)
+bool decompress_ldr(uint8_t *pDst, const uint8_t * data, bool isSRGB, int blockWidth, int blockHeight, bool rejectVoidExtentNaNInf)
 {
     float linear[MAX_BLOCK_WIDTH * MAX_BLOCK_HEIGHT * 4];
 
     const Block128 blockData(data);
 
     // isSRGB is true, this writes uint8_t's. Otherwise it writes floats.
-    if (decompressBlock(isSRGB ? (void*)pDst : (void*)&linear[0], blockData, blockWidth, blockHeight, isSRGB, true) != DECOMPRESS_RESULT_VALID_BLOCK)
+    if (decompressBlock(isSRGB ? (void*)pDst : (void*)&linear[0], blockData, blockWidth, blockHeight, isSRGB, true, rejectVoidExtentNaNInf) != DECOMPRESS_RESULT_VALID_BLOCK)
     {
         return false;
     }
@@ -2053,11 +2056,11 @@ bool decompress_ldr(uint8_t *pDst, const uint8_t * data, bool isSRGB, int blockW
     return true;
 }
 
-bool decompress_hdr(float* pDstRGBA, const uint8_t* data, int blockWidth, int blockHeight)
+bool decompress_hdr(float* pDstRGBA, const uint8_t* data, int blockWidth, int blockHeight, bool rejectVoidExtentNaNInf)
 {
     const Block128 blockData(data);
 
-    if (decompressBlock(pDstRGBA, blockData, blockWidth, blockHeight, false, false) != DECOMPRESS_RESULT_VALID_BLOCK)
+    if (decompressBlock(pDstRGBA, blockData, blockWidth, blockHeight, false, false, rejectVoidExtentNaNInf) != DECOMPRESS_RESULT_VALID_BLOCK)
     {
         return false;
     }

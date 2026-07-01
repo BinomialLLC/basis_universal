@@ -146,7 +146,7 @@
       <AdditionalIncludeDirectories>OpenCL</AdditionalIncludeDirectories>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <OpenMPSupport>true</OpenMPSupport>
-      <PreprocessorDefinitions>_MBCS;%(PreprocessorDefinitions);BASISU_SUPPORT_SSE=1;BASISU_SUPPORT_OPENCL=1;</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_MBCS;%(PreprocessorDefinitions);BASISU_SUPPORT_SSE=1;BASISU_SUPPORT_OPENCL=1;_HAS_EXCEPTIONS=0</PreprocessorDefinitions>
       <EnableEnhancedInstructionSet>AdvancedVectorExtensions</EnableEnhancedInstructionSet>
       <LanguageStandard>stdcpp17</LanguageStandard>
       <WarningLevel>Level4</WarningLevel>
@@ -155,7 +155,7 @@
       <SubSystem>Console</SubSystem>
       <AdditionalLibraryDirectories>OpenCL\lib</AdditionalLibraryDirectories>
       <AdditionalDependencies>opencl64.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <RandomizedBaseAddress>false</RandomizedBaseAddress>
+      <RandomizedBaseAddress>true</RandomizedBaseAddress>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64EC'">
@@ -165,7 +165,7 @@
       <AdditionalIncludeDirectories>OpenCL</AdditionalIncludeDirectories>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <OpenMPSupport>true</OpenMPSupport>
-      <PreprocessorDefinitions>_MBCS;%(PreprocessorDefinitions);BASISU_SUPPORT_SSE=0;BASISU_SUPPORT_OPENCL=1;</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_MBCS;%(PreprocessorDefinitions);BASISU_SUPPORT_SSE=0;BASISU_SUPPORT_OPENCL=1;_HAS_EXCEPTIONS=0</PreprocessorDefinitions>
       <WarningLevel>Level4</WarningLevel>
       <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
@@ -257,6 +257,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="basisu_tool.cpp" />
+    <ClCompile Include="basisu_text_image.cpp" />
   </ItemGroup>
   <ItemGroup>
     <Manifest Include="basisu.manifest" />
@@ -268,6 +269,12 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="basisu_tool_help.h" />
+    <ClInclude Include="basisu_text_image.h" />
+    <ClInclude Include="basisu_tool_test_codecs.inl" />
+  </ItemGroup>
+  <ItemGroup>
+    <Natvis Include="basisu_containers.natvis" />
+    <Natvis Include="bu_math_fixed.natvis" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

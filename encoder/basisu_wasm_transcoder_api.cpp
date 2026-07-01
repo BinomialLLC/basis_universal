@@ -41,7 +41,7 @@ void bt_init()
 	basisu_transcoder_init();
 }
 
-// Memory alloc/free — stubs
+// Memory alloc/free stubs
 BU_WASM_EXPORT("bt_alloc")
 uint64_t bt_alloc(uint64_t size)
 {
@@ -75,6 +75,16 @@ wasm_bool_t bt_basis_tex_format_is_astc_ldr(uint32_t basis_tex_fmt_u32)
 	basis_tex_format tex_fmt = static_cast<basis_tex_format>(basis_tex_fmt_u32);
 
 	return basis_tex_format_is_astc_ldr(tex_fmt);
+}
+
+BU_WASM_EXPORT("bt_basis_tex_format_is_xubc7")
+wasm_bool_t bt_basis_tex_format_is_xubc7(uint32_t basis_tex_fmt_u32)
+{
+	assert(basis_tex_fmt_u32 < (uint32_t)basis_tex_format::cTotalFormats);
+
+	basis_tex_format tex_fmt = static_cast<basis_tex_format>(basis_tex_fmt_u32);
+
+	return basis_tex_format_is_xubc7(tex_fmt);
 }
 
 BU_WASM_EXPORT("bt_basis_tex_format_get_block_width")
@@ -535,6 +545,24 @@ wasm_bool_t bt_ktx2_is_xuastc_ldr(uint64_t handle)
 	return pHandle->m_transcoder.is_xuastc_ldr();
 }
 
+BU_WASM_EXPORT("bt_ktx2_is_xubc7")
+wasm_bool_t bt_ktx2_is_xubc7(uint64_t handle)
+{
+	if (!handle)
+	{
+		assert(0);
+		return false;
+	}
+
+	ktx2_handle_t* pHandle = reinterpret_cast<ktx2_handle_t*>(wasm_ptr(handle));
+
+	assert(pHandle->m_magic == KTX2_HANDLE_MAGIC);
+	if (pHandle->m_magic != KTX2_HANDLE_MAGIC)
+		return false;
+
+	return pHandle->m_transcoder.is_xubc7();
+}
+
 BU_WASM_EXPORT("bt_ktx2_get_block_width")
 uint32_t bt_ktx2_get_block_width(uint64_t handle)
 {
@@ -569,6 +597,24 @@ uint32_t bt_ktx2_get_block_height(uint64_t handle)
 		return 0;
 
 	return pHandle->m_transcoder.get_block_height();
+}
+
+BU_WASM_EXPORT("bt_ktx2_get_deblocking_filter_index")
+uint32_t bt_ktx2_get_deblocking_filter_index(uint64_t handle)
+{
+	if (!handle)
+	{
+		assert(0);
+		return 0;
+	}
+
+	ktx2_handle_t* pHandle = reinterpret_cast<ktx2_handle_t*>(wasm_ptr(handle));
+
+	assert(pHandle->m_magic == KTX2_HANDLE_MAGIC);
+	if (pHandle->m_magic != KTX2_HANDLE_MAGIC)
+		return 0;
+
+	return pHandle->m_transcoder.get_deblocking_filter_index();
 }
 
 BU_WASM_EXPORT("bt_ktx2_has_alpha")

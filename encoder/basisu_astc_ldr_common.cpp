@@ -17,7 +17,8 @@
 #include "basisu_astc_hdr_common.h"
 #include "basisu_astc_ldr_common.h"
 
-#define BASISU_ASTC_LDR_DEBUG_MSGS (1)
+#define BASISU_FORCE_EXHAUSTIVE_EVAL (0)
+#define BASISU_USE_ORIG_GET_COLORS (0)
 
 namespace basisu
 {
@@ -717,10 +718,17 @@ namespace astc_ldr
 	}
 
 	// Returned in ISE order
+	// TODO: Investigate alpha handling here vs. latest spec.
+	// https://raw.githubusercontent.com/KhronosGroup/DataFormat/refs/heads/main/astc.txt
+	// The safest thing to do may be to assume non-sRGB in the encoder. I don't know yet.
+	// How should alpha be handled here for lowest divergence from actual ASTC decoding hardware?
+	// See https://registry.khronos.org/OpenGL/extensions/EXT/EXT_texture_compression_astc_decode_mode.txt 			
+	// All channels including alpha >>8.
 	uint32_t get_colors(const color_rgba& l, const color_rgba& h, uint32_t weight_ise_index, color_rgba* pColors, bool decode_mode_srgb)
 	{
 		const uint32_t total_weights = astc_helpers::get_ise_levels(weight_ise_index);
 
+#if BASISU_USE_ORIG_GET_COLORS
 		for (uint32_t i = 0; i < total_weights; i++)
 		{
 			uint32_t w = basisu::g_ise_weight_lerps[weight_ise_index][1 + i];
@@ -728,11 +736,7 @@ namespace astc_ldr
 			for (uint32_t c = 0; c < 4; c++)
 			{
 				int le = l[c], he = h[c];
-
-				// TODO: Investigate alpha handling here vs. latest spec.
-				// https://raw.githubusercontent.com/KhronosGroup/DataFormat/refs/heads/main/astc.txt
-				// The safest thing to do may be to assume non-sRGB in the encoder. I don't know yet.
-				// How should alpha be handled here for lowest divergence from actual ASTC decoding hardware?
+								
 				if (decode_mode_srgb)
 				{
 					le = (le << 8) | 0x80;
@@ -745,12 +749,80 @@ namespace astc_ldr
 				}
 
 				uint32_t k = astc_helpers::weight_interpolate(le, he, w);
-
-				// See https://registry.khronos.org/OpenGL/extensions/EXT/EXT_texture_compression_astc_decode_mode.txt 			
-				// All channels including alpha >>8.
+								
 				pColors[i][c] = (uint8_t)(k >> 8);
 			} // c
 		} // i 
+#else
+		int le_r = l.r, he_r = h.r, le_g = l.g, he_g = h.g, le_b = l.b, he_b = h.b, le_a = l.a, he_a = h.a;
+
+		const bool rgb_only = (le_a == 255) && (he_a == 255);
+
+		if (decode_mode_srgb)
+		{
+			le_r = (le_r << 8) | 0x80;
+			he_r = (he_r << 8) | 0x80;
+
+			le_g = (le_g << 8) | 0x80;
+			he_g = (he_g << 8) | 0x80;
+
+			le_b = (le_b << 8) | 0x80;
+			he_b = (he_b << 8) | 0x80;
+
+			le_a = (le_a << 8) | 0x80;
+			he_a = (he_a << 8) | 0x80;
+		}
+		else
+		{
+			le_r = (le_r << 8) | le_r;
+			he_r = (he_r << 8) | he_r;
+
+			le_g = (le_g << 8) | le_g;
+			he_g = (he_g << 8) | he_g;
+
+			le_b = (le_b << 8) | le_b;
+			he_b = (he_b << 8) | he_b;
+
+			le_a = (le_a << 8) | le_a;
+			he_a = (he_a << 8) | he_a;
+		}
+
+		if (rgb_only)
+		{
+			for (uint32_t i = 0; i < total_weights; i++)
+			{
+				const uint32_t w = basisu::g_ise_weight_lerps[weight_ise_index][1 + i];
+
+				const uint32_t k_r = astc_helpers::weight_interpolate(le_r, he_r, w);
+				const uint32_t k_g = astc_helpers::weight_interpolate(le_g, he_g, w);
+				const uint32_t k_b = astc_helpers::weight_interpolate(le_b, he_b, w);
+
+				pColors[i].r = (uint8_t)(k_r >> 8);
+				pColors[i].g = (uint8_t)(k_g >> 8);
+				pColors[i].b = (uint8_t)(k_b >> 8);
+				pColors[i].a = 255;
+
+			} // i 
+		}
+		else
+		{
+			for (uint32_t i = 0; i < total_weights; i++)
+			{
+				const uint32_t w = basisu::g_ise_weight_lerps[weight_ise_index][1 + i];
+
+				const uint32_t k_r = astc_helpers::weight_interpolate(le_r, he_r, w);
+				const uint32_t k_g = astc_helpers::weight_interpolate(le_g, he_g, w);
+				const uint32_t k_b = astc_helpers::weight_interpolate(le_b, he_b, w);
+				const uint32_t k_a = astc_helpers::weight_interpolate(le_a, he_a, w);
+
+				pColors[i].r = (uint8_t)(k_r >> 8);
+				pColors[i].g = (uint8_t)(k_g >> 8);
+				pColors[i].b = (uint8_t)(k_b >> 8);
+				pColors[i].a = (uint8_t)(k_a >> 8);
+
+			} // i 
+		}
+#endif
 
 		return total_weights;
 	}
@@ -758,16 +830,13 @@ namespace astc_ldr
 	// Returns 65 colors (NOT just 64 - 0-64 weight levels, so 65).
 	uint32_t get_colors_raw_weights(const color_rgba& l, const color_rgba& h, color_rgba* pColors, bool decode_mode_srgb)
 	{
+#if BASISU_USE_ORIG_GET_COLORS
 		for (uint32_t w = 0; w <= 64; w++)
 		{
 			for (uint32_t c = 0; c < 4; c++)
 			{
 				int le = l[c], he = h[c];
-
-				// TODO: Investigate alpha handling here vs. latest spec.
-				// https://raw.githubusercontent.com/KhronosGroup/DataFormat/refs/heads/main/astc.txt
-				// The safest thing to do may be to assume non-sRGB in the encoder. I don't know yet.
-				// How should alpha be handled here for lowest divergence from actual ASTC decoding hardware?
+								
 				if (decode_mode_srgb)
 				{
 					le = (le << 8) | 0x80;
@@ -781,12 +850,76 @@ namespace astc_ldr
 
 				uint32_t k = astc_helpers::weight_interpolate(le, he, w);
 
-				// See https://registry.khronos.org/OpenGL/extensions/EXT/EXT_texture_compression_astc_decode_mode.txt 			
-				// All channels including alpha >>8.
 				pColors[w][c] = (uint8_t)(k >> 8);
 
 			} // c
 		} // i 
+#else
+		int le_r = l.r, he_r = h.r, le_g = l.g, he_g = h.g, le_b = l.b, he_b = h.b, le_a = l.a, he_a = h.a;
+
+		const bool rgb_only = (le_a == 255) && (he_a == 255);
+
+		if (decode_mode_srgb)
+		{
+			le_r = (le_r << 8) | 0x80;
+			he_r = (he_r << 8) | 0x80;
+
+			le_g = (le_g << 8) | 0x80;
+			he_g = (he_g << 8) | 0x80;
+
+			le_b = (le_b << 8) | 0x80;
+			he_b = (he_b << 8) | 0x80;
+
+			le_a = (le_a << 8) | 0x80;
+			he_a = (he_a << 8) | 0x80;
+		}
+		else
+		{
+			le_r = (le_r << 8) | le_r;
+			he_r = (he_r << 8) | he_r;
+
+			le_g = (le_g << 8) | le_g;
+			he_g = (he_g << 8) | he_g;
+
+			le_b = (le_b << 8) | le_b;
+			he_b = (he_b << 8) | he_b;
+
+			le_a = (le_a << 8) | le_a;
+			he_a = (he_a << 8) | he_a;
+		}
+
+		if (rgb_only)
+		{
+			for (uint32_t w = 0; w <= 64; w++)
+			{
+				const uint32_t k_r = astc_helpers::weight_interpolate(le_r, he_r, w);
+				const uint32_t k_g = astc_helpers::weight_interpolate(le_g, he_g, w);
+				const uint32_t k_b = astc_helpers::weight_interpolate(le_b, he_b, w);
+
+				pColors[w].r = (uint8_t)(k_r >> 8);
+				pColors[w].g = (uint8_t)(k_g >> 8);
+				pColors[w].b = (uint8_t)(k_b >> 8);
+				pColors[w].a = 255;
+
+			} // i 
+		}
+		else
+		{
+			for (uint32_t w = 0; w <= 64; w++)
+			{
+				const uint32_t k_r = astc_helpers::weight_interpolate(le_r, he_r, w);
+				const uint32_t k_g = astc_helpers::weight_interpolate(le_g, he_g, w);
+				const uint32_t k_b = astc_helpers::weight_interpolate(le_b, he_b, w);
+				const uint32_t k_a = astc_helpers::weight_interpolate(le_a, he_a, w);
+
+				pColors[w].r = (uint8_t)(k_r >> 8);
+				pColors[w].g = (uint8_t)(k_g >> 8);
+				pColors[w].b = (uint8_t)(k_b >> 8);
+				pColors[w].a = (uint8_t)(k_a >> 8);
+
+			} // i 
+		}
+#endif
 
 		return ASTC_LDR_MAX_RAW_WEIGHTS;
 	}
@@ -877,8 +1010,7 @@ namespace astc_ldr
 		return mean_axis;
 	}
 #endif
-
-	// TODO: Try two-step Lanczos iteration/Rayleigh–Ritz approximation in a 2-dimensional Krylov subspace method vs. power method.
+		
 	static vec4F calc_pca_4D(uint32_t num_pixels, const vec4F* pPixels, const vec4F& mean_f)
 	{
 		float m00 = 0, m01 = 0, m02 = 0, m03 = 0;
@@ -1006,7 +1138,7 @@ namespace astc_ldr
 		m_mean_rel_axis3 = calc_pca_3D(m_num_pixels, m_pixels_f, m_mean_f);
 		m_zero_rel_axis3 = calc_pca_3D(m_num_pixels, m_pixels_f, vec4F(0.0f));
 
-		// Mean and zero relative RGBA (4D) PCA axes
+		// Mean relative RGBA (4D) PCA axes
 		m_mean_rel_axis4 = calc_pca_4D(m_num_pixels, m_pixels_f, m_mean_f);
 
 		for (uint32_t c = 0; c < 4u; c++)
@@ -1022,7 +1154,7 @@ namespace astc_ldr
 		return (uint32_t)(d * d);
 	}
 
-	uint64_t eval_solution(
+	static uint64_t eval_solution(
 		const pixel_stats_t& pixel_stats,
 		uint32_t total_weights, const color_rgba* pWeight_colors,
 		uint8_t* pWeight_vals, uint32_t weight_ise_index,
@@ -1031,57 +1163,167 @@ namespace astc_ldr
 		BASISU_NOTE_UNUSED(weight_ise_index);
 		assert((total_weights <= 32) || (total_weights == 65));
 
+		const bool all_one_weights = (params.m_comp_weights[0] == 1) && (params.m_comp_weights[1] == 1) && (params.m_comp_weights[2] == 1) && (params.m_comp_weights[3] == 1);
+
+		bool exhaustive_flag = params.m_use_exhaustive_weight_eval;
+		if (BASISU_FORCE_EXHAUSTIVE_EVAL)
+			exhaustive_flag = true;
+		else if (!all_one_weights)
+			exhaustive_flag = true;
+
 		uint64_t total_err = 0;
 
 		if (params.m_pForced_weight_vals0)
 		{
-			for (uint32_t c = 0; c < pixel_stats.m_num_pixels; c++)
+			if (all_one_weights)
 			{
-				const color_rgba& px = pixel_stats.m_pixels[c];
+				for (uint32_t c = 0; c < pixel_stats.m_num_pixels; c++)
+				{
+					const color_rgba& px = pixel_stats.m_pixels[c];
 
-				const uint32_t w = params.m_pForced_weight_vals0[c];
-				assert(w < total_weights);
+					const uint32_t w = params.m_pForced_weight_vals0[c];
+					assert(w < total_weights);
 
-				uint32_t err =
-					params.m_comp_weights[0] * square_of_diff(px.r, pWeight_colors[w].r) +
-					params.m_comp_weights[1] * square_of_diff(px.g, pWeight_colors[w].g) +
-					params.m_comp_weights[2] * square_of_diff(px.b, pWeight_colors[w].b) +
-					params.m_comp_weights[3] * square_of_diff(px.a, pWeight_colors[w].a);
+					uint32_t err = square_of_diff(px.r, pWeight_colors[w].r) +
+						square_of_diff(px.g, pWeight_colors[w].g) +
+						square_of_diff(px.b, pWeight_colors[w].b) +
+						square_of_diff(px.a, pWeight_colors[w].a);
 
-				total_err += err;
-				
-				pWeight_vals[c] = (uint8_t)w;
+					total_err += err;
+
+					pWeight_vals[c] = (uint8_t)w;
+				}
+			}
+			else
+			{
+				for (uint32_t c = 0; c < pixel_stats.m_num_pixels; c++)
+				{
+					const color_rgba& px = pixel_stats.m_pixels[c];
+
+					const uint32_t w = params.m_pForced_weight_vals0[c];
+					assert(w < total_weights);
+
+					uint32_t err =
+						params.m_comp_weights[0] * square_of_diff(px.r, pWeight_colors[w].r) +
+						params.m_comp_weights[1] * square_of_diff(px.g, pWeight_colors[w].g) +
+						params.m_comp_weights[2] * square_of_diff(px.b, pWeight_colors[w].b) +
+						params.m_comp_weights[3] * square_of_diff(px.a, pWeight_colors[w].a);
+
+					total_err += err;
+
+					pWeight_vals[c] = (uint8_t)w;
+				}
+			}
+		}
+		else if (exhaustive_flag)
+		{
+			if (all_one_weights)
+			{
+				for (uint32_t c = 0; c < pixel_stats.m_num_pixels; c++)
+				{
+					const color_rgba& px = pixel_stats.m_pixels[c];
+
+					uint32_t best_err = UINT32_MAX;
+					uint32_t best_sel = 0;
+
+					for (uint32_t i = 0; i < total_weights; i++)
+					{
+						uint32_t err =
+							square_of_diff(px.r, pWeight_colors[i].r) +
+							square_of_diff(px.g, pWeight_colors[i].g) +
+							square_of_diff(px.b, pWeight_colors[i].b) +
+							square_of_diff(px.a, pWeight_colors[i].a);
+
+						if (err < best_err)
+						{
+							best_err = err;
+							best_sel = i;
+						}
+					}
+
+					total_err += best_err;
+					pWeight_vals[c] = (uint8_t)best_sel;
+				}
+			}
+			else
+			{
+				for (uint32_t c = 0; c < pixel_stats.m_num_pixels; c++)
+				{
+					const color_rgba& px = pixel_stats.m_pixels[c];
+
+					uint32_t best_err = UINT32_MAX;
+					uint32_t best_sel = 0;
+
+					for (uint32_t i = 0; i < total_weights; i++)
+					{
+						uint32_t err =
+							params.m_comp_weights[0] * square_of_diff(px.r, pWeight_colors[i].r) +
+							params.m_comp_weights[1] * square_of_diff(px.g, pWeight_colors[i].g) +
+							params.m_comp_weights[2] * square_of_diff(px.b, pWeight_colors[i].b) +
+							params.m_comp_weights[3] * square_of_diff(px.a, pWeight_colors[i].a);
+
+						if (err < best_err)
+						{
+							best_err = err;
+							best_sel = i;
+						}
+					}
+
+					total_err += best_err;
+					pWeight_vals[c] = (uint8_t)best_sel;
+				}
 			}
 		}
 		else
 		{
+			assert(all_one_weights);
+
+			// low endpoint must be the first color (w=0)
+			const color_rgba& e_l = pWeight_colors[0];
+
+			// high endpoint must be either the last color or the 2nd depending on the weight BISE range
+			color_rgba e_h(pWeight_colors[1]);
+			if ((total_weights == 65) || (g_ise_weight_lerps[weight_ise_index][total_weights] == 64))
+				e_h = pWeight_colors[total_weights - 1];
+			else
+			{
+				assert(g_ise_weight_lerps[weight_ise_index][1 + 1] == 64);
+			}
+
+			const int dr = e_h[0] - e_l[0], dg = e_h[1] - e_l[1], db = e_h[2] - e_l[2], da = e_h[3] - e_l[3];
+
+			// computes weights between [0,64]
+			const float f = 64.0f / (float)(basisu::squarei(dr) + basisu::squarei(dg) + basisu::squarei(db) + basisu::squarei(da) + .00000125f);
+
+			const auto *pTab = (weight_ise_index <= astc_helpers::BISE_32_LEVELS) ? &astc_helpers::g_dequant_tables.get_weight_tab(weight_ise_index).m_val_to_ise : nullptr;
+
+			const int sofs = -(e_l[0] * dr + e_l[1] * dg + e_l[2] * db + e_l[3] * da);
+
 			for (uint32_t c = 0; c < pixel_stats.m_num_pixels; c++)
 			{
 				const color_rgba& px = pixel_stats.m_pixels[c];
 
-				uint32_t best_err = UINT32_MAX;
-				uint32_t best_sel = 0;
+				int sel = (int)(float(px[0] * dr + px[1] * dg + px[2] * db + px[3] * da + sofs) * f + .5f);
 
-				for (uint32_t i = 0; i < total_weights; i++)
-				{
-					uint32_t err =
-						params.m_comp_weights[0] * square_of_diff(px.r, pWeight_colors[i].r) +
-						params.m_comp_weights[1] * square_of_diff(px.g, pWeight_colors[i].g) +
-						params.m_comp_weights[2] * square_of_diff(px.b, pWeight_colors[i].b) +
-						params.m_comp_weights[3] * square_of_diff(px.a, pWeight_colors[i].a);
+				if (sel < 0)
+					sel = 0;
+				else if (sel > 64)
+					sel = 64;
 
-					if (err < best_err)
-					{
-						best_err = err;
-						best_sel = i;
-					}
-				}
+				int best_sel = pTab ? (*pTab)[sel] : sel;
 
-				total_err += best_err;
+				assert(best_sel < (int)total_weights);
+
+				total_err +=
+					square_of_diff(px.r, pWeight_colors[best_sel].r) +
+					square_of_diff(px.g, pWeight_colors[best_sel].g) +
+					square_of_diff(px.b, pWeight_colors[best_sel].b) +
+					square_of_diff(px.a, pWeight_colors[best_sel].a);
+
 				pWeight_vals[c] = (uint8_t)best_sel;
-			}
-		} // if (params.m_pForced_weight_vals0)
-
+			} // c
+		}
+		
 		return total_err;
 	}
 
@@ -1118,7 +1360,7 @@ namespace astc_ldr
 	}
 
 	// Evaluates against raw weights [0,64], or to ISE quantized weights, depending on weight_ise_index.
-	uint64_t eval_solution_dp(
+	static uint64_t eval_solution_dp(
 		uint32_t ccs_index,
 		const pixel_stats_t& pixel_stats,
 		uint32_t total_weights, const color_rgba* pWeight_colors,
@@ -1127,8 +1369,16 @@ namespace astc_ldr
 	{
 		BASISU_NOTE_UNUSED(weight_ise_index);
 
-		assert((ccs_index >= 0) && (ccs_index <= 3));
+		assert(ccs_index <= 3);
 		assert((total_weights <= 32) || (total_weights == 65));
+
+		const bool all_one_weights = (params.m_comp_weights[0] == 1) && (params.m_comp_weights[1] == 1) && (params.m_comp_weights[2] == 1) && (params.m_comp_weights[3] == 1);
+
+		bool exhaustive_flag = params.m_use_exhaustive_weight_eval;
+		if (BASISU_FORCE_EXHAUSTIVE_EVAL)
+			exhaustive_flag = true;
+		else if (!all_one_weights)
+			exhaustive_flag = true;
 
 		uint64_t total_err = 0;
 
@@ -1151,7 +1401,7 @@ namespace astc_ldr
 				pWeight_vals0[c] = (uint8_t)w;
 			}
 		}
-		else
+		else if (exhaustive_flag)
 		{
 			for (uint32_t c = 0; c < pixel_stats.m_num_pixels; c++)
 			{
@@ -1178,6 +1428,61 @@ namespace astc_ldr
 				pWeight_vals0[c] = (uint8_t)best_sel;
 			}
 		}
+		else
+		{
+			assert(all_one_weights);
+
+			// low endpoint must be the first color (w=0)
+			color_rgba e_l(pWeight_colors[0]);
+
+			// high endpoint must be either the last color or the 2nd depending on the weight BISE range
+			color_rgba e_h(pWeight_colors[1]);
+
+			if ((total_weights == 65) || (g_ise_weight_lerps[weight_ise_index][total_weights] == 64))
+				e_h = pWeight_colors[total_weights - 1];
+			else
+			{
+				assert(g_ise_weight_lerps[weight_ise_index][1 + 1] == 64);
+			}
+
+			std::swap(e_l[ccs_index], e_l[3]);
+			std::swap(e_h[ccs_index], e_h[3]);
+			
+			const int dr = e_h[0] - e_l[0], dg = e_h[1] - e_l[1], db = e_h[2] - e_l[2];
+			
+			const float f = 64.0f / (float)(basisu::squarei(dr) + basisu::squarei(dg) + basisu::squarei(db) + .00000125f);
+
+			const int sofs = -(e_l[0] * dr + e_l[1] * dg + e_l[2] * db);
+						
+			const auto* pTab = (weight_ise_index <= astc_helpers::BISE_32_LEVELS) ? &astc_helpers::g_dequant_tables.get_weight_tab(weight_ise_index).m_val_to_ise : nullptr;
+
+			for (uint32_t c = 0; c < pixel_stats.m_num_pixels; c++)
+			{
+				color_rgba px(pixel_stats.m_pixels[c]);
+				std::swap(px[ccs_index], px[3]);
+
+				int sel = (int)(float(px[0] * dr + px[1] * dg + px[2] * db + sofs) * f + .5f);
+
+				if (sel < 0)
+					sel = 0;
+				else if (sel > 64)
+					sel = 64;
+
+				int best_sel = pTab ? (*pTab)[sel] : sel;
+
+				assert(best_sel < (int)total_weights);
+
+				color_rgba wc(pWeight_colors[best_sel]);
+				std::swap(wc[ccs_index], wc[3]);
+
+				total_err +=
+					square_of_diff(px.r, wc.r) +
+					square_of_diff(px.g, wc.g) +
+					square_of_diff(px.b, wc.b);
+
+				pWeight_vals0[c] = (uint8_t)best_sel;
+			} // c
+		}
 
 		if (params.m_pForced_weight_vals1)
 		{
@@ -1194,7 +1499,7 @@ namespace astc_ldr
 				pWeight_vals1[c] = (uint8_t)w;
 			}
 		}
-		else
+		else if (exhaustive_flag)
 		{
 			for (uint32_t c = 0; c < pixel_stats.m_num_pixels; c++)
 			{
@@ -1217,6 +1522,53 @@ namespace astc_ldr
 				total_err += best_err * params.m_comp_weights[ccs_index];
 				pWeight_vals1[c] = (uint8_t)best_sel;
 			}
+		}
+		else
+		{
+			assert(all_one_weights);
+
+			// low endpoint must be the first color (w=0)
+			color_rgba e_l(pWeight_colors[0]);
+
+			// high endpoint must be either the last color or the 2nd depending on the weight BISE range
+			color_rgba e_h(pWeight_colors[1]);
+
+			if ((total_weights == 65) || (g_ise_weight_lerps[weight_ise_index][total_weights] == 64))
+				e_h = pWeight_colors[total_weights - 1];
+			else
+			{
+				assert(g_ise_weight_lerps[weight_ise_index][1 + 1] == 64);
+			}
+
+			const int la = e_l[ccs_index];
+			const int ha = e_h[ccs_index];
+			const int da = ha - la;
+
+			const float f = 64.0f / (float)(da + .00000125f);
+			
+			const auto* pTab = (weight_ise_index <= astc_helpers::BISE_32_LEVELS) ? &astc_helpers::g_dequant_tables.get_weight_tab(weight_ise_index).m_val_to_ise : nullptr;
+
+			for (uint32_t c = 0; c < pixel_stats.m_num_pixels; c++)
+			{
+				const color_rgba &px = pixel_stats.m_pixels[c];
+
+				const int pxa = px[ccs_index];
+				
+				int sel = (int)(float(pxa - la) * f + .5f);
+
+				if (sel < 0)
+					sel = 0;
+				else if (sel > 64)
+					sel = 64;
+
+				int best_sel = pTab ? (*pTab)[sel] : sel;
+
+				assert(best_sel < (int)total_weights);
+								
+				total_err += square_of_diff(pxa, pWeight_colors[best_sel][ccs_index]);
+
+				pWeight_vals1[c] = (uint8_t)best_sel;
+			} // c
 		}
 
 		return total_err;
@@ -1837,6 +2189,53 @@ namespace astc_ldr
 		return improved_flag;
 	}
 
+	static uint32_t compute_endpoint_distance(
+		const color_rgba &low_color1, const color_rgba &high_color1,
+		const color_rgba &low_color2, const color_rgba &high_color2)
+	{
+		uint32_t ll = color_distance(low_color2, low_color1, true);
+		uint32_t lh = color_distance(low_color2, high_color1, true);
+
+		uint32_t hl = color_distance(high_color2, low_color1, true);
+		uint32_t hh = color_distance(high_color2, high_color1, true);
+
+		uint32_t d0 = ll + hh;
+		uint32_t d1 = lh + hl;
+
+		return minimum(d0, d1);
+	}
+
+	// true if the direct encoding would be better vs. the current base+ofs encodiing
+	static bool compare_base_ofs_vs_direct_encoding(
+		uint32_t cem_index, 
+		const uint8_t *pTrial_endpoint_vals, uint32_t endpoint_ise_range,
+		const color_rgba &low_color, const color_rgba &high_color, 
+		bool try_blue_contract)
+	{
+		assert((cem_index == astc_helpers::CEM_LDR_RGB_BASE_PLUS_OFFSET) || (cem_index == astc_helpers::CEM_LDR_RGBA_BASE_PLUS_OFFSET));
+
+		color_rgba base_ofs_l, base_ofs_h;
+		decode_endpoints(cem_index, pTrial_endpoint_vals, endpoint_ise_range, base_ofs_l, base_ofs_h);
+
+		const uint32_t baseofs_best_d = compute_endpoint_distance(base_ofs_l, base_ofs_h, low_color, high_color);
+		if (!baseofs_best_d)
+			return false;
+
+		uint8_t direct_endpoint_vals[astc_helpers::NUM_MODE12_ENDPOINTS] = { 0 };
+
+		const uint32_t direct_cem_index = (cem_index == astc_helpers::CEM_LDR_RGB_BASE_PLUS_OFFSET) ? astc_helpers::CEM_LDR_RGB_DIRECT : astc_helpers::CEM_LDR_RGBA_DIRECT;
+
+		cem_encode_ldr_rgb_or_rgba_direct_result direct_res = cem_encode_ldr_rgb_or_rgba_direct(direct_cem_index, endpoint_ise_range, low_color, high_color, direct_endpoint_vals, try_blue_contract);
+		BASISU_NOTE_UNUSED(direct_res); // call populates direct_endpoint_vals (used below); its returned struct is unused - silence -Wunused-variable
+
+		color_rgba direct_l, direct_h;
+		decode_endpoints(direct_cem_index, direct_endpoint_vals, endpoint_ise_range, direct_l, direct_h);
+
+		const uint32_t direct_best_d = compute_endpoint_distance(direct_l, direct_h, low_color, high_color);
+
+		return direct_best_d < baseofs_best_d;
+	}
+
 	// base+offset rgb/rgba, single or dual plane
 	static bool try_cem9_13_sp_or_dp(
 		uint32_t cem_index, int ccs_index,
@@ -1844,7 +2243,8 @@ namespace astc_ldr
 		uint32_t endpoint_ise_range, uint32_t weight_ise_range,
 		const vec4F& low_color_f, const vec4F& high_color_f,
 		uint8_t* pTrial_endpoint_vals, uint8_t* pTrial_weight_vals0, uint8_t* pTrial_weight_vals1, uint64_t& trial_blk_error, bool& trial_used_blue_contraction,
-		bool try_blue_contract, bool& tried_used_blue_contraction, bool &tried_base_ofs_clamped)
+		bool try_blue_contract, bool& tried_used_blue_contraction, 
+		bool &try_direct_encoding_flag) // try_direct_encoding_flag is now a flag that indicates the base_ofs encoding clamped OR if the rgb(a) direct encoding may be better to try
 	{
 		assert(g_initialized);
 		assert((cem_index == astc_helpers::CEM_LDR_RGB_BASE_PLUS_OFFSET) || (cem_index == astc_helpers::CEM_LDR_RGBA_BASE_PLUS_OFFSET));
@@ -1855,7 +2255,7 @@ namespace astc_ldr
 
 		assert(pTrial_weight_vals0);
 		assert((ccs_index == -1) || (pTrial_weight_vals1));
-
+				
 		//const uint32_t num_endpoint_vals = astc_helpers::get_num_cem_values(cem_index);
 		const uint32_t num_comps = (cem_index == astc_helpers::CEM_LDR_RGB_BASE_PLUS_OFFSET) ? 3 : 4;
 
@@ -1873,10 +2273,18 @@ namespace astc_ldr
 		rgb_base_offset_res res = cem_encode_ldr_rgb_or_rgba_base_offset(cem_index, endpoint_ise_range, low_color, high_color, trial_endpoint_vals, try_blue_contract);
 
 		tried_used_blue_contraction = res.m_used_blue_contraction;
-		tried_base_ofs_clamped = res.m_delta_clamped;
+		try_direct_encoding_flag = res.m_delta_clamped;
 
 		if (res.m_failed_flag)
 			return false;
+
+		if (!try_direct_encoding_flag)
+		{
+			if (compare_base_ofs_vs_direct_encoding(cem_index, trial_endpoint_vals, endpoint_ise_range, low_color, high_color, try_blue_contract))
+			{
+				try_direct_encoding_flag = true;
+			}
+		}
 
 		bool improved_flag = false;
 
@@ -1952,7 +2360,7 @@ namespace astc_ldr
 
 				if (res.m_failed_flag)
 					continue;
-								
+																
 				if (ccs_index == -1)
 				{
 					uint64_t trial_err = eval_solution(
@@ -1970,8 +2378,16 @@ namespace astc_ldr
 							memset(pTrial_weight_vals1, 0, pixel_stats.m_num_pixels);
 						trial_used_blue_contraction = res.m_used_blue_contraction;
 						if (res.m_delta_clamped)
-							tried_base_ofs_clamped = true;
+							try_direct_encoding_flag = true;
 						improved_flag = true;
+
+						if (!try_direct_encoding_flag)
+						{
+							if (compare_base_ofs_vs_direct_encoding(cem_index, trial_endpoint_vals, endpoint_ise_range, low_color, high_color, try_blue_contract))
+							{
+								try_direct_encoding_flag = true;
+							}
+						}
 					}
 				}
 				else
@@ -1990,8 +2406,16 @@ namespace astc_ldr
 						memcpy(pTrial_weight_vals1, trial_weight_vals1, pixel_stats.m_num_pixels);
 						trial_used_blue_contraction = res.m_used_blue_contraction;
 						if (res.m_delta_clamped)
-							tried_base_ofs_clamped = true;
+							try_direct_encoding_flag = true;
 						improved_flag = true;
+
+						if (!try_direct_encoding_flag)
+						{
+							if (compare_base_ofs_vs_direct_encoding(cem_index, trial_endpoint_vals, endpoint_ise_range, low_color, high_color, try_blue_contract))
+							{
+								try_direct_encoding_flag = true;
+							}
+						}
 					}
 				}
 
@@ -2029,8 +2453,16 @@ namespace astc_ldr
 							memset(pTrial_weight_vals1, 0, pixel_stats.m_num_pixels);
 						trial_used_blue_contraction = res.m_used_blue_contraction;
 						if (res.m_delta_clamped)
-							tried_base_ofs_clamped = true;
+							try_direct_encoding_flag = true;
 						improved_flag = true;
+
+						if (!try_direct_encoding_flag)
+						{
+							if (compare_base_ofs_vs_direct_encoding(cem_index, trial_endpoint_vals, endpoint_ise_range, low_color, high_color, try_blue_contract))
+							{
+								try_direct_encoding_flag = true;
+							}
+						}
 					}
 				}
 				else
@@ -2049,13 +2481,21 @@ namespace astc_ldr
 						memcpy(pTrial_weight_vals1, trial_weight_vals1, pixel_stats.m_num_pixels);
 						trial_used_blue_contraction = res.m_used_blue_contraction;
 						if (res.m_delta_clamped)
-							tried_base_ofs_clamped = true;
+							try_direct_encoding_flag = true;
 						improved_flag = true;
+
+						if (!try_direct_encoding_flag)
+						{
+							if (compare_base_ofs_vs_direct_encoding(cem_index, trial_endpoint_vals, endpoint_ise_range, low_color, high_color, try_blue_contract))
+							{
+								try_direct_encoding_flag = true;
+							}
+						}
 					}
 				}
 			}
 		}
-
+				
 		return improved_flag;
 	}
 
@@ -2582,7 +3022,7 @@ namespace astc_ldr
 		uint32_t cem_index,
 		const pixel_stats_t& pixel_stats, const cem_encode_params& enc_params,
 		uint32_t endpoint_ise_range, uint32_t weight_ise_range,
-		uint8_t* pEndpoint_vals, uint8_t* pWeight_vals, uint64_t cur_blk_error, bool use_blue_contraction, bool* pBase_ofs_clamped_flag)
+		uint8_t* pEndpoint_vals, uint8_t* pWeight_vals, uint64_t cur_blk_error, bool use_blue_contraction, bool* pTry_direct_encoding_flag)
 	{
 		assert(g_initialized);
 		assert((cem_index == astc_helpers::CEM_LDR_RGB_DIRECT) || (cem_index == astc_helpers::CEM_LDR_RGBA_DIRECT) ||
@@ -2592,8 +3032,8 @@ namespace astc_ldr
 		assert((endpoint_ise_range >= astc_helpers::FIRST_VALID_ENDPOINT_ISE_RANGE) && (endpoint_ise_range <= astc_helpers::LAST_VALID_ENDPOINT_ISE_RANGE));
 		assert(((weight_ise_range >= astc_helpers::FIRST_VALID_WEIGHT_ISE_RANGE) && (weight_ise_range <= astc_helpers::LAST_VALID_WEIGHT_ISE_RANGE)) || (weight_ise_range == astc_helpers::BISE_64_LEVELS));
 
-		if (pBase_ofs_clamped_flag)
-			*pBase_ofs_clamped_flag = false;
+		if (pTry_direct_encoding_flag)
+			*pTry_direct_encoding_flag = false;
 
 		const bool cem_has_alpha = (cem_index == astc_helpers::CEM_LDR_RGBA_DIRECT) || (cem_index == astc_helpers::CEM_LDR_RGBA_BASE_PLUS_OFFSET);
 		const bool cem_is_base_offset = (cem_index == astc_helpers::CEM_LDR_RGB_BASE_PLUS_OFFSET) || (cem_index == astc_helpers::CEM_LDR_RGBA_BASE_PLUS_OFFSET);
@@ -2650,18 +3090,18 @@ namespace astc_ldr
 				
 		if (cem_is_base_offset)
 		{
-			bool tried_base_ofs_clamped = false;
-
+			bool try_direct_encoding_flag = false;
+			
 			try_cem9_13_sp_or_dp(
 				cem_index, -1, pixel_stats, enc_params,
 				endpoint_ise_range, weight_ise_range,
 				low_color_f, high_color_f,
 				trial_blk_endpoints, trial_blk_weights, nullptr, trial_blk_error, trial_used_blue_contraction, use_blue_contraction, 
-				tried_used_blue_contraction, tried_base_ofs_clamped);
+				tried_used_blue_contraction, try_direct_encoding_flag);
 
-			if ((pBase_ofs_clamped_flag) && (tried_base_ofs_clamped))
-				*pBase_ofs_clamped_flag = true;
-
+			if ((pTry_direct_encoding_flag) && (try_direct_encoding_flag))
+				*pTry_direct_encoding_flag = true;
+			
 			if (tried_used_blue_contraction)
 			{
 				try_cem9_13_sp_or_dp(
@@ -2669,10 +3109,10 @@ namespace astc_ldr
 					endpoint_ise_range, weight_ise_range,
 					low_color_f, high_color_f,
 					trial_blk_endpoints, trial_blk_weights, nullptr, trial_blk_error, trial_used_blue_contraction, false, 
-					tried_used_blue_contraction, tried_base_ofs_clamped);
+					tried_used_blue_contraction, try_direct_encoding_flag);
 
-				if ((pBase_ofs_clamped_flag) && (tried_base_ofs_clamped))
-					*pBase_ofs_clamped_flag = true;
+				if ((pTry_direct_encoding_flag) && (try_direct_encoding_flag))
+					*pTry_direct_encoding_flag = true;
 			}
 		}
 		else
@@ -2725,16 +3165,16 @@ namespace astc_ldr
 						
 			if (cem_is_base_offset)
 			{
-				bool tried_base_ofs_clamped = false;
+				bool try_direct_encoding_flag = false;
 
 				try_cem9_13_sp_or_dp(
 					cem_index, -1, pixel_stats, enc_params,
 					endpoint_ise_range, weight_ise_range,
 					xl, xh,
-					trial_blk_endpoints, trial_blk_weights, nullptr, trial_blk_error, trial_used_blue_contraction, use_blue_contraction, tried_used_blue_contraction, tried_base_ofs_clamped);
+					trial_blk_endpoints, trial_blk_weights, nullptr, trial_blk_error, trial_used_blue_contraction, use_blue_contraction, tried_used_blue_contraction, try_direct_encoding_flag);
 
-				if ((pBase_ofs_clamped_flag) && (tried_base_ofs_clamped))
-					*pBase_ofs_clamped_flag = true;
+				if ((pTry_direct_encoding_flag) && (try_direct_encoding_flag))
+					*pTry_direct_encoding_flag = true;
 
 				if (tried_used_blue_contraction)
 				{
@@ -2743,10 +3183,10 @@ namespace astc_ldr
 						cem_index, -1, pixel_stats, enc_params,
 						endpoint_ise_range, weight_ise_range,
 						xl, xh,
-						trial_blk_endpoints, trial_blk_weights, nullptr, trial_blk_error, trial_used_blue_contraction, false, tried_used_blue_contraction, tried_base_ofs_clamped);
+						trial_blk_endpoints, trial_blk_weights, nullptr, trial_blk_error, trial_used_blue_contraction, false, tried_used_blue_contraction, try_direct_encoding_flag);
 
-					if ((pBase_ofs_clamped_flag) && (tried_base_ofs_clamped))
-						*pBase_ofs_clamped_flag = true;
+					if ((pTry_direct_encoding_flag) && (try_direct_encoding_flag))
+						*pTry_direct_encoding_flag = true;
 				}
 			}
 			else
@@ -2806,16 +3246,16 @@ namespace astc_ldr
 
 				if (cem_is_base_offset)
 				{
-					bool tried_base_ofs_clamped = false;
+					bool try_direct_encoding_flag = false;
 
 					try_cem9_13_sp_or_dp(
 						cem_index, -1, pixel_stats, enc_params,
 						endpoint_ise_range, weight_ise_range,
 						xl, xh,
-						trial_blk_endpoints, trial_blk_weights, nullptr, trial_blk_error, trial_used_blue_contraction, use_blue_contraction, tried_used_blue_contraction, tried_base_ofs_clamped);
+						trial_blk_endpoints, trial_blk_weights, nullptr, trial_blk_error, trial_used_blue_contraction, use_blue_contraction, tried_used_blue_contraction, try_direct_encoding_flag);
 
-					if ((pBase_ofs_clamped_flag) && (tried_base_ofs_clamped))
-						*pBase_ofs_clamped_flag = true;
+					if ((pTry_direct_encoding_flag) && (try_direct_encoding_flag))
+						*pTry_direct_encoding_flag = true;
 
 					if (tried_used_blue_contraction)
 					{
@@ -2824,10 +3264,10 @@ namespace astc_ldr
 							cem_index, -1, pixel_stats, enc_params,
 							endpoint_ise_range, weight_ise_range,
 							xl, xh,
-							trial_blk_endpoints, trial_blk_weights, nullptr, trial_blk_error, trial_used_blue_contraction, false, tried_used_blue_contraction, tried_base_ofs_clamped);
+							trial_blk_endpoints, trial_blk_weights, nullptr, trial_blk_error, trial_used_blue_contraction, false, tried_used_blue_contraction, try_direct_encoding_flag);
 
-						if ((pBase_ofs_clamped_flag) && (tried_base_ofs_clamped))
-							*pBase_ofs_clamped_flag = true;
+						if ((pTry_direct_encoding_flag) && (try_direct_encoding_flag))
+							*pTry_direct_encoding_flag = true;
 					}
 				}
 				else
@@ -2929,16 +3369,16 @@ namespace astc_ldr
 
 				if (cem_is_base_offset)
 				{
-					bool tried_base_ofs_clamped = false;
-
+					bool try_direct_encoding_flag = false;
+					
 					try_cem9_13_sp_or_dp(
 						cem_index, -1, pixel_stats, enc_params,
 						endpoint_ise_range, weight_ise_range,
 						xl, xh,
-						trial_blk_endpoints, trial_blk_weights, nullptr, trial_blk_error, trial_used_blue_contraction, use_blue_contraction, tried_used_blue_contraction, tried_base_ofs_clamped);
+						trial_blk_endpoints, trial_blk_weights, nullptr, trial_blk_error, trial_used_blue_contraction, use_blue_contraction, tried_used_blue_contraction, try_direct_encoding_flag);
 
-					if ((pBase_ofs_clamped_flag) && (tried_base_ofs_clamped))
-						*pBase_ofs_clamped_flag = true;
+					if ((pTry_direct_encoding_flag) && (try_direct_encoding_flag))
+						*pTry_direct_encoding_flag = true;
 
 					if (tried_used_blue_contraction)
 					{
@@ -2947,10 +3387,10 @@ namespace astc_ldr
 							cem_index, -1, pixel_stats, enc_params,
 							endpoint_ise_range, weight_ise_range,
 							xl, xh,
-							trial_blk_endpoints, trial_blk_weights, nullptr, trial_blk_error, trial_used_blue_contraction, false, tried_used_blue_contraction, tried_base_ofs_clamped);
+							trial_blk_endpoints, trial_blk_weights, nullptr, trial_blk_error, trial_used_blue_contraction, false, tried_used_blue_contraction, try_direct_encoding_flag);
 
-						if ((pBase_ofs_clamped_flag) && (tried_base_ofs_clamped))
-							*pBase_ofs_clamped_flag = true;
+						if ((pTry_direct_encoding_flag) && (try_direct_encoding_flag))
+							*pTry_direct_encoding_flag = true;
 					}
 				}
 				else
@@ -3041,7 +3481,7 @@ namespace astc_ldr
 		const pixel_stats_t& pixel_stats, const cem_encode_params& enc_params,
 		uint32_t endpoint_ise_range, uint32_t weight_ise_range,
 		uint8_t* pEndpoint_vals, uint8_t* pWeight_vals0, uint8_t* pWeight_vals1,
-		uint64_t cur_blk_error, bool use_blue_contraction, bool *pBase_ofs_clamped_flag)
+		uint64_t cur_blk_error, bool use_blue_contraction, bool * pTry_direct_encoding_flag)
 	{
 		assert(g_initialized);
 		assert(ccs_index <= 3);
@@ -3049,8 +3489,8 @@ namespace astc_ldr
 		assert((endpoint_ise_range >= astc_helpers::FIRST_VALID_ENDPOINT_ISE_RANGE) && (endpoint_ise_range <= astc_helpers::LAST_VALID_ENDPOINT_ISE_RANGE));
 		assert(((weight_ise_range >= astc_helpers::FIRST_VALID_WEIGHT_ISE_RANGE) && (weight_ise_range <= astc_helpers::LAST_VALID_WEIGHT_ISE_RANGE)) || (weight_ise_range == astc_helpers::BISE_64_LEVELS));
 
-		if (pBase_ofs_clamped_flag)
-			*pBase_ofs_clamped_flag = false;
+		if (pTry_direct_encoding_flag)
+			*pTry_direct_encoding_flag = false;
 
 		bool cem_has_alpha = false, cem_is_base_offset = false;
 		switch (cem_index)
@@ -3137,17 +3577,17 @@ namespace astc_ldr
 		
 		if (cem_is_base_offset)
 		{
-			bool tried_base_ofs_clamped = false;
+			bool try_direct_encoding_flag = false;
 
 			try_cem9_13_sp_or_dp(
 				cem_index, ccs_index, pixel_stats, enc_params,
 				endpoint_ise_range, weight_ise_range,
 				low_color_f, high_color_f,
 				trial_blk_endpoints, trial_blk_weights0, trial_blk_weights1,
-				trial_blk_error, trial_used_blue_contraction, use_blue_contraction, tried_used_blue_contraction, tried_base_ofs_clamped);
+				trial_blk_error, trial_used_blue_contraction, use_blue_contraction, tried_used_blue_contraction, try_direct_encoding_flag);
 
-			if ((pBase_ofs_clamped_flag) && (tried_base_ofs_clamped))
-				*pBase_ofs_clamped_flag = true;
+			if ((pTry_direct_encoding_flag) && (try_direct_encoding_flag))
+				*pTry_direct_encoding_flag = true;
 
 			if (tried_used_blue_contraction)
 			{
@@ -3155,10 +3595,10 @@ namespace astc_ldr
 					cem_index, ccs_index, pixel_stats, enc_params,
 					endpoint_ise_range, weight_ise_range,
 					low_color_f, high_color_f,
-					trial_blk_endpoints, trial_blk_weights0, trial_blk_weights1, trial_blk_error, trial_used_blue_contraction, false, tried_used_blue_contraction, tried_base_ofs_clamped);
+					trial_blk_endpoints, trial_blk_weights0, trial_blk_weights1, trial_blk_error, trial_used_blue_contraction, false, tried_used_blue_contraction, try_direct_encoding_flag);
 
-				if ((pBase_ofs_clamped_flag) && (tried_base_ofs_clamped))
-					*pBase_ofs_clamped_flag = true;
+				if ((pTry_direct_encoding_flag) && (try_direct_encoding_flag))
+					*pTry_direct_encoding_flag = true;
 			}
 		}
 		else
@@ -3217,17 +3657,17 @@ namespace astc_ldr
 
 			if (cem_is_base_offset)
 			{
-				bool tried_base_ofs_clamped = false;
+				bool try_direct_encoding_flag = false;
 
 				try_cem9_13_sp_or_dp(
 					cem_index, ccs_index, pixel_stats, enc_params,
 					endpoint_ise_range, weight_ise_range,
 					xl, xh,
 					trial_blk_endpoints, trial_blk_weights0, trial_blk_weights1, trial_blk_error, trial_used_blue_contraction,
-					use_blue_contraction, tried_used_blue_contraction, tried_base_ofs_clamped);
+					use_blue_contraction, tried_used_blue_contraction, try_direct_encoding_flag);
 
-				if ((pBase_ofs_clamped_flag) && (tried_base_ofs_clamped))
-					*pBase_ofs_clamped_flag = true;
+				if ((pTry_direct_encoding_flag) && (try_direct_encoding_flag))
+					*pTry_direct_encoding_flag = true;
 
 				if (tried_used_blue_contraction)
 				{
@@ -3237,10 +3677,10 @@ namespace astc_ldr
 						endpoint_ise_range, weight_ise_range,
 						xl, xh,
 						trial_blk_endpoints, trial_blk_weights0, trial_blk_weights1, trial_blk_error, trial_used_blue_contraction,
-						false, tried_used_blue_contraction, tried_base_ofs_clamped);
+						false, tried_used_blue_contraction, try_direct_encoding_flag);
 
-					if ((pBase_ofs_clamped_flag) && (tried_base_ofs_clamped))
-						*pBase_ofs_clamped_flag = true;
+					if ((pTry_direct_encoding_flag) && (try_direct_encoding_flag))
+						*pTry_direct_encoding_flag = true;
 				}
 			}
 			else
@@ -3314,17 +3754,17 @@ namespace astc_ldr
 
 				if (cem_is_base_offset)
 				{
-					bool tried_base_ofs_clamped = false;
+					bool try_direct_encoding_flag = false;
 
 					try_cem9_13_sp_or_dp(
 						cem_index, ccs_index, pixel_stats, enc_params,
 						endpoint_ise_range, weight_ise_range,
 						vl, vh,
 						trial_blk_endpoints, trial_blk_weights0, trial_blk_weights1, trial_blk_error, trial_used_blue_contraction,
-						use_blue_contraction, tried_used_blue_contraction, tried_base_ofs_clamped);
+						use_blue_contraction, tried_used_blue_contraction, try_direct_encoding_flag);
 
-					if ((pBase_ofs_clamped_flag) && (tried_base_ofs_clamped))
-						*pBase_ofs_clamped_flag = true;
+					if ((pTry_direct_encoding_flag) && (try_direct_encoding_flag))
+						*pTry_direct_encoding_flag = true;
 
 					if (tried_used_blue_contraction)
 					{
@@ -3334,10 +3774,10 @@ namespace astc_ldr
 							endpoint_ise_range, weight_ise_range,
 							vl, vh,
 							trial_blk_endpoints, trial_blk_weights0, trial_blk_weights1, trial_blk_error, trial_used_blue_contraction,
-							false, tried_used_blue_contraction, tried_base_ofs_clamped);
+							false, tried_used_blue_contraction, try_direct_encoding_flag);
 
-						if ((pBase_ofs_clamped_flag) && (tried_base_ofs_clamped))
-							*pBase_ofs_clamped_flag = true;
+						if ((pTry_direct_encoding_flag) && (try_direct_encoding_flag))
+							*pTry_direct_encoding_flag = true;
 					}
 				}
 				else
@@ -3398,17 +3838,17 @@ namespace astc_ldr
 
 				if (cem_is_base_offset)
 				{
-					bool tried_base_ofs_clamped = false;
+					bool try_direct_encoding_flag = false;
 
 					try_cem9_13_sp_or_dp(
 						cem_index, ccs_index, pixel_stats, enc_params,
 						endpoint_ise_range, weight_ise_range,
 						xl, xh,
 						trial_blk_endpoints, trial_blk_weights0, trial_blk_weights1, trial_blk_error, trial_used_blue_contraction,
-						use_blue_contraction, tried_used_blue_contraction, tried_base_ofs_clamped);
+						use_blue_contraction, tried_used_blue_contraction, try_direct_encoding_flag);
 
-					if ((pBase_ofs_clamped_flag) && (tried_base_ofs_clamped))
-						*pBase_ofs_clamped_flag = true;
+					if ((pTry_direct_encoding_flag) && (try_direct_encoding_flag))
+						*pTry_direct_encoding_flag = true;
 
 					if (tried_used_blue_contraction)
 					{
@@ -3418,10 +3858,10 @@ namespace astc_ldr
 							endpoint_ise_range, weight_ise_range,
 							xl, xh,
 							trial_blk_endpoints, trial_blk_weights0, trial_blk_weights1, trial_blk_error, trial_used_blue_contraction,
-							false, tried_used_blue_contraction, tried_base_ofs_clamped);
+							false, tried_used_blue_contraction, try_direct_encoding_flag);
 
-						if ((pBase_ofs_clamped_flag) && (tried_base_ofs_clamped))
-							*pBase_ofs_clamped_flag = true;
+						if ((pTry_direct_encoding_flag) && (try_direct_encoding_flag))
+							*pTry_direct_encoding_flag = true;
 					}
 				}
 				else
@@ -3494,18 +3934,18 @@ namespace astc_ldr
 
 					if (cem_is_base_offset)
 					{
-						bool tried_base_ofs_clamped = false;
+						bool try_direct_encoding_flag = false;
 
 						did_improve_res = try_cem9_13_sp_or_dp(
 							cem_index, ccs_index, pixel_stats, enc_params,
 							endpoint_ise_range, weight_ise_range,
 							vl, vh,
 							trial_blk_endpoints, trial_blk_weights0, trial_blk_weights1, trial_blk_error, trial_used_blue_contraction,
-							use_blue_contraction, tried_used_blue_contraction, tried_base_ofs_clamped);
+							use_blue_contraction, tried_used_blue_contraction, try_direct_encoding_flag);
 						BASISU_NOTE_UNUSED(did_improve_res);
 
-						if ((pBase_ofs_clamped_flag) && (tried_base_ofs_clamped))
-							*pBase_ofs_clamped_flag = true;
+						if ((pTry_direct_encoding_flag) && (try_direct_encoding_flag))
+							*pTry_direct_encoding_flag = true;
 
 						if (tried_used_blue_contraction)
 						{
@@ -3515,10 +3955,10 @@ namespace astc_ldr
 								endpoint_ise_range, weight_ise_range,
 								vl, vh,
 								trial_blk_endpoints, trial_blk_weights0, trial_blk_weights1, trial_blk_error, trial_used_blue_contraction,
-								false, tried_used_blue_contraction, tried_base_ofs_clamped);
+								false, tried_used_blue_contraction, try_direct_encoding_flag);
 
-							if ((pBase_ofs_clamped_flag) && (tried_base_ofs_clamped))
-								*pBase_ofs_clamped_flag = true;
+							if ((pTry_direct_encoding_flag) && (try_direct_encoding_flag))
+								*pTry_direct_encoding_flag = true;
 						}
 					}
 					else
@@ -4156,7 +4596,7 @@ namespace astc_ldr
 		const pixel_stats_t& pixel_stats, const cem_encode_params& enc_params,
 		uint32_t endpoint_ise_range, uint32_t weight_ise_range,
 		uint8_t* pEndpoint_vals, uint8_t* pWeight_vals0, uint8_t* pWeight_vals1, uint64_t cur_blk_error,
-		bool use_blue_contraction, bool *pBase_ofs_clamped_flag)
+		bool use_blue_contraction, bool * pTry_direct_encoding_flag)
 	{
 		assert(g_initialized);
 		assert((ccs_index >= -1) && (ccs_index <= 3));
@@ -4166,8 +4606,8 @@ namespace astc_ldr
 
 		const bool dual_plane = (ccs_index >= 0);
 		
-		if (pBase_ofs_clamped_flag)
-			*pBase_ofs_clamped_flag = false;
+		if (pTry_direct_encoding_flag)
+			*pTry_direct_encoding_flag = false;
 
 		uint64_t blk_error = UINT64_MAX;
 
@@ -4221,7 +4661,7 @@ namespace astc_ldr
 					cem_index, ccs_index,
 					pixel_stats, enc_params,
 					endpoint_ise_range, weight_ise_range,
-					pEndpoint_vals, pWeight_vals0, pWeight_vals1, cur_blk_error, use_blue_contraction, pBase_ofs_clamped_flag);
+					pEndpoint_vals, pWeight_vals0, pWeight_vals1, cur_blk_error, use_blue_contraction, pTry_direct_encoding_flag);
 			}
 			else
 			{
@@ -4229,7 +4669,7 @@ namespace astc_ldr
 					cem_index,
 					pixel_stats, enc_params,
 					endpoint_ise_range, weight_ise_range,
-					pEndpoint_vals, pWeight_vals0, cur_blk_error, use_blue_contraction, pBase_ofs_clamped_flag);
+					pEndpoint_vals, pWeight_vals0, cur_blk_error, use_blue_contraction, pTry_direct_encoding_flag);
 			}
 			break;
 		}
@@ -4407,14 +4847,13 @@ namespace astc_ldr
 		}
 
 		return total_err;
-
 	}
 
 	float surrogate_evaluate_rgba_dp(uint32_t ccs_index, const pixel_stats_t& ps, const vec4F& l, const vec4F& h, float* pWeights0, float* pWeights1, uint32_t num_weight_levels, 
 		const cem_encode_params& enc_params, uint32_t flags)
 	{
 		assert(g_initialized);
-		assert((ccs_index >= 0) && (ccs_index <= 3));
+		assert(ccs_index <= 3);
 		assert((ps.m_num_pixels) && (ps.m_num_pixels <= ASTC_LDR_MAX_BLOCK_PIXELS));
 		assert(pWeights0 && pWeights1);
 
@@ -4830,7 +5269,7 @@ namespace astc_ldr
 		uint32_t endpoint_ise_range, uint32_t weight_ise_range,
 		vec4F& low_endpoint, vec4F& high_endpoint, float* pWeights0, float *pWeights1, uint32_t flags)
 	{
-		assert((ccs_index >= 0) && (ccs_index <= 3));
+		assert(ccs_index <= 3);
 		const uint32_t num_endpoint_levels = astc_helpers::get_ise_levels(endpoint_ise_range);
 
 		// astc_helpers::BISE_64_LEVELS=raw weights ([0,64], NOT [0,63])
@@ -5153,14 +5592,99 @@ namespace astc_ldr
 		return *this;
 	}
 			
-	// misnamed- just SAD distance, not square
+	// originally was SAD distance, but that is slower
 	int partition_pattern_vec::get_squared_distance(const partition_pattern_vec& other) const
 	{
 		const uint32_t total_pixels = get_total();
 
+#if 0
 		int total_dist = 0;
 		for (uint32_t i = 0; i < total_pixels; i++)
-			total_dist += iabs((int)m_parts[i] - (int)other.m_parts[i]);
+			total_dist += squarei((int)m_parts[i] - (int)other.m_parts[i]);
+
+		return total_dist;
+#else
+		int total_dist0 = 0, total_dist1 = 0, total_dist2 = 0, total_dist3 = 0;
+
+		uint32_t idx = 0; 
+		while ((idx + 4) <= total_pixels)
+		{
+			total_dist0 += squarei((int)m_parts[idx] - (int)other.m_parts[idx]);
+			total_dist1 += squarei((int)m_parts[idx + 1] - (int)other.m_parts[idx + 1]);
+			total_dist2 += squarei((int)m_parts[idx + 2] - (int)other.m_parts[idx + 2]);
+			total_dist3 += squarei((int)m_parts[idx + 3] - (int)other.m_parts[idx + 3]);
+
+			idx += 4;
+		}
+
+		while (idx < total_pixels)
+		{
+			total_dist0 += squarei((int)m_parts[idx] - (int)other.m_parts[idx]);
+			++idx;
+		}
+
+		int total_dist = total_dist0 + total_dist1 + total_dist2 + total_dist3;
+
+		return total_dist;
+#endif
+	}
+
+	int partition_pattern_vec::get_squared_distance_2subsets(const partition_pattern_vec& other) const
+	{
+		const uint32_t total_pixels = get_total();
+
+		int total_dist0 = 0, total_dist1 = 0, total_dist2 = 0, total_dist3 = 0;
+
+		uint32_t idx = 0;
+		while ((idx + 4) <= total_pixels)
+		{
+			total_dist0 += (m_parts[idx] ^ other.m_parts[idx]);
+			total_dist1 += (m_parts[idx + 1] ^ other.m_parts[idx + 1]);
+			total_dist2 += (m_parts[idx + 2] ^ other.m_parts[idx + 2]);
+			total_dist3 += (m_parts[idx + 3] ^ other.m_parts[idx + 3]);
+
+			idx += 4;
+		}
+
+		while (idx < total_pixels)
+		{
+			total_dist0 += squarei(m_parts[idx] ^ other.m_parts[idx]);
+			++idx;
+		}
+
+		int total_dist = total_dist0 + total_dist1 + total_dist2 + total_dist3;
+
+		return total_dist;
+	}
+
+	int partition_pattern_vec::get_squared_distance(const partition_pattern_vec& other, uint32_t num_subsets, uint32_t other_perm_index) const
+	{
+		assert((num_subsets >= 2) && (num_subsets <= 3));
+
+		if (num_subsets == 2)
+		{
+			assert(other_perm_index < 2);
+		}
+		else
+		{
+			assert(other_perm_index < NUM_PART3_MAPPINGS);
+		}
+
+		const uint32_t total_pixels = get_total();
+
+		int total_dist = 0;
+
+		for (uint32_t i = 0; i < total_pixels; i++)
+		{
+			int p = other.m_parts[i];
+
+			if (num_subsets == 2)
+				p ^= other_perm_index;
+			else
+				p = g_part3_mapping[other_perm_index][p];
+
+			total_dist += squarei((int)m_parts[i] - p);
+		}
 
 		return total_dist;
 	}
@@ -5566,7 +6090,177 @@ namespace astc_ldr
 		return std::pair(best_split_pat, best_split_dist);
 	}
 
-	void partitions_data::init(uint32_t num_partitions, uint32_t block_width, uint32_t block_height, bool init_vp_tree)
+	void partition_lsh_map::init(uint32_t num_subsets, uint32_t n, const partition_pattern_vec* pUnique_pats)
+	{
+		assert((num_subsets >= 2) && (num_subsets <= 3));
+		assert(n && pUnique_pats);
+
+		const uint32_t total_texels = pUnique_pats[0].get_width() * pUnique_pats[0].get_height();
+
+		m_num_subsets = num_subsets;
+		m_num_samples = (num_subsets == 2) ? 6 : 5;
+		//m_num_hash_tabs = (total_texels > 36) ? 12 : 8;
+		m_num_hash_tabs = 12;
+
+		const uint32_t hash_key_shift = (num_subsets == 2) ? 1 : 2;
+
+		const uint32_t hash_tab_size = 1 << (m_num_samples * hash_key_shift);
+
+		assert(m_num_samples <= cMaxSamples);
+		assert(m_num_hash_tabs <= cMaxHashTabs);
+
+		basisu::rand rnd;
+		rnd.seed(33155);
+
+		clear_obj(m_sample_indices);
+				
+		for (uint32_t h = 0; h < m_num_hash_tabs; h++)
+		{
+			for (uint32_t s = 0; s < m_num_samples; s++)
+			{
+				for (uint32_t t = 0; t < 4; t++)
+				{
+					const uint8_t rnd_index = (uint8_t)rnd.irand(0, total_texels - 1);
+					
+					m_sample_indices[h][s] = rnd_index;
+
+					uint32_t b;
+					for (b = 0; b < s; b++)
+						if (rnd_index == m_sample_indices[h][b])
+							break;
+					
+					if (b == s)
+						break;
+				}
+			}
+
+			m_hash_tabs[h].resize(hash_tab_size);
+		} // h
+
+		for (uint32_t unique_pat_index = 0; unique_pat_index < n; unique_pat_index++)
+		{
+			const partition_pattern_vec* pVec = &pUnique_pats[unique_pat_index];
+
+			const uint32_t max_perm_index = (num_subsets == 2) ? (uint32_t)partition_pattern_vec::cMaxPermute2Index : (uint32_t)partition_pattern_vec::cMaxPermute3Index;
+			
+			for (uint32_t perm_index = 0; perm_index <= max_perm_index; perm_index++)
+			{
+				const partition_pattern_vec pv((num_subsets == 2) ? pVec->get_permuted2(perm_index) : pVec->get_permuted3(perm_index));
+
+				for (uint32_t hash_tab_index = 0; hash_tab_index < m_num_hash_tabs; hash_tab_index++)
+				{
+					uint32_t hash_key = 0;
+
+					for (uint32_t sample_index = 0; sample_index < m_num_samples; sample_index++)
+					{
+						hash_key <<= hash_key_shift;
+						
+						const uint32_t texel_index = m_sample_indices[hash_tab_index][sample_index];
+						assert(texel_index < total_texels);
+
+						hash_key |= pv[texel_index];
+					} // i
+
+					m_hash_tabs[hash_tab_index][hash_key].push_back(unique_pat_index);
+
+				} // h
+
+			} // perm_index
+
+		} // unique_pat_index
+	}
+
+	static inline size_t unique_duplicates_only(uint32_t* pResults, size_t total_results)
+	{
+		if (total_results < 2)
+			return 0;
+
+		size_t i = 0, out = 0;
+		while (i < total_results)
+		{
+			size_t j = i + 1;
+			while ((j < total_results) && (pResults[j] == pResults[i]))
+				++j;
+
+			// j - i is the run length; keep this value only if it appeared 2+ times
+			if ((j - i) >= 2)
+				pResults[out++] = pResults[i];
+
+			i = j;
+		}
+		return out;
+	}
+
+	uint32_t partition_lsh_map::find(const partition_pattern_vec& desired_pat, uint32_t* pResults, uint32_t max_results, bool filter_flag) const
+	{
+		assert(pResults && max_results);
+
+		uint32_t total_results = 0;
+
+		const uint32_t hash_key_shift = (m_num_subsets == 2) ? 1 : 2;
+
+		for (uint32_t hash_tab_index = 0; hash_tab_index < m_num_hash_tabs; hash_tab_index++)
+		{
+			uint32_t hash_key = 0;
+
+			for (uint32_t sample_index = 0; sample_index < m_num_samples; sample_index++)
+			{
+				hash_key <<= hash_key_shift;
+
+				const uint32_t texel_index = m_sample_indices[hash_tab_index][sample_index];
+				
+				const uint32_t subset_index = desired_pat[texel_index];
+				assert(subset_index < m_num_subsets);
+
+				hash_key |= subset_index;
+			} // i
+
+			const auto& h_tab = m_hash_tabs[hash_tab_index][hash_key];
+			
+			uint32_t num_to_copy = h_tab.size_u32();
+			
+			uint32_t room_remaining = max_results - total_results;
+			if (!room_remaining)
+				break;
+
+			if (num_to_copy > room_remaining)
+				num_to_copy = room_remaining;
+
+			assert((total_results + num_to_copy) <= max_results);
+
+			// num_to_copy can be 0 for an empty hash bucket, in which case get_ptr()
+			// returns nullptr -- guard the copy so we don't pass null to memcpy
+			// (UB / UBSAN nonnull violation even with a 0 length).
+			if (num_to_copy)
+				memcpy(pResults + total_results, h_tab.get_ptr(), num_to_copy * sizeof(uint32_t));
+			total_results += num_to_copy;
+
+			if (total_results >= max_results)
+				break;
+						
+		} // h
+
+		if (!total_results)
+			return 0;
+
+		std::sort(pResults, pResults + total_results);
+		
+		size_t num_unique;
+		if (filter_flag)
+		{
+			num_unique = unique_duplicates_only(pResults, total_results);
+			assert((num_unique <= total_results) && (num_unique <= max_results));
+		}
+		else
+		{
+			num_unique = std::unique(pResults, pResults + total_results) - pResults;
+			assert((num_unique >= 1) && (num_unique <= total_results) && (num_unique <= max_results));
+		}
+				
+		return (uint32_t)num_unique;
+	}
+
+	void partitions_data::init(uint32_t num_partitions, uint32_t block_width, uint32_t block_height, bool init_vp_tree, bool init_lsh)
 	{
 		assert((num_partitions >= 2) && (num_partitions <= 4));
 
@@ -5659,7 +6353,14 @@ namespace astc_ldr
 		} // seed_index
 
 		if (init_vp_tree)
+		{
 			m_part_vp_tree.init(m_total_unique_patterns, m_partition_pats);
+		}
+
+		if (init_lsh)
+		{
+			m_part_lhs_map.init(num_partitions, m_total_unique_patterns, m_partition_pats);
+		}
 	}
 		
 } //  namespace astc_ldr

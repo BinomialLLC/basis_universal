@@ -17,6 +17,7 @@
 #include "basisu_pvrtc1_4.h"
 #include "basisu_bc7enc.h"
 #include "../transcoder/basisu_astc_hdr_core.h"
+#include "../transcoder/basisu_transcoder.h"
 
 #define TINYDDS_IMPLEMENTATION
 #include "3rdparty/tinydds.h"
@@ -25,6 +26,95 @@
 
 namespace basisu
 {
+	const char* get_dds_format_string(basist::dds_format fmt)
+	{
+		switch (fmt)
+		{
+		case basist::dds_format::cBC1:		return "BC1 (DXT1)";
+		case basist::dds_format::cBC2:		return "BC2 (DXT2/DXT3)";
+		case basist::dds_format::cBC3:		return "BC3 (DXT4/DXT5)";
+		case basist::dds_format::cBC4:		return "BC4 (ATI1/BC4U)";
+		case basist::dds_format::cBC5:		return "BC5 (ATI2/DXN)";
+		case basist::dds_format::cBC7:		return "BC7";
+		case basist::dds_format::cR5G6B5:	return "R5G6B5 (16bpp)";
+		case basist::dds_format::cA1R5G5B5:	return "A1R5G5B5 (16bpp)";
+		case basist::dds_format::cX1R5G5B5:	return "X1R5G5B5 (16bpp)";
+		case basist::dds_format::cA4R4G4B4:	return "A4R4G4B4 (16bpp)";
+		case basist::dds_format::cX4R4G4B4:	return "X4R4G4B4 (16bpp)";
+		case basist::dds_format::cR8G8B8:	return "R8G8B8 (24bpp, BGR in memory)";
+		case basist::dds_format::cB8G8R8:	return "B8G8R8 (24bpp, RGB in memory)";
+		case basist::dds_format::cA8R8G8B8:	return "A8R8G8B8 (32bpp, BGRA in memory)";
+		case basist::dds_format::cX8R8G8B8:	return "X8R8G8B8 (32bpp, BGRX in memory)";
+		case basist::dds_format::cA8B8G8R8:	return "A8B8G8R8 (32bpp, RGBA in memory)";
+		case basist::dds_format::cX8B8G8R8:	return "X8B8G8R8 (32bpp, RGBX in memory)";
+		case basist::dds_format::cR8:		return "R8 (8bpp)";
+		case basist::dds_format::cR8G8:		return "R8G8 (16bpp)";
+		case basist::dds_format::cA8:		return "A8 (8bpp)";
+		case basist::dds_format::cL8:		return "L8 (8bpp luminance)";
+		case basist::dds_format::cA8L8:		return "A8L8 (16bpp luminance+alpha)";
+		case basist::dds_format::cInvalid:
+		default:							return "Invalid";
+		}
+	}
+
+	const char* get_texture_format_name(texture_format fmt)
+	{
+		switch (fmt)
+		{
+		case texture_format::cInvalidTextureFormat: return "Invalid";
+		case texture_format::cETC1: return "ETC1";
+		case texture_format::cETC1S: return "ETC1S";
+		case texture_format::cETC2_RGB: return "ETC2_RGB";
+		case texture_format::cETC2_RGBA: return "ETC2_RGBA";
+		case texture_format::cETC2_ALPHA: return "ETC2_ALPHA";
+		case texture_format::cBC1: return "BC1";
+		case texture_format::cBC3: return "BC3";
+		case texture_format::cBC4: return "BC4";
+		case texture_format::cBC5: return "BC5";
+		case texture_format::cBC6HSigned: return "BC6H_Signed";
+		case texture_format::cBC6HUnsigned: return "BC6H_Unsigned";
+		case texture_format::cBC7: return "BC7";
+		case texture_format::cASTC_LDR_4x4: return "ASTC_LDR_4x4";
+		case texture_format::cASTC_HDR_4x4: return "ASTC_HDR_4x4";
+		case texture_format::cASTC_HDR_6x6: return "ASTC_HDR_6x6";
+		case texture_format::cPVRTC1_4_RGB: return "PVRTC1_4_RGB";
+		case texture_format::cPVRTC1_4_RGBA: return "PVRTC1_4_RGBA";
+		case texture_format::cATC_RGB: return "ATC_RGB";
+		case texture_format::cATC_RGBA_INTERPOLATED_ALPHA: return "ATC_RGBA_INTERPOLATED_ALPHA";
+		case texture_format::cFXT1_RGB: return "FXT1_RGB";
+		case texture_format::cPVRTC2_4_RGBA: return "PVRTC2_4_RGBA";
+		case texture_format::cETC2_R11_EAC: return "ETC2_R11_EAC";
+		case texture_format::cETC2_RG11_EAC: return "ETC2_RG11_EAC";
+		case texture_format::cUASTC4x4: return "UASTC4x4";
+		case texture_format::cUASTC_HDR_4x4: return "UASTC_HDR_4x4";
+		case texture_format::cBC1_NV: return "BC1_NV";
+		case texture_format::cBC1_AMD: return "BC1_AMD";
+		case texture_format::cRGBA32: return "RGBA32";
+		case texture_format::cRGB565: return "RGB565";
+		case texture_format::cBGR565: return "BGR565";
+		case texture_format::cRGBA4444: return "RGBA4444";
+		case texture_format::cABGR4444: return "ABGR4444";
+		case texture_format::cRGBA_HALF: return "RGBA_HALF";
+		case texture_format::cRGB_HALF: return "RGB_HALF";
+		case texture_format::cRGB_9E5: return "RGB_9E5";
+		case texture_format::cASTC_LDR_5x4: return "ASTC_LDR_5x4";
+		case texture_format::cASTC_LDR_5x5: return "ASTC_LDR_5x5";
+		case texture_format::cASTC_LDR_6x5: return "ASTC_LDR_6x5";
+		case texture_format::cASTC_LDR_6x6: return "ASTC_LDR_6x6";
+		case texture_format::cASTC_LDR_8x5: return "ASTC_LDR_8x5";
+		case texture_format::cASTC_LDR_8x6: return "ASTC_LDR_8x6";
+		case texture_format::cASTC_LDR_10x5: return "ASTC_LDR_10x5";
+		case texture_format::cASTC_LDR_10x6: return "ASTC_LDR_10x6";
+		case texture_format::cASTC_LDR_8x8: return "ASTC_LDR_8x8";
+		case texture_format::cASTC_LDR_10x8: return "ASTC_LDR_10x8";
+		case texture_format::cASTC_LDR_10x10: return "ASTC_LDR_10x10";
+		case texture_format::cASTC_LDR_12x10: return "ASTC_LDR_12x10";
+		case texture_format::cASTC_LDR_12x12: return "ASTC_LDR_12x12";
+		default: break;
+		}
+		return "?";
+	}
+
 	//------------------------------------------------------------------------------------------------
 	// ETC2 EAC
 
@@ -64,6 +154,8 @@ namespace basisu
 
 	//------------------------------------------------------------------------------------------------
 	// BC1
+
+#if 0
 	struct bc1_block
 	{
 		enum { cTotalEndpointBytes = 2, cTotalSelectorBytes = 4 };
@@ -88,69 +180,13 @@ namespace basisu
 
 		inline uint32_t get_selector(uint32_t x, uint32_t y) const { assert((x < 4U) && (y < 4U)); return (m_selectors[y] >> (x * 2)) & 3; }
 	};
-
-	// Returns true if the block uses 3 color punchthrough alpha mode.
-	bool unpack_bc1(const void* pBlock_bits, color_rgba* pPixels, bool set_alpha)
-	{
-		static_assert(sizeof(bc1_block) == 8, "sizeof(bc1_block) == 8");
-
-		const bc1_block* pBlock = static_cast<const bc1_block*>(pBlock_bits);
-
-		const uint32_t l = pBlock->get_low_color();
-		const uint32_t h = pBlock->get_high_color();
-
-		color_rgba c[4];
-
-		uint32_t r0, g0, b0, r1, g1, b1;
-		bc1_block::unpack_color(l, r0, g0, b0);
-		bc1_block::unpack_color(h, r1, g1, b1);
-
-		c[0].set_noclamp_rgba(r0, g0, b0, 255);
-		c[1].set_noclamp_rgba(r1, g1, b1, 255);
-
-		bool used_punchthrough = false;
-
-		if (l > h)
-		{
-			c[2].set_noclamp_rgba((r0 * 2 + r1) / 3, (g0 * 2 + g1) / 3, (b0 * 2 + b1) / 3, 255);
-			c[3].set_noclamp_rgba((r1 * 2 + r0) / 3, (g1 * 2 + g0) / 3, (b1 * 2 + b0) / 3, 255);
-		}
-		else
-		{
-			c[2].set_noclamp_rgba((r0 + r1) / 2, (g0 + g1) / 2, (b0 + b1) / 2, 255);
-			c[3].set_noclamp_rgba(0, 0, 0, 0);
-			used_punchthrough = true;
-		}
-
-		if (set_alpha)
-		{
-			for (uint32_t y = 0; y < 4; y++, pPixels += 4)
-			{
-				pPixels[0] = c[pBlock->get_selector(0, y)];
-				pPixels[1] = c[pBlock->get_selector(1, y)];
-				pPixels[2] = c[pBlock->get_selector(2, y)];
-				pPixels[3] = c[pBlock->get_selector(3, y)];
-			}
-		}
-		else
-		{
-			for (uint32_t y = 0; y < 4; y++, pPixels += 4)
-			{
-				pPixels[0].set_rgb(c[pBlock->get_selector(0, y)]);
-				pPixels[1].set_rgb(c[pBlock->get_selector(1, y)]);
-				pPixels[2].set_rgb(c[pBlock->get_selector(2, y)]);
-				pPixels[3].set_rgb(c[pBlock->get_selector(3, y)]);
-			}
-		}
-
-		return used_punchthrough;
-	}
+#endif
 
 	bool unpack_bc1_nv(const void* pBlock_bits, color_rgba* pPixels, bool set_alpha)
 	{
-		static_assert(sizeof(bc1_block) == 8, "sizeof(bc1_block) == 8");
+		static_assert(sizeof(basist::bc1_block) == 8, "sizeof(bc1_block) == 8");
 
-		const bc1_block* pBlock = static_cast<const bc1_block*>(pBlock_bits);
+		const basist::bc1_block* pBlock = static_cast<const basist::bc1_block*>(pBlock_bits);
 
 		const uint32_t l = pBlock->get_low_color();
 		const uint32_t h = pBlock->get_high_color();
@@ -230,7 +266,7 @@ namespace basisu
 
 	bool unpack_bc1_amd(const void* pBlock_bits, color_rgba* pPixels, bool set_alpha)
 	{
-		const bc1_block* pBlock = static_cast<const bc1_block*>(pBlock_bits);
+		const basist::bc1_block* pBlock = static_cast<const basist::bc1_block*>(pBlock_bits);
 
 		const uint32_t l = pBlock->get_low_color();
 		const uint32_t h = pBlock->get_high_color();
@@ -238,8 +274,8 @@ namespace basisu
 		color_rgba c[4];
 
 		uint32_t r0, g0, b0, r1, g1, b1;
-		bc1_block::unpack_color(l, r0, g0, b0);
-		bc1_block::unpack_color(h, r1, g1, b1);
+		basist::bc1_block::unpack_color(l, r0, g0, b0);
+		basist::bc1_block::unpack_color(h, r1, g1, b1);
 
 		c[0].set_noclamp_rgba(r0, g0, b0, 255);
 		c[1].set_noclamp_rgba(r1, g1, b1, 255);
@@ -280,108 +316,6 @@ namespace basisu
 		}
 
 		return used_punchthrough;
-	}
-
-	//------------------------------------------------------------------------------------------------
-	// BC3-5
-
-	struct bc4_block
-	{
-		enum { cBC4SelectorBits = 3, cTotalSelectorBytes = 6, cMaxSelectorValues = 8 };
-		uint8_t m_endpoints[2];
-
-		uint8_t m_selectors[cTotalSelectorBytes];
-
-		inline uint32_t get_low_alpha() const { return m_endpoints[0]; }
-		inline uint32_t get_high_alpha() const { return m_endpoints[1]; }
-		inline bool is_alpha6_block() const { return get_low_alpha() <= get_high_alpha(); }
-
-		inline uint64_t get_selector_bits() const
-		{
-			return ((uint64_t)((uint32_t)m_selectors[0] | ((uint32_t)m_selectors[1] << 8U) | ((uint32_t)m_selectors[2] << 16U) | ((uint32_t)m_selectors[3] << 24U))) |
-				(((uint64_t)m_selectors[4]) << 32U) |
-				(((uint64_t)m_selectors[5]) << 40U);
-		}
-
-		inline uint32_t get_selector(uint32_t x, uint32_t y, uint64_t selector_bits) const
-		{
-			assert((x < 4U) && (y < 4U));
-			return (selector_bits >> (((y * 4) + x) * cBC4SelectorBits)) & (cMaxSelectorValues - 1);
-		}
-
-		static inline uint32_t get_block_values6(uint8_t* pDst, uint32_t l, uint32_t h)
-		{
-			pDst[0] = static_cast<uint8_t>(l);
-			pDst[1] = static_cast<uint8_t>(h);
-			pDst[2] = static_cast<uint8_t>((l * 4 + h) / 5);
-			pDst[3] = static_cast<uint8_t>((l * 3 + h * 2) / 5);
-			pDst[4] = static_cast<uint8_t>((l * 2 + h * 3) / 5);
-			pDst[5] = static_cast<uint8_t>((l + h * 4) / 5);
-			pDst[6] = 0;
-			pDst[7] = 255;
-			return 6;
-		}
-
-		static inline uint32_t get_block_values8(uint8_t* pDst, uint32_t l, uint32_t h)
-		{
-			pDst[0] = static_cast<uint8_t>(l);
-			pDst[1] = static_cast<uint8_t>(h);
-			pDst[2] = static_cast<uint8_t>((l * 6 + h) / 7);
-			pDst[3] = static_cast<uint8_t>((l * 5 + h * 2) / 7);
-			pDst[4] = static_cast<uint8_t>((l * 4 + h * 3) / 7);
-			pDst[5] = static_cast<uint8_t>((l * 3 + h * 4) / 7);
-			pDst[6] = static_cast<uint8_t>((l * 2 + h * 5) / 7);
-			pDst[7] = static_cast<uint8_t>((l + h * 6) / 7);
-			return 8;
-		}
-
-		static inline uint32_t get_block_values(uint8_t* pDst, uint32_t l, uint32_t h)
-		{
-			if (l > h)
-				return get_block_values8(pDst, l, h);
-			else
-				return get_block_values6(pDst, l, h);
-		}
-	};
-
-	void unpack_bc4(const void* pBlock_bits, uint8_t* pPixels, uint32_t stride)
-	{
-		static_assert(sizeof(bc4_block) == 8, "sizeof(bc4_block) == 8");
-
-		const bc4_block* pBlock = static_cast<const bc4_block*>(pBlock_bits);
-
-		uint8_t sel_values[8];
-		bc4_block::get_block_values(sel_values, pBlock->get_low_alpha(), pBlock->get_high_alpha());
-
-		const uint64_t selector_bits = pBlock->get_selector_bits();
-
-		for (uint32_t y = 0; y < 4; y++, pPixels += (stride * 4U))
-		{
-			pPixels[0] = sel_values[pBlock->get_selector(0, y, selector_bits)];
-			pPixels[stride * 1] = sel_values[pBlock->get_selector(1, y, selector_bits)];
-			pPixels[stride * 2] = sel_values[pBlock->get_selector(2, y, selector_bits)];
-			pPixels[stride * 3] = sel_values[pBlock->get_selector(3, y, selector_bits)];
-		}
-	}
-
-	// Returns false if the block uses 3-color punchthrough alpha mode, which isn't supported on some GPU's for BC3.
-	bool unpack_bc3(const void* pBlock_bits, color_rgba* pPixels)
-	{
-		bool success = true;
-
-		if (unpack_bc1((const uint8_t*)pBlock_bits + sizeof(bc4_block), pPixels, true))
-			success = false;
-
-		unpack_bc4(pBlock_bits, &pPixels[0].a, sizeof(color_rgba));
-
-		return success;
-	}
-
-	// writes RG
-	void unpack_bc5(const void* pBlock_bits, color_rgba* pPixels)
-	{
-		unpack_bc4(pBlock_bits, &pPixels[0].r, sizeof(color_rgba));
-		unpack_bc4((const uint8_t*)pBlock_bits + sizeof(bc4_block), &pPixels[0].g, sizeof(color_rgba));
 	}
 
 	//------------------------------------------------------------------------------------------------
@@ -1053,7 +987,7 @@ namespace basisu
 		{
 		case texture_format::cBC1:
 		{
-			unpack_bc1(pBlock, pPixels, true);
+			basist::bcu::unpack_bc1(pBlock, reinterpret_cast<basist::color_rgba*>(pPixels), true);
 			break;
 		}
 		case texture_format::cBC1_NV:
@@ -1068,17 +1002,19 @@ namespace basisu
 		}
 		case texture_format::cBC3:
 		{
-			return unpack_bc3(pBlock, pPixels);
+			// unpack_bc3 is void (always succeeds); fall through to the function's success return.
+			basist::bcu::unpack_bc3(pBlock, reinterpret_cast<basist::color_rgba*>(pPixels));
+			break;
 		}
 		case texture_format::cBC4:
 		{
 			// Unpack to R
-			unpack_bc4(pBlock, &pPixels[0].r, sizeof(color_rgba));
+			basist::bcu::unpack_bc4(pBlock, &pPixels[0].r, sizeof(color_rgba));
 			break;
 		}
 		case texture_format::cBC5:
 		{
-			unpack_bc5(pBlock, pPixels);
+			basist::bcu::unpack_bc5(pBlock, reinterpret_cast<basist::color_rgba*>(pPixels));
 			break;
 		}
 		case texture_format::cBC7:
@@ -1152,7 +1088,7 @@ namespace basisu
 		case texture_format::cATC_RGBA_INTERPOLATED_ALPHA:
 		{
 			unpack_atc(static_cast<const uint8_t*>(pBlock) + 8, pPixels);
-			unpack_bc4(pBlock, &pPixels[0].a, sizeof(color_rgba));
+			basist::bcu::unpack_bc4(pBlock, &pPixels[0].a, sizeof(color_rgba));
 			break;
 		}
 		case texture_format::cFXT1_RGB:
@@ -1304,7 +1240,10 @@ namespace basisu
 		}
 
 		assert((m_block_width <= cMaxBlockSize) && (m_block_height <= cMaxBlockSize));
+				
 		color_rgba pixels[cMaxBlockSize * cMaxBlockSize];
+		
+		// Notice here we default all texels to (0,0,0,255) - some block unpackers like BC4/5 only write certain channels.
 		for (uint32_t i = 0; i < cMaxBlockSize * cMaxBlockSize; i++)
 			pixels[i] = g_black_color;
 
@@ -1388,6 +1327,16 @@ namespace basisu
 		KTX_COMPRESSED_SRGB_ALPHA_BPTC_UNORM = 0x8E8D,
 		KTX_COMPRESSED_RGB_BPTC_SIGNED_FLOAT = 0x8E8E,
 		KTX_COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT = 0x8E8F,
+
+		// sRGB GL enums, emitted when exporting an sRGB source (EXT_texture_sRGB / ETC2 / BPTC).
+		// BC7's sRGB enum is KTX_COMPRESSED_SRGB_ALPHA_BPTC_UNORM = 0x8E8D, already defined above.
+		KTX_COMPRESSED_SRGB_S3TC_DXT1_EXT = 0x8C4C,        // BC1 RGB, sRGB
+		KTX_COMPRESSED_SRGB_ALPHA_S3TC_DXT5_EXT = 0x8C4F,  // BC3, sRGB
+		KTX_COMPRESSED_SRGB8_ETC2 = 0x9275,                // ETC2 RGB, sRGB
+		KTX_COMPRESSED_SRGB8_ALPHA8_ETC2_EAC = 0x9279,     // ETC2 RGBA, sRGB
+		KTX_COMPRESSED_SRGB_PVRTC_4BPPV1_EXT = 0x8A55,        // PVRTC1 4bpp RGB, sRGB (EXT_pvrtc_sRGB)
+		KTX_COMPRESSED_SRGB_ALPHA_PVRTC_4BPPV1_EXT = 0x8A57,  // PVRTC1 4bpp RGBA, sRGB (EXT_pvrtc_sRGB)
+
 		KTX_COMPRESSED_RGB_PVRTC_4BPPV1_IMG = 0x8C00,
 		KTX_COMPRESSED_RGBA_PVRTC_4BPPV1_IMG = 0x8C02,
 		
@@ -1535,12 +1484,12 @@ namespace basisu
 		case texture_format::cBC1_NV:
 		case texture_format::cBC1_AMD:
 		{
-			internal_fmt = KTX_COMPRESSED_RGB_S3TC_DXT1_EXT;
+			internal_fmt = !astc_srgb_flag ? KTX_COMPRESSED_RGB_S3TC_DXT1_EXT : KTX_COMPRESSED_SRGB_S3TC_DXT1_EXT;
 			break;
 		}
 		case texture_format::cBC3:
 		{
-			internal_fmt = KTX_COMPRESSED_RGBA_S3TC_DXT5_EXT;
+			internal_fmt = !astc_srgb_flag ? KTX_COMPRESSED_RGBA_S3TC_DXT5_EXT : KTX_COMPRESSED_SRGB_ALPHA_S3TC_DXT5_EXT;
 			base_internal_fmt = KTX_RGBA;
 			break;
 		}
@@ -1559,17 +1508,19 @@ namespace basisu
 		case texture_format::cETC1:
 		case texture_format::cETC1S:
 		{
+			// ETC1 has no sRGB GL enum; it is always written as linear ETC1, never
+			// relabeled as ETC2.
 			internal_fmt = KTX_ETC1_RGB8_OES;
 			break;
 		}
 		case texture_format::cETC2_RGB:
 		{
-			internal_fmt = KTX_COMPRESSED_RGB8_ETC2;
+			internal_fmt = !astc_srgb_flag ? KTX_COMPRESSED_RGB8_ETC2 : KTX_COMPRESSED_SRGB8_ETC2;
 			break;
 		}
 		case texture_format::cETC2_RGBA:
 		{
-			internal_fmt = KTX_COMPRESSED_RGBA8_ETC2_EAC;
+			internal_fmt = !astc_srgb_flag ? KTX_COMPRESSED_RGBA8_ETC2_EAC : KTX_COMPRESSED_SRGB8_ALPHA8_ETC2_EAC;
 			base_internal_fmt = KTX_RGBA;
 			break;
 		}
@@ -1587,18 +1538,18 @@ namespace basisu
 		}
 		case texture_format::cBC7:
 		{
-			internal_fmt = KTX_COMPRESSED_RGBA_BPTC_UNORM;
+			internal_fmt = !astc_srgb_flag ? KTX_COMPRESSED_RGBA_BPTC_UNORM : KTX_COMPRESSED_SRGB_ALPHA_BPTC_UNORM;
 			base_internal_fmt = KTX_RGBA;
 			break;
 		}
 		case texture_format::cPVRTC1_4_RGB:
 		{
-			internal_fmt = KTX_COMPRESSED_RGB_PVRTC_4BPPV1_IMG;
+			internal_fmt = !astc_srgb_flag ? KTX_COMPRESSED_RGB_PVRTC_4BPPV1_IMG : KTX_COMPRESSED_SRGB_PVRTC_4BPPV1_EXT;
 			break;
 		}
 		case texture_format::cPVRTC1_4_RGBA:
 		{
-			internal_fmt = KTX_COMPRESSED_RGBA_PVRTC_4BPPV1_IMG;
+			internal_fmt = !astc_srgb_flag ? KTX_COMPRESSED_RGBA_PVRTC_4BPPV1_IMG : KTX_COMPRESSED_SRGB_ALPHA_PVRTC_4BPPV1_EXT;
 			base_internal_fmt = KTX_RGBA;
 			break;
 		}
@@ -2457,6 +2408,681 @@ namespace basisu
 
 		return write_vec_to_file(pFilename, file_data);
 	}
-		
+
+	bool write_uncompressed_rgba32_dds(uint8_vec& dds_data, const basisu::vector<image_vec>& images, bool cubemap_flag, bool use_srgb_format)
+	{
+		dds_data.resize(0);
+
+		if (!images.size())
+		{
+			assert(0);
+			return false;
+		}
+
+		// Determine the number of array slices (cubemap arrays pack 6 faces per slice).
+		uint32_t slices = 1;
+		if (cubemap_flag)
+		{
+			if ((images.size() % 6) != 0)
+			{
+				fprintf(stderr, "write_uncompressed_rgba32_dds: cubemap face count (%u) must be a multiple of 6\n", images.size_u32());
+				return false;
+			}
+			slices = images.size_u32() / 6;
+		}
+		else
+		{
+			slices = images.size_u32();
+		}
+
+		// Validate consistent dimensions and a well-formed mip chain across all slices.
+		uint32_t width = 0, height = 0, total_levels = 0;
+		for (uint32_t slice_index = 0; slice_index < images.size(); slice_index++)
+		{
+			const image_vec& levels = images[slice_index];
+
+			if (!levels.size())
+			{
+				fprintf(stderr, "write_uncompressed_rgba32_dds: slice %u has an empty mip chain\n", slice_index);
+				return false;
+			}
+
+			if (!slice_index)
+			{
+				width = levels[0].get_width();
+				height = levels[0].get_height();
+				total_levels = levels.size_u32();
+
+				if (!width || !height)
+				{
+					fprintf(stderr, "write_uncompressed_rgba32_dds: zero-sized base image\n");
+					return false;
+				}
+			}
+			else if ((width != levels[0].get_width()) || (height != levels[0].get_height()) || (total_levels != levels.size()))
+			{
+				fprintf(stderr, "write_uncompressed_rgba32_dds: all slices must share the same dimensions and mip count\n");
+				return false;
+			}
+
+			for (uint32_t level_index = 0; level_index < levels.size(); level_index++)
+			{
+				const uint32_t expected_w = maximum<uint32_t>(1, width >> level_index);
+				const uint32_t expected_h = maximum<uint32_t>(1, height >> level_index);
+				if ((levels[level_index].get_width() != expected_w) || (levels[level_index].get_height() != expected_h))
+				{
+					fprintf(stderr, "write_uncompressed_rgba32_dds: malformed mip chain at slice %u, level %u\n", slice_index, level_index);
+					return false;
+				}
+			}
+		}
+
+		if ((!total_levels) || (total_levels >= 32))
+		{
+			fprintf(stderr, "write_uncompressed_rgba32_dds: invalid mip level count (%u)\n", total_levels);
+			return false;
+		}
+
+		// Concatenate every (slice, level) image into a single contiguous, tightly
+		// packed buffer in face-then-mip order, and hand it to tinydds as "level 0".
+		// This mirrors the workaround in write_dds_file(): tinydds.h's writer doesn't
+		// lay out the per-level array/cubemap data correctly when given separate mip
+		// pointers, but the resulting on-disk DDS byte order is identical to this.
+		uint8_vec mipmaps[32];
+		for (uint32_t slice_index = 0; slice_index < images.size(); slice_index++)
+		{
+			const image_vec& levels = images[slice_index];
+
+			for (uint32_t level_index = 0; level_index < levels.size(); level_index++)
+			{
+				const image& img = levels[level_index];
+				const uint32_t w = img.get_width(), h = img.get_height();
+
+				// Copy row by row to honor the image's pitch, emitting tight w*4-byte rows.
+				for (uint32_t y = 0; y < h; y++)
+					append_vector(mipmaps[0], (const uint8_t*)(img.get_ptr() + (size_t)y * img.get_pitch()), w * sizeof(color_rgba));
+			}
+		}
+
+		// Write the DDS using tinydds (same invocation pattern as write_dds_file()).
+		TinyDDS_WriteCallbacks cbs;
+		cbs.error = [](void* user, char const* msg) { BASISU_NOTE_UNUSED(user); fprintf(stderr, "tinydds: %s\n", msg); };
+		cbs.alloc = [](void* user, size_t size) -> void* { BASISU_NOTE_UNUSED(user); return malloc(size); };
+		cbs.free = [](void* user, void* memory) { BASISU_NOTE_UNUSED(user); free(memory); };
+		cbs.write = [](void* user, void const* buffer, size_t byteCount) { BASISU_NOTE_UNUSED(user); uint8_vec* pVec = (uint8_vec*)user; append_vector(*pVec, (const uint8_t*)buffer, byteCount); };
+
+		uint32_t mipmap_sizes[32];
+		const void* mipmap_ptrs[32];
+
+		clear_obj(mipmap_sizes);
+		clear_obj(mipmap_ptrs);
+
+		for (uint32_t i = 0; i < total_levels; i++)
+		{
+			mipmap_sizes[i] = mipmaps[i].size_in_bytes_u32();
+			mipmap_ptrs[i] = mipmaps[i].get_ptr();
+		}
+
+		const uint32_t tinydds_fmt = use_srgb_format ? TDDS_R8G8B8A8_SRGB : TDDS_R8G8B8A8_UNORM;
+
+		fmt_debug_printf("write_uncompressed_rgba32_dds: {}x{}, slices: {}, mipLevels: {}, cubemap_flag: {}, use_srgb_format: {}\n",
+			width, height, slices, total_levels, cubemap_flag, use_srgb_format);
+
+		bool status = TinyDDS_WriteImage(&cbs,
+			&dds_data,
+			width,
+			height,
+			1,
+			slices,
+			total_levels,
+			(TinyDDS_Format)tinydds_fmt,
+			cubemap_flag,
+			true,
+			mipmap_sizes,
+			mipmap_ptrs);
+
+		if (!status)
+		{
+			fprintf(stderr, "write_uncompressed_rgba32_dds: TinyDDS_WriteImage failed\n");
+			dds_data.resize(0);
+			return false;
+		}
+
+		return true;
+	}
+
+	// Shared by transcode_ktx2_to_dds()/transcode_ktx2_to_ktx(): transcodes every
+	// (array layer, cubemap face, mip level) of an already-start_transcoding()'d
+	// ktx2_transcoder to the block GPU format (fmt, with its basisu::texture_format
+	// equivalent bfmt) and builds the [slice][mip] gpu_image array the DDS/KTX
+	// writers consume. Slices are ordered layer-major then cubemap face. Returns
+	// false on any transcode failure.
+	static bool transcode_ktx2_to_block_image_slices(basist::ktx2_transcoder& transcoder, basist::transcoder_texture_format fmt, texture_format bfmt, basisu::vector<gpu_image_vec>& slices, uint32_t decode_flags)
+	{
+		using namespace basist;
+
+		const uint32_t levels = transcoder.get_levels();
+		const uint32_t faces = transcoder.get_faces();
+		const uint32_t layers = maximum<uint32_t>(1, transcoder.get_layers());
+
+		slices.resize(0);
+		slices.reserve(layers * faces);
+
+		for (uint32_t layer = 0; layer < layers; layer++)
+		{
+			for (uint32_t face = 0; face < faces; face++)
+			{
+				gpu_image_vec mips;
+				mips.resize(levels);
+
+				for (uint32_t level = 0; level < levels; level++)
+				{
+					ktx2_image_level_info li;
+					if (!transcoder.get_image_level_info(li, level, layer, face))
+					{
+						error_printf("transcode_ktx2_to_block_image_slices: get_image_level_info(L%u, layer %u, face %u) failed\n", level, layer, face);
+						return false;
+					}
+
+					gpu_image& gi = mips[level];
+					gi.init(bfmt, li.m_orig_width, li.m_orig_height);
+
+					if (!transcoder.transcode_image_level(level, layer, face, gi.get_ptr(), gi.get_total_blocks(), fmt, decode_flags))
+					{
+						error_printf("transcode_ktx2_to_block_image_slices: transcode_image_level(L%u, layer %u, face %u) failed\n", level, layer, face);
+						return false;
+					}
+				}
+
+				slices.push_back(mips);
+			}
+		}
+
+		return true;
+	}
+
+	bool transcode_ktx2_to_dds(basist::ktx2_transcoder& transcoder, basist::transcoder_texture_format fmt, uint8_vec& dds_data, int srgb_mode, uint32_t decode_flags)
+	{
+		using namespace basist;
+
+		dds_data.resize(0);
+
+		// Validate the requested output format: BC1/BC3/BC4/BC5/BC6H/BC7 or RGBA32 only.
+		const bool is_rgba32 = (fmt == transcoder_texture_format::cTFRGBA32);
+		const texture_format bfmt = basis_get_basisu_texture_format(fmt);
+		if ((!is_rgba32) && (!does_dds_support_format(bfmt)))
+		{
+			error_printf("transcode_ktx2_to_dds: output format \"%s\" can't be written to DDS (must be BC1/BC3/BC4/BC5/BC6H/BC7 or RGBA32)\n", basis_get_format_name(fmt));
+			return false;
+		}
+
+		if (!basis_is_format_supported(fmt, transcoder.get_basis_tex_format()))
+		{
+			error_printf("transcode_ktx2_to_dds: output format \"%s\" isn't a supported transcode target for this input texture\n", basis_get_format_name(fmt));
+			return false;
+		}
+
+		if (!transcoder.start_transcoding())
+		{
+			error_printf("transcode_ktx2_to_dds: start_transcoding() failed\n");
+			return false;
+		}
+
+		const uint32_t levels = transcoder.get_levels();
+		const uint32_t faces = transcoder.get_faces();
+		const uint32_t layers = maximum<uint32_t>(1, transcoder.get_layers());
+		const bool cubemap_flag = (faces == 6);
+		// srgb_mode: -1 = auto (use the KTX2's transfer function), 0 = force linear, 1 = force sRGB.
+		const bool srgb = (srgb_mode < 0) ? transcoder.is_srgb() : (srgb_mode != 0);
+
+		if ((!levels) || (!faces))
+		{
+			error_printf("transcode_ktx2_to_dds: degenerate texture (levels=%u, faces=%u)\n", levels, faces);
+			return false;
+		}
+
+		// Build the slice list ordered layer-major then face -- the layout
+		// write_dds_file() / write_uncompressed_rgba32_dds() expect for 2D, 2D arrays,
+		// cubemaps, and cubemap arrays (with or without mips).
+		if (is_rgba32)
+		{
+			basisu::vector<image_vec> slices;
+			slices.reserve(layers * faces);
+
+			for (uint32_t layer = 0; layer < layers; layer++)
+			{
+				for (uint32_t face = 0; face < faces; face++)
+				{
+					image_vec mips;
+					mips.resize(levels);
+
+					for (uint32_t level = 0; level < levels; level++)
+					{
+						ktx2_image_level_info li;
+						if (!transcoder.get_image_level_info(li, level, layer, face))
+						{
+							error_printf("transcode_ktx2_to_dds: get_image_level_info(L%u, layer %u, face %u) failed\n", level, layer, face);
+							return false;
+						}
+
+						image& img = mips[level];
+						img.resize(li.m_orig_width, li.m_orig_height);
+
+						// Pass the image's pitch explicitly so the result is correct regardless of row padding.
+						if (!transcoder.transcode_image_level(level, layer, face, img.get_ptr(), img.get_pitch() * img.get_height(), fmt, decode_flags, img.get_pitch(), img.get_height()))
+						{
+							error_printf("transcode_ktx2_to_dds: transcode_image_level(L%u, layer %u, face %u) to RGBA32 failed\n", level, layer, face);
+							return false;
+						}
+					}
+
+					slices.push_back(mips);
+				}
+			}
+
+			if (!write_uncompressed_rgba32_dds(dds_data, slices, cubemap_flag, srgb))
+			{
+				error_printf("transcode_ktx2_to_dds: write_uncompressed_rgba32_dds() failed\n");
+				return false;
+			}
+		}
+		else
+		{
+			basisu::vector<gpu_image_vec> slices;
+			if (!transcode_ktx2_to_block_image_slices(transcoder, fmt, bfmt, slices, decode_flags))
+				return false;
+
+			if (!write_dds_file(dds_data, slices, cubemap_flag, srgb))
+			{
+				error_printf("transcode_ktx2_to_dds: write_dds_file() failed\n");
+				return false;
+			}
+		}
+
+		return true;
+	}
+
+	bool does_ktx_support_format(texture_format fmt)
+	{
+		switch (fmt)
+		{
+		case texture_format::cBC1:
+		case texture_format::cBC1_NV:
+		case texture_format::cBC1_AMD:
+		case texture_format::cBC3:
+		case texture_format::cBC4:
+		case texture_format::cBC5:
+		case texture_format::cBC6HSigned:
+		case texture_format::cBC6HUnsigned:
+		case texture_format::cBC7:
+		case texture_format::cETC1:
+		case texture_format::cETC1S:
+		case texture_format::cETC2_RGB:
+		case texture_format::cETC2_RGBA:
+		case texture_format::cETC2_R11_EAC:
+		case texture_format::cETC2_RG11_EAC:
+		case texture_format::cPVRTC1_4_RGB:
+		case texture_format::cPVRTC1_4_RGBA:
+		case texture_format::cPVRTC2_4_RGBA:
+		case texture_format::cUASTC4x4:
+		case texture_format::cASTC_LDR_4x4:
+		case texture_format::cASTC_LDR_5x4:
+		case texture_format::cASTC_LDR_5x5:
+		case texture_format::cASTC_LDR_6x5:
+		case texture_format::cASTC_LDR_6x6:
+		case texture_format::cASTC_LDR_8x5:
+		case texture_format::cASTC_LDR_8x6:
+		case texture_format::cASTC_LDR_10x5:
+		case texture_format::cASTC_LDR_10x6:
+		case texture_format::cASTC_LDR_8x8:
+		case texture_format::cASTC_LDR_10x8:
+		case texture_format::cASTC_LDR_10x10:
+		case texture_format::cASTC_LDR_12x10:
+		case texture_format::cASTC_LDR_12x12:
+		case texture_format::cASTC_HDR_4x4:
+		case texture_format::cUASTC_HDR_4x4:
+		case texture_format::cASTC_HDR_6x6:
+			return true;
+		default:
+			break;
+		}
+		return false;
+	}
+
+	bool transcode_ktx2_to_ktx(basist::ktx2_transcoder& transcoder, basist::transcoder_texture_format fmt, uint8_vec& ktx_data, int srgb_mode, uint32_t decode_flags)
+	{
+		using namespace basist;
+
+		ktx_data.resize(0);
+
+		// Validate: must be a compressed format the KTX1 writer supports. Uncompressed
+		// (RGBA32/half/float/9e5) is intentionally not supported here yet.
+		const texture_format bfmt = basis_get_basisu_texture_format(fmt);
+		if (!does_ktx_support_format(bfmt))
+		{
+			error_printf("transcode_ktx2_to_ktx: output format \"%s\" can't be written to a compressed KTX file\n", basis_get_format_name(fmt));
+			return false;
+		}
+
+		if (!basis_is_format_supported(fmt, transcoder.get_basis_tex_format()))
+		{
+			error_printf("transcode_ktx2_to_ktx: output format \"%s\" isn't a supported transcode target for this input texture\n", basis_get_format_name(fmt));
+			return false;
+		}
+
+		if (!transcoder.start_transcoding())
+		{
+			error_printf("transcode_ktx2_to_ktx: start_transcoding() failed\n");
+			return false;
+		}
+
+		const uint32_t levels = transcoder.get_levels();
+		const uint32_t faces = transcoder.get_faces();
+		const bool cubemap_flag = (faces == 6);
+		// srgb_mode: -1 = auto (KTX2's transfer function), 0 = force linear, 1 = force sRGB.
+		// Selects the sRGB GL enum variants in create_ktx_texture_file() for the formats
+		// that have them (BC1/BC3/BC7, ETC2, PVRTC1, ASTC LDR); ignored for formats with
+		// no sRGB variant (BC4/BC5/BC6H/ETC1/PVRTC2).
+		const bool srgb = (srgb_mode < 0) ? transcoder.is_srgb() : (srgb_mode != 0);
+
+		if ((!levels) || (!faces))
+		{
+			error_printf("transcode_ktx2_to_ktx: degenerate texture (levels=%u, faces=%u)\n", levels, faces);
+			return false;
+		}
+
+		basisu::vector<gpu_image_vec> slices;
+		if (!transcode_ktx2_to_block_image_slices(transcoder, fmt, bfmt, slices, decode_flags))
+			return false;
+
+		if (!create_ktx_texture_file(ktx_data, slices, cubemap_flag, srgb))
+		{
+			error_printf("transcode_ktx2_to_ktx: create_ktx_texture_file() failed\n");
+			return false;
+		}
+
+		return true;
+	}
+
+	// Returns a friendly name for the common DDS formats we care about (BC1-7 and
+	// the usual LDR/HDR uncompressed variants); returns nullptr for anything else so
+	// the caller can fall back to printing the raw hex value. For --tinydds_info.
+	static const char* tinydds_format_to_string(uint32_t fmt)
+	{
+		switch (fmt)
+		{
+		case TDDS_BC1_RGBA_UNORM_BLOCK:   return "BC1 (UNORM)";
+		case TDDS_BC1_RGBA_SRGB_BLOCK:    return "BC1 (sRGB)";
+		case TDDS_BC2_UNORM_BLOCK:        return "BC2 (UNORM)";
+		case TDDS_BC2_SRGB_BLOCK:         return "BC2 (sRGB)";
+		case TDDS_BC3_UNORM_BLOCK:        return "BC3 (UNORM)";
+		case TDDS_BC3_SRGB_BLOCK:         return "BC3 (sRGB)";
+		case TDDS_BC4_UNORM_BLOCK:        return "BC4 (UNORM)";
+		case TDDS_BC4_SNORM_BLOCK:        return "BC4 (SNORM)";
+		case TDDS_BC5_UNORM_BLOCK:        return "BC5 (UNORM)";
+		case TDDS_BC5_SNORM_BLOCK:        return "BC5 (SNORM)";
+		case TDDS_BC6H_UFLOAT_BLOCK:      return "BC6H (UF16, unsigned half)";
+		case TDDS_BC6H_SFLOAT_BLOCK:      return "BC6H (SF16, signed half)";
+		case TDDS_BC7_UNORM_BLOCK:        return "BC7 (UNORM)";
+		case TDDS_BC7_SRGB_BLOCK:         return "BC7 (sRGB)";
+		case TDDS_R8G8B8A8_UNORM:         return "RGBA32 (R8G8B8A8 UNORM)";
+		case TDDS_R8G8B8A8_SRGB:          return "RGBA32 (R8G8B8A8 sRGB)";
+		case TDDS_B8G8R8A8_UNORM:         return "BGRA32 (B8G8R8A8 UNORM)";
+		case TDDS_B8G8R8A8_SRGB:          return "BGRA32 (B8G8R8A8 sRGB)";
+		case TDDS_R16G16B16A16_UNORM:     return "RGBA64 (R16G16B16A16 UNORM)";
+		case TDDS_R16G16B16A16_SFLOAT:    return "RGBA HALF (R16G16B16A16 float)";
+		case TDDS_R32G32B32A32_SFLOAT:    return "RGBA FLOAT (R32G32B32A32 float)";
+		case TDDS_R9G9B9E5_UFLOAT:        return "RGB9E5 (shared exponent)";
+		default:                          return nullptr;
+		}
+	}
+
+	bool print_dds_info(const char* pFilename)
+	{
+		TinyDDS_Callbacks cbs;
+		cbs.errorFn = [](void* user, char const* msg) { BASISU_NOTE_UNUSED(user); fprintf(stderr, "tinydds: %s\n", msg); };
+		cbs.allocFn = [](void* user, size_t size) -> void* { BASISU_NOTE_UNUSED(user); return malloc(size); };
+		cbs.freeFn  = [](void* user, void* memory) { BASISU_NOTE_UNUSED(user); free(memory); };
+		cbs.readFn  = [](void* user, void* buffer, size_t byteCount) -> size_t { return (size_t)fread(buffer, 1, byteCount, (FILE*)user); };
+#ifdef _MSC_VER
+		cbs.seekFn = [](void* user, int64_t ofs) -> bool { return _fseeki64((FILE*)user, ofs, SEEK_SET) == 0; };
+		cbs.tellFn = [](void* user) -> int64_t { return _ftelli64((FILE*)user); };
+#else
+		cbs.seekFn = [](void* user, int64_t ofs) -> bool { return fseek((FILE*)user, (long)ofs, SEEK_SET) == 0; };
+		cbs.tellFn = [](void* user) -> int64_t { return (int64_t)ftell((FILE*)user); };
+#endif
+
+		FILE* pFile = fopen_safe(pFilename, "rb");
+		if (!pFile)
+		{
+			error_printf("Can't open .DDS file \"%s\"\n", pFilename);
+			return false;
+		}
+
+		TinyDDS_ContextHandle ctx = TinyDDS_CreateContext(&cbs, pFile);
+		if (!ctx)
+		{
+			error_printf("Failed creating tinydds context for \"%s\"\n", pFilename);
+			fclose(pFile);
+			return false;
+		}
+
+		if (!TinyDDS_ReadHeader(ctx))
+		{
+			error_printf("Failed parsing DDS header in file \"%s\"\n", pFilename);
+			TinyDDS_DestroyContext(ctx);
+			fclose(pFile);
+			return false;
+		}
+
+		const uint32_t w = TinyDDS_Width(ctx);
+		const uint32_t h = TinyDDS_Height(ctx);
+		const uint32_t depth = TinyDDS_Depth(ctx);
+		const uint32_t slices = TinyDDS_ArraySlices(ctx);
+		const uint32_t mips = TinyDDS_NumberOfMipmaps(ctx);
+		const bool is_cube = TinyDDS_IsCubemap(ctx);
+		const bool is_array = TinyDDS_IsArray(ctx);
+		const bool is_3d = TinyDDS_Is3D(ctx);
+		const bool is_1d = TinyDDS_Is1D(ctx);
+		const uint32_t fmt = (uint32_t)TinyDDS_GetFormat(ctx);
+
+		const char* pType =
+			is_cube ? ((slices > 1) ? "Cubemap array" : "Cubemap") :
+			is_3d   ? "3D (volume)" :
+			is_1d   ? ((slices > 1) ? "1D array" : "1D") :
+			          ((slices > 1) ? "2D array" : "2D");
+
+		const char* pFmtStr = tinydds_format_to_string(fmt);
+
+		printf("DDS file: %s\n", pFilename);
+		printf("  Texture type : %s\n", pType);
+		if (is_3d)
+			printf("  Dimensions   : %ux%ux%u (WxHxDepth)\n", w, h, depth);
+		else
+			printf("  Dimensions   : %ux%u\n", w, h);
+		printf("  Mip levels   : %u\n", mips);
+		// tinydds reports 0 array slices for a non-array texture; show 1 for clarity.
+		const uint32_t num_slices = maximum<uint32_t>(1, slices);
+		if (is_cube)
+			printf("  Array slices : %u cube(s) x 6 faces = %u image(s) per mip\n", num_slices, num_slices * 6);
+		else
+			printf("  Array slices : %u\n", num_slices);
+		printf("  Cubemap      : %s\n", is_cube ? "yes" : "no");
+		// "Array" reflects a genuine multi-element array. tinydds's IsArray() is true for ANY DX10 file
+		// (arraySize>=1), so without care a plain single 2D texture or a single cubemap would falsely read
+		// "yes". For a cubemap, array-ness means more than one cube (slices > 1). For a 2D texture, annotate
+		// the DX10 1-element quirk ("yes (1 element)") rather than contradict "Texture type : 2D".
+		if (is_cube)
+			printf("  Array        : %s\n", (num_slices > 1) ? "yes" : "no");
+		else if (is_array && (num_slices == 1))
+			printf("  Array        : yes (1 element)\n");
+		else
+			printf("  Array        : %s\n", is_array ? "yes" : "no");
+		if (pFmtStr)
+			printf("  Format       : %s  [tinydds %u / 0x%X]\n", pFmtStr, fmt, fmt);
+		else
+			printf("  Format       : 0x%X  [tinydds %u]\n", fmt, fmt);
+
+		TinyDDS_DestroyContext(ctx);
+		fclose(pFile);
+
+		return true;
+	}
+
+	// Friendly name for the KTX1 glInternalFormat GL enums we care about (the set
+	// create_ktx_texture_file() writes, plus a few common extras). nullptr otherwise
+	// so the caller prints the raw hex. For --ktx_info.
+	static const char* ktx_gl_internal_format_name(uint32_t fmt)
+	{
+		switch (fmt)
+		{
+		case KTX_RGB:                                  return "RGB (uncompressed)";
+		case KTX_RGBA:                                 return "RGBA (uncompressed)";
+		case KTX_RED:                                  return "RED (uncompressed)";
+		case KTX_RG:                                   return "RG (uncompressed)";
+		case KTX_ETC1_RGB8_OES:                        return "ETC1 RGB8";
+		case KTX_COMPRESSED_RGB_S3TC_DXT1_EXT:         return "BC1 (DXT1 RGB)";
+		case KTX_COMPRESSED_SRGB_S3TC_DXT1_EXT:        return "BC1 (DXT1 RGB sRGB)";
+		case KTX_COMPRESSED_RGBA_S3TC_DXT5_EXT:        return "BC3 (DXT5 RGBA)";
+		case KTX_COMPRESSED_SRGB_ALPHA_S3TC_DXT5_EXT:  return "BC3 (DXT5 RGBA sRGB)";
+		case KTX_COMPRESSED_RED_RGTC1_EXT:             return "BC4 (RGTC1 R)";
+		case KTX_COMPRESSED_RED_GREEN_RGTC2_EXT:       return "BC5 (RGTC2 RG)";
+		case KTX_COMPRESSED_RGB8_ETC2:                 return "ETC2 RGB8";
+		case KTX_COMPRESSED_SRGB8_ETC2:                return "ETC2 RGB8 sRGB";
+		case KTX_COMPRESSED_RGBA8_ETC2_EAC:            return "ETC2 RGBA8 EAC";
+		case KTX_COMPRESSED_SRGB8_ALPHA8_ETC2_EAC:     return "ETC2 RGBA8 EAC sRGB";
+		case KTX_COMPRESSED_RGBA_BPTC_UNORM:           return "BC7 (BPTC UNORM)";
+		case KTX_COMPRESSED_SRGB_ALPHA_BPTC_UNORM:     return "BC7 (BPTC sRGB)";
+		case KTX_COMPRESSED_RGB_BPTC_SIGNED_FLOAT:     return "BC6H (signed float)";
+		case KTX_COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT:   return "BC6H (unsigned float)";
+		case KTX_COMPRESSED_RGB_PVRTC_4BPPV1_IMG:      return "PVRTC1 4bpp RGB";
+		case KTX_COMPRESSED_SRGB_PVRTC_4BPPV1_EXT:       return "PVRTC1 4bpp RGB sRGB";
+		case KTX_COMPRESSED_RGBA_PVRTC_4BPPV1_IMG:     return "PVRTC1 4bpp RGBA";
+		case KTX_COMPRESSED_SRGB_ALPHA_PVRTC_4BPPV1_EXT: return "PVRTC1 4bpp RGBA sRGB";
+		case KTX_COMPRESSED_RGBA_PVRTC_4BPPV2_IMG:     return "PVRTC2 4bpp RGBA";
+		case KTX_COMPRESSED_R11_EAC:                   return "EAC R11";
+		case KTX_COMPRESSED_RG11_EAC:                  return "EAC RG11";
+		case KTX_COMPRESSED_RGBA_UASTC_4x4_KHR:        return "UASTC 4x4";
+		case KTX_ATC_RGB_AMD:                          return "ATC RGB";
+		case KTX_ATC_RGBA_INTERPOLATED_ALPHA_AMD:      return "ATC RGBA (interpolated alpha)";
+		case KTX_COMPRESSED_RGB_FXT1_3DFX:             return "FXT1 RGB";
+		case KTX_COMPRESSED_RGBA_FXT1_3DFX:            return "FXT1 RGBA";
+		case KTX_COMPRESSED_RGBA_ASTC_4x4_KHR:         return "ASTC 4x4";
+		case KTX_COMPRESSED_RGBA_ASTC_5x4_KHR:         return "ASTC 5x4";
+		case KTX_COMPRESSED_RGBA_ASTC_5x5_KHR:         return "ASTC 5x5";
+		case KTX_COMPRESSED_RGBA_ASTC_6x5_KHR:         return "ASTC 6x5";
+		case KTX_COMPRESSED_RGBA_ASTC_6x6_KHR:         return "ASTC 6x6";
+		case KTX_COMPRESSED_RGBA_ASTC_8x5_KHR:         return "ASTC 8x5";
+		case KTX_COMPRESSED_RGBA_ASTC_8x6_KHR:         return "ASTC 8x6";
+		case KTX_COMPRESSED_RGBA_ASTC_8x8_KHR:         return "ASTC 8x8";
+		case KTX_COMPRESSED_RGBA_ASTC_10x5_KHR:        return "ASTC 10x5";
+		case KTX_COMPRESSED_RGBA_ASTC_10x6_KHR:        return "ASTC 10x6";
+		case KTX_COMPRESSED_RGBA_ASTC_10x8_KHR:        return "ASTC 10x8";
+		case KTX_COMPRESSED_RGBA_ASTC_10x10_KHR:       return "ASTC 10x10";
+		case KTX_COMPRESSED_RGBA_ASTC_12x10_KHR:       return "ASTC 12x10";
+		case KTX_COMPRESSED_RGBA_ASTC_12x12_KHR:       return "ASTC 12x12";
+		case KTX_COMPRESSED_SRGB8_ALPHA8_ASTC_4x4_KHR:   return "ASTC 4x4 sRGB";
+		case KTX_COMPRESSED_SRGB8_ALPHA8_ASTC_5x4_KHR:   return "ASTC 5x4 sRGB";
+		case KTX_COMPRESSED_SRGB8_ALPHA8_ASTC_5x5_KHR:   return "ASTC 5x5 sRGB";
+		case KTX_COMPRESSED_SRGB8_ALPHA8_ASTC_6x5_KHR:   return "ASTC 6x5 sRGB";
+		case KTX_COMPRESSED_SRGB8_ALPHA8_ASTC_6x6_KHR:   return "ASTC 6x6 sRGB";
+		case KTX_COMPRESSED_SRGB8_ALPHA8_ASTC_8x5_KHR:   return "ASTC 8x5 sRGB";
+		case KTX_COMPRESSED_SRGB8_ALPHA8_ASTC_8x6_KHR:   return "ASTC 8x6 sRGB";
+		case KTX_COMPRESSED_SRGB8_ALPHA8_ASTC_8x8_KHR:   return "ASTC 8x8 sRGB";
+		case KTX_COMPRESSED_SRGB8_ALPHA8_ASTC_10x5_KHR:  return "ASTC 10x5 sRGB";
+		case KTX_COMPRESSED_SRGB8_ALPHA8_ASTC_10x6_KHR:  return "ASTC 10x6 sRGB";
+		case KTX_COMPRESSED_SRGB8_ALPHA8_ASTC_10x8_KHR:  return "ASTC 10x8 sRGB";
+		case KTX_COMPRESSED_SRGB8_ALPHA8_ASTC_10x10_KHR: return "ASTC 10x10 sRGB";
+		case KTX_COMPRESSED_SRGB8_ALPHA8_ASTC_12x10_KHR: return "ASTC 12x10 sRGB";
+		case KTX_COMPRESSED_SRGB8_ALPHA8_ASTC_12x12_KHR: return "ASTC 12x12 sRGB";
+		default:                                       return nullptr;
+		}
+	}
+
+	bool print_ktx_info(const char* pFilename)
+	{
+		FILE* pFile = fopen_safe(pFilename, "rb");
+		if (!pFile)
+		{
+			error_printf("Can't open .ktx file \"%s\"\n", pFilename);
+			return false;
+		}
+
+		ktx_header hdr;
+		hdr.clear();
+		const size_t n = fread(&hdr, 1, sizeof(hdr), pFile);
+		fclose(pFile);
+
+		if (n != sizeof(hdr))
+		{
+			error_printf("Failed reading KTX header from \"%s\" (file too small)\n", pFilename);
+			return false;
+		}
+
+		if (memcmp(hdr.m_identifier, g_ktx_file_id, sizeof(g_ktx_file_id)) != 0)
+		{
+			error_printf("File \"%s\" is not a KTX1 file (bad identifier)\n", pFilename);
+			return false;
+		}
+
+		// The endianness field is 0x04030201 stored in the file's byte order. If we
+		// read back KTX_ENDIAN the file matches our (little-endian) byte order; if we
+		// read KTX_OPPOSITE_ENDIAN every uint32 field must be byte-swapped.
+		const uint32_t endianness = hdr.m_endianness;
+		bool swap;
+		if (endianness == KTX_ENDIAN)
+			swap = false;
+		else if (endianness == KTX_OPPOSITE_ENDIAN)
+			swap = true;
+		else
+		{
+			error_printf("File \"%s\" has an invalid KTX endianness field (0x%08X)\n", pFilename, endianness);
+			return false;
+		}
+
+		// packed_uint<4> yields a little-endian uint32; swap it for an opposite-endian file.
+		auto rd = [swap](uint32_t v) -> uint32_t
+		{
+			if (!swap)
+				return v;
+			return ((v >> 24) & 0xFFu) | ((v >> 8) & 0xFF00u) | ((v << 8) & 0xFF0000u) | ((v << 24) & 0xFF000000u);
+		};
+
+		const uint32_t gl_type = rd(hdr.m_glType);
+		const uint32_t gl_type_size = rd(hdr.m_glTypeSize);
+		const uint32_t gl_format = rd(hdr.m_glFormat);
+		const uint32_t gl_internal_format = rd(hdr.m_glInternalFormat);
+		const uint32_t gl_base_internal_format = rd(hdr.m_glBaseInternalFormat);
+		const uint32_t pixel_width = rd(hdr.m_pixelWidth);
+		const uint32_t pixel_height = rd(hdr.m_pixelHeight);
+		const uint32_t pixel_depth = rd(hdr.m_pixelDepth);
+		const uint32_t array_elements = rd(hdr.m_numberOfArrayElements);
+		const uint32_t faces = rd(hdr.m_numberOfFaces);
+		const uint32_t mip_levels = rd(hdr.m_numberOfMipmapLevels);
+		const uint32_t kvd_bytes = rd(hdr.m_bytesOfKeyValueData);
+
+		const char* pName = ktx_gl_internal_format_name(gl_internal_format);
+
+		printf("KTX1 file: %s\n", pFilename);
+		printf("  Endianness            : 0x%08X (%s)\n", endianness, swap ? "opposite -- byte-swapped" : "native");
+		printf("  glType                : 0x%X (%u)%s\n", gl_type, gl_type, gl_type ? "" : "  (0 = compressed)");
+		printf("  glTypeSize            : %u\n", gl_type_size);
+		printf("  glFormat              : 0x%X (%u)%s\n", gl_format, gl_format, gl_format ? "" : "  (0 = compressed)");
+		if (pName)
+			printf("  glInternalFormat      : 0x%X (%u)  %s\n", gl_internal_format, gl_internal_format, pName);
+		else
+			printf("  glInternalFormat      : 0x%X (%u)\n", gl_internal_format, gl_internal_format);
+		printf("  glBaseInternalFormat  : 0x%X (%u)\n", gl_base_internal_format, gl_base_internal_format);
+		printf("  pixelWidth            : %u\n", pixel_width);
+		printf("  pixelHeight           : %u%s\n", pixel_height, pixel_height ? "" : "  (1D texture)");
+		printf("  pixelDepth            : %u%s\n", pixel_depth, pixel_depth ? "" : "  (non-3D)");
+		printf("  numberOfArrayElements : %u%s\n", array_elements, array_elements ? "" : "  (not an array)");
+		printf("  numberOfFaces         : %u%s\n", faces, (faces == 6) ? "  (cubemap)" : "");
+		printf("  numberOfMipmapLevels  : %u\n", mip_levels);
+		printf("  bytesOfKeyValueData   : %u\n", kvd_bytes);
+
+		return true;
+	}
+
 } // basisu
 

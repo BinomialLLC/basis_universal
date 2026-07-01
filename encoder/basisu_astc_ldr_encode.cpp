@@ -19,6 +19,8 @@
 // pick up BASISD_SUPPORT_KTX2_ZSTD macro (this defines it automatically and sets to 1 if not defined)
 #include "../transcoder/basisu_transcoder.h" 
 
+#include "basisu_astc_ldr_fencode.h"
+
 #include <queue>
 
 #ifndef BASISD_SUPPORT_KTX2_ZSTD
@@ -29,6 +31,17 @@
 #include "../zstd/zstd.h"
 #endif
 
+#ifndef BASISU_SUPPORT_ASTCENC
+#define BASISU_SUPPORT_ASTCENC (0)
+#endif
+
+#if BASISU_SUPPORT_ASTCENC
+#include "3rdparty/astc-encoder-main/Source/astcenc.h"
+#endif
+
+// Compensate for endpoint adjustment (otherwise we're too pessimestic/underranks 2-3 levels)
+#define BASISU_MODIFIED_WEIGHT_QUANT_MSE_ESTIMATE (1)
+
 namespace basisu {
 namespace astc_ldr {
 
@@ -36,6 +49,21 @@ const bool g_devel_messages = true;
 const bool ASTC_LDR_CONSISTENCY_CHECKING = true;
 
 bool g_initialized;
+
+const uint32_t BLUR_ID_GAUSSIAN_ALTERNATE = 1;
+const uint32_t BLUR_ID_GRID_DIM_BASE = 32; // experimental
+const uint32_t BLUR_ID_DC_LATENT_BASE = 128;
+const uint32_t BLUR_ID_AC_LATENT_BASE = 138;
+const uint32_t BLUR_ID_BEST_CANDIDATE = 256; // experimental
+
+[[maybe_unused]] const uint32_t BLUR_ID_ASTCENC = 512;
+const uint32_t BLUR_ID_ASTCF = 513;
+
+const uint32_t BLUR_ID_EXP = 1024;
+
+// Number of blurred source images used during ASTC LDR encoding. Defined at module scope (not as a function local)
+// so the per-block job lambda can reference it directly without capturing it (avoids MSVC C3493 and clang/gcc -Wunused-lambda-capture).
+const uint32_t TOTAL_BLURRED_IMAGES = 1 * 3;
 
 const uint32_t EXPECTED_SUPERBUCKET_HASH_SIZE = 8192;
 const uint32_t EXPECTED_SHORTLIST_HASH_SIZE = 4096;
@@ -47,16 +75,219 @@ const uint32_t PART_ESTIMATE_STAGE1_MULTIPLIER = 4;
 
 const uint32_t MAX_WIDTH = 65535, MAX_HEIGHT = 65535;
 
-void code_block_weights(
+static inline uint32_t apply_kernel(uint32_t a, uint32_t b, uint32_t c)
+{
+	return (a + b + c + 1u) / 3u;
+}
+
+static inline color_rgba filter_horiz(const image& src, int x, int y)
+{
+	color_rgba l(src.get_clamped(x - 1, y));
+	color_rgba c(src.get_clamped(x, y));
+	color_rgba r(src.get_clamped(x + 1, y));
+
+	color_rgba out;
+	for (uint32_t ch = 0; ch < 4; ch++)
+		out[ch] = (uint8_t)apply_kernel(l[ch], c[ch], r[ch]);
+	return out;
+}
+
+static inline color_rgba filter_vert(const image& src, int x, int y)
+{
+	color_rgba u(src.get_clamped(x, y - 1));
+	color_rgba c(src.get_clamped(x, y));
+	color_rgba d(src.get_clamped(x, y + 1));
+
+	color_rgba out;
+	for (uint32_t ch = 0; ch < 4; ch++)
+		out[ch] = (uint8_t)apply_kernel(u[ch], c[ch], d[ch]);
+	return out;
+}
+
+#define BASISU_CORNER(SX, SY, TX, TY) do {                                                \
+	const color_rgba h_l = src_img.get_clamped((SX) - 1, (SY));                           \
+	const color_rgba h_c = src_img.get_clamped((SX),     (SY));                           \
+	const color_rgba h_r = src_img.get_clamped((SX) + 1, (SY));                           \
+	const color_rgba v_u = src_img.get_clamped((SX), (SY) - 1);                           \
+	const color_rgba v_d = src_img.get_clamped((SX), (SY) + 1);                           \
+                                                                                          \
+	color_rgba out;                                                                       \
+	out.r = (uint8_t)minimum<int>(255, basisu::fast_roundf_pos_int(                       \
+		(float)(h_l.r + 2 * h_c.r + h_r.r + v_u.r + v_d.r) * (1.0f / 6.0f)));             \
+	out.g = (uint8_t)minimum<int>(255, basisu::fast_roundf_pos_int(                       \
+		(float)(h_l.g + 2 * h_c.g + h_r.g + v_u.g + v_d.g) * (1.0f / 6.0f)));             \
+	out.b = (uint8_t)minimum<int>(255, basisu::fast_roundf_pos_int(                       \
+		(float)(h_l.b + 2 * h_c.b + h_r.b + v_u.b + v_d.b) * (1.0f / 6.0f)));             \
+	out.a = (uint8_t)minimum<int>(255, basisu::fast_roundf_pos_int(                       \
+		(float)(h_l.a + 2 * h_c.a + h_r.a + v_u.a + v_d.a) * (1.0f / 6.0f)));             \
+	dst_tile.set_clipped((TX), (TY), out);                                                \
+} while (0)
+
+// bx,by=texel offsets
+static void deblock_block_region(int fbw, int fbh, const image& src_img, int bx, int by, image& dst_tile)
+{
+	assert(&src_img != &dst_tile);
+	assert((int)dst_tile.get_width() == (fbw + 2));
+	assert((int)dst_tile.get_height() == (fbh + 2));
+
+	for (int ty = 0; ty < (fbh + 2); ty++)
+	{
+		const bool on_horiz_edge = (ty <= 1) || (ty >= fbh);
+		const int sy = by - 1 + ty;
+		
+		for (int tx = 0; tx < (fbw + 2); tx++)
+		{
+			const bool on_vert_edge = (tx <= 1) || (tx >= fbw);
+			const int sx = bx - 1 + tx;
+						
+			if (on_vert_edge && on_horiz_edge)
+			{
+				BASISU_CORNER(sx, sy, tx, ty);
+				continue;
+			}
+			
+			color_rgba out;
+			if (on_vert_edge)
+				out = filter_horiz(src_img, sx, sy);
+			else if (on_horiz_edge)
+				out = filter_vert(src_img, sx, sy);
+			else
+				out = src_img.get_clamped(sx, sy);
+
+			dst_tile.set_clipped(tx, ty, out);
+		}
+	}
+}
+
+static void deblock_block_region_interior(int fbw, int fbh, const image& src_img, int bx, int by, image& dst_tile, int dst_x, int dst_y)
+{
+	assert((bx >= 0) && (bx < (int)src_img.get_width()));
+	assert((by >= 0) && (by < (int)src_img.get_height()));
+	assert(fbw >= 3);
+	assert(fbh >= 3);
+	assert(&src_img != &dst_tile);
+	assert(src_img.get_width() == dst_tile.get_width());
+	assert(src_img.get_height() == dst_tile.get_height());
+
+	const int x_left = bx;
+	const int x_right = bx + fbw - 1;
+	const int y_top = by;
+	const int y_bottom = by + fbh - 1;
+
+	// --- Four corners -------------------------------------------------------
+
+	BASISU_CORNER(x_left, y_top, dst_x, dst_y);
+	BASISU_CORNER(x_right, y_top, dst_x + fbw - 1, dst_y);
+	BASISU_CORNER(x_left, y_bottom, dst_x, dst_y + fbh - 1);
+	BASISU_CORNER(x_right, y_bottom, dst_x + fbw - 1, dst_y + fbh - 1);
+
+	// --- Top and Bottom edges: rows y_top and y_bottom, columns (x_left, x_right) exclusive.
+	for (int sy = y_top; sy <= y_bottom; sy += (fbh - 1))
+	{
+		const int ty = dst_y + (sy - by);
+		for (int tx_offset = 1; tx_offset < fbw - 1; tx_offset++)
+		{
+			const int sx = bx + tx_offset;
+			const color_rgba u = src_img.get_clamped(sx, sy - 1);
+			const color_rgba c = src_img.get_clamped(sx, sy);
+			const color_rgba d = src_img.get_clamped(sx, sy + 1);
+
+			color_rgba out;
+			out.r = (uint8_t)(((uint32_t)u.r + (uint32_t)c.r + (uint32_t)d.r + 1u) / 3u);
+			out.g = (uint8_t)(((uint32_t)u.g + (uint32_t)c.g + (uint32_t)d.g + 1u) / 3u);
+			out.b = (uint8_t)(((uint32_t)u.b + (uint32_t)c.b + (uint32_t)d.b + 1u) / 3u);
+			out.a = (uint8_t)(((uint32_t)u.a + (uint32_t)c.a + (uint32_t)d.a + 1u) / 3u);
+
+			dst_tile.set_clipped(dst_x + tx_offset, ty, out);
+		}
+	}
+
+	// --- Left and Right edges: columns x_left and x_right, rows (y_top, y_bottom) exclusive.
+	for (int sx = x_left; sx <= x_right; sx += (fbw - 1))
+	{
+		const int tx = dst_x + (sx - bx);
+		for (int ty_offset = 1; ty_offset < fbh - 1; ty_offset++)
+		{
+			const int sy = by + ty_offset;
+			const color_rgba l = src_img.get_clamped(sx - 1, sy);
+			const color_rgba c = src_img.get_clamped(sx, sy);
+			const color_rgba r = src_img.get_clamped(sx + 1, sy);
+
+			color_rgba out;
+			out.r = (uint8_t)(((uint32_t)l.r + (uint32_t)c.r + (uint32_t)r.r + 1u) / 3u);
+			out.g = (uint8_t)(((uint32_t)l.g + (uint32_t)c.g + (uint32_t)r.g + 1u) / 3u);
+			out.b = (uint8_t)(((uint32_t)l.b + (uint32_t)c.b + (uint32_t)r.b + 1u) / 3u);
+			out.a = (uint8_t)(((uint32_t)l.a + (uint32_t)c.a + (uint32_t)r.a + 1u) / 3u);
+
+			dst_tile.set_clipped(tx, dst_y + ty_offset, out);
+		}
+	}
+
+	// --- Interior: pass-through copy from source.
+	// Fast path: interior fully in-bounds -> memcpy each row.
+	const int interior_last_sx = bx + fbw - 2;
+	const int interior_last_sy = by + fbh - 2;
+	const bool interior_in_bounds =
+		(interior_last_sx < (int)src_img.get_width()) &&
+		(interior_last_sy < (int)src_img.get_height());
+
+	if (interior_in_bounds)
+	{
+		const uint32_t bytes_per_row = (fbw - 2) * (uint32_t)sizeof(color_rgba);
+		const uint32_t src_pitch = src_img.get_pitch();
+		const uint32_t dst_pitch = dst_tile.get_pitch();
+
+		for (int ty_offset = 1; ty_offset < (fbh - 1); ty_offset++)
+		{
+			const color_rgba* pSrc = src_img.get_ptr() + (bx + 1) + (by + ty_offset) * src_pitch;
+			color_rgba* pDst = dst_tile.get_ptr() + (dst_x + 1) + (dst_y + ty_offset) * dst_pitch;
+			memcpy(pDst, pSrc, bytes_per_row);
+		}
+	}
+	else
+	{
+		for (int ty_offset = 1; ty_offset < (fbh - 1); ty_offset++)
+		{
+			const int sy = by + ty_offset;
+			for (int tx_offset = 1; tx_offset < (fbw - 1); tx_offset++)
+			{
+				const int sx = bx + tx_offset;
+				dst_tile.set_clipped(dst_x + tx_offset, dst_y + ty_offset, src_img.get_clamped(sx, sy));
+			}
+		}
+	}
+}
+
+static void deblock_image(int fbw, int fbh, const image& src_img, image& dst_img)
+{
+	assert(&src_img != &dst_img);
+	dst_img.match_dimensions(src_img);
+
+	const uint32_t num_blocks_x = src_img.get_block_width(fbw);
+	const uint32_t num_blocks_y = src_img.get_block_height(fbh);
+
+	for (uint32_t by = 0; by < num_blocks_y; by++)
+	{
+		for (uint32_t bx = 0; bx < num_blocks_x; bx++)
+		{
+			deblock_block_region_interior(fbw, fbh,
+				src_img, bx * (uint32_t)fbw, by * (uint32_t)fbh,
+				dst_img, bx * (uint32_t)fbw, by * (uint32_t)fbh);
+		} // bx
+	} // by
+}
+
+#undef BASISU_CORNER
+
+static void code_block_weights(
 	basist::astc_ldr_t::grid_weight_dct &gw_dct,
 	float q, uint32_t plane_index,
 	const astc_helpers::log_astc_block& log_blk,
-	const basist::astc_ldr_t::astc_block_grid_data* pGrid_data,
-	basisu::bitwise_coder& c,
-	basist::astc_ldr_t::dct_syms& syms)
+	basist::astc_ldr_t::dct_syms& syms,
+	basist::astc_ldr_t::fvec &dct_work)
 {
 	assert(q > 0.0f);
-
+		
 	syms.clear();
 
 	const uint32_t grid_width = log_blk.m_grid_width, grid_height = log_blk.m_grid_height;
@@ -103,12 +334,10 @@ void code_block_weights(
 	const float span_len = gw_dct.get_max_span_len(log_blk, plane_index);
 
 	float dct_weights[astc_helpers::MAX_BLOCK_PIXELS];
-
-	// TODO - temp alloc
-	basist::astc_ldr_t::fvec dct_work;
+	
 	grid_dim_vals.m_dct.forward(orig_weights, dct_weights, dct_work);
 
-	const float level_scale = gw_dct.compute_level_scale(q, span_len, pGrid_data->m_weight_gamma, grid_width, grid_height, log_blk.m_weight_ise_range);
+	const float level_scale = gw_dct.compute_level_scale(q, span_len, grid_width, grid_height, log_blk.m_weight_ise_range);
 
 	int dct_quant_tab[astc_helpers::MAX_BLOCK_PIXELS];
 	gw_dct.compute_quant_table(q, grid_width, grid_height, level_scale, dct_quant_tab);
@@ -119,13 +348,11 @@ void code_block_weights(
 	quant_state.init(q, gw_dct.m_block_width, gw_dct.m_block_height, level_scale);
 #endif
 
-	c.put_truncated_binary((int)scaled_mean_weight, (uint32_t)(64.0f * scaled_weight_coding_scale) + 1);
-
 	syms.m_dc_sym = (int)scaled_mean_weight;
 	syms.m_num_dc_levels = (uint32_t)(64.0f * scaled_weight_coding_scale) + 1;
 	assert(syms.m_num_dc_levels == gw_dct.get_num_weight_dc_levels(log_blk.m_weight_ise_range));
 
-	int dct_coeffs[astc_helpers::MAX_BLOCK_PIXELS];
+	int dct_coeffs[astc_helpers::MAX_BLOCK_PIXELS]; // TODO: max grid size is 8x8
 
 	for (uint32_t y = 0; y < grid_height; y++)
 	{
@@ -156,6 +383,8 @@ void code_block_weights(
 
 	const basisu::int_vec& zigzag = grid_dim_vals.m_zigzag;
 	assert(zigzag.size() == total_grid_samples);
+		
+	syms.m_coeffs.reserve(65);
 
 	int total_zeros = 0;
 	for (uint32_t i = 0; i < total_grid_samples; i++)
@@ -174,19 +403,20 @@ void code_block_weights(
 		basist::astc_ldr_t::dct_syms::coeff cf;
 		cf.m_num_zeros = basisu::safe_cast_uint16(total_zeros);
 		cf.m_coeff = basisu::safe_cast_int16(coeff);
+
 		syms.m_coeffs.push_back(cf);
+		
 		syms.m_max_coeff_mag = basisu::maximum(syms.m_max_coeff_mag, basisu::iabs(coeff));
 		syms.m_max_zigzag_index = basisu::maximum(syms.m_max_zigzag_index, i);
 
-		c.put_rice(total_zeros, gw_dct.m_zero_run);
 		total_zeros = 0;
-
-		c.put_bits(coeff < 0 ? 1 : 0, 1);
-
-		if (coeff < 0)
-			coeff = -coeff;
-
-		c.put_rice(coeff, gw_dct.m_coeff);
+	}
+	
+	{
+		// reduce allocation
+		basisu::vector<basist::astc_ldr_t::dct_syms::coeff> temp_coeffs(syms.m_coeffs);
+		
+		syms.m_coeffs.swap(temp_coeffs);
 	}
 
 	if (total_zeros)
@@ -195,12 +425,10 @@ void code_block_weights(
 		cf.m_num_zeros = basisu::safe_cast_uint16(total_zeros);
 		cf.m_coeff = INT16_MAX;
 		syms.m_coeffs.push_back(cf);
-
-		c.put_rice(total_zeros, gw_dct.m_zero_run);
 	}
 }
 
-void astc_ldr_requantize_astc_weights(uint32_t n, const uint8_t* pSrc_ise_vals, uint32_t from_ise_range, uint8_t* pDst_ise_vals, uint32_t to_ise_range)
+static void astc_ldr_requantize_astc_weights(uint32_t n, const uint8_t* pSrc_ise_vals, uint32_t from_ise_range, uint8_t* pDst_ise_vals, uint32_t to_ise_range)
 {
 	if (from_ise_range == to_ise_range)
 	{
@@ -237,7 +465,7 @@ void astc_ldr_requantize_astc_weights(uint32_t n, const uint8_t* pSrc_ise_vals, 
 	}
 }
 
-void astc_ldr_downsample_ise_weights(
+static void astc_ldr_downsample_ise_weights(
 	uint32_t dequant_weight_ise_range, uint32_t quant_weight_ise_range,
 	uint32_t block_w, uint32_t block_h,
 	uint32_t grid_w, uint32_t grid_h,
@@ -340,7 +568,8 @@ void downsample_weight_residual_grid(
 	}
 }
 
-void downsample_weightsf(
+#if 0
+static void downsample_weightsf(
 	const float* pMatrix_weights,
 	uint32_t bx, uint32_t by,		// source/from dimension (block size)
 	uint32_t wx, uint32_t wy,		// dest/to dimension (grid size)
@@ -365,9 +594,11 @@ void downsample_weightsf(
 		}
 	}
 }
+#endif
 
 static inline uint32_t weighted_color_error(const color_rgba& a, const color_rgba& b, const astc_ldr::cem_encode_params& p)
 {
+#if 0
 	uint32_t total_e = 0;
 	for (uint32_t c = 0; c < 4; c++)
 	{
@@ -376,11 +607,19 @@ static inline uint32_t weighted_color_error(const color_rgba& a, const color_rgb
 		int ev = av - bv;
 		total_e += (uint32_t)(ev * ev) * p.m_comp_weights[c];
 	}
-
+	
 	return total_e;
+#else
+	const uint32_t total_e2 = squarei(a[0] - b[0]) * p.m_comp_weights[0] +
+		squarei(a[1] - b[1]) * p.m_comp_weights[1] +
+		squarei(a[2] - b[2]) * p.m_comp_weights[2] +
+		squarei(a[3] - b[3]) * p.m_comp_weights[3];
+
+	return total_e2;
+#endif
 }
 
-uint64_t eval_error(
+static uint64_t eval_error(
 	uint32_t block_width, uint32_t block_height,
 	const astc_helpers::log_astc_block& enc_log_block,
 	const astc_ldr::pixel_stats_t& pixel_stats,
@@ -423,7 +662,7 @@ uint64_t eval_error(
 	return total_err;
 }
 
-uint64_t eval_error(
+static uint64_t eval_error(
 	uint32_t block_width, uint32_t block_height,
 	const astc_ldr::pixel_stats_t& pixel_stats,
 	uint32_t cem_index,
@@ -433,7 +672,7 @@ uint64_t eval_error(
 	const uint8_t* pEndpoint_vals, const uint8_t* pWeight_grid_vals0, const uint8_t* pWeight_grid_vals1,
 	const astc_ldr::cem_encode_params& params)
 {
-	const uint32_t total_block_pixels = block_width * block_height;
+	//const uint32_t total_block_pixels = block_width * block_height;
 	const uint32_t total_grid_pixels = grid_width * grid_height;
 
 	astc_helpers::log_astc_block enc_log_block;
@@ -468,22 +707,10 @@ uint64_t eval_error(
 		memcpy(enc_log_block.m_weights, pWeight_grid_vals0, total_grid_pixels);
 	}
 
-	color_rgba decoded_pixels[astc_ldr::ASTC_LDR_MAX_BLOCK_PIXELS];
-	bool status = astc_helpers::decode_block(enc_log_block, decoded_pixels, block_width, block_height, params.m_decode_mode_srgb ? astc_helpers::cDecodeModeSRGB8 : astc_helpers::cDecodeModeLDR8);
-	assert(status);
-
-	if (!status)
-		return UINT64_MAX;
-
-	uint64_t total_err = 0;
-
-	for (uint32_t i = 0; i < total_block_pixels; i++)
-		total_err += weighted_color_error(pixel_stats.m_pixels[i], decoded_pixels[i], params);
-
-	return total_err;
+	return eval_error(block_width, block_height, enc_log_block, pixel_stats, params);
 }
 
-float compute_psnr_from_wsse(uint32_t block_width, uint32_t block_height, uint64_t sse, float total_comp_weights)
+static float compute_psnr_from_wsse(uint32_t block_width, uint32_t block_height, uint64_t sse, float total_comp_weights)
 {
 	const uint32_t total_block_pixels = block_width * block_height;
 	const float wmse = (float)sse / (total_comp_weights * (float)total_block_pixels);
@@ -695,8 +922,260 @@ namespace qcd
 
 } // namespace qcd
 
+const uint32_t NUM_WEIGHT_POLISH_PASSES = 1;
+
+#if 0
+// true if improved
+static bool polish_block_weights_final_slow(
+	astc_helpers::log_astc_block& enc_log_block, // assumes there is already a good encoding to improve here
+	uint8_t* pWeights0, uint8_t* pWeights1, // the latest weights, will be updated if improved
+	uint32_t block_width, uint32_t block_height, uint32_t grid_width, uint32_t grid_height, 
+	const astc_ldr::pixel_stats_t& pixel_stats,
+	const astc_ldr::cem_encode_params& params,
+	uint64_t &cur_err)
+{
+	const bool dual_plane_flag = enc_log_block.m_dual_plane;
+
+	//const uint32_t endpoint_ise_range = enc_log_block.m_endpoint_ise_range;
+	const uint32_t weight_ise_range = enc_log_block.m_weight_ise_range;
+	
+	//const uint32_t total_block_pixels = block_width * block_height;
+	const uint32_t total_grid_pixels = grid_width * grid_height;
+
+	bool improved_flag = false;
+
+	for (uint32_t polish_pass = 0; polish_pass < NUM_WEIGHT_POLISH_PASSES; polish_pass++)
+	{
+		for (uint32_t y = 0; y < grid_height; y++)
+		{
+			for (uint32_t x = 0; x < grid_width; x++)
+			{
+				for (uint32_t plane_iter = 0; plane_iter < (dual_plane_flag ? 2u : 1u); plane_iter++)
+				{
+					uint8_t base_grid_weights0[astc_ldr::ASTC_LDR_MAX_BLOCK_PIXELS], base_grid_weights1[astc_ldr::ASTC_LDR_MAX_BLOCK_PIXELS];
+
+					memcpy(base_grid_weights0, pWeights0, total_grid_pixels);
+					if (dual_plane_flag)
+						memcpy(base_grid_weights1, pWeights1, total_grid_pixels);
+
+					for (int delta = -1; delta <= 1; delta += 2)
+					{
+						uint8_t trial_grid_weights0[astc_ldr::ASTC_LDR_MAX_BLOCK_PIXELS], trial_grid_weights1[astc_ldr::ASTC_LDR_MAX_BLOCK_PIXELS];
+
+						memcpy(trial_grid_weights0, base_grid_weights0, total_grid_pixels);
+
+						if (dual_plane_flag)
+							memcpy(trial_grid_weights1, base_grid_weights1, total_grid_pixels);
+
+						if (plane_iter == 0)
+							trial_grid_weights0[x + y * grid_width] = (uint8_t)astc_ldr::apply_delta_to_bise_weight_val(weight_ise_range, base_grid_weights0[x + y * grid_width], delta);
+						else
+							trial_grid_weights1[x + y * grid_width] = (uint8_t)astc_ldr::apply_delta_to_bise_weight_val(weight_ise_range, base_grid_weights1[x + y * grid_width], delta);
+
+						astc_helpers::log_astc_block trial_log_block(enc_log_block);
+
+						astc_helpers::set_weights(trial_log_block, trial_grid_weights0, 0);
+
+						if (dual_plane_flag)
+							astc_helpers::set_weights(trial_log_block, trial_grid_weights1, 1);
+
+						uint64_t trial_err = eval_error(block_width, block_height, trial_log_block, pixel_stats, params);
+
+						if (trial_err < cur_err)
+						{
+							cur_err = trial_err;
+
+							memcpy(pWeights0, trial_grid_weights0, total_grid_pixels);
+
+							if (dual_plane_flag)
+								memcpy(pWeights1, trial_grid_weights1, total_grid_pixels);
+
+							improved_flag = true;
+						}
+
+					} // delta
+
+				} // plane_iter
+
+			} // x
+		} // y
+
+	} // polish_pass
+
+	return improved_flag;
+}
+#endif
+
+#define BASISU_POLISH_DEBUG (0)
+
+// true if improved
+static bool polish_block_weights_final_fast(
+	astc_helpers::log_astc_block& enc_log_block, // assumes there is already a good encoding to improve here
+	uint8_t* pWeights0, uint8_t* pWeights1, // the latest weights, will be updated if improved
+	uint32_t block_width, uint32_t block_height, uint32_t grid_width, uint32_t grid_height, 
+	const astc_ldr::pixel_stats_t& pixel_stats,
+	const astc_ldr::cem_encode_params& params,
+	const basist::astc_ldr_t::astc_block_grid_data* pGrid_data,
+	uint64_t& cur_err)
+{
+	if (!cur_err)
+		return false;
+
+	const bool dual_plane_flag = enc_log_block.m_dual_plane;
+
+	//const uint32_t endpoint_ise_range = enc_log_block.m_endpoint_ise_range;
+	const uint32_t weight_ise_range = enc_log_block.m_weight_ise_range;
+
+	const uint32_t total_block_pixels = block_width * block_height;
+	BASISU_NOTE_UNUSED(total_block_pixels);
+	//const uint32_t total_grid_pixels = grid_width * grid_height;
+
+	bool improved_flag = false;
+
+	astc_helpers::log_astc_block cur_log_block(enc_log_block);
+	
+	astc_helpers::set_weights(cur_log_block, pWeights0, 0);
+	if (dual_plane_flag)
+		astc_helpers::set_weights(cur_log_block, pWeights1, 1);
+		
+	astc_helpers::xuastc_ldr_block_decoder block_decoder(
+		cur_log_block, block_width, block_height, 
+		params.m_decode_mode_srgb ? astc_helpers::cDecodeModeSRGB8 : astc_helpers::cDecodeModeLDR8, 
+		pGrid_data->m_upsample_weights.get_ptr());
+
+	for (uint32_t polish_pass = 0; polish_pass < NUM_WEIGHT_POLISH_PASSES; polish_pass++)
+	{
+		for (uint32_t y = 0; y < grid_height; y++)
+		{
+			for (uint32_t x = 0; x < grid_width; x++)
+			{
+				const basisu::uint16_vec& influenced_texels = pGrid_data->m_grid_to_texel_influence_list[x + y * grid_width];
+
+				for (uint32_t plane_iter = 0; plane_iter < (dual_plane_flag ? 2u : 1u); plane_iter++)
+				{
+
+#if BASISU_POLISH_DEBUG
+#if defined(_DEBUG) || defined(DEBUG)
+					assert(cur_err == eval_error(block_width, block_height, cur_log_block, pixel_stats, params));
+
+					{
+						color_rgba alt_block_pixels[astc_ldr::ASTC_LDR_MAX_BLOCK_PIXELS];
+						bool status = astc_helpers::decode_block_xuastc_ldr(cur_log_block, alt_block_pixels, block_width, block_height, params.m_decode_mode_srgb ? astc_helpers::cDecodeModeSRGB8 : astc_helpers::cDecodeModeLDR8);
+						assert(status);
+
+						uint64_t alt_err = 0;
+						for (uint32_t k = 0; k < total_block_pixels; k++)
+						{
+							const uint32_t texel_x = k % block_width;
+							const uint32_t texel_y = k / block_width;
+
+							color_rgba dec_c;
+							block_decoder.decode_texel(texel_x, texel_y, (astc_helpers::color_rgba&)dec_c);
+
+							if ((dec_c.r != alt_block_pixels[k].r) ||
+								(dec_c.g != alt_block_pixels[k].g) ||
+								(dec_c.b != alt_block_pixels[k].b) ||
+								(dec_c.a != alt_block_pixels[k].a))
+							{
+								assert(0);
+							}
+
+							uint64_t w = weighted_color_error(dec_c, pixel_stats.m_pixels[k], params);
+							alt_err += w;
+						}
+						assert(alt_err == cur_err);
+					}
+#endif
+#endif
+
+					const uint8_t base_weight = astc_helpers::get_weight(cur_log_block, plane_iter, x + y * grid_width);
+										
+					for (int delta = -1; delta <= 1; delta += 2)
+					{
+						const uint8_t new_weight = (uint8_t)astc_ldr::apply_delta_to_bise_weight_val(weight_ise_range, base_weight, delta);
+						if (new_weight == base_weight)
+							continue;
+												
+						// remove out influence from the current weight
+						uint64_t trial_err = cur_err;
+						for (uint32_t j = 0; j < influenced_texels.size(); j++)
+						{
+							const uint32_t packed_texel_index = influenced_texels[j];
+							const uint32_t texel_x = packed_texel_index & 0xFF;
+							const uint32_t texel_y = packed_texel_index >> 8;
+							const uint32_t texel_index = texel_x + texel_y * block_width;
+
+							color_rgba dec_c;
+							block_decoder.decode_texel(texel_x, texel_y, (astc_helpers::color_rgba &)dec_c);
+
+							uint64_t w = weighted_color_error(dec_c, pixel_stats.m_pixels[texel_index], params);
+							assert(trial_err >= w);
+							trial_err -= w;
+						}
+
+						// save weight in case it's worse
+						const uint8_t saved_weight = astc_helpers::get_weight(cur_log_block, plane_iter, x + y * grid_width);
+
+						// change current weight
+						astc_helpers::get_weight(cur_log_block, plane_iter, x + y * grid_width) = new_weight;
+
+						// now add in influence from the new weight
+						for (uint32_t j = 0; j < influenced_texels.size(); j++)
+						{
+							const uint32_t packed_texel_index = influenced_texels[j];
+							const uint32_t texel_x = packed_texel_index & 0xFF;
+							const uint32_t texel_y = packed_texel_index >> 8;
+							const uint32_t texel_index = texel_x + texel_y * block_width;
+
+							color_rgba dec_c;
+							block_decoder.decode_texel(texel_x, texel_y, (astc_helpers::color_rgba&)dec_c);
+
+							trial_err += weighted_color_error(dec_c, pixel_stats.m_pixels[texel_index], params);
+						}
+
+#if BASISU_POLISH_DEBUG
+						assert(trial_err == eval_error(block_width, block_height, cur_log_block, pixel_stats, params));
+#endif
+
+						// see if we've improved the solution by this one weight change
+						if (trial_err < cur_err)
+						{
+							cur_err = trial_err;
+							
+							improved_flag = true;
+						}
+						else
+						{
+							// candidate was worse, so restore the weight 
+							astc_helpers::get_weight(cur_log_block, plane_iter, x + y * grid_width) = saved_weight;
+						}
+
+					} // delta
+
+#if BASISU_POLISH_DEBUG
+					assert(cur_err == eval_error(block_width, block_height, cur_log_block, pixel_stats, params));
+#endif
+
+				} // plane_iter
+
+			} // x
+		} // y
+
+	} // polish_pass
+
+	if (improved_flag)
+	{
+		astc_helpers::extract_weights(cur_log_block, pWeights0, 0);
+		
+		if (dual_plane_flag)
+			astc_helpers::extract_weights(cur_log_block, pWeights1, 1);
+	}
+
+	return improved_flag;
+}
+
 // 1-3 subsets, requires initial weights
-bool polish_block_weights(
+static bool polish_block_weights(
 	uint32_t block_width, uint32_t block_height,
 	const astc_ldr::pixel_stats_t& pixel_stats,
 	astc_helpers::log_astc_block& enc_log_block, // assumes there is already a good encoding to improve here
@@ -723,6 +1202,8 @@ bool polish_block_weights(
 	const auto& dequant_tab = astc_helpers::g_dequant_tables.get_weight_tab(weight_ise_range).m_ISE_to_val;
 	const auto& quant_tab = astc_helpers::g_dequant_tables.get_weight_tab(weight_ise_range).m_val_to_ise;
 
+	const basist::astc_ldr_t::astc_block_grid_data *pGrid_data = basist::astc_ldr_t::find_astc_block_grid_data(block_width, block_height, grid_width, grid_height);
+
 	//const bool is_downsampling = (grid_width < block_width) || (grid_height < block_height);
 
 #if defined(_DEBUG) || defined(DEBUG)
@@ -734,9 +1215,7 @@ bool polish_block_weights(
 		}
 	}
 #endif
-
-	//const astc_block_grid_data* pBlock_grid_data = find_astc_block_grid_data(block_width, block_height, grid_width, grid_height);
-
+		
 	const uint32_t total_block_pixels = block_width * block_height;
 	const uint32_t total_grid_pixels = grid_width * grid_height;
 
@@ -753,16 +1232,12 @@ bool polish_block_weights(
 	const bool global_gradient_desc_enabled = true;
 	const bool global_qcd_enabled = true;
 	const bool global_polish_weights_enabled = true;
-
-	const uint32_t NUM_WEIGHT_POLISH_PASSES = 1;
-
+		
 	// Gradient descent
 	if ((gradient_descent_flag) && (global_gradient_desc_enabled))
 	{
 		// Downsample the residuals to grid res
-		vector2D<float> upsample_matrix;
-		compute_upsample_matrix(upsample_matrix, block_width, block_height, grid_width, grid_height);
-
+				
 		// First compute the block's ideal raw weights given the current endpoints at full block/texel res
 		// TODO: Move to helper
 		uint8_t ideal_block_raw_weights0[astc_ldr::ASTC_LDR_MAX_BLOCK_PIXELS], ideal_block_raw_weights1[astc_ldr::ASTC_LDR_MAX_BLOCK_PIXELS];
@@ -869,13 +1344,8 @@ bool polish_block_weights(
 
 		float weight_grid_residuals_downsampled0[astc_ldr::ASTC_LDR_MAX_BLOCK_PIXELS], weight_grid_residuals_downsampled1[astc_ldr::ASTC_LDR_MAX_BLOCK_PIXELS];
 
-		basisu::vector<float> unweighted_downsample_matrix;
-
-		// TODO: precompute, store in weight grid data
-		compute_upsample_matrix_transposed(unweighted_downsample_matrix, block_width, block_height, grid_width, grid_height);
-
-		basisu::vector<float> diag_AtA(total_grid_pixels);
-		compute_diag_AtA_vector(block_width, block_height, grid_width, grid_height, upsample_matrix, diag_AtA.get_ptr());
+		const basisu::vector<float>& unweighted_downsample_matrix = pGrid_data->m_unweighted_downsample_matrix;
+		const basisu::vector<float>& one_over_diag_AtA = pGrid_data->m_one_over_diag_AtA;
 
 		downsample_weight_residual_grid(
 			unweighted_downsample_matrix.get_ptr(),
@@ -885,7 +1355,7 @@ bool polish_block_weights(
 			weight_grid_residuals_downsampled0);			// [wy][wx]
 
 		for (uint32_t i = 0; i < total_grid_pixels; i++)
-			weight_grid_residuals_downsampled0[i] /= diag_AtA[i];
+			weight_grid_residuals_downsampled0[i] *= one_over_diag_AtA[i];
 
 		if (dual_plane_flag)
 		{
@@ -897,7 +1367,7 @@ bool polish_block_weights(
 				weight_grid_residuals_downsampled1);			// [wy][wx]
 
 			for (uint32_t i = 0; i < total_grid_pixels; i++)
-				weight_grid_residuals_downsampled1[i] /= diag_AtA[i];
+				weight_grid_residuals_downsampled1[i] *= one_over_diag_AtA[i];
 		}
 
 		// Apply the residuals at grid res and quantize
@@ -936,7 +1406,7 @@ bool polish_block_weights(
 
 		astc_helpers::log_astc_block refined_log_block(enc_log_block);
 
-		// TODO: This refines both weight planes simultanously, probably not optimal, could do individually.
+		// TODO: This refines both weight planes simultaneously, probably not optimal, could do individually.
 		astc_helpers::set_weights(refined_log_block, refined_grid_weights0, 0);
 
 		if (dual_plane_flag)
@@ -968,7 +1438,8 @@ bool polish_block_weights(
 					ideal_block_weights1[i] = (float)ideal_block_raw_weights1[i];
 			}
 
-			const float* pUpsample_matrix = basist::astc_ldr_t::find_astc_block_grid_data(block_width, block_height, grid_width, grid_height)->m_upsample_matrix.get_ptr();
+			//const float* pUpsample_matrix = basist::astc_ldr_t::find_astc_block_grid_data(block_width, block_height, grid_width, grid_height)->m_upsample_matrix.get_ptr();
+			const float* pUpsample_matrix = pGrid_data->m_upsample_matrix.get_ptr();
 
 			qcd::qcd_min_solver solver;
 
@@ -1053,113 +1524,112 @@ bool polish_block_weights(
 
 	if ((polish_weights_flag) && (global_polish_weights_enabled))
 	{
-		// Final, expensive, weight polish. Much can be done to improve this, but it's hopefully not ran much in the first place.
-		// TODO: The dB gain from this is large, must optimize.
-		for (uint32_t polish_pass = 0; polish_pass < NUM_WEIGHT_POLISH_PASSES; polish_pass++)
+#if BASISU_POLISH_DEBUG
+		uint64_t cur_err_fast = cur_err;
+
+		uint8_t weights0_fast[astc_ldr::ASTC_LDR_MAX_BLOCK_PIXELS];
+		uint8_t weights1_fast[astc_ldr::ASTC_LDR_MAX_BLOCK_PIXELS];
+		
+		memcpy(weights0_fast, weights0, total_grid_pixels);
+		if (dual_plane_flag)
+			memcpy(weights1_fast, weights1, total_grid_pixels);
+
+		bool improved_flag_fast = polish_block_weights_final_fast(
+			enc_log_block,
+			weights0_fast, weights1_fast,
+			block_width, block_height, grid_width, grid_height,
+			pixel_stats,
+			params,
+			pGrid_data,
+			cur_err_fast);
+
+		if (polish_block_weights_final_slow(
+			enc_log_block,
+			weights0, weights1, // the latest weights, will be updated if improved
+			block_width, block_height, grid_width, grid_height, 
+			pixel_stats,
+			params,
+			cur_err))
 		{
-			for (uint32_t y = 0; y < grid_height; y++)
+			assert(improved_flag_fast);
+			
+			assert(cur_err == cur_err_fast);
+			
+			assert(memcmp(weights0, weights0_fast, total_grid_pixels) == 0);
+			if (dual_plane_flag)
 			{
-				for (uint32_t x = 0; x < grid_width; x++)
-				{
-					for (uint32_t plane_iter = 0; plane_iter < (dual_plane_flag ? 2u : 1u); plane_iter++)
-					{
-						uint8_t base_grid_weights0[astc_ldr::ASTC_LDR_MAX_BLOCK_PIXELS], base_grid_weights1[astc_ldr::ASTC_LDR_MAX_BLOCK_PIXELS];
+				assert(memcmp(weights1, weights1_fast, total_grid_pixels) == 0);
+			}
 
-						memcpy(base_grid_weights0, weights0, total_grid_pixels);
-						if (dual_plane_flag)
-							memcpy(base_grid_weights1, weights1, total_grid_pixels);
-
-						for (int delta = -1; delta <= 1; delta += 2)
-						{
-							uint8_t trial_grid_weights0[astc_ldr::ASTC_LDR_MAX_BLOCK_PIXELS], trial_grid_weights1[astc_ldr::ASTC_LDR_MAX_BLOCK_PIXELS];
-
-							memcpy(trial_grid_weights0, base_grid_weights0, total_grid_pixels);
-
-							if (dual_plane_flag)
-								memcpy(trial_grid_weights1, base_grid_weights1, total_grid_pixels);
-
-							if (plane_iter == 0)
-								trial_grid_weights0[x + y * grid_width] = (uint8_t)astc_ldr::apply_delta_to_bise_weight_val(weight_ise_range, base_grid_weights0[x + y * grid_width], delta);
-							else
-								trial_grid_weights1[x + y * grid_width] = (uint8_t)astc_ldr::apply_delta_to_bise_weight_val(weight_ise_range, base_grid_weights1[x + y * grid_width], delta);
-
-							astc_helpers::log_astc_block trial_log_block(enc_log_block);
-
-							astc_helpers::set_weights(trial_log_block, trial_grid_weights0, 0);
-
-							if (dual_plane_flag)
-								astc_helpers::set_weights(trial_log_block, trial_grid_weights1, 1);
-
-							uint64_t trial_err = eval_error(block_width, block_height, trial_log_block, pixel_stats, params);
-
-							if (trial_err < cur_err)
-							{
-								cur_err = trial_err;
-
-								memcpy(weights0, trial_grid_weights0, total_grid_pixels);
-
-								if (dual_plane_flag)
-									memcpy(weights1, trial_grid_weights1, total_grid_pixels);
-
-								improved_flag = true;
-							}
-
-						} // delta
-
-					} // plane_iter
-
-				} // x
-			} // y
-
-		} // polish_pass
+			improved_flag = true;
+		}
+		else
+		{
+			assert(!improved_flag_fast);
+		}
+#else
+		if (polish_block_weights_final_fast(
+			enc_log_block,
+			weights0, weights1, // the latest weights, will be updated if improved
+			block_width, block_height, grid_width, grid_height,
+			pixel_stats,
+			params,
+			pGrid_data,
+			cur_err))
+		{
+			improved_flag = true;
+		}
+#endif
 
 	} // polish_flag
 
-	astc_helpers::log_astc_block new_log_block(enc_log_block);
-
-	astc_helpers::set_weights(new_log_block, weights0, 0);
-
-	if (dual_plane_flag)
-		astc_helpers::set_weights(new_log_block, weights1, 1);
-		
 #if defined(_DEBUG) || defined(DEBUG)
-	uint64_t new_err = eval_error(block_width, block_height, new_log_block, pixel_stats, params);
-
-	assert(cur_err == new_err);
-
+	// sanity checking
 	if (improved_flag)
 	{
 		uint64_t orig_err = eval_error(block_width, block_height, enc_log_block, pixel_stats, params);
-
-		assert(new_err < orig_err);
+		assert(cur_err < orig_err);
 	}
 #endif
 
-	enc_log_block = new_log_block;
+	if (improved_flag)
+	{
+		astc_helpers::set_weights(enc_log_block, weights0, 0);
+
+		if (dual_plane_flag)
+			astc_helpers::set_weights(enc_log_block, weights1, 1);
+	}
+
+#if defined(_DEBUG) || defined(DEBUG)
+	// sanity checking
+	uint64_t new_err = eval_error(block_width, block_height, enc_log_block, pixel_stats, params);
+	assert(cur_err == new_err);
+#endif
 
 	return true;
 }
 
-bool encode_trial_subsets(
+static bool encode_trial_subsets(
 	uint32_t block_width, uint32_t block_height,
 	const astc_ldr::pixel_stats_t& pixel_stats,
 	uint32_t cem_index, uint32_t num_parts,
 	uint32_t pat_seed_index, const astc_ldr::partition_pattern_vec* pPat, // seed index is a ASTC partition pattern index
 	uint32_t endpoint_ise_range, uint32_t weight_ise_range,
 	uint32_t grid_width, uint32_t grid_height,
+	float early_out_thresh,
 	astc_helpers::log_astc_block& enc_log_block,
 	const astc_ldr::cem_encode_params& params,
 	bool refine_only_flag = false,
 	bool gradient_descent_flag = true, bool polish_weights_flag = true, bool qcd_enabled_flag = true,
 	bool use_blue_contraction = true,
-	bool* pBase_ofs_clamped_flag = nullptr)
+	bool* pTry_direct_encoding_flag = nullptr)
 {
 	assert((num_parts >= 2) && (num_parts <= astc_helpers::MAX_PARTITIONS));
 	assert(pPat);
 	assert(pat_seed_index < astc_helpers::NUM_PARTITION_PATTERNS);
 
-	if (pBase_ofs_clamped_flag)
-		*pBase_ofs_clamped_flag = false;
+	if (pTry_direct_encoding_flag)
+		*pTry_direct_encoding_flag = false;
 
 	const bool is_downsampling = (grid_width < block_width) || (grid_height < block_height);
 	//const uint32_t total_block_pixels = block_width * block_height;
@@ -1201,18 +1671,18 @@ bool encode_trial_subsets(
 
 		if (!refine_only_flag)
 		{
-			bool base_ofs_clamped_flag = false;
+			bool try_direct_encoding_flag = false;
 
 			// Encode at block res, but with quantized weights
 			uint64_t block_err = astc_ldr::cem_encode_pixels(cem_index, -1, part_pixel_stats[part_index], params,
 				endpoint_ise_range, weight_ise_range,
-				&part_endpoints[part_index][0], &part_weights[part_index][0], nullptr, UINT64_MAX, use_blue_contraction, &base_ofs_clamped_flag);
+				&part_endpoints[part_index][0], &part_weights[part_index][0], nullptr, UINT64_MAX, use_blue_contraction, &try_direct_encoding_flag);
 
 			if (block_err == UINT64_MAX)
 				return false;
 
-			if ((pBase_ofs_clamped_flag) && (base_ofs_clamped_flag))
-				*pBase_ofs_clamped_flag = true;
+			if ((pTry_direct_encoding_flag) && (try_direct_encoding_flag))
+				*pTry_direct_encoding_flag = true;
 		}
 
 	} // part_index
@@ -1271,11 +1741,28 @@ bool encode_trial_subsets(
 			memcpy(enc_log_block.m_endpoints + num_endpoint_vals * p, &part_endpoints[p][0], num_endpoint_vals);
 	}
 
+	uint64_t prev_cur_err = UINT64_MAX;
+
 	// attempt endpoint refinement given the current weights
 	// TODO: Expose to caller
 	const uint32_t NUM_REFINEMENT_PASSES = 3;
 	for (uint32_t refine_pass = 0; refine_pass < NUM_REFINEMENT_PASSES; refine_pass++)
 	{
+		uint64_t cur_err = eval_error(block_width, block_height, enc_log_block, pixel_stats, params);
+		
+		if (!cur_err)
+			break;
+
+		if ((early_out_thresh != 0.0f) && (refine_pass) && (prev_cur_err))
+		{
+			double percentage_improvement = (double)(prev_cur_err - cur_err) / (double)prev_cur_err;
+
+			if (percentage_improvement < early_out_thresh)
+				break;
+		}
+
+		prev_cur_err = cur_err;
+
 		uint8_t dequantized_raw_weights0[astc_ldr::ASTC_LDR_MAX_BLOCK_PIXELS];
 		uint8_t upsampled_weights0[astc_ldr::ASTC_LDR_MAX_BLOCK_PIXELS]; // raw weights, NOT ISE
 
@@ -1311,18 +1798,18 @@ bool encode_trial_subsets(
 
 			uint8_t temp_weights[astc_ldr::ASTC_LDR_MAX_BLOCK_PIXELS];
 
-			bool base_ofs_clamped_flag = false;
+			bool try_direct_encoding_flag = false;
 
 			// Encode at block res, but with quantized weights
 			uint64_t block_err = astc_ldr::cem_encode_pixels(cem_index, -1, part_pixel_stats[part_index], temp_params,
 				endpoint_ise_range, astc_helpers::BISE_64_LEVELS,
-				&alt_enc_log_block.m_endpoints[num_endpoint_vals * part_index], temp_weights, nullptr, UINT64_MAX, use_blue_contraction, &base_ofs_clamped_flag);
+				&alt_enc_log_block.m_endpoints[num_endpoint_vals * part_index], temp_weights, nullptr, UINT64_MAX, use_blue_contraction, &try_direct_encoding_flag);
 
 			if (block_err == UINT64_MAX)
 				return false;
 
-			if ((pBase_ofs_clamped_flag) && (base_ofs_clamped_flag))
-				*pBase_ofs_clamped_flag = true;
+			if ((pTry_direct_encoding_flag) && (try_direct_encoding_flag))
+				*pTry_direct_encoding_flag = true;
 
 #if defined(_DEBUG) || defined(DEBUG)
 			for (uint32_t i = 0; i < part_pixel_stats[part_index].m_num_pixels; i++)
@@ -1332,8 +1819,7 @@ bool encode_trial_subsets(
 #endif
 
 		} // part_index
-
-		uint64_t cur_err = eval_error(block_width, block_height, enc_log_block, pixel_stats, params);
+				
 		uint64_t ref_err = eval_error(block_width, block_height, alt_enc_log_block, pixel_stats, params);
 
 		if (ref_err < cur_err)
@@ -1365,31 +1851,33 @@ bool encode_trial_subsets(
 	return true;
 }
 
-bool encode_trial(
+static bool encode_trial(
 	uint32_t block_width, uint32_t block_height,
 	const astc_ldr::pixel_stats_t& pixel_stats,
 	uint32_t cem_index,
 	bool dual_plane_flag, int ccs_index,
 	uint32_t endpoint_ise_range, uint32_t weight_ise_range,
 	uint32_t grid_width, uint32_t grid_height,
+	float early_out_thresh,
 	astc_helpers::log_astc_block& enc_log_block,
 	const astc_ldr::cem_encode_params& params,
 	bool gradient_descent_flag = true, bool polish_weights_flag = true, bool qcd_enabled_flag = true,
 	bool use_blue_contraction = true,
-	bool* pBase_ofs_clamped_flag = nullptr)
+	bool* pTry_direct_encoding_flag = nullptr)
 {
 	assert(dual_plane_flag || (ccs_index == -1));
 
-	if (pBase_ofs_clamped_flag)
-		*pBase_ofs_clamped_flag = false;
+	if (pTry_direct_encoding_flag)
+		*pTry_direct_encoding_flag = false;
 
 	const bool is_downsampling = (grid_width < block_width) || (grid_height < block_height);
-
-	const basist::astc_ldr_t::astc_block_grid_data* pBlock_grid_data = basist::astc_ldr_t::find_astc_block_grid_data(block_width, block_height, grid_width, grid_height);
-
+		
 	const float* pDownsample_matrix = nullptr;
 	if (is_downsampling)
+	{
+		const basist::astc_ldr_t::astc_block_grid_data* pBlock_grid_data = basist::astc_ldr_t::find_astc_block_grid_data(block_width, block_height, grid_width, grid_height);
 		pDownsample_matrix = pBlock_grid_data->m_downsample_matrix.get_ptr();
+	}
 
 	//const uint32_t total_block_pixels = block_width * block_height;
 	const uint32_t total_grid_pixels = grid_width * grid_height;
@@ -1424,17 +1912,18 @@ bool encode_trial(
 
 	if ((grid_width == block_width) && (grid_height == block_height))
 	{
-		bool base_ofs_clamped_flag = false;
+		// No downsampling: a lot easier.
+		bool try_direct_encoding_flag = false;
 
 		uint64_t block_err = astc_ldr::cem_encode_pixels(cem_index, ccs_index, pixel_stats, params,
 			endpoint_ise_range, weight_ise_range,
-			fullres_endpoints, weights0, weights1, UINT64_MAX, use_blue_contraction, &base_ofs_clamped_flag);
+			fullres_endpoints, weights0, weights1, UINT64_MAX, use_blue_contraction, &try_direct_encoding_flag);
 
 		if (block_err == UINT64_MAX)
 			return false;
 
-		if ((pBase_ofs_clamped_flag) && (base_ofs_clamped_flag))
-			*pBase_ofs_clamped_flag = base_ofs_clamped_flag;
+		if ((pTry_direct_encoding_flag) && (try_direct_encoding_flag))
+			*pTry_direct_encoding_flag = try_direct_encoding_flag;
 
 		if (dual_plane_flag)
 		{
@@ -1459,18 +1948,18 @@ bool encode_trial(
 	uint8_t fullres_raw_weights0[astc_ldr::ASTC_LDR_MAX_BLOCK_PIXELS];
 	uint8_t fullres_raw_weights1[astc_ldr::ASTC_LDR_MAX_BLOCK_PIXELS];
 
-	bool base_ofs_clamped_flag = false;
+	bool try_direct_encoding_flag = false;
 
 	// Encode at block res, but with quantized weights
 	uint64_t block_err = astc_ldr::cem_encode_pixels(cem_index, ccs_index, pixel_stats, params,
 		endpoint_ise_range, weight_ise_range,
-		fullres_endpoints, fullres_raw_weights0, fullres_raw_weights1, UINT64_MAX, use_blue_contraction, &base_ofs_clamped_flag);
+		fullres_endpoints, fullres_raw_weights0, fullres_raw_weights1, UINT64_MAX, use_blue_contraction, &try_direct_encoding_flag);
 
 	if (block_err == UINT64_MAX)
 		return false;
 
-	if ((pBase_ofs_clamped_flag) && (base_ofs_clamped_flag))
-		*pBase_ofs_clamped_flag = base_ofs_clamped_flag;
+	if ((pTry_direct_encoding_flag) && (try_direct_encoding_flag))
+		*pTry_direct_encoding_flag = try_direct_encoding_flag;
 
 	// Now downsample the weight grid (quantized to quantized)
 	astc_ldr_downsample_ise_weights(
@@ -1497,10 +1986,34 @@ bool encode_trial(
 
 	memcpy(enc_log_block.m_endpoints, fullres_endpoints, astc_helpers::get_num_cem_values(cem_index));
 
-	// TODO: Expose to caller
+	uint64_t prev_cur_err = UINT64_MAX;
+		
 	const uint32_t NUM_OUTER_PASSES = 3;
 	for (uint32_t outer_pass = 0; outer_pass < NUM_OUTER_PASSES; outer_pass++)
 	{
+		uint64_t cur_err = eval_error(
+			block_width, block_height,
+			pixel_stats,
+			cem_index,
+			dual_plane_flag, ccs_index,
+			endpoint_ise_range, weight_ise_range,
+			grid_width, grid_height,
+			enc_log_block.m_endpoints, weights0, weights1,
+			params);
+
+		if (!cur_err)
+			break;
+
+		if ((early_out_thresh != 0.0f) && (outer_pass) && (prev_cur_err))
+		{
+			double percentage_improvement = (double)(prev_cur_err - cur_err) / (double)prev_cur_err;
+
+			if (percentage_improvement < early_out_thresh)
+				break;
+		}
+
+		prev_cur_err = cur_err;
+
 		// endpoint refinement, given current upsampled weights
 		{
 			astc_helpers::extract_weights(enc_log_block, weights0, 0);
@@ -1528,7 +2041,7 @@ bool encode_trial(
 				astc_helpers::upsample_weight_grid(block_width, block_height, grid_width, grid_height, dequantized_raw_weights1, upsampled_weights1);
 			}
 
-			// Jam in the weights to the actual raw [0,64] weights the decoder is going to use after upsampling the grid.
+			// Jam in the actual raw [0,64] weights the decoder is going to use after upsampling the grid.
 			astc_ldr::cem_encode_params refine_params(params);
 			refine_params.m_pForced_weight_vals0 = upsampled_weights0;
 			if (dual_plane_flag)
@@ -1540,35 +2053,22 @@ bool encode_trial(
 
 			uint64_t refined_block_err = astc_ldr::cem_encode_pixels(cem_index, ccs_index, pixel_stats, refine_params,
 				endpoint_ise_range, astc_helpers::BISE_64_LEVELS,
-				refined_endpoints, refined_weights0, refined_weights1, UINT64_MAX, use_blue_contraction, &base_ofs_clamped_flag);
-			assert(refined_block_err != UINT64_MAX);
-
-			if ((pBase_ofs_clamped_flag) && (base_ofs_clamped_flag))
-				*pBase_ofs_clamped_flag = base_ofs_clamped_flag;
-
+				refined_endpoints, refined_weights0, refined_weights1, UINT64_MAX, use_blue_contraction, &try_direct_encoding_flag);
+									
 			if (refined_block_err != UINT64_MAX)
 			{
-				uint64_t cur_err = eval_error(
-					block_width, block_height,
-					pixel_stats,
-					cem_index,
-					dual_plane_flag, ccs_index,
-					endpoint_ise_range, weight_ise_range,
-					grid_width, grid_height,
-					enc_log_block.m_endpoints, weights0, weights1,
-					params);
-
 				if (refined_block_err < cur_err)
 				{
 					memcpy(enc_log_block.m_endpoints, refined_endpoints, astc_helpers::get_num_cem_values(cem_index));
+
+					if ((pTry_direct_encoding_flag) && (try_direct_encoding_flag))
+						*pTry_direct_encoding_flag = try_direct_encoding_flag;
 				}
 			}
 		}
 
-		if (outer_pass == (NUM_OUTER_PASSES - 1))
-			break;
-
-		if ((!gradient_descent_flag) && (!polish_weights_flag))
+		if ( (outer_pass == (NUM_OUTER_PASSES - 1)) || 
+			((!gradient_descent_flag) && (!polish_weights_flag)) )
 			break;
 
 		bool improved_flag = false;
@@ -1598,19 +2098,19 @@ bool encode_trial(
 	return true;
 }
 
-// 1 part only, refines endpoints given current weights
-bool encode_trial_refine_only(
+// 1 subset only, refines endpoints given current weights
+static bool encode_trial_refine_only(
 	uint32_t block_width, uint32_t block_height,
 	const astc_ldr::pixel_stats_t& pixel_stats,
 	astc_helpers::log_astc_block& enc_log_block,
 	const astc_ldr::cem_encode_params& params,
 	bool use_blue_contraction = true,
-	bool* pBase_ofs_clamped_flag = nullptr)
+	bool* pTry_direct_encoding_flag = nullptr)
 {
 	assert(enc_log_block.m_num_partitions == 1);
 
-	if (pBase_ofs_clamped_flag)
-		*pBase_ofs_clamped_flag = false;
+	if (pTry_direct_encoding_flag)
+		*pTry_direct_encoding_flag = false;
 
 	const uint32_t cem_index = enc_log_block.m_color_endpoint_modes[0];
 	const bool dual_plane_flag = enc_log_block.m_dual_plane;
@@ -1668,15 +2168,15 @@ bool encode_trial_refine_only(
 
 	//bool use_blue_contraction = true;
 
-	bool base_ofs_clamped_flag = false;
+	bool try_direct_encoding_flag = false;
 
 	uint64_t refined_block_err = astc_ldr::cem_encode_pixels(cem_index, ccs_index, pixel_stats, refine_params,
 		endpoint_ise_range, astc_helpers::BISE_64_LEVELS,
-		refined_endpoints, refined_weights0, refined_weights1, UINT64_MAX, use_blue_contraction, &base_ofs_clamped_flag);
+		refined_endpoints, refined_weights0, refined_weights1, UINT64_MAX, use_blue_contraction, &try_direct_encoding_flag);
 	assert(refined_block_err != UINT64_MAX);
 
-	if ((pBase_ofs_clamped_flag) && (base_ofs_clamped_flag))
-		*pBase_ofs_clamped_flag = base_ofs_clamped_flag;
+	if ((pTry_direct_encoding_flag) && (try_direct_encoding_flag))
+		*pTry_direct_encoding_flag = try_direct_encoding_flag;
 
 #if defined(_DEBUG) || defined(DEBUG)
 	for (uint32_t i = 0; i < total_grid_pixels; i++)
@@ -1716,6 +2216,7 @@ bool encode_trial_refine_only(
 
 struct log_surrogate_astc_blk
 {
+	// Important: If not downsampling, grid width/height may match the block width/height and may not be valid ASTC (which has a limit of 64 weight samples).
 	int m_grid_width, m_grid_height;
 
 	uint32_t m_cem_index; // base+scale or direct variants only
@@ -1742,7 +2243,7 @@ struct log_surrogate_astc_blk
 	void decode(uint32_t block_width, uint32_t block_height, vec4F* pPixels, const astc_ldr::partitions_data* pPat_data) const;
 };
 
-void upsample_surrogate_weights(
+static void upsample_surrogate_weights(
 	const astc_helpers::weighted_sample* pWeighted_samples,
 	const float* pSrc_weights,
 	float* pDst_weights,
@@ -1770,7 +2271,7 @@ void upsample_surrogate_weights(
 			const uint32_t sx = pS->m_src_x, sy = pS->m_src_y;
 
 			float total = 0.0f;
-
+						
 			if (w00) total += pSrc_weights[bounds_check(sx + sy * wx, 0U, total_src_weights)] * (float)w00;
 			if (w01) total += pSrc_weights[bounds_check(sx + 1 + sy * wx, 0U, total_src_weights)] * (float)w01;
 			if (w10) total += pSrc_weights[bounds_check(sx + (sy + 1) * wx, 0U, total_src_weights)] * (float)w10;
@@ -1802,16 +2303,15 @@ void log_surrogate_astc_blk::decode(uint32_t block_width, uint32_t block_height,
 
 	if (needs_upsampling)
 	{
-		// TODO: Precompute these in tables
-		astc_helpers::weighted_sample up_weights[astc_helpers::MAX_BLOCK_DIM * astc_helpers::MAX_BLOCK_DIM];
-		astc_helpers::compute_upsample_weights(block_width, block_height, m_grid_width, m_grid_height, up_weights);
+		const basist::astc_ldr_t::astc_block_grid_data* pGrid_data = basist::astc_ldr_t::find_astc_block_grid_data(block_width, block_height, m_grid_width, m_grid_height);
+		const astc_helpers::weighted_sample* pUp_weights = pGrid_data->m_upsample_weights.get_ptr();
 
-		upsample_surrogate_weights(up_weights, m_weights0, upsampled_weights0, block_width, block_height, m_grid_width, m_grid_height, m_num_weight_levels);
+		upsample_surrogate_weights(pUp_weights, m_weights0, upsampled_weights0, block_width, block_height, m_grid_width, m_grid_height, m_num_weight_levels);
 		pWeights0 = upsampled_weights0;
 
 		if (dual_plane)
 		{
-			upsample_surrogate_weights(up_weights, m_weights1, upsampled_weights1, block_width, block_height, m_grid_width, m_grid_height, m_num_weight_levels);
+			upsample_surrogate_weights(pUp_weights, m_weights1, upsampled_weights1, block_width, block_height, m_grid_width, m_grid_height, m_num_weight_levels);
 			pWeights1 = upsampled_weights1;
 		}
 	}
@@ -1859,7 +2359,7 @@ void log_surrogate_astc_blk::decode(uint32_t block_width, uint32_t block_height,
 	return decode(block_width, block_height, pPixels, &pPat_data->m_partition_pats[unique_pat_index]);
 }
 
-void downsample_float_weight_grid(
+static void downsample_float_weight_grid(
 	const float* pMatrix_weights,
 	uint32_t bx, uint32_t by,		// source/from dimension (block size)
 	uint32_t wx, uint32_t wy,		// dest/to dimension (grid size)
@@ -1889,7 +2389,7 @@ void downsample_float_weight_grid(
 	}
 }
 
-float decode_surrogate_and_compute_error(
+static float decode_surrogate_and_compute_error(
 	uint32_t block_width, uint32_t block_height,
 	const astc_ldr::pixel_stats_t& pixel_stats,
 	log_surrogate_astc_blk& log_block,
@@ -1904,6 +2404,7 @@ float decode_surrogate_and_compute_error(
 	const float wb = (float)params.m_comp_weights[2];
 	const float wa = (float)params.m_comp_weights[3];
 
+#if 0
 	float total_err = 0.0f;
 	for (uint32_t by = 0; by < block_height; by++)
 	{
@@ -1921,12 +2422,51 @@ float decode_surrogate_and_compute_error(
 		} // bx
 
 	} // by
+#else
+	float total_err_alt = 0.0f;
+	
+	const uint32_t total_texels = block_width * block_height;
+
+	if ((wr == 1.0f) && (wg == 1.0f) && (wb == 1.0f) && (wa == 1.0f))
+	{
+		for (uint32_t i = 0; i < total_texels; i++)
+		{
+			const vec4F& s = pixel_stats.m_pixels_f[i];
+			const vec4F& d = dec_pixels[i];
+
+			float dr = s[0] - d[0];
+			float dg = s[1] - d[1];
+			float db = s[2] - d[2];
+			float da = s[3] - d[3];
+
+			total_err_alt += (dr * dr) + (dg * dg) + (db * db) + (da * da);
+		} // i
+	}
+	else
+	{
+		for (uint32_t i = 0; i < total_texels; i++)
+		{
+			const vec4F& s = pixel_stats.m_pixels_f[i];
+			const vec4F& d = dec_pixels[i];
+
+			float dr = s[0] - d[0];
+			float dg = s[1] - d[1];
+			float db = s[2] - d[2];
+			float da = s[3] - d[3];
+
+			total_err_alt += (wr * dr * dr) + (wg * dg * dg) + (wb * db * db) + (wa * da * da);
+		} // i
+	}
+
+	//assert(equal_tol(total_err, total_err_alt, .000125f));
+	float total_err = total_err_alt;
+#endif
 
 	return total_err;
 }
 
 // Returns WSSE error
-float encode_surrogate_trial(
+static float encode_surrogate_trial(
 	uint32_t block_width, uint32_t block_height,
 	const astc_ldr::pixel_stats_t& pixel_stats,
 	uint32_t cem_index,
@@ -1939,12 +2479,13 @@ float encode_surrogate_trial(
 {
 	const bool is_downsampling = (grid_width < block_width) || (grid_height < block_height);
 	const bool dual_plane_flag = (ccs_index >= 0);
-
-	const basist::astc_ldr_t::astc_block_grid_data* pBlock_grid_data = basist::astc_ldr_t::find_astc_block_grid_data(block_width, block_height, grid_width, grid_height);
-
+		
 	const float* pDownsample_matrix = nullptr;
 	if (is_downsampling)
+	{
+		const basist::astc_ldr_t::astc_block_grid_data* pBlock_grid_data = basist::astc_ldr_t::find_astc_block_grid_data(block_width, block_height, grid_width, grid_height);
 		pDownsample_matrix = pBlock_grid_data->m_downsample_matrix.get_ptr();
+	}
 
 	//const uint32_t total_block_pixels = block_width * block_height;
 	//const uint32_t total_grid_pixels = grid_width * grid_height;
@@ -2006,7 +2547,8 @@ float encode_surrogate_trial(
 #if defined(_DEBUG) || defined(DEBUG)
 		{
 			float alt_wsse_err = decode_surrogate_and_compute_error(block_width, block_height, pixel_stats, log_block, nullptr, params);
-			assert(fabs(wsse_err - alt_wsse_err) < .00125f);
+			//assert(fabs(wsse_err - alt_wsse_err) < .125f);
+			assert(basisu::equal_rel_tol(wsse_err, alt_wsse_err, .0125f));
 		}
 #endif
 #endif
@@ -2015,7 +2557,7 @@ float encode_surrogate_trial(
 	return wsse_err;
 }
 
-float encode_surrogate_trial_subsets(
+static float encode_surrogate_trial_subsets(
 	uint32_t block_width, uint32_t block_height,
 	const astc_ldr::pixel_stats_t& pixel_stats,
 	uint32_t cem_index,
@@ -2034,12 +2576,13 @@ float encode_surrogate_trial_subsets(
 
 	const uint32_t num_weight_levels = astc_helpers::get_ise_levels(weight_ise_range);
 	const uint32_t num_endpoint_levels = astc_helpers::get_ise_levels(endpoint_ise_range);
-
-	const basist::astc_ldr_t::astc_block_grid_data* pBlock_grid_data = basist::astc_ldr_t::find_astc_block_grid_data(block_width, block_height, grid_width, grid_height);
-
+		
 	const float* pDownsample_matrix = nullptr;
 	if (is_downsampling)
+	{
+		const basist::astc_ldr_t::astc_block_grid_data* pBlock_grid_data = basist::astc_ldr_t::find_astc_block_grid_data(block_width, block_height, grid_width, grid_height);
 		pDownsample_matrix = pBlock_grid_data->m_downsample_matrix.get_ptr();
+	}
 
 	color_rgba part_pixels[astc_helpers::MAX_PARTITIONS][astc_ldr::ASTC_LDR_MAX_BLOCK_PIXELS];
 	uint32_t num_part_pixels[astc_helpers::MAX_PARTITIONS] = { 0 };
@@ -2132,7 +2675,8 @@ float encode_surrogate_trial_subsets(
 	{
 		float alt_subset_err = decode_surrogate_and_compute_error(block_width, block_height, pixel_stats, log_block, pPat, params);
 
-		assert(fabs(total_subset_err - alt_subset_err) < .00125f);
+		//assert(fabs(total_subset_err - alt_subset_err) < .00125f);
+		assert(basisu::equal_rel_tol(total_subset_err, (double)alt_subset_err, (double).0125f));
 	}
 #endif
 #endif
@@ -2149,13 +2693,356 @@ static inline vec4F vec4F_norm_approx(vec4F axis)
 }
 #endif
 
+// if cov[] wasn't divided by the # of pixels, this is SSE
+static inline float estimate_slam_to_line_sse_3D(const float cov[6], float xr, float yr, float zr)
+{
+	// total var
+	const float total_var = cov[0] + cov[3] + cov[5];
+
+	float l = sqrtf(xr * xr + yr * yr + zr * zr);
+	if (l < basisu::SMALL_FLOAT_VAL)
+	{
+		xr = yr = zr = 0.577350269f;
+	}
+	else
+	{
+		l = 1.0f / l;
+		xr *= l; yr *= l; zr *= l;
+	}
+
+	float xr2 = cov[0] * xr + cov[1] * yr + cov[2] * zr;
+	float xg2 = cov[1] * xr + cov[3] * yr + cov[4] * zr;
+	float xb2 = cov[2] * xr + cov[4] * yr + cov[5] * zr;
+
+	// Rayleigh quotient/est var of principal axis
+	const float principal_axis_var = xr2 * xr + xg2 * yr + xb2 * zr;
+
+	// Compute leftover var, this is the var unexplaind by the principal axis
+	const float ortho_var = basisu::maximum(0.0f, total_var - principal_axis_var);
+
+	return ortho_var;
+}
+
+static inline float estimate_slam_to_line_sse_4D(const float cov[10], float xr, float yr, float zr, float wr)
+{
+	// total var
+	const float total_var = cov[0] + cov[4] + cov[7] + cov[9];
+
+	float l = sqrtf(xr * xr + yr * yr + zr * zr + wr * wr);
+	if (l < basisu::SMALL_FLOAT_VAL)
+	{
+		xr = yr = zr = wr = .5f;
+	}
+	else
+	{
+		l = 1.0f / l;
+		xr *= l; yr *= l; zr *= l; wr *= l;
+	}
+
+	float xr2 = cov[0] * xr + cov[1] * yr + cov[2] * zr + cov[3] * wr;
+	float xg2 = cov[1] * xr + cov[4] * yr + cov[5] * zr + cov[6] * wr;
+	float xb2 = cov[2] * xr + cov[5] * yr + cov[7] * zr + cov[8] * wr;
+	float xa2 = cov[3] * xr + cov[6] * yr + cov[8] * zr + cov[9] * wr;
+
+	// Rayleigh quotient/est var of principal axis
+	const float principal_axis_var = xr2 * xr + xg2 * yr + xb2 * zr + xa2 * wr;
+
+	// Compute leftover var, this is the var unexplaind by the principal axis
+	const float ortho_var = basisu::maximum(0.0f, total_var - principal_axis_var);
+
+	return ortho_var;
+}
+
+static float estimate_partition_rgb_sse(
+	const astc_ldr::pixel_stats_t& pixel_stats,
+	bool base_scale_flag,
+	uint32_t block_width, uint32_t block_height,
+	uint32_t num_subsets,
+	const astc_ldr::partition_pattern_vec* pPat)
+{
+	assert((num_subsets >= 2) && (num_subsets <= astc_helpers::MAX_PARTITIONS));
+
+	color_rgba part_pixels[astc_helpers::MAX_PARTITIONS][astc_ldr::ASTC_LDR_MAX_BLOCK_PIXELS];
+	uint32_t num_part_pixels[astc_helpers::MAX_PARTITIONS] = { 0 };
+
+	int part_means[astc_helpers::MAX_PARTITIONS][3];
+	clear_obj(part_means);
+
+	const uint32_t total_block_pixels = block_width * block_height;
+	
+	// TODO: A moment-based approach could do both RGB direct and base+scale simultaneously.
+
+	if (base_scale_flag)
+	{
+		for (uint32_t i = 0; i < total_block_pixels; i++)
+		{
+			const color_rgba& px = pixel_stats.m_pixels[i];
+
+			const uint32_t part_index = (*pPat)[i];
+			assert(part_index < num_subsets);
+
+			part_pixels[part_index][num_part_pixels[part_index]] = px;
+
+			num_part_pixels[part_index]++;
+
+		} // i
+	}
+	else
+	{
+		for (uint32_t i = 0; i < total_block_pixels; i++)
+		{
+			const color_rgba& px = pixel_stats.m_pixels[i];
+
+			const uint32_t part_index = (*pPat)[i];
+			assert(part_index < num_subsets);
+
+			part_pixels[part_index][num_part_pixels[part_index]] = px;
+
+			part_means[part_index][0] += px.r;
+			part_means[part_index][1] += px.g;
+			part_means[part_index][2] += px.b;
+
+			num_part_pixels[part_index]++;
+
+		} // i
+
+		for (uint32_t i = 0; i < num_subsets; i++)
+		{
+			assert(num_part_pixels[i] > 0);
+
+			const int n = num_part_pixels[i];
+			const int r = n >> 1;
+
+			part_means[i][0] = (part_means[i][0] + r) / n;
+			part_means[i][1] = (part_means[i][1] + r) / n;
+			part_means[i][2] = (part_means[i][2] + r) / n;
+		} // i
+	}
+
+	// rr, rg, rb, gg, gb, bb
+	int part_icov[astc_helpers::MAX_PARTITIONS][6];
+	clear_obj(part_icov);
+
+	for (uint32_t p = 0; p < num_subsets; p++)
+	{
+		const uint32_t np = num_part_pixels[p];
+
+		const int mean_r = part_means[p][0];
+		const int mean_g = part_means[p][1];
+		const int mean_b = part_means[p][2];
+
+		int* pCov = &part_icov[p][0];
+
+		for (uint32_t i = 0; i < np; i++)
+		{
+			const color_rgba& px = part_pixels[p][i];
+
+			const int r = (int)px.r - mean_r;
+			const int g = (int)px.g - mean_g;
+			const int b = (int)px.b - mean_b;
+
+			pCov[0] += r * r; pCov[1] += r * g; pCov[2] += r * b;
+			pCov[3] += g * g; pCov[4] += g * b;
+			pCov[5] += b * b;
+
+		} // i
+
+	} // p
+
+	float slam_to_line_sse_est = 0.0f;
+
+	for (uint32_t p = 0; p < num_subsets; p++)
+	{
+		const int block_max_var = basisu::maximum(part_icov[p][0], part_icov[p][3], part_icov[p][5]);
+
+		float cov[6];
+		for (uint32_t i = 0; i < 6; i++)
+			cov[i] = (float)part_icov[p][i];
+
+		const float sc = block_max_var ? (1.0f / (float)block_max_var) : 0;
+		const float wx = sc * cov[0], wy = sc * cov[3], wz = sc * cov[5];
+
+		// estimate principle axis using one iteration of the power method
+		const float alt_xr = cov[0] * wx + cov[1] * wy + cov[2] * wz;
+		const float alt_xg = cov[1] * wx + cov[3] * wy + cov[4] * wz;
+		const float alt_xb = cov[2] * wx + cov[4] * wy + cov[5] * wz;
+
+		slam_to_line_sse_est += estimate_slam_to_line_sse_3D(cov, alt_xr, alt_xg, alt_xb);
+
+	} // p
+
+	return slam_to_line_sse_est;
+}
+
+static float estimate_partition_rgba_sse(
+	const astc_ldr::pixel_stats_t& pixel_stats,
+	bool base_scale_flag,
+	uint32_t block_width, uint32_t block_height,
+	uint32_t num_subsets,
+	const astc_ldr::partition_pattern_vec* pPat)
+{
+	assert((num_subsets >= 2) && (num_subsets <= astc_helpers::MAX_PARTITIONS));
+
+	color_rgba part_pixels[astc_helpers::MAX_PARTITIONS][astc_ldr::ASTC_LDR_MAX_BLOCK_PIXELS];
+	uint32_t num_part_pixels[astc_helpers::MAX_PARTITIONS] = { 0 };
+
+	int part_means[astc_helpers::MAX_PARTITIONS][4];
+	clear_obj(part_means);
+
+	const uint32_t total_block_pixels = block_width * block_height;
+
+	if (base_scale_flag)
+	{
+		for (uint32_t i = 0; i < total_block_pixels; i++)
+		{
+			const color_rgba& px = pixel_stats.m_pixels[i];
+
+			const uint32_t part_index = (*pPat)[i];
+			assert(part_index < num_subsets);
+
+			part_pixels[part_index][num_part_pixels[part_index]] = px;
+
+			num_part_pixels[part_index]++;
+
+		} // i
+	}
+	else
+	{
+		for (uint32_t i = 0; i < total_block_pixels; i++)
+		{
+			const color_rgba& px = pixel_stats.m_pixels[i];
+
+			const uint32_t part_index = (*pPat)[i];
+			assert(part_index < num_subsets);
+
+			part_pixels[part_index][num_part_pixels[part_index]] = px;
+
+			part_means[part_index][0] += px.r;
+			part_means[part_index][1] += px.g;
+			part_means[part_index][2] += px.b;
+			part_means[part_index][3] += px.a;
+
+			num_part_pixels[part_index]++;
+
+		} // i
+
+		for (uint32_t i = 0; i < num_subsets; i++)
+		{
+			assert(num_part_pixels[i] > 0);
+
+			const int n = num_part_pixels[i];
+			const int r = n >> 1;
+
+			part_means[i][0] = (part_means[i][0] + r) / n;
+			part_means[i][1] = (part_means[i][1] + r) / n;
+			part_means[i][2] = (part_means[i][2] + r) / n;
+			part_means[i][3] = (part_means[i][3] + r) / n;
+		} // i
+	}
+
+	int part_icov4[astc_helpers::MAX_PARTITIONS][10];
+	clear_obj(part_icov4);
+
+	for (uint32_t p = 0; p < num_subsets; p++)
+	{
+		const uint32_t np = num_part_pixels[p];
+
+		const int mean_r = part_means[p][0];
+		const int mean_g = part_means[p][1];
+		const int mean_b = part_means[p][2];
+		const int mean_a = part_means[p][3];
+
+		int* pCov = &part_icov4[p][0];
+
+		for (uint32_t i = 0; i < np; i++)
+		{
+			const color_rgba& px = part_pixels[p][i];
+
+			const int r = (int)px.r - mean_r;
+			const int g = (int)px.g - mean_g;
+			const int b = (int)px.b - mean_b;
+			const int a = (int)px.a - mean_a;
+
+			pCov[0] += r * r; pCov[1] += r * g; pCov[2] += r * b; pCov[3] += r * a;
+			pCov[4] += g * g; pCov[5] += g * b; pCov[6] += g * a;
+			pCov[7] += b * b; pCov[8] += b * a;
+			pCov[9] += a * a;
+
+		} // i
+
+	} // p
+
+	float slam_to_line_sse_est = 0.0f;
+
+	for (uint32_t s = 0; s < num_subsets; s++)
+	{
+		const int block_max_var4 = basisu::maximum(part_icov4[s][0], part_icov4[s][4], part_icov4[s][7], part_icov4[s][9]);
+
+		float cov4[10];
+		for (uint32_t i = 0; i < 10; i++)
+			cov4[i] = (float)part_icov4[s][i];
+
+		const float sc4 = block_max_var4 ? (1.0f / (float)block_max_var4) : 0;
+		const float wx = sc4 * cov4[0], wy = sc4 * cov4[4], wz = sc4 * cov4[7], wa = sc4 * cov4[9];
+
+		const float x0 = cov4[0] * wx + cov4[1] * wy + cov4[2] * wz + cov4[3] * wa;
+		const float y0 = cov4[1] * wx + cov4[4] * wy + cov4[5] * wz + cov4[6] * wa;
+		const float z0 = cov4[2] * wx + cov4[5] * wy + cov4[7] * wz + cov4[8] * wa;
+		const float w0 = cov4[3] * wx + cov4[6] * wy + cov4[8] * wz + cov4[9] * wa;
+
+		const float x1 = cov4[0] * x0 + cov4[1] * y0 + cov4[2] * z0 + cov4[3] * w0;
+		const float y1 = cov4[1] * x0 + cov4[4] * y0 + cov4[5] * z0 + cov4[6] * w0;
+		const float z1 = cov4[2] * x0 + cov4[5] * y0 + cov4[7] * z0 + cov4[8] * w0;
+		const float w1 = cov4[3] * x0 + cov4[6] * y0 + cov4[8] * z0 + cov4[9] * w0;
+
+		slam_to_line_sse_est += estimate_slam_to_line_sse_4D(cov4, x1, y1, z1, w1);
+
+	} // s
+
+	return slam_to_line_sse_est;
+}
+
+static inline float estimate_partition_sse(uint32_t cem_index,
+	const astc_ldr::pixel_stats_t& pixel_stats,
+	uint32_t block_width, uint32_t block_height,
+	uint32_t num_subsets,
+	const astc_ldr::partition_pattern_vec* pPat)
+{
+	switch (cem_index)
+	{
+	// RGB
+	case astc_helpers::CEM_LDR_RGB_DIRECT:
+		return estimate_partition_rgb_sse(pixel_stats, false, block_width, block_height, num_subsets, pPat);
+	case astc_helpers::CEM_LDR_RGB_BASE_SCALE:
+		return estimate_partition_rgb_sse(pixel_stats, true, block_width, block_height, num_subsets, pPat);
+
+	// RGBA
+	case astc_helpers::CEM_LDR_RGBA_DIRECT:
+		return estimate_partition_rgba_sse(pixel_stats, false, block_width, block_height, num_subsets, pPat);
+	case astc_helpers::CEM_LDR_RGB_BASE_SCALE_PLUS_TWO_A:
+		return estimate_partition_rgba_sse(pixel_stats, true, block_width, block_height, num_subsets, pPat);
+
+	default:
+		assert(0);
+		break;
+	}
+
+	return 0;
+}
+
+#define BASISU_USE_LSH2 (1)
+#define BASISU_USE_LSH3 (1)
+#define BASISU_LSH_FILTERING true
+
 static bool estimate_partition2(
 	uint32_t block_width, uint32_t block_height,
 	const astc_ldr::pixel_stats_t& pixels,
-	int* pBest_parts, uint32_t num_best_parts, // unique indices, not ASTC seeds
-	const astc_ldr::partitions_data* pPart_data, bool brute_force_flag)
+	int* pBest_parts, // unique indices, not ASTC seeds
+	int &num_best_parts, // will be modified with the actual number of results
+	const astc_ldr::partitions_data* pPart_data, 
+	bool brute_force_flag)
 {
-	assert(num_best_parts && (num_best_parts <= pPart_data->m_total_unique_patterns));
+	assert(num_best_parts && (num_best_parts <= (int)pPart_data->m_total_unique_patterns));
 
 	const uint32_t num_block_pixels = block_width * block_height;
 
@@ -2201,8 +3088,54 @@ static bool estimate_partition2(
 
 		std::sort(part_similarity, part_similarity + pPart_data->m_total_unique_patterns);
 
-		for (uint32_t i = 0; i < num_best_parts; i++)
+		for (int i = 0; i < num_best_parts; i++)
 			pBest_parts[i] = part_similarity[(pPart_data->m_total_unique_patterns - 1) - i] & 0xFFFF;
+	}
+	else if (BASISU_USE_LSH2)
+	{
+		astc_ldr::partition_pattern_vec desired_part(block_width, block_height);
+		astc_ldr::partition_pattern_vec desired_part_alt(block_width, block_height);
+
+		for (uint32_t i = 0; i < num_block_pixels; i++)
+		{
+			float proj = (pixels.m_pixels_f[i] - pixels.m_mean_f).dot(pixels.m_mean_rel_axis4);
+
+			desired_part.m_parts[i] = proj < 0.0f;
+			desired_part_alt.m_parts[i] = 1 - desired_part.m_parts[i];
+		}
+
+		uint32_t results[astc_helpers::NUM_PARTITION_PATTERNS];
+		uint32_t total_results = pPart_data->m_part_lhs_map.find(desired_part, results, astc_helpers::NUM_PARTITION_PATTERNS, BASISU_LSH_FILTERING);
+
+		if (!total_results)
+		{
+			num_best_parts = 0;
+			return false;
+		}
+
+		uint32_t part_similarity[astc_helpers::NUM_PARTITION_PATTERNS];
+
+		for (uint32_t res_index = 0; res_index < total_results; res_index++)
+		{
+			const uint32_t part_index = results[res_index];
+
+			const astc_ldr::partition_pattern_vec& pat_vec = pPart_data->m_partition_pats[part_index];
+
+			const int dist2_a = desired_part.get_squared_distance_2subsets(pat_vec);
+			const int dist2_b = desired_part_alt.get_squared_distance_2subsets(pat_vec);
+				
+			const int dist2 = minimum(dist2_a, dist2_b);
+								
+			part_similarity[res_index] = (dist2 << 16) | part_index;
+
+		} // part_index;
+
+		std::sort(part_similarity, part_similarity + total_results);
+
+		num_best_parts = minimum<int>(num_best_parts, total_results);
+
+		for (int i = 0; i < num_best_parts; i++)
+			pBest_parts[i] = part_similarity[i] & 0xFFFF;
 	}
 	else
 	{
@@ -2220,7 +3153,7 @@ static bool estimate_partition2(
 
 		pPart_data->m_part_vp_tree.find_nearest(2, desired_part, results, num_best_parts);
 
-		assert(results.get_size() == num_best_parts);
+		assert((int)results.get_size() == num_best_parts);
 
 		const auto& elements = results.get_elements();
 
@@ -2234,16 +3167,18 @@ static bool estimate_partition2(
 static bool estimate_partition3(
 	uint32_t block_width, uint32_t block_height,
 	const astc_ldr::pixel_stats_t& pixels,
-	int* pBest_parts, uint32_t num_best_parts,
+	int* pBest_parts, 
+	int &num_best_parts, // will be modified with the actual number of results
 	const astc_ldr::partitions_data* pPart_data, bool brute_force_flag)
 {
-	assert(num_best_parts && (num_best_parts <= pPart_data->m_total_unique_patterns));
+	assert(num_best_parts && (num_best_parts <= (int)pPart_data->m_total_unique_patterns));
 
 	vec4F training_vecs[astc_ldr::ASTC_LDR_MAX_BLOCK_PIXELS], mean(0.0f);
 
 	const uint32_t num_block_pixels = block_width * block_height, NUM_SUBSETS = 3;
 
-	float brightest_inten = 0.0f, darkest_inten = BIG_FLOAT_VAL;
+	float brightest_inten = -BIG_FLOAT_VAL, darkest_inten = BIG_FLOAT_VAL;
+
 	vec4F cluster_centroids[NUM_SUBSETS];
 	clear_obj(cluster_centroids);
 
@@ -2252,8 +3187,8 @@ static bool estimate_partition3(
 		vec4F& v = training_vecs[i];
 
 		v = pixels.m_pixels_f[i];
-
-		float inten = v.dot(vec4F(1.0f));
+				
+		float inten = (v - pixels.m_mean_f).dot(pixels.m_mean_rel_axis4);
 		if (inten < darkest_inten)
 		{
 			darkest_inten = inten;
@@ -2387,7 +3322,49 @@ static bool estimate_partition3(
 
 		std::sort(part_similarity, part_similarity + pPart_data->m_total_unique_patterns);
 
-		for (uint32_t i = 0; i < num_best_parts; i++)
+		for (int i = 0; i < num_best_parts; i++)
+			pBest_parts[i] = part_similarity[i] & 0xFFFF;
+	}
+	else if (BASISU_USE_LSH3)
+	{
+		astc_ldr::partition_pattern_vec desired_parts[astc_ldr::NUM_PART3_MAPPINGS];
+		for (uint32_t j = 0; j < astc_ldr::NUM_PART3_MAPPINGS; j++)
+			desired_parts[j] = desired_part.get_permuted3(j);
+
+		uint32_t results[astc_helpers::NUM_PARTITION_PATTERNS];
+		uint32_t total_results = pPart_data->m_part_lhs_map.find(desired_part, results, astc_helpers::NUM_PARTITION_PATTERNS, BASISU_LSH_FILTERING);
+
+		if (!total_results)
+		{
+			num_best_parts = 0;
+			return false;
+		}
+
+		uint32_t part_similarity[astc_helpers::NUM_PARTITION_PATTERNS];
+
+		for (uint32_t res_index = 0; res_index < total_results; res_index++)
+		{
+			const uint32_t part_index = results[res_index];
+
+			const astc_ldr::partition_pattern_vec& pat = pPart_data->m_partition_pats[part_index];
+
+			uint32_t lowest_pat_dist = UINT32_MAX;
+			for (uint32_t p = 0; p < astc_ldr::NUM_PART3_MAPPINGS; p++)
+			{
+				uint32_t dist = pat.get_squared_distance(desired_parts[p]);
+				if (dist < lowest_pat_dist)
+					lowest_pat_dist = dist;
+			}
+
+			part_similarity[res_index] = (lowest_pat_dist << 16) | part_index;
+
+		} // part_index;
+
+		std::sort(part_similarity, part_similarity + total_results);
+
+		num_best_parts = minimum<int>(num_best_parts, total_results);
+
+		for (int i = 0; i < num_best_parts; i++)
 			pBest_parts[i] = part_similarity[i] & 0xFFFF;
 	}
 	else
@@ -2397,7 +3374,7 @@ static bool estimate_partition3(
 
 		pPart_data->m_part_vp_tree.find_nearest(3, desired_part, results, num_best_parts);
 
-		assert(results.get_size() == num_best_parts);
+		assert((int)results.get_size() == num_best_parts);
 
 		const auto& elements = results.get_elements();
 
@@ -2424,7 +3401,7 @@ static const float g_sobel_y[3][3] = // [y][x]
 	{  1.0f,  2.0f,  1.0f }
 };
 
-void compute_sobel(const image& orig, image& dest, const float* pMatrix_3x3)
+static void compute_sobel(const image& orig, image& dest, const float* pMatrix_3x3)
 {
 	const uint32_t width = orig.get_width();
 	const uint32_t height = orig.get_height();
@@ -2460,18 +3437,25 @@ void compute_sobel(const image& orig, image& dest, const float* pMatrix_3x3)
 	} // y
 }
 
-void compute_energy_from_dct(uint32_t block_width, uint32_t block_height, float* pDCT)
+// Returns total energy excluding DC
+static float compute_ac_energy_from_dct(uint32_t block_width, uint32_t block_height, float* pDCT)
 {
 	const uint32_t num_texels = block_width * block_height;
 
+	float total_energy = 0.0f;
 	for (uint32_t i = 1; i < num_texels; i++)
-		pDCT[i] = square(pDCT[i]);
+	{
+		const float v = square(pDCT[i]);
+		pDCT[i] = v;
+		total_energy += v;
+	}
 
 	pDCT[0] = 0.0f;
+	return total_energy;
 }
 
 // Results scaled by # block texels (block-SSE in weight space)
-float compute_preserved_dct_energy(uint32_t block_width, uint32_t block_height, const float* pEnergy, uint32_t grid_w, uint32_t grid_h)
+static float compute_preserved_dct_energy(uint32_t block_width, uint32_t block_height, const float* pEnergy, uint32_t grid_w, uint32_t grid_h)
 {
 	float tot = 0.0f;
 
@@ -2488,7 +3472,7 @@ float compute_preserved_dct_energy(uint32_t block_width, uint32_t block_height, 
 }
 
 // Results scaled by # block texels (block-SSE in weight space)
-inline float compute_lost_dct_energy(uint32_t block_width, uint32_t block_height, const float* pEnergy, uint32_t grid_w, uint32_t grid_h)
+[[maybe_unused]] static inline float compute_lost_dct_energy_orig(uint32_t block_width, uint32_t block_height, const float* pEnergy, uint32_t grid_w, uint32_t grid_h)
 {
 	float tot = 0.0f;
 
@@ -2504,6 +3488,73 @@ inline float compute_lost_dct_energy(uint32_t block_width, uint32_t block_height
 	}
 
 	return tot;
+}
+
+static inline float compute_lost_dct_energy(uint32_t block_width, uint32_t block_height, const float* pEnergy, uint32_t grid_w, uint32_t grid_h)
+{
+	float tot0 = 0.0f, tot1 = 0.0f, tot2 = 0.0f, tot3 = 0.0f;
+
+	const float* pSrc_row = pEnergy;
+	for (uint32_t y = 0; y < block_height; y++, pSrc_row += block_width)
+	{
+		uint32_t x = (y < grid_h) ?  grid_w : 0;
+
+		while ((x + 4) <= block_width)
+		{
+			tot0 += pSrc_row[x + 0];
+			tot1 += pSrc_row[x + 1];
+			tot2 += pSrc_row[x + 2];
+			tot3 += pSrc_row[x + 3];
+			x += 4;
+		}
+
+		while (x < block_width)
+		{
+			tot0 += pSrc_row[x];
+			++x;
+		}
+	} // y
+
+	return tot0 + tot1 + tot2 + tot3;
+}
+
+// Build 2D prefix sums over a row-major block of energies.
+// prefix[x + y * block_width] contains the sum over [0..x] x [0..y], inclusive.
+static inline void prepare_dct_energy_prefix_table(uint32_t block_width, uint32_t block_height, const float* pEnergy, float* pPrefix)
+{
+	for (uint32_t y = 0; y < block_height; y++)
+	{
+		float row_sum = 0.0f;
+
+		for (uint32_t x = 0; x < block_width; x++)
+		{
+			row_sum += pEnergy[x + y * block_width];
+
+			float above = 0.0f;
+			if (y > 0)
+				above = pPrefix[x + (y - 1) * block_width];
+
+			pPrefix[x + y * block_width] = row_sum + above;
+		}
+	}
+}
+
+// Sum of the origin-anchored rectangle [0, grid_w) x [0, grid_h).
+static inline float query_dct_energy_prefix_sum(uint32_t block_width, uint32_t block_height, const float* pPrefix, uint32_t grid_w, uint32_t grid_h)
+{
+	(void)block_height;
+
+	assert((grid_w >= 1) && (grid_w <= block_width));
+	assert((grid_h >= 1) && (grid_h <= block_height));
+
+	return pPrefix[(grid_w - 1) + (grid_h - 1) * block_width];
+}
+
+static inline float compute_lost_dct_energy_prefix_sum(uint32_t block_width, uint32_t block_height, const float* pEnergy_prefix_sum, uint32_t grid_w, uint32_t grid_h, float total_ac_energy)
+{
+	const float kept_energy = query_dct_energy_prefix_sum(block_width, block_height, pEnergy_prefix_sum, grid_w, grid_h);
+
+	return maximum<float>(total_ac_energy - kept_energy, 0.0f);
 }
 
 struct ldr_astc_lowlevel_block_encoder_params
@@ -2552,20 +3603,32 @@ struct ldr_astc_lowlevel_block_encoder_params
 		m_gradient_descent_flag = true;
 		m_polish_weights_flag = true;
 		m_qcd_enabled_flag = true;
+		m_encode_trial_early_out_thresh = .1f;
+		m_encode_trial_subsets_early_out_thresh = .1f;
 
 		m_final_encode_try_base_ofs = true;
 		m_final_encode_always_try_rgb_direct = false; // if true, even if base_ofs succeeds, we try RGB/RGBA direct too
 
+#if 0
 		m_use_parts_std_dev_thresh = (8.0f / 255.0f);
 		m_use_parts_std_dev_thresh2 = (40.0f / 255.0f);
 		m_sobel_energy_thresh1 = 3200.0f;
 		m_sobel_energy_thresh2 = 30000.0f;
 		m_sobel_energy_thresh3 = 50000.0f;
+#else
+		const float s = .2f; // exp
+		m_use_parts_std_dev_thresh = (8.0f / 255.0f) * s;
+		m_use_parts_std_dev_thresh2 = (40.0f / 255.0f) * s;
+		m_sobel_energy_thresh1 = 3200.0f * s;
+		m_sobel_energy_thresh2 = 30000.0f * s;
+		m_sobel_energy_thresh3 = 50000.0f * s;
+#endif
 
 		m_part2_fraction_to_keep = 2;
 		m_part3_fraction_to_keep = 2;
 		m_base_parts2 = 32;
 		m_base_parts3 = 32;
+		m_use_fast_part_est_stage2 = true;
 
 		// TODO: Prehaps expose this at a higher level.
 		m_use_blue_contraction = true;
@@ -2625,12 +3688,16 @@ struct ldr_astc_lowlevel_block_encoder_params
 	bool m_gradient_descent_flag;
 	bool m_polish_weights_flag;
 	bool m_qcd_enabled_flag;
+	
+	float m_encode_trial_early_out_thresh;
+	float m_encode_trial_subsets_early_out_thresh;
 
 	bool m_final_encode_try_base_ofs;
 	bool m_final_encode_always_try_rgb_direct;
 
 	bool m_brute_force_est_parts;
 	bool m_disable_part_est_stage2; // only use single stage partition estimation
+	bool m_use_fast_part_est_stage2; 
 
 	bool m_use_blue_contraction; // currently global enable/disable
 
@@ -2648,7 +3715,7 @@ struct ldr_astc_lowlevel_block_encoder_params
 	float m_early_stop_wpsnr;
 	float m_early_stop2_wpsnr;
 
-	basist::astc_ldr_t::dct2f* m_pDCT2F; // at block size
+	const basist::astc_ldr_t::dct2f* m_pDCT2F; // at block size
 };
 
 struct trial_surrogate
@@ -2674,7 +3741,7 @@ struct trial_surrogate
 struct encode_block_output
 {
 	int16_t m_trial_mode_index; // -1 = solid, no trial mode
-	uint16_t m_blur_id; // blur index
+	uint16_t m_blur_id; // blur index, or codec identifier
 
 	astc_helpers::log_astc_block m_log_blk;
 
@@ -2741,8 +3808,9 @@ struct weight_terms
 			weight_var += squaref(pWeights[i] - m_mean);
 		m_var = weight_var / (float)n;
 
-		// drops below 2/3 on smooth blocks and tends to 2/3 when weights are well spread
-		m_endpoint_factor = (1.0f + 2.0f * m_var + 2.0f * m_mean * m_mean - 2.0f * m_mean) / (2.0f / 3.0f);
+		// drops below 2/3 on smooth blocks and tends to 2/3 when weights are well spread (so normalized by (2.0f / 3.0f))
+		//m_endpoint_factor = (1.0f + 2.0f * m_var + 2.0f * m_mean * m_mean - 2.0f * m_mean) / (2.0f / 3.0f);
+		m_endpoint_factor = (1.0f + 2.0f * m_var + 2.0f * m_mean * m_mean - 2.0f * m_mean) * (3.0f / 2.0f);
 		m_endpoint_factor = clamp<float>(m_endpoint_factor, .25f, 1.50f);
 
 		const float UNIFORM_VAR = 1.0f / 12.0f;
@@ -2754,13 +3822,18 @@ struct weight_terms
 };
 
 // weight_gamma is block size/grid size specific factor (0,1] (the amount of MSE quant error remaining taking into account bilinear smoothing)
-inline chan_mse_est compute_quantized_channel_mse_estimates(uint32_t num_endpoint_levels, uint32_t num_weight_levels, float span_size, float weight_gamma, const weight_terms* pWeight_terms = nullptr)
+static inline chan_mse_est compute_quantized_channel_mse_estimates(uint32_t num_endpoint_levels, uint32_t num_weight_levels, float span_size, float weight_gamma, const weight_terms* pWeight_terms = nullptr)
 {
 	assert(num_endpoint_levels >= 2);
 	assert(num_weight_levels >= 2);
 
 	const float Dep = 1.0f / (float)(num_endpoint_levels - 1); // endpoint quant step
+	
+#if BASISU_MODIFIED_WEIGHT_QUANT_MSE_ESTIMATE
+	const float Dw = 1.0f / (float)(num_weight_levels); // weight quant step
+#else
 	const float Dw = 1.0f / (float)(num_weight_levels - 1); // weight quant step
+#endif
 
 	// Endpoint quant MSE estimate is not span dependent
 	float ep_lower = (Dep * Dep) / 12.0f * (2.0f / 3.0f);
@@ -2777,14 +3850,14 @@ inline chan_mse_est compute_quantized_channel_mse_estimates(uint32_t num_endpoin
 	return chan_mse_est(ep_lower, wq_lower);
 }
 
-inline float compute_quantized_channel_endpoint_mse_estimate(uint32_t num_endpoint_levels, const weight_terms* pWeight_terms = nullptr)
+static inline float compute_quantized_channel_endpoint_mse_estimate(uint32_t num_endpoint_levels, const weight_terms* pWeight_terms = nullptr)
 {
 	assert(num_endpoint_levels >= 2);
 
 	const float Dep = 1.0f / (float)(num_endpoint_levels - 1); // endpoint quant step
 
 	// Endpoint quant MSE estimate is not span dependent
-	float ep_lower = (Dep * Dep) / 12.0f * (2.0f / 3.0f);
+	float ep_lower = (Dep * Dep) * (1.0f / 12.0f) * (2.0f / 3.0f);
 
 	if (pWeight_terms)
 		ep_lower *= pWeight_terms->m_endpoint_factor;
@@ -2792,14 +3865,18 @@ inline float compute_quantized_channel_endpoint_mse_estimate(uint32_t num_endpoi
 	return ep_lower;
 }
 
-inline float compute_quantized_channel_weight_mse_estimate(uint32_t num_weight_levels, float span_size, float weight_gamma, const weight_terms* pWeight_terms = nullptr)
+static inline float compute_quantized_channel_weight_mse_estimate(uint32_t num_weight_levels, float span_size, float weight_gamma, const weight_terms* pWeight_terms = nullptr)
 {
 	assert(num_weight_levels >= 2);
-
+		
+#if BASISU_MODIFIED_WEIGHT_QUANT_MSE_ESTIMATE
+	const float Dw = 1.0f / (float)(num_weight_levels); // weight quant step
+#else
 	const float Dw = 1.0f / (float)(num_weight_levels - 1); // weight quant step
+#endif
 
 	// Weight quant MSE estimate is span dependent
-	float wq_lower = (Dw * Dw) / 12.0f * weight_gamma * (span_size * span_size);
+	float wq_lower = (Dw * Dw) * (1.0f / 12.0f) * weight_gamma * (span_size * span_size);
 
 	if (pWeight_terms)
 		wq_lower *= pWeight_terms->m_weight_spread_scale;
@@ -2868,6 +3945,7 @@ typedef basisu::hash_map<shortlist_bucket, trial_mode_index_vec > shortlist_buck
 struct trial_mode_estimate_superbucket_key
 {
 	// All member vars from beginning to m_last will be hashed. Be careful of alignment.
+	// Total size must be sizeof(uint64_t). Unused members MUST be set to 0.
 	uint8_t m_cem_index;
 	int8_t m_ccs_index;
 	uint16_t m_subset_unique_index;
@@ -2876,23 +3954,48 @@ struct trial_mode_estimate_superbucket_key
 	uint8_t m_last;
 	uint8_t m_unused[2];
 
-	trial_mode_estimate_superbucket_key()
+	inline trial_mode_estimate_superbucket_key()
 	{
 		static_assert((sizeof(*this) % 4) == 0, "struct size must be divisible by 4");
 	}
 
-	void clear()
+	inline void clear()
 	{
 		clear_obj(*this);
 	}
 
-	operator size_t() const
+	inline operator size_t() const
 	{
+#if 0
 		return basist::hash_hsieh((const uint8_t*)this, BASISU_OFFSETOF(trial_mode_estimate_superbucket_key, m_last));
+#elif 1
+		static_assert(sizeof(*this) == sizeof(uint64_t), "struct size must be sizeof(uint64_t)");
+
+		uint64_t x = *reinterpret_cast<const uint64_t*>(this);
+
+		x ^= (x >> 33);
+		x *= 0xff51afd7ed558ccdULL; // Murmur finalizer constant
+		x ^= (x >> 33);
+
+		return (size_t)x;
+#else
+		uint64_t x =
+			(uint64_t)m_cem_index |
+			(((uint64_t)(uint8_t)m_ccs_index) << 8) |
+			(((uint64_t)m_subset_unique_index) << 16) |
+			(((uint64_t)m_num_subsets) << 32);
+
+		x ^= (x >> 33);
+		x *= 0xff51afd7ed558ccdULL; // Murmur finalizer constant
+		x ^= (x >> 33);
+
+		return (size_t)x;
+#endif
 	}
 
-	bool operator== (const trial_mode_estimate_superbucket_key& rhs) const
+	inline bool operator== (const trial_mode_estimate_superbucket_key& rhs) const
 	{
+#if 0
 #define COMP(e) if (e != rhs.e) return false;
 		COMP(m_cem_index);
 		COMP(m_ccs_index);
@@ -2900,6 +4003,16 @@ struct trial_mode_estimate_superbucket_key
 		COMP(m_num_subsets);
 #undef COMP
 		return true;
+#endif
+
+		static_assert(sizeof(*this) == sizeof(uint64_t), "struct size must be sizeof(uint64_t)");
+
+		return *reinterpret_cast<const uint64_t*>(this) == *reinterpret_cast<const uint64_t*>(&rhs);
+	}
+
+	inline bool operator!= (const trial_mode_estimate_superbucket_key& rhs) const
+	{
+		return !(*this == rhs);
 	}
 };
 #pragma pack(pop)
@@ -3077,7 +4190,7 @@ struct ldr_astc_lowlevel_block_encoder
 			assert(total_parts2 <= (int)std::size(best_parts2_temp));
 
 			// Stage 1: kmeans+vptree
-			const bool has_est_parts2 = estimate_partition2(
+			bool has_est_parts2 = estimate_partition2(
 				p.m_block_width, p.m_block_height,
 				pixel_stats,
 				best_parts2_temp, total_parts2,
@@ -3115,17 +4228,25 @@ struct ldr_astc_lowlevel_block_encoder
 						const astc_ldr::partition_pattern_vec* pPat = &pPart_data->m_partition_pats[unique_seed_index];
 
 						log_surrogate_astc_blk surrogate_log_blk;
-						float sse = encode_surrogate_trial_subsets(
-							p.m_block_width, p.m_block_height,
-							pixel_stats,
-							cem_to_surrogate_encode, 2, part_seed_index, pPat,
-							astc_helpers::BISE_256_LEVELS, astc_helpers::BISE_64_LEVELS,
-							p.m_block_width, p.m_block_height,
-							surrogate_log_blk,
-							*p.m_pEnc_params, surrogate_encode_flags);
-
-						stats.m_total_surrogate_encodes++;
-
+						float sse;
+						if (p.m_use_fast_part_est_stage2)
+						{
+							sse = estimate_partition_sse(cem_to_surrogate_encode, pixel_stats, p.m_block_width, p.m_block_height, 2, pPat);
+						}
+						else
+						{
+							sse = encode_surrogate_trial_subsets(
+								p.m_block_width, p.m_block_height,
+								pixel_stats,
+								cem_to_surrogate_encode, 2, part_seed_index, pPat,
+								astc_helpers::BISE_256_LEVELS, astc_helpers::BISE_64_LEVELS,
+								p.m_block_width, p.m_block_height,
+								surrogate_log_blk,
+								*p.m_pEnc_params, surrogate_encode_flags);
+							
+							stats.m_total_surrogate_encodes++;
+						}
+												
 						part_sses[i] = sse;
 					} // i
 
@@ -3196,17 +4317,25 @@ struct ldr_astc_lowlevel_block_encoder
 						const astc_ldr::partition_pattern_vec* pPat = &pPart_data->m_partition_pats[unique_seed_index];
 
 						log_surrogate_astc_blk surrogate_log_blk;
-						float sse = encode_surrogate_trial_subsets(
-							p.m_block_width, p.m_block_height,
-							pixel_stats,
-							cem_to_surrogate_encode, 3, part_seed_index, pPat,
-							astc_helpers::BISE_256_LEVELS, astc_helpers::BISE_64_LEVELS,
-							p.m_block_width, p.m_block_height,
-							surrogate_log_blk,
-							*p.m_pEnc_params, surrogate_encode_flags);
-
-						stats.m_total_surrogate_encodes++;
-
+						float sse;
+						if (p.m_use_fast_part_est_stage2)
+						{
+							sse = estimate_partition_sse(cem_to_surrogate_encode, pixel_stats, p.m_block_width, p.m_block_height, 3, pPat);
+						}
+						else
+						{
+							sse = encode_surrogate_trial_subsets(
+								p.m_block_width, p.m_block_height,
+								pixel_stats,
+								cem_to_surrogate_encode, 3, part_seed_index, pPat,
+								astc_helpers::BISE_256_LEVELS, astc_helpers::BISE_64_LEVELS,
+								p.m_block_width, p.m_block_height,
+								surrogate_log_blk,
+								*p.m_pEnc_params, surrogate_encode_flags);
+							
+							stats.m_total_surrogate_encodes++;
+						}
+												
 						part_sses[i] = sse;
 					} // i
 
@@ -3313,8 +4442,9 @@ struct ldr_astc_lowlevel_block_encoder
 
 					for (uint32_t grid_size_index = 0; grid_size_index < basist::astc_ldr_t::OTM_NUM_GRID_SIZES; grid_size_index++)
 					{
-						if (grid_size_index) // if large grid
+						if (grid_size_index) 
 						{
+							// if "large" grid (gw>=(bw-1)) and (gh>=(bh-1)) - quite conservative filter
 							if (p.m_use_small_grids_only)
 								continue;
 						}
@@ -3325,20 +4455,20 @@ struct ldr_astc_lowlevel_block_encoder
 							{
 								if (grid_anisos_index == 1)
 								{
-									// W>=H
+									// W_fract >= H_fract
 									if (p.m_filter_horizontally_flag)
 										continue;
 								}
 								else if (grid_anisos_index == 2)
 								{
-									// W<H
+									// W_fract < H_fract
 									if (!p.m_filter_horizontally_flag)
 										continue;
 								}
 							}
 
 							m_trial_modes_to_estimate.append(p.m_pGrouped_trial_modes->m_tm_groups[cem_index][subsets_index][ccs_index][grid_size_index][grid_anisos_index]);
-
+							
 						} // grid_aniso_index
 
 					} // grid_size_index
@@ -3416,6 +4546,10 @@ struct ldr_astc_lowlevel_block_encoder
 
 			// Create superbuckets
 			uint32_t max_superbucket_tm_indices = 0;
+
+			trial_mode_estimate_superbucket_hash::insert_result superbucket_ins_res;
+			bool superbucket_ins_res_is_valid = false;
+			
 			for (uint32_t j = 0; j < m_trial_modes_to_estimate.size(); j++)
 			{
 				const uint32_t trial_mode_iter = m_trial_modes_to_estimate[j];
@@ -3431,14 +4565,19 @@ struct ldr_astc_lowlevel_block_encoder
 
 				if (tm.m_num_parts == 1)
 				{
-					auto ins_res = m_superbucket_hash.insert(new_key, new_val);
-					const bool created_flag = ins_res.second;
+					bool created_flag = false;
+					if ((!superbucket_ins_res_is_valid) || (new_key != (superbucket_ins_res.first)->first))
+					{
+						superbucket_ins_res = m_superbucket_hash.insert(new_key, new_val);
+						created_flag = superbucket_ins_res.second;
+						superbucket_ins_res_is_valid = true;
+					}
 
-					assert(ins_res.first->first.m_cem_index == tm.m_cem);
-					assert(ins_res.first->first.m_ccs_index == tm.m_ccs_index);
-					assert(ins_res.first->first.m_num_subsets == tm.m_num_parts);
+					assert(superbucket_ins_res.first->first.m_cem_index == tm.m_cem);
+					assert(superbucket_ins_res.first->first.m_ccs_index == tm.m_ccs_index);
+					assert(superbucket_ins_res.first->first.m_num_subsets == tm.m_num_parts);
 
-					trial_mode_estimate_superbucket_value& v = (ins_res.first)->second;
+					trial_mode_estimate_superbucket_value& v = (superbucket_ins_res.first)->second;
 
 					if (created_flag)
 						v.m_trial_mode_list.reserve(256);
@@ -3460,14 +4599,19 @@ struct ldr_astc_lowlevel_block_encoder
 
 						new_key.m_subset_unique_index = safe_cast_uint16(part_unique_index);
 
-						auto ins_res = m_superbucket_hash.insert(new_key, new_val);
-						const bool created_flag = ins_res.second;
+						bool created_flag = false;
+						if ((!superbucket_ins_res_is_valid) || (new_key != (superbucket_ins_res.first)->first))
+						{
+							superbucket_ins_res = m_superbucket_hash.insert(new_key, new_val);
+							created_flag = superbucket_ins_res.second;
+							superbucket_ins_res_is_valid = true;
+						}
 
-						assert(ins_res.first->first.m_cem_index == tm.m_cem);
-						assert(ins_res.first->first.m_ccs_index == tm.m_ccs_index);
-						assert(ins_res.first->first.m_num_subsets == tm.m_num_parts);
+						assert(superbucket_ins_res.first->first.m_cem_index == tm.m_cem);
+						assert(superbucket_ins_res.first->first.m_ccs_index == tm.m_ccs_index);
+						assert(superbucket_ins_res.first->first.m_num_subsets == tm.m_num_parts);
 
-						trial_mode_estimate_superbucket_value& v = (ins_res.first)->second;
+						trial_mode_estimate_superbucket_value& v = (superbucket_ins_res.first)->second;
 						if (created_flag)
 							v.m_trial_mode_list.reserve(256);
 
@@ -3491,17 +4635,14 @@ struct ldr_astc_lowlevel_block_encoder
 
 			const uint32_t max_priority_queue_size = p.m_superbucket_max_to_retain[m_block_complexity_index];
 
-			// purposely downscale lost scale energy relative to the other error sources
-			// this biased the encoder towards smaller grids
 			const float SLAM_TO_LINE_WEIGHT = 1.5f; // upweight STL relative to other errors to give the estimator more of a signal especially for dual plane
-			const float QUANT_ERROR_WEIGHT = 1.0f; // quant error is naturally quite pessimistic
+			const float QUANT_ERROR_WEIGHT = 1.0f; // endpoint/weight quant error
 			const float SCALE_ERROR_WEIGHT = 3.0f; // weight grid downsample (scale) error
-			
+						
 			// Discount for blue contraction encoding and base+offset CEM's.
 			const float BLUE_CONTRACTION_ENDPOINT_QUANT_DISCOUNT = .5f;
 
 			// Iterate over all superbuckets, surrogate encode to compute slam to line error, DCT of weight grid(s) to estimate energy lost during weight grid downsampling.
-			// TODO: priority queue and aggressive early outs
 			for (auto superbucket_iter = m_superbucket_hash.begin(); superbucket_iter != m_superbucket_hash.end(); ++superbucket_iter)
 			{
 				const trial_mode_estimate_superbucket_key& key = superbucket_iter->first;
@@ -3583,21 +4724,30 @@ struct ldr_astc_lowlevel_block_encoder
 				float weight0_energy[astc_ldr::ASTC_LDR_MAX_BLOCK_PIXELS];
 				float weight1_energy[astc_ldr::ASTC_LDR_MAX_BLOCK_PIXELS];
 
+				float weight0_energy_prefix_sum[astc_ldr::ASTC_LDR_MAX_BLOCK_PIXELS];
+				float weight1_energy_prefix_sum[astc_ldr::ASTC_LDR_MAX_BLOCK_PIXELS];
+
 				basist::astc_ldr_t::fvec& dct_work = m_dct_work;
 
 				// Forward DCT in normalized weight (surrogate) space
 				p.m_pDCT2F->forward(log_blk.m_weights0, weight0_energy, dct_work);
-				compute_energy_from_dct(p.m_block_width, p.m_block_height, weight0_energy);
+				const float total_weight0_ac_energy = compute_ac_energy_from_dct(p.m_block_width, p.m_block_height, weight0_energy);
+				prepare_dct_energy_prefix_table(p.m_block_width, p.m_block_height, weight0_energy, weight0_energy_prefix_sum);
+
+				float total_weight1_ac_energy = 0.0f;
 
 				if (key.m_ccs_index >= 0)
 				{
 					p.m_pDCT2F->forward(log_blk.m_weights1, weight1_energy, dct_work);
-					compute_energy_from_dct(p.m_block_width, p.m_block_height, weight1_energy);
+
+					total_weight1_ac_energy = compute_ac_energy_from_dct(p.m_block_width, p.m_block_height, weight1_energy);
+					prepare_dct_energy_prefix_table(p.m_block_width, p.m_block_height, weight1_energy, weight1_energy_prefix_sum);
 				}
 
 				weight_terms weight0_terms, weight1_terms;
 				weight_terms* pWeight0_terms = &weight0_terms;
 				weight_terms* pWeight1_terms = nullptr;
+				// TODO: These correction factors are not per-subset, but per-block. 
 				weight0_terms.calc(total_block_texels, log_blk.m_weights0);
 				if (key.m_ccs_index >= 0)
 				{
@@ -3620,7 +4770,7 @@ struct ldr_astc_lowlevel_block_encoder
 					subset_pixels[subset_index] = total_subset_pixels;
 				}
 
-				// Loop through all trial modes in this sueprbucket. TODO: Sort by endpoint levels?
+				// Loop through all trial modes in this superbucket. TODO: Sort by endpoint levels?
 				for (uint32_t k = 0; k < val.m_trial_mode_list.size(); k++)
 				{
 					const uint32_t trial_mode_index = val.m_trial_mode_list[k];
@@ -3664,6 +4814,7 @@ struct ldr_astc_lowlevel_block_encoder
 						} // chan_index
 					}
 
+					// TODO: perhaps we can rapidly predict when blue contraction can actually be applied based off each subset's endpoints.
 					if ((tm.m_cem == astc_helpers::CEM_LDR_RGB_DIRECT) || (tm.m_cem == astc_helpers::CEM_LDR_RGBA_DIRECT))
 						total_e_quant_wsse *= BLUE_CONTRACTION_ENDPOINT_QUANT_DISCOUNT;
 
@@ -3671,52 +4822,68 @@ struct ldr_astc_lowlevel_block_encoder
 					if (total_wsse_so_far >= worst_wsse_found_so_far)
 						continue;
 
-					float lost_weight_energy0 = compute_lost_dct_energy(p.m_block_width, p.m_block_height, weight0_energy, tm.m_grid_width, tm.m_grid_height) * inv_total_block_texels;
+					//const float lost_weight_energy0 = compute_lost_dct_energy(p.m_block_width, p.m_block_height, weight0_energy, tm.m_grid_width, tm.m_grid_height) * inv_total_block_texels;
+					//assert(basisu::equal_tol(lost_weight_energy0, compute_lost_dct_energy_orig(p.m_block_width, p.m_block_height, weight0_energy, tm.m_grid_width, tm.m_grid_height) * inv_total_block_texels, .0000125f));
+
+					const float lost_weight_energy0_prefix_sum = compute_lost_dct_energy_prefix_sum(p.m_block_width, p.m_block_height, weight0_energy_prefix_sum, tm.m_grid_width, tm.m_grid_height, total_weight0_ac_energy) * inv_total_block_texels;
+					//assert(basisu::equal_tol(lost_weight_energy0, lost_weight_energy0_prefix_sum, .00125f));
+					const float lost_weight_energy0 = lost_weight_energy0_prefix_sum;
 
 					float lost_weight_energy1 = 0;
 					if (key.m_ccs_index >= 0)
-						lost_weight_energy1 = compute_lost_dct_energy(p.m_block_width, p.m_block_height, weight1_energy, tm.m_grid_width, tm.m_grid_height) * inv_total_block_texels;
+					{
+						//lost_weight_energy1 = compute_lost_dct_energy(p.m_block_width, p.m_block_height, weight1_energy, tm.m_grid_width, tm.m_grid_height) * inv_total_block_texels;
+						//assert(basisu::equal_tol(lost_weight_energy1, compute_lost_dct_energy_orig(p.m_block_width, p.m_block_height, weight1_energy, tm.m_grid_width, tm.m_grid_height) * inv_total_block_texels, .0000125f));
+
+						const float lost_weight_energy1_prefix_sum = compute_lost_dct_energy_prefix_sum(p.m_block_width, p.m_block_height, weight1_energy_prefix_sum, tm.m_grid_width, tm.m_grid_height, total_weight1_ac_energy) * inv_total_block_texels;
+						//assert(basisu::equal_tol(lost_weight_energy1, lost_weight_energy1_prefix_sum, .00125f));
+						
+						lost_weight_energy1 = lost_weight_energy1_prefix_sum;
+					}
 										
 					// Add up:
 					// slam to line error WSSE (weighted sum of squared errors)
 					// weight quant error WSSE
 					// endpoint quant error WSSE
 					// weight grid rescale error WSSE (scaled by span^2)
-					float total_scale_wsse = 0.0f;
-															
-					for (uint32_t subset_index = 0; subset_index < key.m_num_subsets; subset_index++)
+					if ((lost_weight_energy0 != 0.0f) || (lost_weight_energy1 != 0.0f))
 					{
-						const vec4F& subset_chan_spans = subset_spans[subset_index];
-						const uint32_t total_subset_pixels = subset_pixels[subset_index];
+						float total_scale_wsse = 0.0f;
 
-						for (uint32_t c = 0; c < 4; c++)
+						for (uint32_t subset_index = 0; subset_index < key.m_num_subsets; subset_index++)
 						{
-							float span_size = fabs(subset_chan_spans[c]);
+							const vec4F& subset_chan_spans = subset_spans[subset_index];
+							const uint32_t total_subset_pixels = subset_pixels[subset_index];
 
-							if ((span_size == 0.0f) && ((log_blk.m_endpoints[subset_index][1][c] == 0.0f) || (log_blk.m_endpoints[subset_index][1][c] == 1.0f)))
+							for (uint32_t c = 0; c < 4; c++)
 							{
-								// Won't have any E/W quant err at extremes (0.0 or 1.0 are always perfectly represented), no weight downsample error either.
-								//chan_mse.m_ep = 0.0f;
-								//chan_mse.m_wp = 0.0f;
-							}
-							else
-							{
-								// Scale channel MSE by chan weight and the # of subset pixels to get weighted SSE
-								const float chan_N = (float)p.m_pEnc_params->m_comp_weights[c] * (float)total_subset_pixels;
-																									
-								// sum in the plane's lost weight energy, scaled by span_size^2 * chan_weight * num_texels_covered
-								if (key.m_ccs_index == (int)c)
-									total_scale_wsse += lost_weight_energy1 * square(span_size) * chan_N;
+								float span_size = fabs(subset_chan_spans[c]);
+
+								if ((span_size == 0.0f) && ((log_blk.m_endpoints[subset_index][1][c] == 0.0f) || (log_blk.m_endpoints[subset_index][1][c] == 1.0f)))
+								{
+									// Won't have any E/W quant err at extremes (0.0 or 1.0 are always perfectly represented), no weight downsample error either.
+									//chan_mse.m_ep = 0.0f;
+									//chan_mse.m_wp = 0.0f;
+								}
 								else
-									total_scale_wsse += lost_weight_energy0 * square(span_size) * chan_N;
-							}
+								{
+									// Scale channel MSE by chan weight and the # of subset pixels to get weighted SSE
+									const float chan_N = (float)p.m_pEnc_params->m_comp_weights[c] * (float)total_subset_pixels;
 
-						} // chan_index
+									// sum in the plane's lost weight energy, scaled by span_size^2 * chan_weight * num_texels_covered
+									if (key.m_ccs_index == (int)c)
+										total_scale_wsse += lost_weight_energy1 * square(span_size) * chan_N;
+									else
+										total_scale_wsse += lost_weight_energy0 * square(span_size) * chan_N;
+								}
+
+							} // chan_index
+						}
+
+						total_wsse_so_far += (SCALE_ERROR_WEIGHT * total_scale_wsse);
+						if (total_wsse_so_far >= worst_wsse_found_so_far)
+							continue;
 					}
-					
-					total_wsse_so_far += (SCALE_ERROR_WEIGHT * total_scale_wsse);
-					if (total_wsse_so_far >= worst_wsse_found_so_far)
-						continue;
 
 					float total_w_quant_wsse = 0.0f;
 					for (uint32_t subset_index = 0; subset_index < key.m_num_subsets; subset_index++)
@@ -4428,7 +5595,7 @@ struct ldr_astc_lowlevel_block_encoder
 
 			} // if (num_modes_in_bucket_to_shortlist < num_modes_in_bucket)
 
-			// Surrogate encode the best looking buckets after factoring in estimate SSE errors.
+			// Surrogate encode the best looking modes in the bucket after factoring in estimate SSE errors.
 
 			for (uint32_t q = 0; q < num_modes_in_bucket_to_shortlist; q++)
 			{
@@ -4525,14 +5692,16 @@ struct ldr_astc_lowlevel_block_encoder
 
 			bool base_ofs_succeeded_flag = false;
 
-			if ((p.m_final_encode_try_base_ofs) && ((tm.m_cem == astc_helpers::CEM_LDR_RGB_DIRECT) || (tm.m_cem == astc_helpers::CEM_LDR_RGBA_DIRECT)))
+			if ((p.m_final_encode_try_base_ofs) && 
+				((tm.m_cem == astc_helpers::CEM_LDR_RGB_DIRECT) || (tm.m_cem == astc_helpers::CEM_LDR_RGBA_DIRECT)))
+				//(tm.m_endpoint_ise_range < astc_helpers::BISE_256_LEVELS)) // although this check makes sense for quality, it may not make sense for rate-distortion performance
 			{
 				// Add RGB/RGBA BASE PLUS OFFSET variant.
 				astc_helpers::log_astc_block log_astc_blk_alt;
 
 				const uint32_t base_ofs_cem_index = (tm.m_cem == astc_helpers::CEM_LDR_RGB_DIRECT) ? astc_helpers::CEM_LDR_RGB_BASE_PLUS_OFFSET : astc_helpers::CEM_LDR_RGBA_BASE_PLUS_OFFSET;
 
-				bool base_ofs_clamped_flag = false;
+				bool try_direct_encoding_flag = false;
 
 				bool alt_enc_trial_status;
 				if (tm.m_num_parts > 1)
@@ -4547,9 +5716,13 @@ struct ldr_astc_lowlevel_block_encoder
 						p.m_block_width, p.m_block_height, pixel_stats, base_ofs_cem_index, tm.m_num_parts,
 						part_seed_index, pPat,
 						tm.m_endpoint_ise_range, tm.m_weight_ise_range,
-						tm.m_grid_width, tm.m_grid_height, log_astc_blk_alt, *p.m_pEnc_params, false,
+						tm.m_grid_width, tm.m_grid_height, 
+						p.m_encode_trial_subsets_early_out_thresh,
+						log_astc_blk_alt, *p.m_pEnc_params, false,
 						p.m_gradient_descent_flag, p.m_polish_weights_flag, p.m_qcd_enabled_flag,
-						p.m_use_blue_contraction, &base_ofs_clamped_flag);
+						p.m_use_blue_contraction, &try_direct_encoding_flag);
+					
+					stats.m_total_full_encodes++;
 				}
 				else
 				{
@@ -4557,17 +5730,18 @@ struct ldr_astc_lowlevel_block_encoder
 						p.m_block_width, p.m_block_height, pixel_stats, base_ofs_cem_index,
 						tm.m_ccs_index != -1, tm.m_ccs_index,
 						tm.m_endpoint_ise_range, tm.m_weight_ise_range,
-						tm.m_grid_width, tm.m_grid_height, log_astc_blk_alt, *p.m_pEnc_params,
+						tm.m_grid_width, tm.m_grid_height, p.m_encode_trial_early_out_thresh, 
+						log_astc_blk_alt, *p.m_pEnc_params,
 						p.m_gradient_descent_flag, p.m_polish_weights_flag, p.m_qcd_enabled_flag,
-						p.m_use_blue_contraction, &base_ofs_clamped_flag);
+						p.m_use_blue_contraction, &try_direct_encoding_flag);
+					
+					stats.m_total_full_encodes++;
 				}
 
 				assert(alt_enc_trial_status);
 
 				if (alt_enc_trial_status)
 				{
-					stats.m_total_full_encodes++;
-
 					encode_block_output* pOut_block2 = out_blocks.enlarge(1);
 					pOut_block2->clear();
 					pOut_block2->m_trial_mode_index = safe_cast_int16(trial_mode_index);
@@ -4589,7 +5763,7 @@ struct ldr_astc_lowlevel_block_encoder
 						}
 					}
 
-					base_ofs_succeeded_flag = !base_ofs_clamped_flag;
+					base_ofs_succeeded_flag = !try_direct_encoding_flag;
 				}
 
 			} // (p.m_final_encode_try_base_ofs)
@@ -4611,9 +5785,13 @@ struct ldr_astc_lowlevel_block_encoder
 						p.m_block_width, p.m_block_height, pixel_stats, tm.m_cem, tm.m_num_parts,
 						part_seed_index, pPat,
 						tm.m_endpoint_ise_range, tm.m_weight_ise_range,
-						tm.m_grid_width, tm.m_grid_height, log_astc_blk, *p.m_pEnc_params, false,
+						tm.m_grid_width, tm.m_grid_height, 
+						p.m_encode_trial_subsets_early_out_thresh,
+						log_astc_blk, *p.m_pEnc_params, false,
 						p.m_gradient_descent_flag, p.m_polish_weights_flag, p.m_qcd_enabled_flag,
 						p.m_use_blue_contraction);
+					
+					stats.m_total_full_encodes++;
 				}
 				else
 				{
@@ -4621,18 +5799,19 @@ struct ldr_astc_lowlevel_block_encoder
 						p.m_block_width, p.m_block_height, pixel_stats, tm.m_cem,
 						tm.m_ccs_index != -1, tm.m_ccs_index,
 						tm.m_endpoint_ise_range, tm.m_weight_ise_range,
-						tm.m_grid_width, tm.m_grid_height, log_astc_blk, *p.m_pEnc_params,
+						tm.m_grid_width, tm.m_grid_height, p.m_encode_trial_early_out_thresh,
+						log_astc_blk, *p.m_pEnc_params,
 						p.m_gradient_descent_flag, p.m_polish_weights_flag, p.m_qcd_enabled_flag,
 						p.m_use_blue_contraction);
+					
+					stats.m_total_full_encodes++;
 				}
 
 				assert(enc_trial_status);
 
 				if (!enc_trial_status)
 					return false;
-
-				stats.m_total_full_encodes++;
-
+								
 				{
 					encode_block_output* pOut_block1 = out_blocks.enlarge(1);
 					pOut_block1->clear();
@@ -4831,7 +6010,7 @@ struct trial_mode_desc
 };
 #pragma pack(pop)
 
-static const int s_astc_cem_to_unique_ldr_index[16] =
+[[maybe_unused]] static const int s_astc_cem_to_unique_ldr_index[16] =
 {
 	0, 	// CEM_LDR_LUM_DIRECT
 	-1, // CEM_LDR_LUM_BASE_PLUS_OFS
@@ -4863,6 +6042,7 @@ static const int s_unique_ldr_index_to_astc_cem[6] =
 };
 #endif
 
+#if 0
 static uint32_t pack_tm_desc(
 	uint32_t grid_width, uint32_t grid_height,
 	uint32_t cem_index, uint32_t ccs_index, uint32_t num_subsets,
@@ -4906,8 +6086,10 @@ static uint32_t pack_tm_desc(
 
 	return packed_id;
 }
+#endif
 
-void create_encoder_trial_modes_full_eval(uint32_t block_width, uint32_t block_height,
+#if 0
+static void create_encoder_trial_modes_full_eval(uint32_t block_width, uint32_t block_height,
 	basisu::vector<basist::astc_ldr_t::trial_mode>& encoder_trial_modes, basist::astc_ldr_t::grouped_trial_modes& grouped_encoder_trial_modes,
 	bool print_debug_info = true, bool print_modes = false)
 {
@@ -5128,6 +6310,7 @@ void create_encoder_trial_modes_full_eval(uint32_t block_width, uint32_t block_h
 	// sanity check
 	assert(encoder_trial_modes.size() < 11000);
 }
+#endif
 
 const uint32_t TOTAL_RGBA_CHAN_PAIRS = 6;
 //const uint32_t TOTAL_RGB_CHAN_PAIRS = 3;
@@ -5141,7 +6324,8 @@ static const uint8_t g_rgba_chan_pairs[TOTAL_RGBA_CHAN_PAIRS][2] =
 	{ 2, 3 }
 };
 
-bool encoder_trial_mode_test()
+#if 0
+static bool encoder_trial_mode_test()
 {
 	for (uint32_t w = 4; w <= 12; w++)
 	{
@@ -5198,6 +6382,7 @@ bool encoder_trial_mode_test()
 	fmt_debug_printf("trial mode test succeeded\n");
 	return true;
 }
+#endif
 
 //----------------------------------------------------------------------------------
 
@@ -5218,9 +6403,10 @@ struct ldr_astc_block_encode_image_high_level_config
 	bool m_subsets_edge_filtering = true;
 
 	bool m_filter_by_pca_angles_flag = true;
-	float m_use_direct_angle_thresh = 2.0f;
+		
+	float m_use_direct_angle_thresh = .25f;
 	float m_use_base_scale_angle_thresh = 7.0f;
-
+		
 	bool m_force_all_dual_plane_chan_evals = false; // much slower, test on base
 	bool m_disable_rgb_dual_plane = false; // DP can be on alpha only, if block has alpha
 	float m_strong_dp_decorr_thresh_rgb = .998f;
@@ -5245,13 +6431,15 @@ struct ldr_astc_block_encode_image_high_level_config
 	float m_early_stop_wpsnr = 0.0f;
 	float m_early_stop2_wpsnr = 0.0f;
 
-	bool m_blurring_enabled = false;
+	bool m_blurring_enabled_p1 = false;
 	bool m_blurring_enabled_p2 = false;
 
 	bool m_gradient_descent_flag = true;
 	bool m_polish_weights_flag = true;
 	bool m_qcd_enabled_flag = true; // gradient descent must be enabled too
 	bool m_bucket_pruning_passes = true;
+	float m_encode_trial_early_out_thresh = .1f;
+	float m_encode_trial_subsets_early_out_thresh = .1f;
 
 	// 2nd superpass options
 	uint32_t m_base_parts2_p2 = 64;
@@ -5263,19 +6451,17 @@ struct ldr_astc_block_encode_image_high_level_config
 	bool m_force_all_dp_chans_p2 = false;
 	bool m_final_encode_always_try_rgb_direct = false;
 	bool m_filter_by_pca_angles_flag_p2 = true;
-
-	// only store the single best result per block
-	//bool m_save_single_result = false; 
+		
+	bool m_try_simplified_latent_configs = false;
 
 	bool m_debug_images = false;
 	bool m_debug_output = false;
+	bool m_debug_output_image_metrics = true;
 
 	std::string m_debug_file_prefix;
 
 	job_pool* m_pJob_pool;
-
-	//saliency_map m_saliency_map;
-
+		
 	astc_ldr::cem_encode_params m_cem_enc_params;
 };
 
@@ -5324,8 +6510,9 @@ struct ldr_astc_block_encode_image_output
 
 		basisu::vector<encode_block_output> m_out_blocks;
 
-		uint32_t m_packed_out_block_index = 0; // index of best out block by WSSE
-
+		uint32_t m_packed_out_block_index = 0; // index of chosen block (typically best out block by WSSE, but not necessarily)
+			
+		// TODO: Remove, lossy supercompression uses it, but not all compressors write them.
 		bool m_low_freq_block_flag = false;
 		bool m_super_strong_edges = false;
 		bool m_very_strong_edges = false;
@@ -5353,10 +6540,1126 @@ private:
 
 constexpr bool selective_blurring = true;
 
-bool ldr_astc_block_encode_image(
+struct encoder_config_manager
+{
+	float m_max_std_dev;
+	float m_sobel_energy;
+	bool m_is_lum_only;
+	basisu::vector<float> m_block_dct_energy;
+	bool m_filter_horizontally_flag;
+	bool m_low_freq_block_flag;
+	uint32_t m_total_active_chans;
+	basisu::comparative_stats<float> m_cross_chan_stats[TOTAL_RGBA_CHAN_PAIRS];
+	float m_chan_pair_correlations[6];
+	bool m_active_chan_flags[4];
+	float m_min_corr, m_max_corr;
+	bool m_used_alpha_encoder_modes;
+	astc_ldr::cem_encode_params m_temp_cem_enc_params;
+
+	encoder_config_manager()
+	{
+		clear();
+	}
+	
+	void clear()
+	{
+		m_max_std_dev = 0.0f;
+		m_sobel_energy = 0.0f;
+		m_is_lum_only = false;
+		m_block_dct_energy.clear();
+		m_filter_horizontally_flag = false;
+		m_low_freq_block_flag = false;
+		m_total_active_chans = 0;
+		for (uint32_t i = 0; i < TOTAL_RGBA_CHAN_PAIRS; i++)
+			m_cross_chan_stats[i].clear();
+		clear_obj(m_chan_pair_correlations);
+		clear_obj(m_active_chan_flags);
+		m_min_corr = 0, m_max_corr = 0;
+		m_used_alpha_encoder_modes = false;
+		m_sobel_energy = 0.0f;
+	}
+
+	void init(
+		uint32_t bx, uint32_t by,
+		uint32_t block_width, uint32_t block_height, uint32_t total_block_pixels,
+		const astc_ldr::pixel_stats_t& pixel_stats,
+		const basist::astc_ldr_t::dct2f& dct,
+		const ldr_astc_block_encode_image_high_level_config& enc_cfg,
+		const image& sobel_xy,
+		image& vis_dct_low_freq_block,
+		uint32_t blur_id)
+	{
+		m_max_std_dev = 0.0f;
+		for (uint32_t i = 0; i < 4; i++)
+			m_max_std_dev = maximum(m_max_std_dev, pixel_stats.m_rgba_stats[i].m_std_dev);
+
+		m_is_lum_only = true;
+
+		for (uint32_t y = 0; y < block_height; y++)
+		{
+			for (uint32_t x = 0; x < block_width; x++)
+			{
+				const color_rgba& c = pixel_stats.m_pixels[x + y * block_width];
+				bool is_lum_texel = (c.r == c.g) && (c.r == c.b);
+				if (!is_lum_texel)
+				{
+					m_is_lum_only = false;
+					break;
+				}
+			}
+			if (m_is_lum_only)
+				break;
+		}
+
+		// TODO: allocation
+		m_block_dct_energy.resize(total_block_pixels);
+		m_block_dct_energy.set_all(0);
+
+		m_filter_horizontally_flag = false;
+		m_low_freq_block_flag = false;
+
+		{
+			// TODO: allocations
+			basisu::vector<float> block_floats(total_block_pixels);
+			basisu::vector<float> block_dct(total_block_pixels);
+			basist::astc_ldr_t::fvec work;
+
+			for (uint32_t c = 0; c < 4; c++)
+			{
+				for (uint32_t i = 0; i < total_block_pixels; i++)
+					block_floats[i] = pixel_stats.m_pixels_f[i][c];
+
+				dct.forward(block_floats.data(), block_dct.data(), work);
+
+				for (uint32_t y = 0; y < block_height; y++)
+					for (uint32_t x = 0; x < block_width; x++)
+						m_block_dct_energy[x + y * block_width] += (float)enc_cfg.m_cem_enc_params.m_comp_weights[c] * squaref(block_dct[x + y * block_width]);
+
+			} // c
+
+			// Wipe DC
+			m_block_dct_energy[0] = 0.0f;
+
+			float tot_energy = compute_preserved_dct_energy(block_width, block_height, m_block_dct_energy.get_ptr(), block_width, block_height);
+
+			float h_energy_lost = compute_lost_dct_energy(block_width, block_height, m_block_dct_energy.get_ptr(), block_width / 2, block_height);
+			float v_energy_lost = compute_lost_dct_energy(block_width, block_height, m_block_dct_energy.get_ptr(), block_width, block_height / 2);
+
+			m_filter_horizontally_flag = h_energy_lost < v_energy_lost;
+
+			float hv2_lost_energy_fract = compute_lost_dct_energy(block_width, block_height, m_block_dct_energy.get_ptr(), 2, 2);
+			if (tot_energy)
+				hv2_lost_energy_fract /= tot_energy;
+
+			const float LOW_FREQ_BLOCK_LOST_ENERGY_FRACT_THRESH = .03f;
+			const float LOW_FREQ_BLOCK_MAX_STD_DEV_TRESH = 1.0f / 255.0f;
+			// Ultra-smooth block determination: Only look at small grids if the block is mostly low frequency energy OR it has a very low max standard deviation.
+			if ((hv2_lost_energy_fract < LOW_FREQ_BLOCK_LOST_ENERGY_FRACT_THRESH) || (m_max_std_dev < LOW_FREQ_BLOCK_MAX_STD_DEV_TRESH))
+				m_low_freq_block_flag = true;
+		}
+
+		if ((enc_cfg.m_debug_images) && (blur_id == 0))
+			vis_dct_low_freq_block.fill_box(bx * block_width, by * block_height, block_width, block_height, m_low_freq_block_flag ? color_rgba(255, 0, 0, 255) : g_black_color);
+
+		for (uint32_t i = 0; i < 4; i++)
+			m_active_chan_flags[i] = false;
+
+		// The number of channels with non-zero spans
+		m_total_active_chans = 0;
+
+		for (uint32_t i = 0; i < 4; i++)
+		{
+			if (pixel_stats.m_rgba_stats[i].m_range > 0.0f)
+			{
+				assert(pixel_stats.m_max[i] != pixel_stats.m_min[i]);
+
+				m_active_chan_flags[i] = true;
+
+				m_total_active_chans++;
+			}
+			else
+			{
+				assert(pixel_stats.m_max[i] == pixel_stats.m_min[i]);
+			}
+		}
+
+		for (uint32_t i = 0; i < TOTAL_RGBA_CHAN_PAIRS; i++)
+		{
+			m_cross_chan_stats[i].clear();
+			
+			// def=max correlation for each channel pair (or 1 if one of the channels is inactive)
+			m_chan_pair_correlations[i] = 1.0f;
+		}
+				
+		// 0=0, 1
+		// 1=0, 2
+		// 2=1, 2
+		// 3=0, 3
+		// 4=1, 3
+		// 5=2, 3
+
+		m_min_corr = 1.0f;
+		m_max_corr = 0.0f;
+
+		for (uint32_t pair_index = 0; pair_index < TOTAL_RGBA_CHAN_PAIRS; pair_index++)
+		{
+			const uint32_t chanA = g_rgba_chan_pairs[pair_index][0];
+			const uint32_t chanB = g_rgba_chan_pairs[pair_index][1];
+
+			// If both channels were active, we've got usable correlation statistics.
+			if (m_active_chan_flags[chanA] && m_active_chan_flags[chanB])
+			{
+				// TODO: This can be directly derived from the 3D/4D covariance matrix entries.
+				m_cross_chan_stats[pair_index].calc_pearson(total_block_pixels,
+					&pixel_stats.m_pixels_f[0][chanA],
+					&pixel_stats.m_pixels_f[0][chanB],
+					4, 4,
+					&pixel_stats.m_rgba_stats[chanA],
+					&pixel_stats.m_rgba_stats[chanB]);
+
+				m_chan_pair_correlations[pair_index] = fabsf(m_cross_chan_stats[pair_index].m_pearson);
+
+				const float c = fabsf((float)m_cross_chan_stats[pair_index].m_pearson);
+				m_min_corr = minimum(m_min_corr, c);
+				m_max_corr = maximum(m_max_corr, c);
+			}
+		}
+
+		// min_cor will be 1.0f if all channels inactive (solid)
+				
+		m_used_alpha_encoder_modes = pixel_stats.m_has_alpha;
+
+		m_sobel_energy = 0.0f;
+		for (uint32_t y = 0; y < block_height; y++)
+		{
+			for (uint32_t x = 0; x < block_width; x++)
+			{
+				const color_rgba& s = sobel_xy.get_clamped(bx * block_width + x, by * block_height + y);
+				m_sobel_energy += s[0] * s[0] + s[1] * s[1] + s[2] * s[2] + s[3] * s[3];
+			} // x 
+		} // y
+
+		m_sobel_energy /= (float)total_block_pixels;
+	}
+
+	void select(
+		ldr_astc_lowlevel_block_encoder_params& enc_blk_params,
+		uint32_t superpass_index,
+		uint32_t bx, uint32_t by,
+		uint32_t block_width, uint32_t block_height, uint32_t total_block_pixels,
+		const image& orig_img_sobel_xy,
+		const basisu::vector<basist::astc_ldr_t::trial_mode>& encoder_trial_modes,
+		basist::astc_ldr_t::grouped_trial_modes& grouped_encoder_trial_modes,
+		astc_ldr::partitions_data* pPart_data_p2, astc_ldr::partitions_data* pPart_data_p3,
+		const astc_ldr::pixel_stats_t& pixel_stats,
+		const ldr_astc_block_encode_image_high_level_config& enc_cfg,
+		const basist::astc_ldr_t::dct2f& dct,
+		uint32_t blur_id)
+	{
+		BASISU_NOTE_UNUSED(blur_id);
+
+		enc_blk_params.m_block_width = block_width;
+		enc_blk_params.m_block_height = block_height;
+		enc_blk_params.m_total_block_pixels = total_block_pixels;
+		enc_blk_params.m_bx = bx;
+		enc_blk_params.m_by = by;
+
+		enc_blk_params.m_pOrig_img_sobel_xy_t = &orig_img_sobel_xy;
+
+		enc_blk_params.m_num_trial_modes = encoder_trial_modes.size_u32();
+		enc_blk_params.m_pTrial_modes = encoder_trial_modes.get_ptr();
+		enc_blk_params.m_pGrouped_trial_modes = &grouped_encoder_trial_modes;
+
+		enc_blk_params.m_pPart_data_p2 = pPart_data_p2;
+		enc_blk_params.m_pPart_data_p3 = pPart_data_p3;
+		enc_blk_params.m_pEnc_params = &enc_cfg.m_cem_enc_params;
+
+		float ang_dot = saturate(pixel_stats.m_zero_rel_axis3.dot3(pixel_stats.m_mean_rel_axis3));
+		const float pca_axis_angles = acosf(ang_dot) * (180.0f / (float)cPiD);
+
+		enc_blk_params.m_use_alpha_or_opaque_modes = m_used_alpha_encoder_modes;
+		enc_blk_params.m_use_lum_direct_modes = m_is_lum_only;
+
+		const bool filter_by_pca_angles_flag = (superpass_index == 1) ? enc_cfg.m_filter_by_pca_angles_flag_p2 : enc_cfg.m_filter_by_pca_angles_flag;
+		if (!filter_by_pca_angles_flag)
+		{
+			enc_blk_params.m_use_direct_modes = true;
+			enc_blk_params.m_use_base_scale_modes = true;
+		}
+		else
+		{
+			// TODO: Make selective based off edge blocks?
+			enc_blk_params.m_use_direct_modes = (!m_total_active_chans) || (pca_axis_angles > enc_cfg.m_use_direct_angle_thresh);
+			enc_blk_params.m_use_base_scale_modes = (pca_axis_angles <= enc_cfg.m_use_base_scale_angle_thresh);
+		}
+				
+		enc_blk_params.m_grid_hv_filtering = enc_cfg.m_grid_hv_filtering;
+		enc_blk_params.m_filter_horizontally_flag = m_filter_horizontally_flag;
+
+		enc_blk_params.m_use_small_grids_only = m_low_freq_block_flag && enc_cfg.m_low_freq_block_filtering;
+
+		enc_blk_params.m_subsets_enabled = enc_cfg.m_subsets_enabled && (!m_low_freq_block_flag || !enc_cfg.m_subsets_edge_filtering);
+
+		enc_blk_params.m_subsets_edge_filtering = enc_cfg.m_subsets_edge_filtering;
+
+		enc_blk_params.m_use_blue_contraction = enc_cfg.m_use_blue_contraction;
+		enc_blk_params.m_final_encode_try_base_ofs = enc_cfg.m_use_base_ofs;
+
+		memcpy(enc_blk_params.m_superbucket_max_to_retain, enc_cfg.m_superbucket_max_to_retain, sizeof(enc_cfg.m_superbucket_max_to_retain));
+
+		memcpy(enc_blk_params.m_final_shortlist_fraction, enc_cfg.m_final_shortlist_fraction, sizeof(enc_blk_params.m_final_shortlist_fraction));
+		memcpy(enc_blk_params.m_final_shortlist_min_size, enc_cfg.m_final_shortlist_min_size, sizeof(enc_cfg.m_final_shortlist_min_size));
+		memcpy(enc_blk_params.m_final_shortlist_max_size, enc_cfg.m_final_shortlist_max_size, sizeof(enc_blk_params.m_final_shortlist_max_size));
+
+		enc_blk_params.m_part2_fraction_to_keep = enc_cfg.m_part2_fraction_to_keep;
+		enc_blk_params.m_part3_fraction_to_keep = enc_cfg.m_part3_fraction_to_keep;
+		enc_blk_params.m_base_parts2 = enc_cfg.m_base_parts2;
+		enc_blk_params.m_base_parts3 = enc_cfg.m_base_parts3;
+		enc_blk_params.m_gradient_descent_flag = enc_cfg.m_gradient_descent_flag;
+		enc_blk_params.m_polish_weights_flag = enc_cfg.m_polish_weights_flag;
+		enc_blk_params.m_qcd_enabled_flag = enc_cfg.m_qcd_enabled_flag;
+		enc_blk_params.m_encode_trial_early_out_thresh = enc_cfg.m_encode_trial_early_out_thresh;
+		enc_blk_params.m_encode_trial_subsets_early_out_thresh = enc_cfg.m_encode_trial_subsets_early_out_thresh;
+		enc_blk_params.m_bucket_pruning_passes = enc_cfg.m_bucket_pruning_passes;
+
+		enc_blk_params.m_alpha_cems = m_used_alpha_encoder_modes;
+
+		enc_blk_params.m_early_stop_wpsnr = enc_cfg.m_early_stop_wpsnr;
+		enc_blk_params.m_early_stop2_wpsnr = enc_cfg.m_early_stop2_wpsnr;
+
+		enc_blk_params.m_final_encode_always_try_rgb_direct = enc_cfg.m_final_encode_always_try_rgb_direct;
+
+		enc_blk_params.m_pDCT2F = &dct;
+
+		// Determine DP usage
+		if (enc_cfg.m_force_all_dual_plane_chan_evals)
+		{
+			for (uint32_t i = 0; i < 4; i++)
+				enc_blk_params.m_dp_active_chans[i] = m_active_chan_flags[i];
+		}
+		else
+		{
+			for (uint32_t i = 0; i < 3; i++)
+				enc_blk_params.m_dp_active_chans[i] = false;
+
+			// Being very conservative with alpha here - always let the analytical evaluator consider it.
+			enc_blk_params.m_dp_active_chans[3] = pixel_stats.m_has_alpha;
+
+			if (!enc_cfg.m_disable_rgb_dual_plane)
+			{
+				const float rg_corr = m_chan_pair_correlations[0];
+				const float rb_corr = m_chan_pair_correlations[1];
+				const float gb_corr = m_chan_pair_correlations[2];
+
+				int desired_dp_chan_rgb = -1;
+
+				float min_p = minimum(rg_corr, rb_corr, gb_corr);
+
+				if (min_p < enc_cfg.m_strong_dp_decorr_thresh_rgb)
+				{
+					const bool has_r = m_active_chan_flags[0], has_g = m_active_chan_flags[1];
+					//const bool has_b = active_chan_flags[2];
+
+					uint32_t total_active_chans_rgb = 0;
+					for (uint32_t i = 0; i < 3; i++)
+						total_active_chans_rgb += m_active_chan_flags[i];
+
+					if (total_active_chans_rgb == 2)
+					{
+						if (!has_r)
+							desired_dp_chan_rgb = 1;
+						else if (!has_g)
+							desired_dp_chan_rgb = 0;
+						else
+							desired_dp_chan_rgb = 0;
+					}
+					else if (total_active_chans_rgb == 3)
+					{
+						// see if rg/rb is weakly correlated vs. gb
+						if ((rg_corr < gb_corr) && (rb_corr < gb_corr))
+							desired_dp_chan_rgb = 0;
+						// see if gr/gb is weakly correlated vs. rb
+						else if ((rg_corr < rb_corr) && (gb_corr < rb_corr))
+							desired_dp_chan_rgb = 1;
+						// assume b is weakest
+						else
+							desired_dp_chan_rgb = 2;
+					}
+				}
+
+				if (desired_dp_chan_rgb != -1)
+				{
+					assert(m_active_chan_flags[desired_dp_chan_rgb]);
+					enc_blk_params.m_dp_active_chans[desired_dp_chan_rgb] = true;
+				}
+			}
+		}
+
+		if (!enc_blk_params.m_dp_active_chans[0] && !enc_blk_params.m_dp_active_chans[1] && !enc_blk_params.m_dp_active_chans[2] && !enc_blk_params.m_dp_active_chans[3])
+		{
+			enc_blk_params.m_use_dual_planes = false;
+		}
+				
+		if (superpass_index == 1)
+		{
+			enc_blk_params.m_base_parts2 = enc_cfg.m_base_parts2_p2;
+			enc_blk_params.m_base_parts3 = enc_cfg.m_base_parts3_p2;
+			enc_blk_params.m_part2_fraction_to_keep = 1;
+			enc_blk_params.m_part3_fraction_to_keep = 1;
+
+			memcpy(enc_blk_params.m_superbucket_max_to_retain, enc_cfg.m_superbucket_max_to_retain_p2, sizeof(enc_cfg.m_superbucket_max_to_retain_p2));
+			memcpy(enc_blk_params.m_final_shortlist_max_size, enc_cfg.m_final_shortlist_max_size_p2, sizeof(enc_cfg.m_final_shortlist_max_size_p2));
+
+			if (enc_cfg.m_second_pass_force_subsets_enabled)
+				enc_blk_params.m_subsets_enabled = true;
+			enc_blk_params.m_subsets_edge_filtering = false;
+
+			if (enc_cfg.m_force_all_dp_chans_p2)
+			{
+				enc_blk_params.m_dp_active_chans[0] = m_active_chan_flags[0];
+				enc_blk_params.m_dp_active_chans[1] = m_active_chan_flags[1];
+				enc_blk_params.m_dp_active_chans[2] = m_active_chan_flags[2];
+				enc_blk_params.m_dp_active_chans[3] = m_active_chan_flags[3];
+				enc_blk_params.m_use_dual_planes = true;
+
+				if (!enc_blk_params.m_dp_active_chans[0] && !enc_blk_params.m_dp_active_chans[1] && !enc_blk_params.m_dp_active_chans[2] && !enc_blk_params.m_dp_active_chans[3])
+				{
+					enc_blk_params.m_use_dual_planes = false;
+				}
+			}
+
+			enc_blk_params.m_gradient_descent_flag = true;
+			enc_blk_params.m_polish_weights_flag = true;
+						
+			enc_blk_params.m_use_direct_modes = true;
+			//enc_blk_params.m_use_base_scale_modes = true; // just leaving this alone now from the first pass, it will be disabled for good reasons now
+
+			enc_blk_params.m_early_stop_wpsnr = enc_cfg.m_early_stop_wpsnr + 2.0f;
+			enc_blk_params.m_early_stop2_wpsnr = enc_cfg.m_early_stop2_wpsnr + 2.0f;
+
+			if (enc_cfg.m_second_pass_total_weight_refine_passes)
+			{
+				m_temp_cem_enc_params = enc_cfg.m_cem_enc_params;
+				enc_blk_params.m_pEnc_params = &m_temp_cem_enc_params;
+
+				m_temp_cem_enc_params.m_total_weight_refine_passes = enc_cfg.m_second_pass_total_weight_refine_passes;
+				m_temp_cem_enc_params.m_worst_weight_nudging_flag = true;
+				m_temp_cem_enc_params.m_endpoint_refinement_flag = true;
+			}
+		}
+	}
+};
+
+static bool apply_weight_grid_dct(
+	uint32_t block_width, uint32_t block_height,
+	basist::astc_ldr_t::grid_weight_dct &grid_coder,
+	encode_block_output& out_block,
+	const astc_ldr::pixel_stats_t& pixel_stats, bool recalc_block_wsse,
+	const ldr_astc_block_encode_image_high_level_config& enc_cfg,
+	astc_ldr::partitions_data* pPart_data_p2, astc_ldr::partitions_data* pPart_data_p3,
+	bool try_refining_endpoints)
+{
+	if (out_block.m_trial_mode_index < 0)
+		return true;
+
+	astc_helpers::log_astc_block& log_astc_blk = out_block.m_log_blk;
+	
+	assert(!log_astc_blk.m_solid_color_flag_ldr);
+
+	const uint32_t num_planes = (log_astc_blk.m_dual_plane ? 2 : 1);
+	const uint32_t total_grid_weights = log_astc_blk.m_grid_width * log_astc_blk.m_grid_height;
+
+	basist::astc_ldr_t::fvec dct_temp;
+
+	for (uint32_t plane_index = 0; plane_index < num_planes; plane_index++)
+	{
+		basist::astc_ldr_t::dct_syms& syms = out_block.m_packed_dct_plane_data[plane_index];
+
+		code_block_weights(grid_coder, enc_cfg.m_base_q, plane_index, log_astc_blk, syms, dct_temp);
+
+		// ensure existing weights get blown away 
+		if (num_planes == 1)
+		{
+			memset(log_astc_blk.m_weights, 0, total_grid_weights);
+		}
+		else
+		{
+			for (uint32_t i = 0; i < total_grid_weights; i++)
+				log_astc_blk.m_weights[i * num_planes + plane_index] = 0;
+		}
+
+		// decode the actual post-DCT/quant weights
+		const bool status = grid_coder.decode_block_weights(enc_cfg.m_base_q, plane_index, log_astc_blk, nullptr, nullptr, dct_temp, &syms);
+
+		assert(status);
+		if (!status)
+		{
+			error_printf("grid_coder.decode_block_weights() failed!\n");
+			return false;
+		}
+	}
+
+	if (!try_refining_endpoints)
+	{
+		if (recalc_block_wsse)
+		{
+			out_block.m_sse = eval_error(block_width, block_height, log_astc_blk, pixel_stats, enc_cfg.m_cem_enc_params);
+		}
+		return true;
+	}
+
+	uint64_t cur_err = eval_error(block_width, block_height, log_astc_blk, pixel_stats, enc_cfg.m_cem_enc_params);
+
+	astc_helpers::log_astc_block new_log_astc_blk(log_astc_blk);
+
+	bool status;
+	if (log_astc_blk.m_num_partitions == 1)
+	{
+		status = encode_trial_refine_only(
+			block_width, block_height,
+			pixel_stats,
+			new_log_astc_blk,
+			enc_cfg.m_cem_enc_params);
+	}
+	else
+	{
+		astc_ldr::partitions_data* pPart_data = (new_log_astc_blk.m_num_partitions == 2) ? pPart_data_p2 : pPart_data_p3;
+
+		const uint32_t part_seed_index = new_log_astc_blk.m_partition_id;
+		const uint32_t part_unique_index = pPart_data->m_part_seed_to_unique_index[part_seed_index];
+		const astc_ldr::partition_pattern_vec* pPat = &pPart_data->m_partition_pats[part_unique_index];
+
+		status = encode_trial_subsets(
+			block_width, block_height,
+			pixel_stats,
+			new_log_astc_blk.m_color_endpoint_modes[0], new_log_astc_blk.m_num_partitions,
+			new_log_astc_blk.m_partition_id, pPat,
+			new_log_astc_blk.m_endpoint_ise_range, new_log_astc_blk.m_weight_ise_range,
+			new_log_astc_blk.m_grid_width, new_log_astc_blk.m_grid_height,
+			enc_cfg.m_encode_trial_subsets_early_out_thresh,
+			new_log_astc_blk,
+			enc_cfg.m_cem_enc_params,
+			true,
+			enc_cfg.m_gradient_descent_flag, enc_cfg.m_polish_weights_flag, enc_cfg.m_qcd_enabled_flag,
+			enc_cfg.m_use_blue_contraction);
+	}
+
+	if (status)
+	{
+		const uint32_t num_cem_endpoint_vals = astc_helpers::get_num_cem_values(new_log_astc_blk.m_color_endpoint_modes[0]);
+		const uint32_t total_endpoint_vals = num_cem_endpoint_vals * new_log_astc_blk.m_num_partitions;
+		
+		const bool endpoints_differ = memcmp(log_astc_blk.m_endpoints, new_log_astc_blk.m_endpoints, total_endpoint_vals) != 0;
+
+		if (endpoints_differ)
+		{
+			for (uint32_t plane_index = 0; plane_index < num_planes; plane_index++)
+			{
+				basist::astc_ldr_t::dct_syms& syms = out_block.m_packed_dct_plane_data[plane_index];
+
+				// decode the actual post-DCT/quant weights
+				status = grid_coder.decode_block_weights(enc_cfg.m_base_q, plane_index, new_log_astc_blk, nullptr, nullptr, dct_temp, &syms);
+				assert(status);
+
+				if (!status)
+				{
+					error_printf("grid_coder.decode_block_weights() failed!\n");
+					return false;
+				}
+			}
+
+			uint64_t new_err = eval_error(block_width, block_height, new_log_astc_blk, pixel_stats, enc_cfg.m_cem_enc_params);
+
+			if (new_err < cur_err)
+			{
+				cur_err = new_err;
+				log_astc_blk = new_log_astc_blk;
+			}
+		}
+	}
+
+	if (recalc_block_wsse)
+		out_block.m_sse = cur_err;
+	
+	return true;
+}
+
+static void filter_block(
+	uint32_t block_width, uint32_t block_height, 
+	uint32_t grid_width, uint32_t grid_height,
+	const astc_ldr::pixel_stats_t& pixel_stats,
+	color_rgba *pUpsampled_block)
+{
+	const uint32_t num_block_samples = block_width * block_height;
+	const uint32_t num_grid_samples = grid_width * grid_height;
+
+	const basist::astc_ldr_t::astc_block_grid_data* pGrid_data = basist::astc_ldr_t::find_astc_block_grid_data(block_width, block_height, grid_width, grid_height);
+
+	const basisu::vector<float>& d = pGrid_data->m_downsample_matrix; // rows=output num_grid_sampless, cols=input num_block_samples (texels)
+	const basisu::vector2D<float>& u = pGrid_data->m_upsample_matrix; // rows=output num_block_samples (texels), cols=input num_grid_samples
+
+	for (uint32_t c = 0; c < 4; c++)
+	{
+		float downsampled_block[astc_helpers::MAX_BLOCK_PIXELS]; // num_grid_samples 
+
+		if ((c == 3) && (!pixel_stats.m_has_alpha))
+		{
+			for (uint32_t i = 0; i < num_block_samples; i++)
+				pUpsampled_block[i].a = 255;
+			break;
+		}
+
+		for (uint32_t g = 0; g < num_grid_samples; g++)
+		{
+			float sum = 0;
+			for (uint32_t i = 0; i < num_block_samples; i++)
+				sum += (float)pixel_stats.m_pixels[i][c] * d[g * num_block_samples + i];
+
+			downsampled_block[g] = sum;
+		}
+
+		for (uint32_t k = 0; k < num_block_samples; k++)
+		{
+			float sum = 0;
+			for (uint32_t i = 0; i < num_grid_samples; i++)
+				sum += (float)downsampled_block[i] * u.at_row_col(k, i);
+
+			pUpsampled_block[k][c] = (uint8_t)clamp<int>(basisu::fast_roundf_pos_int(sum), 0, 255);
+		}
+	} // c
+}
+
+// very slow
+[[maybe_unused]] static int find_tm_index(const basisu::vector<basist::astc_ldr_t::trial_mode>& encoder_trial_modes, const astc_helpers::log_astc_block& log_blk)
+{
+	assert(astc_helpers::is_block_xuastc_ldr(log_blk));
+
+	for (uint32_t i = 0; i < encoder_trial_modes.size(); i++)
+	{
+		const basist::astc_ldr_t::trial_mode& tm = encoder_trial_modes[i];
+
+		if ((tm.m_cem == log_blk.m_color_endpoint_modes[0]) &&
+			(tm.m_grid_width == log_blk.m_grid_width) && (tm.m_grid_height == log_blk.m_grid_height) &&
+			(tm.m_num_parts == log_blk.m_num_partitions) &&
+			(tm.m_weight_ise_range == log_blk.m_weight_ise_range) &&
+			(tm.m_endpoint_ise_range == log_blk.m_endpoint_ise_range))
+		{
+			const bool tm_dp_flag = (tm.m_ccs_index >= 0);
+
+			if (tm_dp_flag != log_blk.m_dual_plane)
+				continue;
+
+			if (tm_dp_flag)
+			{
+				if (tm.m_ccs_index != log_blk.m_color_component_selector)
+					continue;
+			}
+
+			return i;
+		}
+	}
+
+	return -1;
+}
+
+static bool encode_block_to_dc_latent(
+	uint32_t block_width, uint32_t block_height,
+	const astc_ldr::pixel_stats_t& pixel_stats,
+	basisu::vector<encode_block_output>& out_blocks,
+	const ldr_astc_block_encode_image_high_level_config& enc_cfg,
+	astc_ldr::partitions_data* pPart_data_p2, astc_ldr::partitions_data* pPart_data_p3,
+	const basisu::vector<basist::astc_ldr_t::trial_mode>& encoder_trial_modes, 
+	uint64_vec &best_2subset_seed_ids, // seed ID's in low 10 bits
+	uint64_vec& best_3subset_seed_ids) // seed ID's in low 10 bits
+{
+	BASISU_NOTE_UNUSED(encoder_trial_modes);
+
+	best_2subset_seed_ids.resize(0);
+	best_2subset_seed_ids.reserve(pPart_data_p2->m_total_unique_patterns);
+
+	best_3subset_seed_ids.resize(0);
+	best_3subset_seed_ids.reserve(pPart_data_p3->m_total_unique_patterns);
+
+	const uint32_t block_size_index = astc_helpers::get_block_size_index(block_width, block_height);
+		
+	const uint32_t total_block_pixels = block_width * block_height;
+		
+	astc_helpers::log_astc_block log_blk;
+	log_blk.clear();
+	log_blk.m_grid_width = 3;
+	log_blk.m_grid_height = 2;
+	log_blk.m_color_endpoint_modes[0] = 6;
+	log_blk.m_color_endpoint_modes[1] = 6;
+	log_blk.m_weight_ise_range = astc_helpers::BISE_16_LEVELS;
+		
+	for (uint32_t subsets = 2; subsets <= 3; subsets++)
+	{
+		encode_block_output& new_output_blk = *out_blocks.enlarge(1);
+		new_output_blk.clear();
+
+		astc_helpers::log_astc_block &best_log_blk = new_output_blk.m_log_blk;
+		uint64_t best_err = UINT64_MAX;
+
+		const astc_ldr::partitions_data* pPat_data = (subsets == 3) ? pPart_data_p3 : pPart_data_p2;
+
+		log_blk.m_num_partitions = (uint8_t)subsets;
+		log_blk.m_endpoint_ise_range = (uint8_t)((subsets == 3) ? astc_helpers::BISE_64_LEVELS : astc_helpers::BISE_256_LEVELS);
+		log_blk.m_color_endpoint_modes[2] = (subsets == 3) ? 6 : 0;
+
+		//const auto& weight_quant_tab = astc_helpers::g_dequant_tables.get_weight_tab(log_blk.m_weight_ise_range).m_val_to_ise;
+		const auto& endpoint_quant_tab = astc_helpers::g_dequant_tables.get_endpoint_tab(log_blk.m_endpoint_ise_range).m_val_to_ise;
+				
+		for (uint32_t unique_part_iter = 0; unique_part_iter < pPat_data->m_total_unique_patterns; unique_part_iter++)
+		{
+			const uint32_t part_seed = pPat_data->m_unique_index_to_part_seed[unique_part_iter];
+
+			log_blk.m_partition_id = basisu::safe_cast_uint16(part_seed);
+
+			vec4F sums[3] = { vec4F(0.0f), vec4F(0.0f), vec4F(0.0f) };
+			uint32_t num[3] = { 0, 0, 0 };
+
+			[[maybe_unused]] uint32_t p_hist[3] = { 0, 0, 0 };
+
+			for (uint32_t y = 0; y < block_height; y++)
+			{
+				for (uint32_t x = 0; x < block_width; x++)
+				{
+					uint32_t p = astc_helpers::get_precomputed_texel_partition(block_width, block_height, part_seed, x, y, log_blk.m_num_partitions);
+										
+					sums[p][0] += pixel_stats.m_pixels_f[x + y * block_width][0];
+					sums[p][1] += pixel_stats.m_pixels_f[x + y * block_width][1];
+					sums[p][2] += pixel_stats.m_pixels_f[x + y * block_width][2];
+
+					num[p]++;
+				} // x
+			} // y
+
+			for (uint32_t p = 0; p < subsets; p++)
+			{
+				assert(num[p]);
+
+				sums[p] /= (float)num[p];
+
+				for (uint32_t c = 0; c < 3; c++)
+					log_blk.m_endpoints[p * astc_helpers::NUM_MODE6_ENDPOINTS + c] = endpoint_quant_tab[clamp<int>((int)std::round(255.0f * sums[p][c]), 0, 255)];
+
+				log_blk.m_endpoints[p * astc_helpers::NUM_MODE6_ENDPOINTS + 3] = endpoint_quant_tab[(subsets == 3) ? 248 : 255];
+			}
+
+			uint64_t best_k_err = UINT64_MAX;
+
+			for (uint32_t k = (subsets == 3) ? 13 : 15; k < 16; k++)
+			{
+				for (uint32_t i = 0; i < 6; i++)
+					log_blk.m_weights[i] = (uint8_t)k;
+
+				color_rgba unpacked_pixels_astc[astc_helpers::MAX_BLOCK_PIXELS];
+				bool astc_status = astc_helpers::decode_block_xuastc_ldr(log_blk, unpacked_pixels_astc, block_width, block_height, enc_cfg.m_cem_enc_params.m_decode_mode_srgb ? astc_helpers::cDecodeModeSRGB8 : astc_helpers::cDecodeModeLDR8);
+				assert(astc_status);
+				if (!astc_status)
+					return false;
+
+				uint64_t total_err = 0;
+				for (uint32_t i = 0; i < total_block_pixels; i++)
+					total_err += weighted_color_error(pixel_stats.m_pixels[i], unpacked_pixels_astc[i], enc_cfg.m_cem_enc_params);
+
+				best_k_err = minimum(best_k_err, total_err);
+
+				if (total_err < best_err)
+				{
+					best_err = total_err;
+					best_log_blk = log_blk;
+				}
+			} // k
+
+			if (subsets == 2)
+			{
+				best_2subset_seed_ids.push_back((best_k_err << 10) | log_blk.m_partition_id);
+			}
+			else
+			{
+				best_3subset_seed_ids.push_back((best_k_err << 10) | log_blk.m_partition_id);
+			}
+
+		} // part_seed
+
+		best_2subset_seed_ids.sort();
+		best_3subset_seed_ids.sort();
+		
+		// XUASTC LDR trial mode indices
+		static const uint32_t s_tm_index2[14] = { 675, 675, 974, 974,  1263, 974, 1263, 974,  1263, 1747, 1747, 2131,  2131, 2425 };
+		static const uint32_t s_tm_index3[14] = { 679, 679, 978, 978,  1267, 978, 1267, 978,  1267, 1751, 1751, 2135,  2135, 2429 };
+
+		new_output_blk.m_trial_mode_index = basisu::safe_cast_int16((best_log_blk.m_num_partitions == 2) ? s_tm_index2[block_size_index] : s_tm_index3[block_size_index]);
+
+		assert(new_output_blk.m_trial_mode_index == find_tm_index(encoder_trial_modes, best_log_blk));
+
+		new_output_blk.m_sse = best_err;
+		new_output_blk.m_blur_id = BLUR_ID_DC_LATENT_BASE + best_log_blk.m_num_partitions - 2;
+				
+	} // subsets
+
+	return true;
+}
+
+static bool encode_block_to_linear_latent(
+	uint32_t num_patterns_to_try,
+	uint32_t block_width, uint32_t block_height,
+	const astc_ldr::pixel_stats_t& pixel_stats,
+	basisu::vector<encode_block_output>& out_blocks,
+	const ldr_astc_block_encode_image_high_level_config& enc_cfg,
+	astc_ldr::partitions_data* pPart_data_p2, astc_ldr::partitions_data* pPart_data_p3,
+	const basisu::vector<basist::astc_ldr_t::trial_mode>& encoder_trial_modes,
+	uint64_vec& best_2subset_seed_ids,
+	uint64_vec& best_3subset_seed_ids)
+{
+	BASISU_NOTE_UNUSED(encoder_trial_modes);
+	BASISU_NOTE_UNUSED(pPart_data_p2);
+	BASISU_NOTE_UNUSED(pPart_data_p3);
+
+	static const uint32_t s_tm2_index_02[14] = { 717, 717, 1016, 1016, 1305, 1016, 1305, 1016, 1305, 1789, 1789, 2173, 2173, 2467 };
+	static const uint32_t s_tm2_index_13[14] = { 215, 215, 215, 215, 215, 215, 215, 215, 215, 215, 215, 215, 215, 215 };
+
+	static const uint32_t s_tm3_index_02[14] = { 721, 721, 1020, 1020, 1309, 1020, 1309, 1020,  1309,  1793, 1793, 2177, 2177, 2471 };
+	static const uint32_t s_tm3_index_13[14] = { 219, 219, 219,  219, 219,   219,  219,  219,   219,   219,  219,  219,  219,  219 };
+
+	const uint32_t block_size_index = astc_helpers::get_block_size_index(block_width, block_height);
+
+	const uint32_t total_grid_samples = 6;
+
+	const uint32_t weight_ise_range = astc_helpers::BISE_16_LEVELS;
+
+	//const auto& weight_quant_tab = astc_helpers::g_dequant_tables.get_weight_tab(weight_ise_range).m_val_to_ise;
+	const auto& weight_dequant_tab = astc_helpers::g_dequant_tables.get_weight_tab(weight_ise_range).m_ISE_to_val;
+
+	const uint32_t NUM_WEIGHT_GRIDS = 4 * 4;
+
+	static const uint32_t grid_width[NUM_WEIGHT_GRIDS] = { 3, 2, 3, 2,  3, 2, 3, 2,  3, 2, 3, 2,  3, 2, 3, 2 }, grid_height[NUM_WEIGHT_GRIDS] = { 2, 3, 2, 3,  2, 3, 2, 3,  2, 3, 2, 3,  2, 3, 2, 3 };
+
+	static const uint8_t weight_grids[NUM_WEIGHT_GRIDS][3 * 2] =
+	{
+		{
+			0, 0, 0,
+			15, 15, 15
+		},
+
+		{
+			0, 15,
+			0, 15,
+			0, 15
+		},
+
+		{
+			15, 15, 15,
+			0, 0, 0
+		},
+
+		{
+			15, 0,
+			15, 0,
+			15, 0
+		},
+
+		// set 2
+		{
+			0, 0, 0,
+			4, 8, 15
+		},
+
+		{
+			0, 4,
+			0, 8,
+			0, 15
+		},
+
+		{
+			15, 8, 4,
+			0, 0, 0
+		},
+
+		{
+			15, 0,
+			8, 0,
+			4, 0
+		},
+		
+		// set 3
+		{
+			2, 4, 6,
+			9, 11, 13
+		},
+
+		{
+			2, 9,
+			4, 11,
+			6, 13
+		},
+
+		{
+			9, 11, 13,
+			2, 4, 6
+		},
+
+		{
+			9, 2,
+			11, 4,
+			13, 6
+		},
+
+		// set 4
+		{
+			0, 7, 0,
+			7, 15, 7
+		},
+
+		{
+			0, 7,
+			7, 15,
+			0, 7
+		},
+
+		{
+			15, 7, 15,
+			7, 0, 7
+		},
+
+		{
+			7, 0,
+			15, 7,
+			7, 0
+		}
+	};
+
+	// TODO
+	uint8_t dequantized_grid_weights[NUM_WEIGHT_GRIDS][astc_helpers::MAX_BLOCK_PIXELS];
+	uint8_t dequantized_block_weights[NUM_WEIGHT_GRIDS][astc_helpers::MAX_BLOCK_PIXELS];
+
+	for (uint32_t g = 0; g < NUM_WEIGHT_GRIDS; g++)
+	{
+		for (uint32_t i = 0; i < total_grid_samples; i++)
+			dequantized_grid_weights[g][i] = weight_dequant_tab[weight_grids[g][i]];
+
+		astc_helpers::upsample_weight_grid(
+			block_width, block_height,		 // destination/to dimension
+			grid_width[g], grid_height[g],		 // source/from dimension
+			dequantized_grid_weights[g],		// these are dequantized [0,64] weights, NOT ISE symbols, [wy][wx]
+			dequantized_block_weights[g]);		// [by][bx]
+	}
+
+	astc_ldr::cem_encode_params cem_enc_params;
+	cem_enc_params.init();
+	cem_enc_params.m_decode_mode_srgb = enc_cfg.m_cem_enc_params.m_decode_mode_srgb;
+	cem_enc_params.m_max_ls_passes = 1;
+		
+	for (uint32_t subsets = 2; subsets <= 3; subsets++)
+	//const uint32_t subsets = 2;
+	{
+		//const astc_ldr::partitions_data* pPat_data = (subsets == 3) ? pPart_data_p3 : pPart_data_p2;
+
+		for (uint32_t grid_index = 0; grid_index < NUM_WEIGHT_GRIDS; grid_index++)
+		{
+			astc_helpers::log_astc_block log_blk;
+			log_blk.clear();
+
+			log_blk.m_grid_width = (uint8_t)grid_width[grid_index];
+			log_blk.m_grid_height = (uint8_t)grid_height[grid_index];
+			log_blk.m_num_partitions = (uint8_t)subsets;
+			log_blk.m_color_endpoint_modes[0] = 8;
+			log_blk.m_color_endpoint_modes[1] = 8;
+			if (subsets == 3)
+				log_blk.m_color_endpoint_modes[2] = 8;
+			log_blk.m_endpoint_ise_range = (uint8_t)((subsets == 3) ? astc_helpers::BISE_16_LEVELS : astc_helpers::BISE_64_LEVELS);
+			log_blk.m_weight_ise_range = (uint8_t)weight_ise_range;
+			memcpy(log_blk.m_weights, weight_grids[grid_index], total_grid_samples);
+
+			//const auto& endpoint_quant_tab = astc_helpers::g_dequant_tables.get_endpoint_tab(log_blk.m_endpoint_ise_range).m_val_to_ise;
+
+			uint64_t best_err = UINT64_MAX;
+			astc_helpers::log_astc_block best_log_blk;
+			best_log_blk.clear();
+
+			//for (uint32_t unique_part_iter = 0; unique_part_iter < pPat_data->m_total_unique_patterns; unique_part_iter++)
+			for (uint32_t pat_index = 0; pat_index < num_patterns_to_try; pat_index++)
+			{
+				//const uint32_t part_seed = pPat_data->m_unique_index_to_part_seed[unique_part_iter];
+				const uint32_t part_seed = ((subsets == 2) ? best_2subset_seed_ids[pat_index] : best_3subset_seed_ids[pat_index]) & 1023;
+							
+				log_blk.m_partition_id = basisu::safe_cast_uint16(part_seed);
+
+				color_rgba subset_pixels[3][astc_helpers::MAX_BLOCK_PIXELS];
+				uint8_t subset_weights[3][astc_helpers::MAX_BLOCK_PIXELS];
+				uint32_t num_subset_pixels[3] = { 0, 0, 0 };
+
+				astc_ldr::pixel_stats_t stats[3];
+
+				for (uint32_t y = 0; y < block_height; y++)
+				{
+					for (uint32_t x = 0; x < block_width; x++)
+					{
+						uint32_t s = astc_helpers::get_precomputed_texel_partition(block_width, block_height, part_seed, x, y, log_blk.m_num_partitions);
+
+						const uint32_t n = num_subset_pixels[s];
+
+						subset_pixels[s][n] = pixel_stats.m_pixels[y * block_width + x];
+						subset_weights[s][n] = dequantized_block_weights[grid_index][y * block_width + x];
+
+						num_subset_pixels[s] = n + 1;
+
+					} // x
+				} // y
+
+				uint64_t total_err = 0;
+				for (uint32_t s = 0; s < subsets; s++)
+				{
+					stats[s].init(num_subset_pixels[s], subset_pixels[s]);
+
+					cem_enc_params.m_pForced_weight_vals0 = subset_weights[s];
+
+					uint8_t temp_weights[astc_helpers::MAX_BLOCK_PIXELS];
+
+					uint64_t subset_err = astc_ldr::cem_encode_pixels(8, -1, stats[s], cem_enc_params, log_blk.m_endpoint_ise_range, astc_helpers::BISE_64_LEVELS,
+						&log_blk.m_endpoints[s * astc_helpers::NUM_MODE8_ENDPOINTS], temp_weights, nullptr, UINT64_MAX, true, nullptr);
+
+					if (subset_err == UINT64_MAX)
+					{
+						total_err = UINT64_MAX;
+						break;
+					}
+
+					total_err += subset_err;
+					
+					if (total_err > best_err)
+						break;
+				}
+
+				if (total_err < best_err)
+				{
+					best_err = total_err;
+					best_log_blk = log_blk;
+				}
+								
+			} // part_seed
+
+			if (best_err != UINT64_MAX)
+			{
+				encode_block_output& new_output_blk = *out_blocks.enlarge(1);
+
+				new_output_blk.m_log_blk = best_log_blk;
+
+				uint32_t tm_index;
+				if (subsets == 3)
+				{
+					if (((grid_index & 3) == 0) || ((grid_index & 3) == 2))
+						tm_index = s_tm3_index_02[block_size_index];
+					else
+						tm_index = s_tm3_index_13[block_size_index];
+				}
+				else
+				{
+					if (((grid_index & 3) == 0) || ((grid_index & 3) == 2))
+						tm_index = s_tm2_index_02[block_size_index];
+					else
+						tm_index = s_tm2_index_13[block_size_index];
+				}
+
+				//fmt_printf("block_size_index: {}, grid_index: {}, tm: {}\n", block_size_index, grid_index & 3, find_tm_index(encoder_trial_modes, best_log_blk));
+				assert((int)tm_index == find_tm_index(encoder_trial_modes, best_log_blk));
+				
+				new_output_blk.m_trial_mode_index = basisu::safe_cast_int16(tm_index);
+				new_output_blk.m_sse = best_err;
+				new_output_blk.m_blur_id = basisu::safe_cast_uint16(BLUR_ID_AC_LATENT_BASE + grid_index + (subsets - 2) * NUM_WEIGHT_GRIDS);// pat_index;
+			}
+
+		} // grid
+
+	} // subsets
+		
+	return true;
+}
+
+static void enforce_max_candidate_limit(ldr_astc_block_encode_image_output::block_info& block_info_out, uint32_t max_candidates)
+{
+	assert(max_candidates >= 1);
+
+	if (block_info_out.m_out_blocks.size() <= max_candidates)
+		return;
+
+	uint_vec sorted_indices(block_info_out.m_out_blocks.size());
+	for (uint32_t i = 0; i < block_info_out.m_out_blocks.size(); i++)
+		sorted_indices[i] = i;
+
+	std::partial_sort(sorted_indices.begin(), sorted_indices.begin() + max_candidates, sorted_indices.end(),
+		[&sorted_indices, &block_info_out](const uint32_t a, const uint32_t b) 
+		{ 
+			BASISU_NOTE_UNUSED(sorted_indices); // comparator only reads block_info_out
+			if (block_info_out.m_out_blocks[a].m_sse < block_info_out.m_out_blocks[b].m_sse)
+			{
+				return true;
+			}
+			else if (block_info_out.m_out_blocks[a].m_sse == block_info_out.m_out_blocks[b].m_sse)
+			{
+				if (a < b)
+					return true;
+			}
+
+			return false;
+		} 
+	);	
+
+	basisu::vector<encode_block_output> new_blocks;
+	
+	int new_packed_out_block_index = -1;
+
+	for (uint32_t i = 0; i < max_candidates; i++)
+		if (sorted_indices[i] == block_info_out.m_packed_out_block_index)
+			new_packed_out_block_index = i;
+
+	if (new_packed_out_block_index < 0)
+	{
+		new_packed_out_block_index = 0;
+
+		new_blocks.resize(max_candidates + 1); // one more than requested, not the end of the world
+				
+		new_blocks[0] = block_info_out.m_out_blocks[block_info_out.m_packed_out_block_index];
+
+		for (uint32_t i = 0; i < max_candidates; i++)
+			new_blocks[1 + i] = block_info_out.m_out_blocks[sorted_indices[i]];
+	}
+	else
+	{
+		new_blocks.resize(max_candidates);
+
+		for (uint32_t i = 0; i < max_candidates; i++)
+			new_blocks[i] = block_info_out.m_out_blocks[sorted_indices[i]];
+	}
+
+	block_info_out.m_out_blocks.swap(new_blocks);
+	block_info_out.m_packed_out_block_index = new_packed_out_block_index;
+}
+
+static void display_candidate_statistics(const ldr_astc_block_encode_image_output &enc_out) 
+{
+	const auto& block_info = enc_out.m_image_block_info;
+
+	running_stat rs;
+	
+	for (uint32_t by = 0; by < block_info.get_height(); by++)
+	{
+		for (uint32_t bx = 0; bx < block_info.get_width(); bx++)
+		{
+			rs.push((double)block_info(bx, by).m_out_blocks.size());
+			
+		} // bx
+	} // by
+
+	fmt_debug_printf("Encoder output candidate stats: total: {}, min: {}, max: {}, avg: {3.3}\n", rs.get_total(), rs.get_min(), rs.get_max(), rs.get_mean());
+}
+
+static bool ldr_astc_block_encode_image(
 	const image& orig_img,
 	const ldr_astc_block_encode_image_high_level_config& enc_cfg,
-	ldr_astc_block_encode_image_output& enc_out)
+	ldr_astc_block_encode_image_output& enc_out,
+	uint32_t max_candidate_limit)
 {
 	if (enc_cfg.m_debug_output)
 		fmt_debug_printf("ldr_astc_block_encode_image:\n");
@@ -5371,51 +7674,96 @@ bool ldr_astc_block_encode_image(
 
 	if (enc_cfg.m_debug_output)
 	{
-		fmt_debug_printf("ASTC base bitrate: {3.3} bpp\n", 128.0f / (float)(enc_cfg.m_block_width * enc_cfg.m_block_height));
+		fmt_debug_printf("\nASTC base bitrate: {3.3} bpp\n", 128.0f / (float)(enc_cfg.m_block_width * enc_cfg.m_block_height));
 
 		fmt_debug_printf("ASTC block size: {}x{}\n", enc_cfg.m_block_width, enc_cfg.m_block_height);
+
+		fmt_debug_printf("Image has alpha: {}\n", orig_img.has_alpha());
+		
+		fmt_debug_printf("max_candidate_limit: {}\n", max_candidate_limit);;
 	}
 
-	if (enc_cfg.m_debug_output)
-		fmt_debug_printf("Image has alpha: {}\n", orig_img.has_alpha());
-
+	// TODO: The transcoder already creates all this stuff for each block size.
 	astc_ldr::partitions_data* pPart_data_p2 = &enc_out.m_part_data_p2;
-	pPart_data_p2->init(2, enc_cfg.m_block_width, enc_cfg.m_block_height);
+	pPart_data_p2->init(2, enc_cfg.m_block_width, enc_cfg.m_block_height, BASISU_USE_LSH2 == 0, BASISU_USE_LSH2 != 0);
 
 	astc_ldr::partitions_data* pPart_data_p3 = &enc_out.m_part_data_p3;
-	pPart_data_p3->init(3, enc_cfg.m_block_width, enc_cfg.m_block_height);
+	pPart_data_p3->init(3, enc_cfg.m_block_width, enc_cfg.m_block_height, BASISU_USE_LSH3 == 0, BASISU_USE_LSH3 != 0);
 
-	// blurring coefficients
-	const float bw0 = 1.15f;
-	const float bw1 = 1.25f, bw1_a = 1.0f;
-	const float bw2 = 1.25f;
-		
 	// TODO: Make this optional/tune this, add only 2 level blurring support
-	image orig_img_blurred2, orig_img_blurred3, orig_img_blurred4, orig_img_blurred5;
+	// TODO: Make configurable
+	// (TOTAL_BLURRED_IMAGES is defined at module scope near the top of this file.)
+	
+	image orig_img_blurred[TOTAL_BLURRED_IMAGES];
+	uint32_t total_blur_encodes_p1 = 0;
+	uint32_t total_blurred_blocks_p1[2048] = { };
+	uint32_t total_blur_encodes_p2 = 0;
+	uint32_t total_blurred_blocks_p2[2048] = { };
 
-	if ((enc_cfg.m_blurring_enabled) || (enc_cfg.m_blurring_enabled_p2))
+	if ((enc_cfg.m_blurring_enabled_p1) || (enc_cfg.m_blurring_enabled_p2))
 	{
-		orig_img_blurred2.resize(orig_img.get_width(), orig_img.get_height());
-		orig_img_blurred3.resize(orig_img.get_width(), orig_img.get_height());
-		orig_img_blurred4.resize(orig_img.get_width(), orig_img.get_height());
-		orig_img_blurred5.resize(orig_img.get_width(), orig_img.get_height());
+		for (uint32_t i = 0; i < TOTAL_BLURRED_IMAGES; i++)
+			orig_img_blurred[i].resize(orig_img.get_width(), orig_img.get_height());
 
-		image_resample(orig_img, orig_img_blurred2, true, "gaussian", bw0);
-		image_resample(orig_img, orig_img_blurred3, true, "gaussian", bw1, false, 0, 4, bw1_a);
-		image_resample(orig_img, orig_img_blurred4, true, "gaussian", bw1_a, false, 0, 4, bw1);
-		image_resample(orig_img, orig_img_blurred5, true, "gaussian", bw2, false);
+		const bool srgb_flag = false;
+				
+		//if (TOTAL_BLURRED_IMAGES > 3)
+		if(0)
+		{
+			for (uint32_t k = 0; k < TOTAL_BLURRED_IMAGES; k++)
+			{
+				int i = k / 3;
+				int j = k % 3;
+
+				const float f = (float)i / (float)basisu::maximum<int>(1, ((TOTAL_BLURRED_IMAGES - 1) / 3));
+
+				float w;
+				if (TOTAL_BLURRED_IMAGES <= 6)
+					w = lerp(1.1f, 2.0f, f);
+				else
+					w = lerp(1.01f, 2.2f, f);
+
+				float sx = 1.0f, sy = 1.0f;
+
+				switch (j)
+				{
+				case 0:
+					sx = sy = w; break;
+				case 1:
+					sx = w; break;
+				case 2:
+				default:
+					sy = w; break;
+				}
+
+				image_resample(orig_img, orig_img_blurred[k], srgb_flag, "gaussian", sx, false, 0, 4, sy);
+			}
+		}
+		else
+		{
+			for (uint32_t i = 0; i < TOTAL_BLURRED_IMAGES; i++)
+			{
+				const float f = (float)i / (float)(TOTAL_BLURRED_IMAGES - 1);
+
+				float w;
+				
+				w = lerp(1.1f, 2.0f, f);
+
+				float sx = w, sy = w;
+
+				image_resample(orig_img, orig_img_blurred[i], srgb_flag, "gaussian", sx, false, 0, 4, sy);
+			}
+		}
 	}
 
 	if (enc_cfg.m_debug_images)
 	{
 		save_png(enc_cfg.m_debug_file_prefix + "dbg_astc_ldr_orig_img.png", orig_img);
 
-		if ((enc_cfg.m_blurring_enabled) || (enc_cfg.m_blurring_enabled_p2))
+		if ((enc_cfg.m_blurring_enabled_p1) || (enc_cfg.m_blurring_enabled_p2))
 		{
-			save_png(enc_cfg.m_debug_file_prefix + "vis_orig_blurred2.png", orig_img_blurred2);
-			save_png(enc_cfg.m_debug_file_prefix + "vis_orig_blurred3.png", orig_img_blurred3);
-			save_png(enc_cfg.m_debug_file_prefix + "vis_orig_blurred4.png", orig_img_blurred4);
-			save_png(enc_cfg.m_debug_file_prefix + "vis_orig_blurred5.png", orig_img_blurred5);
+			for (uint32_t i = 0; i < TOTAL_BLURRED_IMAGES; i++)
+				save_png(enc_cfg.m_debug_file_prefix + fmt_string("vis_orig_blurred{}.png", i), orig_img_blurred[i]);
 		}
 	}
 
@@ -5510,13 +7858,7 @@ bool ldr_astc_block_encode_image(
 	uint32_t total_shortlist_candidates = 0;
 	uint32_t total_full_encodes_pass1 = 0;
 	uint32_t total_full_encodes_pass2 = 0;
-
-	uint32_t total_blur_encodes = 0;
-	uint32_t total_blurred_blocks1 = 0;
-	uint32_t total_blurred_blocks2 = 0;
-	uint32_t total_blurred_blocks3 = 0;
-	uint32_t total_blurred_blocks4 = 0;
-
+		
 	basist::astc_ldr_t::dct2f dct;
 	dct.init(enc_cfg.m_block_height, enc_cfg.m_block_width);
 
@@ -5594,6 +7936,10 @@ bool ldr_astc_block_encode_image(
 		
 	uint32_t total_blocks_to_recompress = 0;
 		
+	//uint32_t max_candidates = 64;
+	//if (total_blocks >= (512 * 512))
+	//	max_candidates = 16; // save memory
+		
 	for (uint32_t superpass_index = 0; superpass_index < total_superpasses; superpass_index++)
 	{
 		if (superpass_index == 1)
@@ -5619,16 +7965,19 @@ bool ldr_astc_block_encode_image(
 					bx, by, 
 					//num_blocks_x, num_blocks_y, 
 					total_blocks, block_width, block_height, total_block_pixels, &packed_blocks, &global_mutex,
-					&orig_img, &orig_img_sobel_xy, &orig_img_blurred2, &orig_img_blurred3, &orig_img_blurred4, &orig_img_blurred5,
+					&orig_img, &orig_img_sobel_xy, &orig_img_blurred, max_candidate_limit,
 					&enc_cfg, &encoder_failed_flag, pPart_data_p2, pPart_data_p3, 
 					&total_blocks_done, &total_superbuckets_created, &total_buckets_created, &total_surrogate_encodes, &total_full_encodes, &total_shortlist_candidates,
 					&encoder_trial_modes,
-					&total_blur_encodes, &total_blurred_blocks1, 
+					&total_blur_encodes_p1, &total_blurred_blocks_p1, &total_blur_encodes_p2, &total_blurred_blocks_p2,
 					&total_full_encodes_pass1, &total_full_encodes_pass2,
 					&dct, &vis_dct_low_freq_block, 
 					&encoder_pool, &grid_coder, &grouped_encoder_trial_modes,
 					&enc_out, &output_block_devel_info, &total_void_extent_blocks_skipped, &superpass2_recompress_block_flags, &total_blocks_to_recompress, &last_printed_progress_val]
 					{
+						//if ((bx == 0x35) && (by == 0xec))
+						//	printf(".");
+
 						if (encoder_failed_flag)
 							return;
 
@@ -5743,6 +8092,7 @@ bool ldr_astc_block_encode_image(
 											neighbor_log_blk.m_color_endpoint_modes[0], neighbor_log_blk.m_num_partitions, neighbor_log_blk.m_partition_id, pPat,
 											neighbor_log_blk.m_endpoint_ise_range, neighbor_log_blk.m_weight_ise_range,
 											neighbor_log_blk.m_grid_width, neighbor_log_blk.m_grid_height,
+											enc_cfg.m_encode_trial_subsets_early_out_thresh,
 											new_log_block,
 											enc_cfg.m_cem_enc_params,
 											refine_only_flag,
@@ -5758,6 +8108,7 @@ bool ldr_astc_block_encode_image(
 											neighbor_log_blk.m_dual_plane, neighbor_log_blk.m_dual_plane ? neighbor_log_blk.m_color_component_selector : -1,
 											neighbor_log_blk.m_endpoint_ise_range, neighbor_log_blk.m_weight_ise_range,
 											neighbor_log_blk.m_grid_width, neighbor_log_blk.m_grid_height,
+											enc_cfg.m_encode_trial_early_out_thresh,
 											new_log_block,
 											enc_cfg.m_cem_enc_params,
 											enc_cfg.m_gradient_descent_flag, enc_cfg.m_polish_weights_flag, enc_cfg.m_qcd_enabled_flag,
@@ -5780,30 +8131,24 @@ bool ldr_astc_block_encode_image(
 
 									if (enc_cfg.m_use_dct)
 									{
-										const basist::astc_ldr_t::astc_block_grid_data* pGrid_data = basist::astc_ldr_t::find_astc_block_grid_data(block_width, block_height, new_log_block.m_grid_width, new_log_block.m_grid_height);
+										//const basist::astc_ldr_t::astc_block_grid_data* pGrid_data = basist::astc_ldr_t::find_astc_block_grid_data(block_width, block_height, new_log_block.m_grid_width, new_log_block.m_grid_height);
 
 										const uint32_t num_planes = (new_log_block.m_dual_plane ? 2 : 1);
 
+										basist::astc_ldr_t::fvec dct_temp;
+
 										for (uint32_t plane_index = 0; plane_index < num_planes; plane_index++)
 										{
-											bitwise_coder c;
-											basist::astc_ldr_t::dct_syms syms;
-											code_block_weights(grid_coder, enc_cfg.m_base_q, plane_index, new_log_block, pGrid_data, c, syms);
-
-											new_output_blk.m_packed_dct_plane_data[plane_index] = syms;
-
-											c.flush();
-
-											basist::bitwise_decoder d;
-											d.init(c.get_bytes().data(), c.get_bytes().size_u32());
-
+											basist::astc_ldr_t::dct_syms &syms = new_output_blk.m_packed_dct_plane_data[plane_index];
+																						
+											code_block_weights(grid_coder, enc_cfg.m_base_q, plane_index, new_log_block, syms, dct_temp);
+																						
 											// ensure existing weights get blown away 
 											for (uint32_t i = 0; i < (uint32_t)(new_log_block.m_grid_width * new_log_block.m_grid_height); i++)
 												new_log_block.m_weights[i * num_planes + plane_index] = 0;
-
-											basist::astc_ldr_t::fvec dct_temp;
-											bool dec_status = grid_coder.decode_block_weights(enc_cfg.m_base_q, plane_index, new_log_block, &d, pGrid_data, nullptr, dct_temp, nullptr);
-
+																						
+											bool dec_status = grid_coder.decode_block_weights(enc_cfg.m_base_q, plane_index, new_log_block, nullptr, nullptr, dct_temp, &syms);
+																						
 											assert(dec_status);
 											if (!dec_status)
 											{
@@ -5871,29 +8216,23 @@ bool ldr_astc_block_encode_image(
 
 									if (enc_cfg.m_use_dct)
 									{
-										const basist::astc_ldr_t::astc_block_grid_data* pGrid_data = basist::astc_ldr_t::find_astc_block_grid_data(block_width, block_height, new_log_block.m_grid_width, new_log_block.m_grid_height);
+										//const basist::astc_ldr_t::astc_block_grid_data* pGrid_data = basist::astc_ldr_t::find_astc_block_grid_data(block_width, block_height, new_log_block.m_grid_width, new_log_block.m_grid_height);
 
 										const uint32_t num_planes = (new_log_block.m_dual_plane ? 2 : 1);
 
+										basist::astc_ldr_t::fvec dct_temp;
+
 										for (uint32_t plane_index = 0; plane_index < num_planes; plane_index++)
 										{
-											bitwise_coder c;
-											basist::astc_ldr_t::dct_syms syms;
-											code_block_weights(grid_coder, enc_cfg.m_base_q, plane_index, new_log_block, pGrid_data, c, syms);
+											basist::astc_ldr_t::dct_syms &syms = new_output_blk.m_packed_dct_plane_data[plane_index];
+																						
+											code_block_weights(grid_coder, enc_cfg.m_base_q, plane_index, new_log_block, syms, dct_temp);
 
-											new_output_blk.m_packed_dct_plane_data[plane_index] = syms;
-
-											c.flush();
-
-											basist::bitwise_decoder d;
-											d.init(c.get_bytes().data(), c.get_bytes().size_u32());
-
-											// ensure existing weights get blown away 
+											// ensure existing weights get blown away
 											for (uint32_t i = 0; i < (uint32_t)(new_log_block.m_grid_width * new_log_block.m_grid_height); i++)
 												new_log_block.m_weights[i * num_planes + plane_index] = 0;
-
-											basist::astc_ldr_t::fvec dct_temp;
-											bool dec_status = grid_coder.decode_block_weights(enc_cfg.m_base_q, plane_index, new_log_block, &d, pGrid_data, nullptr, dct_temp, nullptr);
+																																
+											bool dec_status = grid_coder.decode_block_weights(enc_cfg.m_base_q, plane_index, new_log_block, nullptr, nullptr, dct_temp, &syms);
 
 											assert(dec_status);
 											if (!dec_status)
@@ -5993,343 +8332,23 @@ bool ldr_astc_block_encode_image(
 
 								return;
 							}
-
-							float max_std_dev = 0.0f;
-							for (uint32_t i = 0; i < 4; i++)
-								max_std_dev = maximum(max_std_dev, pixel_stats.m_rgba_stats[i].m_std_dev);
-
-							bool is_lum_only = true;
-
-							for (uint32_t y = 0; y < block_height; y++)
-							{
-								for (uint32_t x = 0; x < block_width; x++)
-								{
-									const color_rgba& c = pixel_stats.m_pixels[x + y * block_width];
-									bool is_lum_texel = (c.r == c.g) && (c.r == c.b);
-									if (!is_lum_texel)
-									{
-										is_lum_only = false;
-										break;
-									}
-								}
-								if (is_lum_only)
-									break;
-							}
-
-							basisu::vector<float> block_dct_energy(total_block_pixels);
-
-							bool filter_horizontally_flag = false;
-							bool low_freq_block_flag = 0;
-
-							{
-								basisu::vector<float> block_floats(total_block_pixels);
-								basisu::vector<float> block_dct(total_block_pixels);
-								basist::astc_ldr_t::fvec work;
-
-								for (uint32_t c = 0; c < 4; c++)
-								{
-									for (uint32_t i = 0; i < total_block_pixels; i++)
-										block_floats[i] = pixel_stats.m_pixels_f[i][c];
-
-									dct.forward(block_floats.data(), block_dct.data(), work);
-
-									for (uint32_t y = 0; y < block_height; y++)
-										for (uint32_t x = 0; x < block_width; x++)
-											block_dct_energy[x + y * block_width] += (float)enc_cfg.m_cem_enc_params.m_comp_weights[c] * squaref(block_dct[x + y * block_width]);
-
-								} // c
-
-								// Wipe DC
-								block_dct_energy[0] = 0.0f;
-
-								float tot_energy = compute_preserved_dct_energy(block_width, block_height, block_dct_energy.get_ptr(), block_width, block_height);
-
-								float h_energy_lost = compute_lost_dct_energy(block_width, block_height, block_dct_energy.get_ptr(), block_width / 2, block_height);
-								float v_energy_lost = compute_lost_dct_energy(block_width, block_height, block_dct_energy.get_ptr(), block_width, block_height / 2);
-
-								filter_horizontally_flag = h_energy_lost < v_energy_lost;
-
-								float hv2_lost_energy_fract = compute_lost_dct_energy(block_width, block_height, block_dct_energy.get_ptr(), 2, 2);
-								if (tot_energy)
-									hv2_lost_energy_fract /= tot_energy;
-
-								if ((hv2_lost_energy_fract < .03f) || (max_std_dev < (1.0f / 255.0f)))
-									low_freq_block_flag = true;
-							}
-
-							if (enc_cfg.m_debug_images)
-								vis_dct_low_freq_block.fill_box(bx * block_width, by * block_height, block_width, block_height, low_freq_block_flag ? color_rgba(255, 0, 0, 255) : g_black_color);
-
-							bool active_chan_flags[4] = { };
-
-							// The number of channels with non-zero spans
-							uint32_t total_active_chans = 0;
-							// The indices of the channels with non-zero spans.
-							//uint32_t active_chan_list[4] = { 0 };
-
-							for (uint32_t i = 0; i < 4; i++)
-							{
-								if (pixel_stats.m_rgba_stats[i].m_range > 0.0f)
-								{
-									assert(pixel_stats.m_max[i] != pixel_stats.m_min[i]);
-
-									active_chan_flags[i] = true;
-
-									//active_chan_list[total_active_chans] = i;
-									total_active_chans++;
-								}
-								else
-								{
-									assert(pixel_stats.m_max[i] == pixel_stats.m_min[i]);
-								}
-							}
-
-							basisu::comparative_stats<float> cross_chan_stats[TOTAL_RGBA_CHAN_PAIRS];
-
-							// def=max correlation for each channel pair (or 1 if one of the channels is inactive)
-							float chan_pair_correlations[6] = { 1.0f, 1.0f, 1.0f,  1.0f, 1.0f, 1.0f };
-							// 0=0, 1
-							// 1=0, 2
-							// 2=1, 2
-							// 3=0, 3
-							// 4=1, 3
-							// 5=2, 3
-
-							float min_corr = 1.0f, max_corr = 0.0f;
-
-							for (uint32_t pair_index = 0; pair_index < TOTAL_RGBA_CHAN_PAIRS; pair_index++)
-							{
-								const uint32_t chanA = g_rgba_chan_pairs[pair_index][0];
-								const uint32_t chanB = g_rgba_chan_pairs[pair_index][1];
-
-								// If both channels were active, we've got usable correlation statistics.
-								if (active_chan_flags[chanA] && active_chan_flags[chanB])
-								{
-									// TODO: This can be directly derived from the 3D/4D covariance matrix entries.
-									cross_chan_stats[pair_index].calc_pearson(total_block_pixels,
-										&pixel_stats.m_pixels_f[0][chanA],
-										&pixel_stats.m_pixels_f[0][chanB],
-										4, 4,
-										&pixel_stats.m_rgba_stats[chanA],
-										&pixel_stats.m_rgba_stats[chanB]);
-
-									chan_pair_correlations[pair_index] = fabsf(cross_chan_stats[pair_index].m_pearson);
-
-									const float c = fabsf((float)cross_chan_stats[pair_index].m_pearson);
-									min_corr = minimum(min_corr, c);
-									max_corr = maximum(max_corr, c);
-								}
-							}
-
-							// min_cor will be 1.0f if all channels inactive (solid)
-
-							// Pixel the trial modes the encoder will use: RGB or RGBA (we don't currently support trying both)
-
-							const bool used_alpha_encoder_modes = pixel_stats.m_has_alpha;
-
-							float sobel_energy = 0.0f;
-							for (uint32_t y = 0; y < block_height; y++)
-							{
-								for (uint32_t x = 0; x < block_width; x++)
-								{
-									const color_rgba& s = orig_img_sobel_xy.get_clamped(bx * block_width + x, by * block_height + y);
-									sobel_energy += s[0] * s[0] + s[1] * s[1] + s[2] * s[2] + s[3] * s[3];
-								} // x 
-							} // y
-
-							sobel_energy /= (float)total_block_pixels;
-
+							
 							// Configure low-level block encoder.
 							ldr_astc_lowlevel_block_encoder_params enc_blk_params;
 
-							enc_blk_params.m_block_width = block_width;
-							enc_blk_params.m_block_height = block_height;
-							enc_blk_params.m_total_block_pixels = total_block_pixels;
-							enc_blk_params.m_bx = bx;
-							enc_blk_params.m_by = by;
-
-							enc_blk_params.m_pOrig_img_sobel_xy_t = &orig_img_sobel_xy;
-
-							enc_blk_params.m_num_trial_modes = encoder_trial_modes.size_u32();
-							enc_blk_params.m_pTrial_modes = encoder_trial_modes.get_ptr();
-							enc_blk_params.m_pGrouped_trial_modes = &grouped_encoder_trial_modes;
-
-							enc_blk_params.m_pPart_data_p2 = pPart_data_p2;
-							enc_blk_params.m_pPart_data_p3 = pPart_data_p3;
-							enc_blk_params.m_pEnc_params = &enc_cfg.m_cem_enc_params;
-
-							float ang_dot = saturate(pixel_stats.m_zero_rel_axis3.dot3(pixel_stats.m_mean_rel_axis3));
-							const float pca_axis_angles = acosf(ang_dot) * (180.0f / (float)cPiD);
-
-							enc_blk_params.m_use_alpha_or_opaque_modes = used_alpha_encoder_modes;
-							enc_blk_params.m_use_lum_direct_modes = is_lum_only;
-
-							const bool filter_by_pca_angles_flag = (superpass_index == 1) ? enc_cfg.m_filter_by_pca_angles_flag_p2 : enc_cfg.m_filter_by_pca_angles_flag;
-							if (!filter_by_pca_angles_flag)
-							{
-								enc_blk_params.m_use_direct_modes = true;
-								enc_blk_params.m_use_base_scale_modes = true;
-							}
-							else
-							{
-								// TODO: Make selective based off edge blocks?
-								enc_blk_params.m_use_direct_modes = (!total_active_chans) || (pca_axis_angles > enc_cfg.m_use_direct_angle_thresh);
-								enc_blk_params.m_use_base_scale_modes = (pca_axis_angles <= enc_cfg.m_use_base_scale_angle_thresh);
-							}
-
-							enc_blk_params.m_grid_hv_filtering = enc_cfg.m_grid_hv_filtering;
-							enc_blk_params.m_filter_horizontally_flag = filter_horizontally_flag;
-
-							enc_blk_params.m_use_small_grids_only = low_freq_block_flag && enc_cfg.m_low_freq_block_filtering;
-
-							enc_blk_params.m_subsets_enabled = enc_cfg.m_subsets_enabled && (!low_freq_block_flag || !enc_cfg.m_subsets_edge_filtering);
-
-							enc_blk_params.m_subsets_edge_filtering = enc_cfg.m_subsets_edge_filtering;
-
-							enc_blk_params.m_use_blue_contraction = enc_cfg.m_use_blue_contraction;
-							enc_blk_params.m_final_encode_try_base_ofs = enc_cfg.m_use_base_ofs;
-
-							memcpy(enc_blk_params.m_superbucket_max_to_retain, enc_cfg.m_superbucket_max_to_retain, sizeof(enc_cfg.m_superbucket_max_to_retain));
-
-							memcpy(enc_blk_params.m_final_shortlist_fraction, enc_cfg.m_final_shortlist_fraction, sizeof(enc_blk_params.m_final_shortlist_fraction));
-							memcpy(enc_blk_params.m_final_shortlist_min_size, enc_cfg.m_final_shortlist_min_size, sizeof(enc_cfg.m_final_shortlist_min_size));
-							memcpy(enc_blk_params.m_final_shortlist_max_size, enc_cfg.m_final_shortlist_max_size, sizeof(enc_blk_params.m_final_shortlist_max_size));
-
-							enc_blk_params.m_part2_fraction_to_keep = enc_cfg.m_part2_fraction_to_keep;
-							enc_blk_params.m_part3_fraction_to_keep = enc_cfg.m_part3_fraction_to_keep;
-							enc_blk_params.m_base_parts2 = enc_cfg.m_base_parts2;
-							enc_blk_params.m_base_parts3 = enc_cfg.m_base_parts3;
-							enc_blk_params.m_gradient_descent_flag = enc_cfg.m_gradient_descent_flag;
-							enc_blk_params.m_polish_weights_flag = enc_cfg.m_polish_weights_flag;
-							enc_blk_params.m_qcd_enabled_flag = enc_cfg.m_qcd_enabled_flag;
-							enc_blk_params.m_bucket_pruning_passes = enc_cfg.m_bucket_pruning_passes;
-
-							enc_blk_params.m_alpha_cems = used_alpha_encoder_modes;
-
-							enc_blk_params.m_early_stop_wpsnr = enc_cfg.m_early_stop_wpsnr;
-							enc_blk_params.m_early_stop2_wpsnr = enc_cfg.m_early_stop2_wpsnr;
-
-							enc_blk_params.m_final_encode_always_try_rgb_direct = enc_cfg.m_final_encode_always_try_rgb_direct;
-
-							enc_blk_params.m_pDCT2F = &dct;
-
-							// Determine DP usage
-							if (enc_cfg.m_force_all_dual_plane_chan_evals)
-							{
-								for (uint32_t i = 0; i < 4; i++)
-									enc_blk_params.m_dp_active_chans[i] = active_chan_flags[i];
-							}
-							else
-							{
-								for (uint32_t i = 0; i < 3; i++)
-									enc_blk_params.m_dp_active_chans[i] = false;
-
-								// Being very conservative with alpha here - always let the analytical evaluator consider it.
-								enc_blk_params.m_dp_active_chans[3] = pixel_stats.m_has_alpha;
-
-								if (!enc_cfg.m_disable_rgb_dual_plane)
-								{
-									const float rg_corr = chan_pair_correlations[0];
-									const float rb_corr = chan_pair_correlations[1];
-									const float gb_corr = chan_pair_correlations[2];
-
-									int desired_dp_chan_rgb = -1;
-
-									float min_p = minimum(rg_corr, rb_corr, gb_corr);
-
-									if (min_p < enc_cfg.m_strong_dp_decorr_thresh_rgb)
-									{
-										const bool has_r = active_chan_flags[0], has_g = active_chan_flags[1];
-										//const bool has_b = active_chan_flags[2];
-
-										uint32_t total_active_chans_rgb = 0;
-										for (uint32_t i = 0; i < 3; i++)
-											total_active_chans_rgb += active_chan_flags[i];
-
-										if (total_active_chans_rgb == 2)
-										{
-											if (!has_r)
-												desired_dp_chan_rgb = 1;
-											else if (!has_g)
-												desired_dp_chan_rgb = 0;
-											else
-												desired_dp_chan_rgb = 0;
-										}
-										else if (total_active_chans_rgb == 3)
-										{
-											// see if rg/rb is weakly correlated vs. gb
-											if ((rg_corr < gb_corr) && (rb_corr < gb_corr))
-												desired_dp_chan_rgb = 0;
-											// see if gr/gb is weakly correlated vs. rb
-											else if ((rg_corr < rb_corr) && (gb_corr < rb_corr))
-												desired_dp_chan_rgb = 1;
-											// assume b is weakest
-											else
-												desired_dp_chan_rgb = 2;
-										}
-									}
-
-									if (desired_dp_chan_rgb != -1)
-									{
-										assert(active_chan_flags[desired_dp_chan_rgb]);
-										enc_blk_params.m_dp_active_chans[desired_dp_chan_rgb] = true;
-									}
-								}
-							}
-
-							if (!enc_blk_params.m_dp_active_chans[0] && !enc_blk_params.m_dp_active_chans[1] && !enc_blk_params.m_dp_active_chans[2] && !enc_blk_params.m_dp_active_chans[3])
-							{
-								enc_blk_params.m_use_dual_planes = false;
-							}
-
-							astc_ldr::cem_encode_params temp_cem_enc_params;
-							if (superpass_index == 1)
-							{
-								enc_blk_params.m_base_parts2 = enc_cfg.m_base_parts2_p2;
-								enc_blk_params.m_base_parts3 = enc_cfg.m_base_parts3_p2;
-								enc_blk_params.m_part2_fraction_to_keep = 1;
-								enc_blk_params.m_part3_fraction_to_keep = 1;
-
-								memcpy(enc_blk_params.m_superbucket_max_to_retain, enc_cfg.m_superbucket_max_to_retain_p2, sizeof(enc_cfg.m_superbucket_max_to_retain_p2));
-								memcpy(enc_blk_params.m_final_shortlist_max_size, enc_cfg.m_final_shortlist_max_size_p2, sizeof(enc_cfg.m_final_shortlist_max_size_p2));
-
-								if (enc_cfg.m_second_pass_force_subsets_enabled)
-									enc_blk_params.m_subsets_enabled = true;
-								enc_blk_params.m_subsets_edge_filtering = false;
-
-								if (enc_cfg.m_force_all_dp_chans_p2)
-								{
-									enc_blk_params.m_dp_active_chans[0] = active_chan_flags[0];
-									enc_blk_params.m_dp_active_chans[1] = active_chan_flags[1];
-									enc_blk_params.m_dp_active_chans[2] = active_chan_flags[2];
-									enc_blk_params.m_dp_active_chans[3] = active_chan_flags[3];
-									enc_blk_params.m_use_dual_planes = true;
-
-									if (!enc_blk_params.m_dp_active_chans[0] && !enc_blk_params.m_dp_active_chans[1] && !enc_blk_params.m_dp_active_chans[2] && !enc_blk_params.m_dp_active_chans[3])
-									{
-										enc_blk_params.m_use_dual_planes = false;
-									}
-								}
-
-								enc_blk_params.m_gradient_descent_flag = true;
-								enc_blk_params.m_polish_weights_flag = true;
-
-								enc_blk_params.m_use_direct_modes = true;
-								enc_blk_params.m_use_base_scale_modes = true;
-
-								enc_blk_params.m_early_stop_wpsnr = enc_cfg.m_early_stop_wpsnr + 2.0f;
-								enc_blk_params.m_early_stop2_wpsnr = enc_cfg.m_early_stop2_wpsnr + 2.0f;
-
-								if (enc_cfg.m_second_pass_total_weight_refine_passes)
-								{
-									temp_cem_enc_params = enc_cfg.m_cem_enc_params;
-									enc_blk_params.m_pEnc_params = &temp_cem_enc_params;
-
-									temp_cem_enc_params.m_total_weight_refine_passes = enc_cfg.m_second_pass_total_weight_refine_passes;
-									temp_cem_enc_params.m_worst_weight_nudging_flag = true;
-									temp_cem_enc_params.m_endpoint_refinement_flag = true;
-								}
-							}
+							encoder_config_manager cfg_man;
+							cfg_man.init(bx, by, block_width, block_height, total_block_pixels,
+								pixel_stats,
+								dct, enc_cfg, orig_img_sobel_xy, vis_dct_low_freq_block, 
+								0);
+														
+							cfg_man.select(enc_blk_params, superpass_index, 
+								bx, by, block_width, block_height, total_block_pixels,
+								orig_img_sobel_xy, encoder_trial_modes, grouped_encoder_trial_modes,
+								pPart_data_p2, pPart_data_p3,
+								pixel_stats, enc_cfg,
+								dct,
+								0);
 
 							scoped_ldr_astc_lowlevel_block_encoder scoped_block_encoder(encoder_pool);
 							if (scoped_block_encoder.get_ptr() == nullptr)
@@ -6339,7 +8358,7 @@ bool ldr_astc_block_encode_image(
 								return;
 							}
 
-							// solid color
+							// solid color - must be first
 							{
 								encode_block_output* pOut = out_blocks.enlarge(1);
 								pOut->clear();
@@ -6360,94 +8379,164 @@ bool ldr_astc_block_encode_image(
 							}
 
 							encode_block_stats enc_block_stats;
-
-							bool enc_status = scoped_block_encoder.get_ptr()->full_encode(enc_blk_params, pixel_stats, out_blocks, 0, enc_block_stats);
-							if (!enc_status)
+							bool enc_status;
+														
 							{
-								encoder_failed_flag.store(true);
-								return;
+								enc_status = scoped_block_encoder.get_ptr()->full_encode(enc_blk_params, pixel_stats, out_blocks, 0, enc_block_stats);
+								if (!enc_status)
+								{
+									encoder_failed_flag.store(true);
+									return;
+								}
 							}
 
-#if 1
-							// --------------------- BLOCK BLURRING
-							// TODO - very slow, needs more configuration and tuning, experimental
-							const float BLUR_STD_DEV_THRESH = (15.0f / 255.0f);
-							const float BLUR_SOBEL_ENERGY_THRESH = 15000.0f;
-
-							const bool use_blurs = (enc_cfg.m_blurring_enabled && (!selective_blurring || ((max_std_dev > BLUR_STD_DEV_THRESH) && (sobel_energy > BLUR_SOBEL_ENERGY_THRESH)))) ||
-								(enc_cfg.m_blurring_enabled_p2 && (superpass_index == 1));
-
-							if (use_blurs)
+#if 0
+							if (enc_cfg.m_debug_images)
 							{
-								{
-									assert(orig_img_blurred2.get_width());
-
-									color_rgba block_pixels_blurred2[astc_ldr::ASTC_LDR_MAX_BLOCK_PIXELS];
-									orig_img_blurred2.extract_block_clamped(block_pixels_blurred2, bx * block_width, by * block_height, block_width, block_height);
-
-									astc_ldr::pixel_stats_t pixel_stats_blurred2;
-									pixel_stats_blurred2.init(total_block_pixels, block_pixels_blurred2);
-
-									enc_status = scoped_block_encoder.get_ptr()->full_encode(enc_blk_params, pixel_stats_blurred2, out_blocks, 1, enc_block_stats);
-									if (!enc_status)
-									{
-										encoder_failed_flag.store(true);
-										return;
-									}
-								}
-
-								{
-									assert(orig_img_blurred3.get_width());
-
-									color_rgba block_pixels_blurred3[astc_ldr::ASTC_LDR_MAX_BLOCK_PIXELS];
-									orig_img_blurred3.extract_block_clamped(block_pixels_blurred3, bx * block_width, by * block_height, block_width, block_height);
-
-									astc_ldr::pixel_stats_t pixel_stats_blurred3;
-									pixel_stats_blurred3.init(total_block_pixels, block_pixels_blurred3);
-
-									enc_status = scoped_block_encoder.get_ptr()->full_encode(enc_blk_params, pixel_stats_blurred3, out_blocks, 2, enc_block_stats);
-									if (!enc_status)
-									{
-										encoder_failed_flag.store(true);
-										return;
-									}
-								}
-
-								{
-									assert(orig_img_blurred4.get_width());
-
-									color_rgba block_pixels_blurred4[astc_ldr::ASTC_LDR_MAX_BLOCK_PIXELS];
-									orig_img_blurred4.extract_block_clamped(block_pixels_blurred4, bx * block_width, by * block_height, block_width, block_height);
-
-									astc_ldr::pixel_stats_t pixel_stats_blurred4;
-									pixel_stats_blurred4.init(total_block_pixels, block_pixels_blurred4);
-
-									enc_status = scoped_block_encoder.get_ptr()->full_encode(enc_blk_params, pixel_stats_blurred4, out_blocks, 3, enc_block_stats);
-									if (!enc_status)
-									{
-										encoder_failed_flag.store(true);
-										return;
-									}
-								}
-
-								{
-									assert(orig_img_blurred5.get_width());
-
-									color_rgba block_pixels_blurred5[astc_ldr::ASTC_LDR_MAX_BLOCK_PIXELS];
-									orig_img_blurred5.extract_block_clamped(block_pixels_blurred5, bx * block_width, by * block_height, block_width, block_height);
-
-									astc_ldr::pixel_stats_t pixel_stats_blurred5;
-									pixel_stats_blurred5.init(total_block_pixels, block_pixels_blurred5);
-
-									enc_status = scoped_block_encoder.get_ptr()->full_encode(enc_blk_params, pixel_stats_blurred5, out_blocks, 4, enc_block_stats);
-									if (!enc_status)
-									{
-										encoder_failed_flag.store(true);
-										return;
-									}
-								}
+								const bool vis_flag = (scoped_block_encoder.get_ptr()->m_block_complexity_index == 0) && (max_std_dev < (6.0f / 255.0f));
+								vis_dct_low_freq_block.fill_box(bx * block_width, by * block_height, block_width, block_height, vis_flag ? color_rgba(255, 0, 255, 255) : g_black_color);
 							}
 #endif
+
+							// --------------------- BLOCK BLURRING
+							//const float BLUR_STD_DEV_THRESH = (15.0f / 255.0f);
+							//const float BLUR_SOBEL_ENERGY_THRESH = 15000.0f;
+
+							//const float BLUR_STD_DEV_THRESH = (5.0f / 255.0f);
+							//const float BLUR_SOBEL_ENERGY_THRESH = 5000.0f;
+														
+							const float BLUR_STD_DEV_THRESH = (10.0f / 255.0f);
+							const float BLUR_SOBEL_ENERGY_THRESH = 10000.0f;
+							const bool use_blurs = (enc_cfg.m_blurring_enabled_p1 && (!selective_blurring || ((cfg_man.m_max_std_dev > BLUR_STD_DEV_THRESH) && (cfg_man.m_sobel_energy > BLUR_SOBEL_ENERGY_THRESH)))) ||
+								(enc_cfg.m_blurring_enabled_p2 && (superpass_index == 1));
+							if (use_blurs)
+							{
+								for (uint32_t i = 0; i < TOTAL_BLURRED_IMAGES; i++)
+								{
+									const uint32_t blur_id = BLUR_ID_GAUSSIAN_ALTERNATE + i;
+									const image& blurred_img = orig_img_blurred[i];
+									assert(blurred_img.get_width());
+
+									color_rgba block_pixels_blurred[astc_ldr::ASTC_LDR_MAX_BLOCK_PIXELS];
+									blurred_img.extract_block_clamped(block_pixels_blurred, bx * block_width, by * block_height, block_width, block_height);
+
+									astc_ldr::pixel_stats_t pixel_stats_blurred;
+									pixel_stats_blurred.init(total_block_pixels, block_pixels_blurred);
+
+									cfg_man.init(bx, by, block_width, block_height, total_block_pixels,
+										pixel_stats_blurred,
+										dct, enc_cfg, orig_img_sobel_xy, vis_dct_low_freq_block, blur_id);
+
+									ldr_astc_lowlevel_block_encoder_params enc_blk_params_blurred;
+
+									cfg_man.select(enc_blk_params_blurred, 
+										superpass_index,
+										bx, by, block_width, block_height, total_block_pixels,
+										orig_img_sobel_xy, encoder_trial_modes, grouped_encoder_trial_modes,
+										pPart_data_p2, pPart_data_p3,
+										pixel_stats_blurred, enc_cfg,
+										dct, 
+										blur_id);
+
+									enc_status = scoped_block_encoder.get_ptr()->full_encode(enc_blk_params_blurred, pixel_stats_blurred, out_blocks, blur_id, enc_block_stats);
+									if (!enc_status)
+									{
+										encoder_failed_flag.store(true);
+										return;
+									}
+								}
+							}
+
+							// Grid dimension prefiltering (experimental)
+							const bool BLOCK_PREFILTER_BY_GRID_DIM = false;
+							if (BLOCK_PREFILTER_BY_GRID_DIM && (enc_cfg.m_blurring_enabled_p1 || enc_cfg.m_blurring_enabled_p2))
+							{
+								uint_vec grid_dims;
+
+								for (uint32_t out_block_iter = 0; out_block_iter < out_blocks.size_u32(); out_block_iter++)
+								{
+									if (out_blocks[out_block_iter].m_trial_mode_index < 0)
+										continue;
+
+									astc_helpers::log_astc_block& log_astc_blk = out_blocks[out_block_iter].m_log_blk;
+									if (log_astc_blk.m_solid_color_flag_ldr)
+										continue;
+
+									if ((log_astc_blk.m_grid_width == block_width) && (log_astc_blk.m_grid_height == block_height))
+										continue;
+
+									grid_dims.push_back(
+										((uint32_t)log_astc_blk.m_grid_width << 8) | ((uint32_t)log_astc_blk.m_grid_height));
+								}
+
+								if (grid_dims.size())
+								{
+									grid_dims.unique();
+									const uint32_t total_unique = grid_dims.size_u32();
+
+									for (uint32_t b = 0; b < total_unique; b++)
+									{
+										const uint32_t grid_width = grid_dims[b] >> 8;
+										const uint32_t grid_height = grid_dims[b] & 0xFF;
+										
+										color_rgba upsampled_block[astc_helpers::MAX_BLOCK_PIXELS]; // num_block_samples
+
+										filter_block(block_width, block_height, grid_width, grid_height, pixel_stats, upsampled_block);
+
+										const uint32_t blur_id = BLUR_ID_GRID_DIM_BASE + b;
+
+										astc_ldr::pixel_stats_t pixel_stats_blurred;
+										pixel_stats_blurred.init(total_block_pixels, upsampled_block);
+
+										cfg_man.init(bx, by, block_width, block_height, total_block_pixels,
+											pixel_stats_blurred,
+											dct, enc_cfg, orig_img_sobel_xy, vis_dct_low_freq_block, blur_id);
+
+										ldr_astc_lowlevel_block_encoder_params enc_blk_params_blurred;
+
+										cfg_man.select(enc_blk_params_blurred,
+											superpass_index,
+											bx, by, block_width, block_height, total_block_pixels,
+											orig_img_sobel_xy, encoder_trial_modes, grouped_encoder_trial_modes,
+											pPart_data_p2, pPart_data_p3,
+											pixel_stats_blurred, enc_cfg,
+											dct,
+											blur_id);
+
+										enc_status = scoped_block_encoder.get_ptr()->full_encode(enc_blk_params_blurred, pixel_stats_blurred, out_blocks, blur_id, enc_block_stats);
+										if (!enc_status)
+										{
+											encoder_failed_flag.store(true);
+											return;
+										}
+
+									} // b
+								}
+							}
+
+							// --------------------- EXPERIMENTAL - DC/LINEAR LATENT CODING
+							if ((enc_cfg.m_try_simplified_latent_configs) &&
+								(!pixel_stats.m_has_alpha) && 
+								(cfg_man.m_max_std_dev > (2.0f / 255.0f)))
+							{
+								uint64_vec best_2subset_seed_ids, best_3subset_seed_ids;
+
+								encode_block_to_dc_latent(
+									block_width, block_height,
+									pixel_stats,
+									out_blocks,
+									enc_cfg,
+									pPart_data_p2, pPart_data_p3, encoder_trial_modes, 
+									best_2subset_seed_ids, best_3subset_seed_ids);
+
+								encode_block_to_linear_latent(8,
+									block_width, block_height,
+									pixel_stats,
+									out_blocks,
+									enc_cfg,
+									pPart_data_p2, pPart_data_p3, encoder_trial_modes, 
+									best_2subset_seed_ids, best_3subset_seed_ids);
+							}
 
 							// --------------------- WEIGHT GRID DCT CODING 
 							if (enc_cfg.m_use_dct)
@@ -6455,69 +8544,19 @@ bool ldr_astc_block_encode_image(
 								// apply DCT to weights
 								for (uint32_t out_block_iter = 0; out_block_iter < out_blocks.size_u32(); out_block_iter++)
 								{
-									if (out_blocks[out_block_iter].m_trial_mode_index < 0)
-										continue;
-
-									astc_helpers::log_astc_block& log_astc_blk = out_blocks[out_block_iter].m_log_blk;
-
-									const basist::astc_ldr_t::astc_block_grid_data* pGrid_data = basist::astc_ldr_t::find_astc_block_grid_data(block_width, block_height, log_astc_blk.m_grid_width, log_astc_blk.m_grid_height);
-
-									const uint32_t num_planes = (log_astc_blk.m_dual_plane ? 2 : 1);
-									for (uint32_t plane_index = 0; plane_index < num_planes; plane_index++)
+									if (!apply_weight_grid_dct(block_width, block_height,
+										grid_coder,
+										out_blocks[out_block_iter],
+										pixel_stats, true,
+										enc_cfg, pPart_data_p2, pPart_data_p3, true))
 									{
-										bitwise_coder c;
-										basist::astc_ldr_t::dct_syms syms;
-										code_block_weights(grid_coder, enc_cfg.m_base_q, plane_index, log_astc_blk, pGrid_data, c, syms);
-
-										out_blocks[out_block_iter].m_packed_dct_plane_data[plane_index] = syms;
-
-										c.flush();
-
-										basist::bitwise_decoder d;
-										d.init(c.get_bytes().data(), c.get_bytes().size_u32());
-
-										// ensure existing weights get blown away 
-										for (uint32_t i = 0; i < (uint32_t)(log_astc_blk.m_grid_width * log_astc_blk.m_grid_height); i++)
-											log_astc_blk.m_weights[i * num_planes + plane_index] = 0;
-
-										basist::astc_ldr_t::fvec dct_temp;
-										bool status = grid_coder.decode_block_weights(enc_cfg.m_base_q, plane_index, log_astc_blk, &d, pGrid_data, nullptr, dct_temp, nullptr);
-
-										assert(status);
-										if (!status)
-										{
-											error_printf("grid_coder.decode_block_weights() failed!\n");
-
-											encoder_failed_flag.store(true);
-											return;
-										}
-
-#if 0
-										{
-											astc_helpers::log_astc_block alt_log_astc_blk(log_astc_blk);
-
-											for (uint32_t i = 0; i < (uint32_t)(log_astc_blk.m_grid_width * log_astc_blk.m_grid_height); i++)
-												alt_log_astc_blk.m_weights[i * num_planes + plane_index] = 0;
-
-											status = grid_coder.decode_block_weights(q, plane_index, alt_log_astc_blk, nullptr, pGrid_data, &out_block_dct_stats[out_block_iter], &syms);
-											assert(status);
-
-											for (uint32_t i = 0; i < (uint32_t)(log_astc_blk.m_grid_width * log_astc_blk.m_grid_height); i++)
-											{
-												assert(log_astc_blk.m_weights[i * num_planes + plane_index] == alt_log_astc_blk.m_weights[i * num_planes + plane_index]);
-											}
-
-										}
-#endif
-										// TODO: in theory, endpoints can be refined if they don't change the DCT span.
+										encoder_failed_flag.store(true);
+										return;
 									}
-
-									out_blocks[out_block_iter].m_sse = eval_error(block_width, block_height, log_astc_blk, pixel_stats, enc_cfg.m_cem_enc_params);
-
 								} // for
 
 							} // use_dct
-
+														
 							// Find best output block
 							uint64_t best_out_blocks_err = UINT64_MAX;
 							uint32_t best_out_blocks_index = 0;
@@ -6527,8 +8566,8 @@ bool ldr_astc_block_encode_image(
 							{
 								const astc_helpers::log_astc_block& log_astc_blk = out_blocks[out_block_iter].m_log_blk;
 
-								color_rgba dec_pixels[astc_helpers::MAX_BLOCK_DIM * astc_helpers::MAX_BLOCK_DIM];
-								bool dec_status = astc_helpers::decode_block(log_astc_blk, dec_pixels, block_width, block_height, enc_cfg.m_cem_enc_params.m_decode_mode_srgb ? astc_helpers::cDecodeModeSRGB8 : astc_helpers::cDecodeModeLDR8);
+								color_rgba dec_pixels[astc_helpers::MAX_BLOCK_PIXELS];
+								const bool dec_status = astc_helpers::decode_block_xuastc_ldr(log_astc_blk, dec_pixels, block_width, block_height, enc_cfg.m_cem_enc_params.m_decode_mode_srgb ? astc_helpers::cDecodeModeSRGB8 : astc_helpers::cDecodeModeLDR8);
 
 								assert(dec_status);
 								if (!dec_status)
@@ -6564,6 +8603,99 @@ bool ldr_astc_block_encode_image(
 								}
 							} // out_block_iter
 
+							// try blurring best candidate found so far (very experimental)
+							const bool BLOCK_POSTFILTERING = false;
+							if (BLOCK_POSTFILTERING &&
+								( ((enc_cfg.m_blurring_enabled_p1) || (enc_cfg.m_blurring_enabled_p2)) && (cfg_man.m_max_std_dev > (5.0f / 255.0f)) ) 
+								)
+							{
+								encode_block_output &best_blk = out_blocks[best_out_blocks_index];
+								
+								const astc_helpers::log_astc_block& best_log_blk = best_blk.m_log_blk;
+
+								if ((!best_log_blk.m_solid_color_flag_ldr) && 
+									((best_log_blk.m_grid_width < block_width) || (best_log_blk.m_grid_height < block_height)))
+								{
+									color_rgba upsampled_block[astc_helpers::MAX_BLOCK_PIXELS]; // num_block_samples
+
+									filter_block(block_width, block_height, best_log_blk.m_grid_width, best_log_blk.m_grid_height, pixel_stats, upsampled_block);
+
+									const uint32_t blur_id = BLUR_ID_BEST_CANDIDATE;
+
+									astc_ldr::pixel_stats_t pixel_stats_blurred;
+									pixel_stats_blurred.init(total_block_pixels, upsampled_block);
+
+									cfg_man.init(bx, by, block_width, block_height, total_block_pixels,
+										pixel_stats_blurred,
+										dct, enc_cfg, orig_img_sobel_xy, vis_dct_low_freq_block, blur_id);
+
+									ldr_astc_lowlevel_block_encoder_params enc_blk_params_blurred;
+
+									cfg_man.select(enc_blk_params_blurred,
+										superpass_index,
+										bx, by, block_width, block_height, total_block_pixels,
+										orig_img_sobel_xy, encoder_trial_modes, grouped_encoder_trial_modes,
+										pPart_data_p2, pPart_data_p3,
+										pixel_stats_blurred, enc_cfg,
+										dct,
+										blur_id);
+
+									const uint32_t cur_num_out_blocks = out_blocks.size_u32();
+
+									enc_status = scoped_block_encoder.get_ptr()->full_encode(enc_blk_params_blurred, pixel_stats_blurred, out_blocks, blur_id, enc_block_stats);
+									if (!enc_status)
+									{
+										encoder_failed_flag.store(true);
+										return;
+									}
+
+									for (uint32_t out_block_iter = cur_num_out_blocks; out_block_iter < out_blocks.size_u32(); out_block_iter++)
+									{
+										if (!apply_weight_grid_dct(block_width, block_height,
+											grid_coder,
+											out_blocks[out_block_iter],
+											pixel_stats, true,
+											enc_cfg, pPart_data_p2, pPart_data_p3, true))
+										{
+											encoder_failed_flag.store(true);
+											return;
+										}
+									}
+
+									for (uint32_t out_block_iter = cur_num_out_blocks; out_block_iter < out_blocks.size_u32(); out_block_iter++)
+									{
+										const astc_helpers::log_astc_block& log_astc_blk = out_blocks[out_block_iter].m_log_blk;
+
+										color_rgba dec_pixels[astc_helpers::MAX_BLOCK_PIXELS];
+										bool dec_status = astc_helpers::decode_block(log_astc_blk, dec_pixels, block_width, block_height, enc_cfg.m_cem_enc_params.m_decode_mode_srgb ? astc_helpers::cDecodeModeSRGB8 : astc_helpers::cDecodeModeLDR8);
+
+										assert(dec_status);
+										if (!dec_status)
+										{
+											encoder_failed_flag.store(true);
+											return;
+										}
+
+										uint64_t total_err = 0;
+										for (uint32_t i = 0; i < total_block_pixels; i++)
+											total_err += weighted_color_error(block_pixels[i], dec_pixels[i], enc_cfg.m_cem_enc_params);
+
+										assert(out_blocks[out_block_iter].m_blur_id != 0);
+
+										// Replace m_sse with the actual WSSE vs. the original source block (in case it was blurred)
+										out_blocks[out_block_iter].m_sse = total_err;
+
+										if (total_err < best_out_blocks_err)
+										{
+											best_out_blocks_err = total_err;
+											best_out_blocks_log_astc_blk = log_astc_blk;
+											best_out_blocks_index = out_block_iter;
+										}
+									} // out_block_iter
+
+								}
+							}
+
 #if 0
 							// TODO: Save memory, only minimally tested
 							if (enc_cfg.m_save_single_result)
@@ -6576,14 +8708,25 @@ bool ldr_astc_block_encode_image(
 								best_out_blocks_index = 0;
 							}
 #endif
-
+							// TODO: limit max candidates to save memory here
+														
 							ldr_astc_block_encode_image_output::block_info& block_info_out = enc_out.m_image_block_info(bx, by);
 
-							block_info_out.m_low_freq_block_flag = low_freq_block_flag;
+							block_info_out.m_low_freq_block_flag = cfg_man.m_low_freq_block_flag;
 							block_info_out.m_super_strong_edges = scoped_block_encoder.get_ptr()->m_super_strong_edges;
 							block_info_out.m_very_strong_edges = scoped_block_encoder.get_ptr()->m_very_strong_edges;
 							block_info_out.m_strong_edges = scoped_block_encoder.get_ptr()->m_strong_edges;
+
 							block_info_out.m_packed_out_block_index = best_out_blocks_index;
+
+							const uint64_t check_wsse = out_blocks[best_out_blocks_index].m_sse;
+
+							enforce_max_candidate_limit(block_info_out, max_candidate_limit);
+
+							best_out_blocks_index = block_info_out.m_packed_out_block_index;  // may have changed
+
+							BASISU_NOTE_UNUSED(check_wsse);
+							assert(check_wsse == out_blocks[best_out_blocks_index].m_sse);
 
 							// Create packed ASTC block
 							astc_helpers::astc_block& best_phys_block = packed_blocks(bx, by);
@@ -6595,7 +8738,7 @@ bool ldr_astc_block_encode_image(
 							}
 
 							output_block_devel_desc& out_devel_desc = output_block_devel_info(bx, by);
-							out_devel_desc.m_low_freq_block_flag = low_freq_block_flag;
+							out_devel_desc.m_low_freq_block_flag = cfg_man.m_low_freq_block_flag;
 							out_devel_desc.m_super_strong_edges = scoped_block_encoder.get_ptr()->m_super_strong_edges;
 							out_devel_desc.m_very_strong_edges = scoped_block_encoder.get_ptr()->m_very_strong_edges;
 							out_devel_desc.m_strong_edges = scoped_block_encoder.get_ptr()->m_strong_edges;
@@ -6603,12 +8746,31 @@ bool ldr_astc_block_encode_image(
 							// Critical Section
 							{
 								std::lock_guard g(global_mutex);
+																
+								if (superpass_index == 0)
+								{
+									if (use_blurs)
+										total_blur_encodes_p1++;
 
-								if (use_blurs)
-									total_blur_encodes++;
+									if (out_blocks[best_out_blocks_index].m_blur_id >= 1)
+									{
+										const int blur_id = out_blocks[best_out_blocks_index].m_blur_id - 1;
+										if (blur_id < (int)std::size(total_blurred_blocks_p1))
+											total_blurred_blocks_p1[blur_id]++;
+									}
+								}
+								else if (superpass_index == 1)
+								{
+									if (use_blurs)
+										total_blur_encodes_p2++;
 
-								if (out_blocks[best_out_blocks_index].m_blur_id)
-									total_blurred_blocks1++;
+									if (out_blocks[best_out_blocks_index].m_blur_id >= 1)
+									{
+										const int blur_id = out_blocks[best_out_blocks_index].m_blur_id - 1;
+										if (blur_id < (int)std::size(total_blurred_blocks_p2))
+											total_blurred_blocks_p2[blur_id]++;
+									}
+								}
 
 								if (superpass_index == 0)
 								{
@@ -6822,6 +8984,8 @@ bool ldr_astc_block_encode_image(
 
 				} // j
 
+				enforce_max_candidate_limit(out_block_info, max_candidate_limit);
+
 			} // bx
 		} // by
 
@@ -6844,6 +9008,13 @@ bool ldr_astc_block_encode_image(
 			for (uint32_t bx = 0; bx < num_blocks_x; bx++)
 			{
 				const ldr_astc_block_encode_image_output::block_info& out_block_info = enc_out.m_image_block_info(bx, by);
+
+				if (out_block_info.m_packed_out_block_index >= out_block_info.m_out_blocks.size())
+				{
+					fmt_error_printf("consistency check failed\n");
+					assert(0);
+					return false;
+				}
 
 #if BU_CHECK_NEIGHBOR_BEST
 				uint64_t best_sse = UINT64_MAX;
@@ -6901,10 +9072,12 @@ bool ldr_astc_block_encode_image(
 						return false;
 					}
 
-					const basist::astc_ldr_t::astc_block_grid_data* pGrid_data = basist::astc_ldr_t::find_astc_block_grid_data(block_width, block_height, best_log_blk.m_grid_width, best_log_blk.m_grid_height);
+					//const basist::astc_ldr_t::astc_block_grid_data* pGrid_data = basist::astc_ldr_t::find_astc_block_grid_data(block_width, block_height, best_log_blk.m_grid_width, best_log_blk.m_grid_height);
 					const uint32_t total_planes = best_log_blk.m_num_partitions ? (best_log_blk.m_dual_plane ? 2 : 1) : 0;
 
 					astc_helpers::log_astc_block verify_log_blk(best_log_blk);
+
+					basist::astc_ldr_t::fvec dct_temp;
 
 					for (uint32_t plane_index = 0; plane_index < total_planes; plane_index++)
 					{
@@ -6914,9 +9087,8 @@ bool ldr_astc_block_encode_image(
 							assert(0);
 							return false;
 						}
-
-						basist::astc_ldr_t::fvec dct_temp;
-						bool dec_status = grid_coder.decode_block_weights(enc_cfg.m_base_q, plane_index, verify_log_blk, nullptr, pGrid_data, nullptr, dct_temp,
+												
+						bool dec_status = grid_coder.decode_block_weights(enc_cfg.m_base_q, plane_index, verify_log_blk, nullptr, nullptr, dct_temp,
 							&out_block_info.m_out_blocks[out_block_info.m_packed_out_block_index].m_packed_dct_plane_data[plane_index]);
 
 						if (!dec_status)
@@ -7174,6 +9346,8 @@ bool ldr_astc_block_encode_image(
 
 	if (enc_cfg.m_debug_output)
 	{
+		display_candidate_statistics(enc_out);
+
 		uint32_t cem_used_hist[16] = { 0 };
 		uint32_t cem_used_bc[16] = { 0 };
 		uint32_t cem_used_subsets[16] = { 0 };
@@ -7195,10 +9369,15 @@ bool ldr_astc_block_encode_image(
 
 		uint32_t total_used_bc = 0;
 
+		uint32_t total_candidates = 0;
+
 		for (uint32_t by = 0; by < num_blocks_y; by++)
 		{
 			for (uint32_t bx = 0; bx < num_blocks_x; bx++)
 			{
+				const ldr_astc_block_encode_image_output::block_info& out_block_info = enc_out.m_image_block_info(bx, by);
+				total_candidates += out_block_info.m_out_blocks.size_u32();
+
 				const output_block_devel_desc& desc = output_block_devel_info(bx, by);
 
 				const astc_helpers::astc_block* pPhys_block = &packed_blocks(bx, by);
@@ -7289,6 +9468,8 @@ bool ldr_astc_block_encode_image(
 			} // bx
 		} // by
 
+		fmt_debug_printf("Avg candidates per block: {}\n", (float)total_candidates / (float)total_blocks);
+
 		uint32_t total_used_modes = 0;
 
 		fmt_debug_printf("--------------------- Trial Modes:\n");
@@ -7347,15 +9528,37 @@ bool ldr_astc_block_encode_image(
 		fmt_debug_printf("\nEncoder stats:\n");
 		fmt_debug_printf("Total utilized encoder trial modes: {} {3.2}%\n", total_used_modes, (float)total_used_modes * 100.0f / (float)encoder_trial_modes.size());
 
-		const uint32_t total_blurred_blocks = total_blurred_blocks1 + total_blurred_blocks2 + total_blurred_blocks3 + total_blurred_blocks4;
+		uint32_t overall_blurred_blocks_p1 = 0, overall_blurred_blocks_p2 = 0;
+		for (uint32_t i = 0; i < std::size(total_blurred_blocks_p1); i++)
+		{
+			overall_blurred_blocks_p1 += total_blurred_blocks_p1[i];
+			overall_blurred_blocks_p2 += total_blurred_blocks_p2[i];
+		}
 
-		fmt_debug_printf("\nTotal blur encodes: {} ({3.2}%)\n", total_blur_encodes, (float)total_blur_encodes * 100.0f / (float)total_blocks);
-		fmt_debug_printf("Total blurred blocks: {} ({3.2}%)\n", total_blurred_blocks, (float)total_blurred_blocks * 100.0f / (float)total_blocks);
-		fmt_debug_printf("Total blurred1 blocks: {} ({3.2}%)\n", total_blurred_blocks1, (float)total_blurred_blocks1 * 100.0f / (float)total_blocks);
-		fmt_debug_printf("Total blurred2 blocks: {} ({3.2}%)\n", total_blurred_blocks2, (float)total_blurred_blocks2 * 100.0f / (float)total_blocks);
-		fmt_debug_printf("Total blurred3 blocks: {} ({3.2}%)\n", total_blurred_blocks3, (float)total_blurred_blocks3 * 100.0f / (float)total_blocks);
-		fmt_debug_printf("Total blurred4 blocks: {} ({3.2}%)\n", total_blurred_blocks4, (float)total_blurred_blocks4 * 100.0f / (float)total_blocks);
+		fmt_debug_printf("\nTotal blur encodes p1: {} ({3.2}%)\n", total_blur_encodes_p1, (float)total_blur_encodes_p1 * 100.0f / (float)total_blocks);
+		fmt_debug_printf("Total blurred blocks p1: {} ({3.2}%)\n", overall_blurred_blocks_p1, (float)overall_blurred_blocks_p1 * 100.0f / (float)total_blocks);
+						
+		if (overall_blurred_blocks_p1)
+		{
+			for (uint32_t i = 0; i < std::size(total_blurred_blocks_p1); i++)
+			{
+				if (total_blurred_blocks_p1[i])
+					fmt_debug_printf("Total blurred{} blocks p1: {} ({3.2}%)\n", i, total_blurred_blocks_p1[i], (float)total_blurred_blocks_p1[i] * 100.0f / (float)total_blocks);
+			}
+		}
 
+		fmt_debug_printf("\nTotal blur encodes p2: {} ({3.2}%)\n", total_blur_encodes_p2, (float)total_blur_encodes_p2 * 100.0f / (float)total_blocks);
+		fmt_debug_printf("Total blurred blocks p2: {} ({3.2}%)\n", overall_blurred_blocks_p2, (float)overall_blurred_blocks_p2 * 100.0f / (float)total_blocks);
+
+		if (overall_blurred_blocks_p2)
+		{
+			for (uint32_t i = 0; i < std::size(total_blurred_blocks_p2); i++)
+			{
+				if (total_blurred_blocks_p2[i])
+					fmt_debug_printf("Total blurred{} blocks p2: {} ({3.2}%)\n", i, total_blurred_blocks_p2[i], (float)total_blurred_blocks_p2[i] * 100.0f / (float)total_blocks);
+			}
+		}
+		
 		fmt_debug_printf("\nTotal superbuckets created: {} ({4.1} per block)\n", total_superbuckets_created, (float)total_superbuckets_created / (float)total_blocks);
 		fmt_debug_printf("Total shortlist buckets created: {} ({4.1} per block)\n", total_buckets_created, (float)total_buckets_created / (float)total_blocks);
 		fmt_debug_printf("Total surrogate encodes: {} ({4.1} per block)\n", total_surrogate_encodes, (float)total_surrogate_encodes / (float)total_blocks);
@@ -7403,8 +9606,11 @@ bool ldr_astc_block_encode_image(
 		}
 		debug_printf("\n");
 
-		fmt_debug_printf("orig vs. ASTC compressed:\n");
-		print_image_metrics(orig_img, unpacked_img);
+		if (enc_cfg.m_debug_output_image_metrics)
+		{
+			fmt_debug_printf("orig vs. ASTC compressed:\n");
+			print_image_metrics(orig_img, unpacked_img);
+		}
 
 		fmt_debug_printf("Total encode time: {.3} secs, {.3} ms per block, {.1} blocks/sec\n", total_enc_time, total_enc_time * 1000.0f / total_blocks, total_blocks / total_enc_time);
 
@@ -7414,7 +9620,1365 @@ bool ldr_astc_block_encode_image(
 	return true;
 }
 
-//const uint32_t rice_zero_run_m = 3, rice_dct_coeff_m = 2;
+bool ldr_astc_block_encode_image_fast_4x4(
+	const image& orig_img,
+	const ldr_astc_block_encode_image_high_level_config& enc_cfg,
+	const astc_ldr_encode_config& global_cfg,
+	ldr_astc_block_encode_image_output& enc_out,
+	uint32_t max_candidate_limit)
+{
+	BASISU_NOTE_UNUSED(max_candidate_limit);
+
+	if (enc_cfg.m_debug_output)
+		fmt_debug_printf("ldr_astc_block_encode_image_fast_4x4:\n");
+
+	const uint32_t block_width = enc_cfg.m_block_width, block_height = enc_cfg.m_block_height;
+	if ((block_width != 4) || (block_height != 4))
+	{
+		assert(0);
+		return false;
+	}
+
+	//const uint32_t width = orig_img.get_width(), height = orig_img.get_height();
+	//const uint32_t total_pixels = width * height;
+	const uint32_t total_block_pixels = enc_cfg.m_block_width * enc_cfg.m_block_height;
+	const uint32_t num_blocks_x = orig_img.get_block_width(enc_cfg.m_block_width);
+	const uint32_t num_blocks_y = orig_img.get_block_height(enc_cfg.m_block_height);
+	const uint32_t total_blocks = num_blocks_x * num_blocks_y;
+
+	if (enc_cfg.m_debug_output)
+	{
+		fmt_debug_printf("\nASTC base bitrate: {3.3} bpp\n", 128.0f / (float)(enc_cfg.m_block_width * enc_cfg.m_block_height));
+
+		fmt_debug_printf("ASTC block size: {}x{}\n", enc_cfg.m_block_width, enc_cfg.m_block_height);
+
+		fmt_debug_printf("Image has alpha: {}\n", orig_img.has_alpha());
+
+		fmt_debug_printf("max_candidate_limit: {}\n", max_candidate_limit);;
+	}
+
+	if ((enc_cfg.m_cem_enc_params.m_comp_weights[0] != 1) || (enc_cfg.m_cem_enc_params.m_comp_weights[1] != 1) ||
+		(enc_cfg.m_cem_enc_params.m_comp_weights[2] != 1) || (enc_cfg.m_cem_enc_params.m_comp_weights[3] != 1))
+	{
+		printf("WARNING: Fast (effort 0) ASTC/XUASTC LDR 4x4 compressor doesn't support non-default channel weights\n");
+	}
+
+	// We don't use this here, but the supercompressors use these tables.
+	// TODO: The transcoder already creates all this stuff for each block size.
+	astc_ldr::partitions_data* pPart_data_p2 = &enc_out.m_part_data_p2;
+	pPart_data_p2->init(2, enc_cfg.m_block_width, enc_cfg.m_block_height, BASISU_USE_LSH2 == 0, BASISU_USE_LSH2 != 0);
+
+	astc_ldr::partitions_data* pPart_data_p3 = &enc_out.m_part_data_p3;
+	pPart_data_p3->init(3, enc_cfg.m_block_width, enc_cfg.m_block_height, BASISU_USE_LSH3 == 0, BASISU_USE_LSH3 != 0);
+
+	basisu::vector<basist::astc_ldr_t::trial_mode>& encoder_trial_modes = enc_out.m_encoder_trial_modes;
+	encoder_trial_modes.reserve(4096);
+
+	basist::astc_ldr_t::grouped_trial_modes& grouped_encoder_trial_modes = enc_out.m_grouped_encoder_trial_modes;
+	basist::astc_ldr_t::create_encoder_trial_modes_table(block_width, block_height, encoder_trial_modes, grouped_encoder_trial_modes, enc_cfg.m_debug_output, false);
+	
+	uint32_t bc7f_override_flags = basist::bc7f::cPackBC7FlagPBitOpt | basist::bc7f::cPackBC7FlagPBitOptMode6 | basist::bc7f::cPackBC7FlagUseTrivialMode6 | 
+		basist::bc7f::cPackBC7FlagUse2SubsetsRGB | basist::bc7f::cPackBC7FlagASTCCompatible |
+		basist::bc7f::cPackBC7FlagUseDualPlaneRGB | basist::bc7f::cPackBC7FlagUseDualPlaneRGBA |
+		basist::bc7f::cPackBC7FlagUse3SubsetsRGB | basist::bc7f::cPackBC7FlagUse2SubsetsRGBA;
+
+	if (global_cfg.m_force_disable_subsets)
+	{
+		bc7f_override_flags &= ~(basist::bc7f::cPackBC7FlagUse2SubsetsRGB | basist::bc7f::cPackBC7FlagUse3SubsetsRGB | basist::bc7f::cPackBC7FlagUse2SubsetsRGBA);
+	}
+
+	if (global_cfg.m_force_disable_rgb_dual_plane)
+	{
+		bc7f_override_flags &= ~basist::bc7f::cPackBC7FlagUseDualPlaneRGB;
+		bc7f_override_flags |= basist::bc7f::cPackBC7FlagDisableRGBDualPlane;
+	}
+
+	enc_out.m_image_block_info.resize(0, 0);
+	enc_out.m_image_block_info.resize(num_blocks_x, num_blocks_y);
+
+	enc_out.m_packed_phys_blocks.resize(num_blocks_x, num_blocks_y);
+
+	basist::astc_ldr_t::grid_weight_dct grid_coder;
+	if (enc_cfg.m_use_dct)
+		grid_coder.init(block_width, block_height);
+
+	assert(enc_cfg.m_pJob_pool);
+	job_pool& job_pool = *enc_cfg.m_pJob_pool;
+	
+	const uint32_t num_threads = (uint32_t)job_pool.get_total_threads();
+	assert(num_threads);
+	
+	std::atomic<int> cur_row;
+	cur_row.store(0);
+
+	std::atomic<bool> encoder_failed_flag;
+	encoder_failed_flag.store(false);
+
+	for (uint32_t job_index = 0; job_index < num_threads; job_index++)
+	{
+		job_pool.add_job([job_index, num_threads, num_blocks_x, num_blocks_y, block_width, block_height, total_blocks, total_block_pixels, bc7f_override_flags,
+			&cur_row, &encoder_failed_flag,
+			&orig_img, &enc_cfg, &encoder_trial_modes, &grid_coder, &grouped_encoder_trial_modes, &enc_out]
+		{
+			BASISU_NOTE_UNUSED(job_index); BASISU_NOTE_UNUSED(num_threads); BASISU_NOTE_UNUSED(total_blocks); BASISU_NOTE_UNUSED(total_block_pixels); BASISU_NOTE_UNUSED(encoder_trial_modes); BASISU_NOTE_UNUSED(grouped_encoder_trial_modes);
+			basist::astc_ldr_t::fvec dct_temp;
+
+			for ( ; ; )
+			{
+				if (encoder_failed_flag)
+					return;
+
+				const uint32_t by = cur_row.fetch_add(1);
+				if (by >= num_blocks_y)
+					break;
+
+				for (uint32_t bx = 0; bx < num_blocks_x; bx++)
+				{
+					if (encoder_failed_flag)
+						return;
+
+					color_rgba block_pixels[astc_ldr::ASTC_LDR_MAX_BLOCK_PIXELS];
+					orig_img.extract_block_clamped(block_pixels, bx * block_width, by * block_height, block_width, block_height);
+
+					ldr_astc_block_encode_image_output::block_info& blk_info = enc_out.m_image_block_info(bx, by);
+
+					encode_block_output* pEnc_block_output = blk_info.m_out_blocks.enlarge(1);
+					pEnc_block_output->clear();
+
+					astc_helpers::log_astc_block& log_blk = pEnc_block_output->m_log_blk;
+
+					if (!basist::bc7f::fast_pack_astc(log_blk, (basist::color_rgba*)block_pixels, bc7f_override_flags))
+					{
+						assert(0);
+						encoder_failed_flag.store(true);
+						return;
+					}
+										
+					if (log_blk.m_solid_color_flag_ldr)
+					{
+						// weighted SSE should be zero, the block should always be solid here
+						pEnc_block_output->m_trial_mode_index = -1;
+						pEnc_block_output->m_sse = 0;
+					}
+					else
+					{
+						uint32_t cem_to_find = log_blk.m_color_endpoint_modes[0];
+						if (cem_to_find == astc_helpers::CEM_LDR_RGB_BASE_PLUS_OFFSET)
+							cem_to_find = astc_helpers::CEM_LDR_RGB_DIRECT;
+						else if (cem_to_find == astc_helpers::CEM_LDR_RGBA_BASE_PLUS_OFFSET)
+							cem_to_find = astc_helpers::CEM_LDR_RGBA_DIRECT;
+
+						const int ccs_to_find = log_blk.m_dual_plane ? log_blk.m_color_component_selector : -1;
+						BASISU_NOTE_UNUSED(ccs_to_find);
+
+						const basisu::uint_vec& tms = basist::astc_ldr_t::get_tm_candidates(basist::astc_ldr_t::g_grouped_encoder_trial_modes[0],
+							cem_to_find, log_blk.m_num_partitions - 1, log_blk.m_dual_plane ? log_blk.m_color_component_selector + 1 : 0,
+							1, basist::astc_ldr_t::calc_grid_aniso_val(log_blk.m_grid_width, log_blk.m_grid_height, 4, 4));
+
+						uint32_t tm_index = 0, tms_index = 0;
+						for (tms_index = 0; tms_index < tms.size(); tms_index++)
+						{
+							tm_index = tms[tms_index];
+
+							const auto& tm = basist::astc_ldr_t::g_encoder_trial_modes[0][tm_index];
+
+							assert(tm.m_cem == cem_to_find);
+							assert(tm.m_num_parts == log_blk.m_num_partitions);
+							assert(tm.m_ccs_index == ccs_to_find);
+
+							if ((tm.m_endpoint_ise_range == log_blk.m_endpoint_ise_range) && (tm.m_weight_ise_range == log_blk.m_weight_ise_range))
+							{
+								if ((tm.m_grid_width == log_blk.m_grid_width) && (tm.m_grid_height == log_blk.m_grid_height))
+								{
+									break;
+								}
+							}
+						} // tms_index
+
+						if (tms_index == tms.size())
+						{
+							assert(0);
+							encoder_failed_flag.store(true);
+							return;
+						}
+
+						pEnc_block_output->m_trial_mode_index = basisu::safe_cast_int16(tm_index);
+
+						if (enc_cfg.m_use_dct)
+						{
+							//const basist::astc_ldr_t::astc_block_grid_data* pGrid_data = basist::astc_ldr_t::find_astc_block_grid_data(block_width, block_height, new_log_block.m_grid_width, new_log_block.m_grid_height);
+
+							const uint32_t num_planes = (log_blk.m_dual_plane ? 2 : 1);
+
+							uint32_t total_empty_planes = 0;
+
+							for (uint32_t plane_index = 0; plane_index < num_planes; plane_index++)
+							{
+								basist::astc_ldr_t::dct_syms& syms = pEnc_block_output->m_packed_dct_plane_data[plane_index];
+
+								code_block_weights(grid_coder, enc_cfg.m_base_q, plane_index, log_blk, syms, dct_temp);
+
+								// ensure existing weights get blown away 
+								for (uint32_t i = 0; i < (uint32_t)(log_blk.m_grid_width * log_blk.m_grid_height); i++)
+									log_blk.m_weights[i * num_planes + plane_index] = 0;
+
+								bool dec_status = grid_coder.decode_block_weights(enc_cfg.m_base_q, plane_index, log_blk, nullptr, nullptr, dct_temp, &syms);
+
+								assert(dec_status);
+								if (!dec_status)
+								{
+									error_printf("grid_coder.decode_block_weights() failed!\n");
+									encoder_failed_flag.store(true);
+									return;
+								}
+
+								// check for all-zero AC's
+								if (syms.m_coeffs.size() == 1)
+								{
+									if ((1 + syms.m_coeffs[0].m_num_zeros) == (log_blk.m_grid_width * log_blk.m_grid_height))
+									{
+										total_empty_planes++;
+									}
+								}
+							}
+
+							if ((log_blk.m_num_partitions == 1) && (total_empty_planes == num_planes))
+							{
+								// entire block post-quantization is DC only (no non-zero AC), switch to void-extent
+								uint32_t sum_r = 0, sum_g = 0, sum_b = 0, sum_a = 0;
+								for (uint32_t i = 0; i < 16; i++)
+								{
+									sum_r += block_pixels[i].r;
+									sum_g += block_pixels[i].g;
+									sum_b += block_pixels[i].b;
+									sum_a += block_pixels[i].a;
+								}
+
+								sum_r = (sum_r + 8) >> 4;
+								sum_g = (sum_g + 8) >> 4;
+								sum_b = (sum_b + 8) >> 4;
+								sum_a = (sum_a + 8) >> 4;
+
+								astc_helpers::set_ldr_solid_block(log_blk, sum_r, sum_g, sum_b, sum_a);
+
+								pEnc_block_output->m_trial_mode_index = -1;
+							}
+
+						} // if (enc_cfg.m_use_dct)
+
+						{
+							color_rgba dec_block_pixels[16];
+
+							bool dec_status = astc_helpers::decode_block_xuastc_ldr(log_blk, dec_block_pixels, 4, 4,
+								enc_cfg.m_cem_enc_params.m_decode_mode_srgb ? astc_helpers::cDecodeModeSRGB8 : astc_helpers::cDecodeModeLDR8);
+
+							if (!dec_status)
+							{
+								// Shouldn't ever happen
+								assert(0);
+								encoder_failed_flag.store(true);
+								return;
+							}
+
+							uint64_t total_err = 0;
+
+							for (uint32_t i = 0; i < 16; i++)
+								total_err += weighted_color_error(dec_block_pixels[i], block_pixels[i], enc_cfg.m_cem_enc_params);
+
+							pEnc_block_output->m_sse = total_err;
+						}
+					}
+
+					bool pack_status = astc_helpers::pack_astc_block(enc_out.m_packed_phys_blocks(bx, by), log_blk);
+					if (!pack_status)
+					{
+						assert(0);
+						encoder_failed_flag.store(true);
+						return;
+					}
+
+				} // bx
+
+			} // for
+
+		} );
+
+	} // job_index
+
+	job_pool.wait_for_all();
+
+	if (encoder_failed_flag)
+	{
+		fmt_error_printf("ldr_astc_block_encode_image_fast_4x4: Main compressor block loop failed!\n");
+		return false;
+	}
+
+	if (enc_cfg.m_debug_output)
+	{
+		display_candidate_statistics(enc_out);
+
+		fmt_debug_printf("ldr_astc_block_encode_image_fast_4x4: done\n");
+	}
+
+	return true;
+}
+
+#if BASISU_SUPPORT_ASTCENC
+static astcenc_context* comp_astc_init_ldr(
+	uint32_t block_w,
+	uint32_t block_h,
+	bool srgb,
+	float quality,  // ASTCENC_PRE_MEDIUM etc.
+	uint32_t thread_count,
+	uint32_t max_partitions,
+	bool xuastc_ldr_flag,
+	const uint32_t chan_weights[4],
+	bool disable_rgb_dual_planes,
+	uint32_t candidate_row_pitch, std::vector< std::vector<astcenc_physblk> > *pCandidates)
+{
+	astcenc_config config{};
+
+	const astcenc_profile profile = srgb ? ASTCENC_PRF_LDR_SRGB : ASTCENC_PRF_LDR;
+
+	uint32_t flags = ASTCENC_FLG_USE_DECODE_UNORM8;
+
+	// flags = 0 for ordinary LDR color compression
+	astcenc_error status = astcenc_config_init(
+		profile,
+		block_w,
+		block_h,
+		1,
+		quality,
+		flags,
+		&config);
+
+	if (status != ASTCENC_SUCCESS)
+	{
+		std::printf("astcenc_config_init() failed\n");
+		return nullptr;
+	}
+
+	config.cw_r_weight = (float)chan_weights[0];
+	config.cw_g_weight = (float)chan_weights[1];
+	config.cw_b_weight = (float)chan_weights[2];
+	config.cw_a_weight = (float)chan_weights[3];
+
+	config.m_xuastc_ldr_flag = xuastc_ldr_flag;
+
+	config.tune_partition_count_limit = maximum(1u, max_partitions);
+	config.m_disable_rgb_dual_planes = disable_rgb_dual_planes;
+
+	if (pCandidates)
+	{
+		config.candidate_row_pitch = candidate_row_pitch;
+		config.m_pCandidates = pCandidates;
+	}
+
+	astcenc_context* pContext = nullptr;
+
+	status = astcenc_context_alloc(&config, thread_count, &pContext);
+
+	if (status != ASTCENC_SUCCESS)
+	{
+		std::printf("astcenc_context_alloc() failed\n");
+		return nullptr;
+	}
+
+	return pContext;
+}
+
+static void comp_astc_deinit(astcenc_context* pContext)
+{
+	astcenc_context_free(pContext);
+}
+
+static uint32_t get_astc_block_count(uint32_t dim, uint32_t block_dim)
+{
+	return (dim + block_dim - 1) / block_dim;
+}
+
+// Compress from tightly packed RGBA8 input.
+// src_rgba must point to w * h * 4 bytes.
+static bool comp_astc_image_u8(
+	astcenc_context* pContext,
+	const uint8_t* src_rgba,
+	uint32_t w,
+	uint32_t h,
+	uint32_t block_w,
+	uint32_t block_h,
+	basisu::vector2D<astc_helpers::astc_block>& out_blocks,
+	job_pool &job_pool)
+{
+	static const astcenc_swizzle swizzle{
+		ASTCENC_SWZ_R, ASTCENC_SWZ_G, ASTCENC_SWZ_B, ASTCENC_SWZ_A
+	};
+
+	astcenc_image image{};
+	image.dim_x = w;
+	image.dim_y = h;
+	image.dim_z = 1;
+	image.data_type = ASTCENC_TYPE_U8;
+
+	// astcenc_image::data is an array of pointers to 2D slices.
+	// For a 2D image we provide one slice pointer.
+	void* slices[1];
+	slices[0] = const_cast<uint8_t*>(src_rgba);
+	image.data = slices;
+
+	out_blocks.resize(get_astc_block_count(w, block_w), get_astc_block_count(h, block_h));
+
+	const uint32_t num_threads = (uint32_t)job_pool.get_total_threads();
+
+	if (num_threads == 1)
+	{
+		astcenc_error status = astcenc_compress_image(
+			pContext,
+			&image,
+			&swizzle,
+			reinterpret_cast<uint8_t*>(out_blocks.get_ptr()),
+			out_blocks.size_in_bytes(),
+			0);
+
+		return (status == ASTCENC_SUCCESS);
+	}
+	
+	std::atomic<bool> any_failures;
+	any_failures.store(false);
+
+	for (uint32_t thread_index = 0; thread_index < num_threads; thread_index++)
+	{
+		job_pool.add_job([thread_index, pContext, &image, &out_blocks, &any_failures]
+			{
+				if (any_failures)
+					return;
+
+				astcenc_error status = astcenc_compress_image(
+					pContext,
+					&image,
+					&swizzle,
+					reinterpret_cast<uint8_t*>(out_blocks.get_ptr()),
+					out_blocks.size_in_bytes(),
+					thread_index);
+
+				if (status != ASTCENC_SUCCESS)
+				{
+					any_failures.store(true);
+				}
+			}
+		);
+	}
+
+	job_pool.wait_for_all();
+
+	if (any_failures)
+		return false;
+
+	astcenc_compress_reset(pContext);
+
+	return true;
+}
+
+static bool ldr_astc_block_encode_image_astcenc(
+	const image& orig_img,
+	const ldr_astc_block_encode_image_high_level_config& enc_cfg,
+	const astc_ldr_encode_config& global_cfg,
+	ldr_astc_block_encode_image_output& enc_out,
+	uint32_t max_candidate_limit)
+{
+	if (enc_cfg.m_debug_output)
+		fmt_debug_printf("ldr_astc_block_encode_image_astcenc:\n");
+
+	const uint32_t block_width = enc_cfg.m_block_width, block_height = enc_cfg.m_block_height;
+
+	//const uint32_t width = orig_img.get_width(), height = orig_img.get_height();
+	//const uint32_t total_pixels = width * height;
+	const uint32_t total_block_pixels = enc_cfg.m_block_width * enc_cfg.m_block_height;
+	const uint32_t num_blocks_x = orig_img.get_block_width(enc_cfg.m_block_width);
+	const uint32_t num_blocks_y = orig_img.get_block_height(enc_cfg.m_block_height);
+	const uint32_t total_blocks = num_blocks_x * num_blocks_y;
+
+	if (enc_cfg.m_debug_output)
+	{
+		fmt_debug_printf("\nASTC base bitrate: {3.3} bpp\n", 128.0f / (float)(enc_cfg.m_block_width * enc_cfg.m_block_height));
+
+		fmt_debug_printf("ASTC block size: {}x{}\n", enc_cfg.m_block_width, enc_cfg.m_block_height);
+
+		fmt_debug_printf("Image has alpha: {}\n", orig_img.has_alpha());
+
+		fmt_debug_printf("max_candidate_limit: {}\n", max_candidate_limit);
+	}
+
+	// We don't use this here, but the supercompressors use these tables.
+	// TODO: The transcoder already creates all this stuff for each block size.
+	astc_ldr::partitions_data* pPart_data_p2 = &enc_out.m_part_data_p2;
+	pPart_data_p2->init(2, enc_cfg.m_block_width, enc_cfg.m_block_height, BASISU_USE_LSH2 == 0, BASISU_USE_LSH2 != 0);
+
+	astc_ldr::partitions_data* pPart_data_p3 = &enc_out.m_part_data_p3;
+	pPart_data_p3->init(3, enc_cfg.m_block_width, enc_cfg.m_block_height, BASISU_USE_LSH3 == 0, BASISU_USE_LSH3 != 0);
+
+	basisu::vector<basist::astc_ldr_t::trial_mode>& encoder_trial_modes = enc_out.m_encoder_trial_modes;
+	encoder_trial_modes.reserve(4096);
+
+	basist::astc_ldr_t::grouped_trial_modes& grouped_encoder_trial_modes = enc_out.m_grouped_encoder_trial_modes;
+	basist::astc_ldr_t::create_encoder_trial_modes_table(block_width, block_height, encoder_trial_modes, grouped_encoder_trial_modes, enc_cfg.m_debug_output, false);
+
+	const uint32_t block_size_index = astc_helpers::get_block_size_index(block_width, block_height);
+
+	assert(enc_cfg.m_pJob_pool);
+	job_pool& job_pool = *enc_cfg.m_pJob_pool;
+	const uint32_t num_threads = (uint32_t)job_pool.get_total_threads();
+
+	float astcenc_quality = ASTCENC_PRE_FASTEST;
+
+	switch (global_cfg.m_effort_level)
+	{
+	case 0:
+		astcenc_quality = ASTCENC_PRE_FASTEST;
+		break;
+	case 1:
+		astcenc_quality = lerp(ASTCENC_PRE_FASTEST, ASTCENC_PRE_FAST, 1.0f / 3.0f);
+		break;
+	case 2:
+		astcenc_quality = lerp(ASTCENC_PRE_FASTEST, ASTCENC_PRE_FAST, 2.0f / 3.0f);
+		break;
+	case 3:
+		astcenc_quality = ASTCENC_PRE_FAST;
+		break;
+	case 4:
+		astcenc_quality = (ASTCENC_PRE_FAST + ASTCENC_PRE_MEDIUM) * .5f;
+		break;
+	case 5:
+		astcenc_quality = ASTCENC_PRE_MEDIUM;
+		break;
+	case 6:
+		astcenc_quality = (ASTCENC_PRE_MEDIUM + ASTCENC_PRE_THOROUGH) * .5f;
+		break;
+	case 7:
+		astcenc_quality = ASTCENC_PRE_THOROUGH;
+		break;
+	case 8:
+		astcenc_quality = (ASTCENC_PRE_THOROUGH + ASTCENC_PRE_VERYTHOROUGH) * .5f;
+		break;
+	case 9:
+		astcenc_quality = ASTCENC_PRE_VERYTHOROUGH;
+		break;
+	case 10:
+	default:
+		astcenc_quality = ASTCENC_PRE_EXHAUSTIVE;
+		break;
+	}
+
+	std::vector< std::vector<astcenc_physblk> > block_candidates(total_blocks);
+
+	astcenc_context* pContext = comp_astc_init_ldr(
+		block_width,
+		block_height,
+		enc_cfg.m_cem_enc_params.m_decode_mode_srgb,
+		astcenc_quality,
+		num_threads,
+		global_cfg.m_force_disable_subsets ? 1 : 3,
+		true, enc_cfg.m_cem_enc_params.m_comp_weights,
+		global_cfg.m_force_disable_rgb_dual_plane,
+		num_blocks_x, &block_candidates);
+
+	if (!pContext)
+	{
+		assert(0);
+		return false;
+	}
+	
+	if (enc_cfg.m_debug_output)
+		fmt_debug_printf("Compressing with astcenc\n");
+
+	interval_timer itm;
+	itm.start();
+		
+	const bool comp_status = comp_astc_image_u8(
+		pContext,
+		(const uint8_t*)orig_img.get_ptr(),
+		orig_img.get_width(),
+		orig_img.get_height(),
+		block_width,
+		block_height,
+		enc_out.m_packed_phys_blocks,
+		job_pool);
+
+	if (enc_cfg.m_debug_output)
+		fmt_debug_printf("Total time: {} seconds\n", itm.get_elapsed_secs());
+
+	comp_astc_deinit(pContext);
+	pContext = nullptr;
+
+	if (!comp_status)
+	{
+		fmt_error_printf("comp_astc_image_u8() failed!\n");
+
+		assert(0);
+		return false;
+	}
+			
+	if (enc_cfg.m_debug_output)
+		fmt_debug_printf("Compressing with astcenc: OK\n");
+
+	enc_out.m_image_block_info.resize(0, 0);
+	enc_out.m_image_block_info.resize(num_blocks_x, num_blocks_y);
+			
+	basist::astc_ldr_t::grid_weight_dct grid_coder;
+	if (enc_cfg.m_use_dct)
+		grid_coder.init(block_width, block_height);
+
+	basist::astc_ldr_t::fvec dct_temp;
+
+	uint32_t total_suboptimal_cem_encodings = 0;
+	
+	uint32_t min_candidates = UINT32_MAX, max_candidates = 0, total_candidates = 0;
+
+	uint32_t total_bad_candidates = 0;
+		
+	for (uint32_t by = 0; by < num_blocks_y; by++)
+	{
+		for (uint32_t bx = 0; bx < num_blocks_x; bx++)
+		{
+			color_rgba block_pixels[astc_ldr::ASTC_LDR_MAX_BLOCK_PIXELS];
+			orig_img.extract_block_clamped(block_pixels, bx * block_width, by * block_height, block_width, block_height);
+
+			const std::vector<astcenc_physblk>& cand_blocks = block_candidates[bx + by * num_blocks_x];
+			
+			if (!cand_blocks.size())
+			{
+				assert(0);
+				fmt_error_printf("astcenc gave us no candidates for a block.\n");
+				return false;
+			}
+
+			min_candidates = minimum<uint32_t>((uint32_t)cand_blocks.size(), min_candidates);
+			max_candidates = maximum<uint32_t>((uint32_t)cand_blocks.size(), max_candidates);
+			total_candidates += (uint32_t)cand_blocks.size();
+						
+			uint64_t best_sse = UINT64_MAX;
+			uint32_t best_cand_index = 0;
+
+			ldr_astc_block_encode_image_output::block_info& blk_info = enc_out.m_image_block_info(bx, by);
+						
+			for (uint32_t cand_index = 0; cand_index < cand_blocks.size(); cand_index++)
+			{
+				astc_helpers::astc_block* pOrig_packed_block = (astc_helpers::astc_block * )cand_blocks[cand_index].m_bytes;
+								
+				const uint32_t cur_out_block_index = blk_info.m_out_blocks.size_u32();
+
+				encode_block_output* pEnc_block_output = blk_info.m_out_blocks.enlarge(1);
+				pEnc_block_output->clear();
+
+				pEnc_block_output->m_blur_id = BLUR_ID_ASTCENC;
+
+				astc_helpers::log_astc_block& log_blk = pEnc_block_output->m_log_blk;
+
+				if (!astc_helpers::unpack_block(pOrig_packed_block, log_blk, block_width, block_height, true))
+				{
+					fmt_error_printf("astcenc produced an invalid physical ASTC block!\n");
+
+					assert(0);
+					return false;
+				}
+								
+				if (!astc_helpers::is_block_xuastc_ldr(log_blk))
+				{
+					// Ideally this doesn't happen if we've modified astcenc correctly to ignore non-XUASTC configs.
+					if (!total_bad_candidates)
+						fmt_printf("WARNING: astcenc produced a non-XUASTC LDR compliant candidate! (1). Ignoring it.\n");
+					
+					blk_info.m_out_blocks.pop_back();
+
+					total_bad_candidates++;
+					continue;
+				}
+
+				// We can slam this to disabled because if its otherwise valid XUASTC LDR it doesn't matter. (astcenc does use them, but most of the time they don't change the BISE endpoint/weight levels.)
+				// Because we map to valid XUASTC LDR trial mode configs, if slamming this disabled results in an invalid non-suboptimal CEM config, we'll not be able to find the config.
+				if (log_blk.m_uses_suboptimal_cem_encoding)
+				{
+					total_suboptimal_cem_encodings++;
+					log_blk.m_uses_suboptimal_cem_encoding = false;
+				}
+
+				if (log_blk.m_solid_color_flag_ldr)
+				{
+					pEnc_block_output->m_trial_mode_index = -1;
+				}
+				else
+				{
+					uint32_t cem_to_find = log_blk.m_color_endpoint_modes[0];
+					if (cem_to_find == astc_helpers::CEM_LDR_RGB_BASE_PLUS_OFFSET)
+						cem_to_find = astc_helpers::CEM_LDR_RGB_DIRECT;
+					else if (cem_to_find == astc_helpers::CEM_LDR_RGBA_BASE_PLUS_OFFSET)
+						cem_to_find = astc_helpers::CEM_LDR_RGBA_DIRECT;
+
+					const int ccs_to_find = log_blk.m_dual_plane ? log_blk.m_color_component_selector : -1;
+					BASISU_NOTE_UNUSED(ccs_to_find);
+
+					const basisu::uint_vec& tms = basist::astc_ldr_t::get_tm_candidates(
+						basist::astc_ldr_t::g_grouped_encoder_trial_modes[block_size_index],
+						cem_to_find, log_blk.m_num_partitions - 1, log_blk.m_dual_plane ? log_blk.m_color_component_selector + 1 : 0,
+						basist::astc_ldr_t::calc_grid_size_val(log_blk.m_grid_width, log_blk.m_grid_height, block_width, block_height),
+						basist::astc_ldr_t::calc_grid_aniso_val(log_blk.m_grid_width, log_blk.m_grid_height, block_width, block_height));
+
+					uint32_t tm_index = 0, tms_index = 0;
+					for (tms_index = 0; tms_index < tms.size(); tms_index++)
+					{
+						tm_index = tms[tms_index];
+
+						const auto& tm = basist::astc_ldr_t::g_encoder_trial_modes[block_size_index][tm_index];
+
+						assert(tm.m_cem == cem_to_find);
+						assert(tm.m_num_parts == log_blk.m_num_partitions);
+						assert(tm.m_ccs_index == ccs_to_find);
+
+						if ((tm.m_endpoint_ise_range == log_blk.m_endpoint_ise_range) && (tm.m_weight_ise_range == log_blk.m_weight_ise_range))
+						{
+							if ((tm.m_grid_width == log_blk.m_grid_width) && (tm.m_grid_height == log_blk.m_grid_height))
+							{
+								break;
+							}
+						}
+					} // tms_index
+
+					if (tms_index == tms.size())
+					{
+						// Shouldn't happen if we've properly modified astcenc correctly to use the XUASTC LDR compliant configs.
+						if (!total_bad_candidates)
+							fmt_printf("WARNING: astcenc produced a non-XUASTC LDR compliant candidate - but we couldn't find this block's config! (2) Ignoring it.\n");
+						
+						blk_info.m_out_blocks.pop_back();
+
+						total_bad_candidates++;
+						continue;
+					}
+
+					pEnc_block_output->m_trial_mode_index = basisu::safe_cast_int16(tm_index);
+
+					if (enc_cfg.m_use_dct)
+					{
+						//const basist::astc_ldr_t::astc_block_grid_data* pGrid_data = basist::astc_ldr_t::find_astc_block_grid_data(block_width, block_height, new_log_block.m_grid_width, new_log_block.m_grid_height);
+
+						const uint32_t num_planes = (log_blk.m_dual_plane ? 2 : 1);
+
+						uint32_t total_empty_planes = 0;
+
+						for (uint32_t plane_index = 0; plane_index < num_planes; plane_index++)
+						{
+							basist::astc_ldr_t::dct_syms& syms = pEnc_block_output->m_packed_dct_plane_data[plane_index];
+
+							code_block_weights(grid_coder, enc_cfg.m_base_q, plane_index, log_blk, syms, dct_temp);
+
+							// ensure existing weights get blown away 
+							for (uint32_t i = 0; i < (uint32_t)(log_blk.m_grid_width * log_blk.m_grid_height); i++)
+								log_blk.m_weights[i * num_planes + plane_index] = 0;
+
+							bool dec_status = grid_coder.decode_block_weights(enc_cfg.m_base_q, plane_index, log_blk, nullptr, nullptr, dct_temp, &syms);
+
+							assert(dec_status);
+							if (!dec_status)
+							{
+								error_printf("grid_coder.decode_block_weights() failed!\n");
+								return false;
+							}
+
+							// check for all-zero AC's
+							if (syms.m_coeffs.size() == 1)
+							{
+								if ((1 + syms.m_coeffs[0].m_num_zeros) == (log_blk.m_grid_width * log_blk.m_grid_height))
+								{
+									total_empty_planes++;
+								}
+							}
+						}
+
+						if ((log_blk.m_num_partitions == 1) && (total_empty_planes == num_planes))
+						{
+							// entire block post-quantization is DC only (no non-zero AC), switch to void-extent
+							uint32_t sum_r = 0, sum_g = 0, sum_b = 0, sum_a = 0;
+							for (uint32_t i = 0; i < total_block_pixels; i++)
+							{
+								sum_r += block_pixels[i].r;
+								sum_g += block_pixels[i].g;
+								sum_b += block_pixels[i].b;
+								sum_a += block_pixels[i].a;
+							}
+
+							sum_r = (sum_r + (total_block_pixels >> 1)) / total_block_pixels;
+							sum_g = (sum_g + (total_block_pixels >> 1)) / total_block_pixels;
+							sum_b = (sum_b + (total_block_pixels >> 1)) / total_block_pixels;
+							sum_a = (sum_a + (total_block_pixels >> 1)) / total_block_pixels;
+
+							astc_helpers::set_ldr_solid_block(log_blk, sum_r, sum_g, sum_b, sum_a);
+
+							pEnc_block_output->m_trial_mode_index = -1;
+						}
+					}
+				}
+
+				uint64_t total_err = 0;
+
+				{
+					color_rgba dec_block_pixels[astc_ldr::ASTC_LDR_MAX_BLOCK_PIXELS];
+
+					bool dec_status = astc_helpers::decode_block_xuastc_ldr(log_blk, dec_block_pixels, block_width, block_height,
+						enc_cfg.m_cem_enc_params.m_decode_mode_srgb ? astc_helpers::cDecodeModeSRGB8 : astc_helpers::cDecodeModeLDR8);
+
+					if (!dec_status)
+					{
+						// Shouldn't ever happen
+						assert(0);
+						return false;
+					}
+										
+					for (uint32_t i = 0; i < total_block_pixels; i++)
+						total_err += weighted_color_error(dec_block_pixels[i], block_pixels[i], enc_cfg.m_cem_enc_params);
+
+					pEnc_block_output->m_sse = total_err;
+				}
+
+				if (total_err < best_sse)
+				{
+					best_sse = total_err;
+					best_cand_index = cur_out_block_index;
+				}
+												
+			} // cand_index
+
+			if (!blk_info.m_out_blocks.size())
+			{
+				//assert(0);
+				error_printf("Couldn't find any compliant astcenc candidates at block {}x{}\n", bx, by);
+				return false;
+			}
+
+			astc_helpers::astc_block* pFinal_packed_block = &enc_out.m_packed_phys_blocks(bx, by);
+
+			bool pack_status = astc_helpers::pack_astc_block(*pFinal_packed_block, blk_info.m_out_blocks[best_cand_index].m_log_blk);
+			if (!pack_status)
+			{
+				//assert(0);
+				error_printf("Failed packing final physical ASTC block at {}x{}\n", bx, by);
+				return false;
+			}
+
+			blk_info.m_packed_out_block_index = best_cand_index;
+
+			const uint64_t check_wsse = blk_info.m_out_blocks[best_cand_index].m_sse;
+			BASISU_NOTE_UNUSED(check_wsse);
+
+			enforce_max_candidate_limit(blk_info, max_candidate_limit);
+			
+			best_cand_index = blk_info.m_packed_out_block_index; // may have changed
+
+			assert(check_wsse == blk_info.m_out_blocks[best_cand_index].m_sse);
+						
+		} // bx
+
+	} // by
+
+	if (total_bad_candidates)
+		fmt_printf("WARNING: ldr_astc_block_encode_image_astcenc ignored {} invalid (non-XUASTC) candidates.\n", total_bad_candidates);
+
+	if (enc_cfg.m_debug_output)
+	{
+		display_candidate_statistics(enc_out);
+
+		fmt_debug_printf("Total candidates: {}, Avg candidates per block: {}, Min candidates: {}, Max candidates: {}\n",
+			total_candidates, (float)total_candidates / (float)total_blocks, min_candidates, max_candidates);
+
+		if (total_suboptimal_cem_encodings)
+			fmt_debug_printf("Total blocks using suboptimal CEM encodings: {}\n", total_suboptimal_cem_encodings);
+
+		if (enc_cfg.m_debug_output)
+			fmt_debug_printf("ldr_astc_block_encode_image_astcenc: done\n");
+	}
+
+	return true;
+}
+#endif // BASISU_SUPPORT_ASTCENC
+
+// -1 for solid, -2 for error, >= 0 if found
+static int find_tm_index(uint32_t block_width, uint32_t block_height, uint32_t block_size_index, const astc_helpers::log_astc_block &log_blk)
+{
+	assert(astc_helpers::is_block_xuastc_ldr(log_blk));
+
+	if (log_blk.m_solid_color_flag_ldr)
+	{
+		// weighted SSE should be zero, the block should always be solid here
+		return -1;
+	}
+		
+	uint32_t cem_to_find = log_blk.m_color_endpoint_modes[0];
+	if (cem_to_find == astc_helpers::CEM_LDR_RGB_BASE_PLUS_OFFSET)
+		cem_to_find = astc_helpers::CEM_LDR_RGB_DIRECT;
+	else if (cem_to_find == astc_helpers::CEM_LDR_RGBA_BASE_PLUS_OFFSET)
+		cem_to_find = astc_helpers::CEM_LDR_RGBA_DIRECT;
+
+	const int ccs_to_find = log_blk.m_dual_plane ? log_blk.m_color_component_selector : -1;
+	BASISU_NOTE_UNUSED(ccs_to_find);
+
+	const basisu::uint_vec& tms = basist::astc_ldr_t::get_tm_candidates(
+		basist::astc_ldr_t::g_grouped_encoder_trial_modes[block_size_index],
+		cem_to_find, log_blk.m_num_partitions - 1, log_blk.m_dual_plane ? log_blk.m_color_component_selector + 1 : 0,
+		basist::astc_ldr_t::calc_grid_size_val(log_blk.m_grid_width, log_blk.m_grid_height, block_width, block_height),
+		basist::astc_ldr_t::calc_grid_aniso_val(log_blk.m_grid_width, log_blk.m_grid_height, block_width, block_height));
+
+	uint32_t tm_index = 0, tms_index = 0;
+	for (tms_index = 0; tms_index < tms.size(); tms_index++)
+	{
+		tm_index = tms[tms_index];
+
+		const auto& tm = basist::astc_ldr_t::g_encoder_trial_modes[block_size_index][tm_index];
+
+		assert(tm.m_cem == cem_to_find);
+		assert(tm.m_num_parts == log_blk.m_num_partitions);
+		assert(tm.m_ccs_index == ccs_to_find);
+
+		if ((tm.m_endpoint_ise_range == log_blk.m_endpoint_ise_range) && (tm.m_weight_ise_range == log_blk.m_weight_ise_range))
+		{
+			if ((tm.m_grid_width == log_blk.m_grid_width) && (tm.m_grid_height == log_blk.m_grid_height))
+			{
+				break;
+			}
+		}
+	} // tms_index
+
+	if (tms_index == tms.size())
+	{
+		assert(0);
+		return -2;
+	}
+
+	return tm_index;
+}
+
+static bool ldr_astc_block_encode_image_astcf(
+	const image& orig_img,
+	const ldr_astc_block_encode_image_high_level_config& enc_cfg,
+	const astc_ldr_encode_config& global_cfg,
+	ldr_astc_block_encode_image_output& enc_out,
+	uint32_t max_candidate_limit)
+{
+	if (enc_cfg.m_debug_output)
+		fmt_debug_printf("ldr_astc_block_encode_image_astcf:\n");
+
+	const uint32_t block_width = enc_cfg.m_block_width, block_height = enc_cfg.m_block_height;
+
+	const int block_dim_index = astc_helpers::find_astc_block_size_index(block_width, block_height);
+	assert((block_dim_index >= 0) && (block_dim_index < (int)astc_helpers::NUM_ASTC_BLOCK_SIZES));
+
+	const uint32_t width = orig_img.get_width(), height = orig_img.get_height();
+	const uint32_t total_pixels = width * height;
+	const uint32_t total_block_pixels = enc_cfg.m_block_width * enc_cfg.m_block_height;
+	const uint32_t num_blocks_x = orig_img.get_block_width(enc_cfg.m_block_width);
+	const uint32_t num_blocks_y = orig_img.get_block_height(enc_cfg.m_block_height);
+	const uint32_t total_blocks = num_blocks_x * num_blocks_y;
+	const bool has_alpha = orig_img.has_alpha();
+
+	if (enc_cfg.m_debug_output)
+	{
+		fmt_debug_printf("\nASTC base bitrate: {3.3} bpp\n", 128.0f / (float)(enc_cfg.m_block_width * enc_cfg.m_block_height));
+		
+		fmt_debug_printf("ASTC block size: {}x{}\n", enc_cfg.m_block_width, enc_cfg.m_block_height);
+		
+		fmt_debug_printf("Image has alpha: {}\n", has_alpha);
+
+		fmt_debug_printf("max_candidate_limit: {}\n", max_candidate_limit);;
+	}
+
+	// We don't use this here, but the supercompressors use these tables.
+	// TODO: The transcoder already creates all this stuff for each block size.
+	astc_ldr::partitions_data* pPart_data_p2 = &enc_out.m_part_data_p2;
+	pPart_data_p2->init(2, enc_cfg.m_block_width, enc_cfg.m_block_height, BASISU_USE_LSH2 == 0, BASISU_USE_LSH2 != 0);
+
+	astc_ldr::partitions_data* pPart_data_p3 = &enc_out.m_part_data_p3;
+	pPart_data_p3->init(3, enc_cfg.m_block_width, enc_cfg.m_block_height, BASISU_USE_LSH3 == 0, BASISU_USE_LSH3 != 0);
+
+	basisu::vector<basist::astc_ldr_t::trial_mode>& encoder_trial_modes = enc_out.m_encoder_trial_modes;
+	encoder_trial_modes.reserve(4096);
+
+	basist::astc_ldr_t::grouped_trial_modes& grouped_encoder_trial_modes = enc_out.m_grouped_encoder_trial_modes;
+	basist::astc_ldr_t::create_encoder_trial_modes_table(block_width, block_height, encoder_trial_modes, grouped_encoder_trial_modes, enc_cfg.m_debug_output, false);
+
+	vector2D<astc_helpers::astc_block>& packed_blocks = enc_out.m_packed_phys_blocks;
+	packed_blocks.resize(num_blocks_x, num_blocks_y);
+	memset(packed_blocks.get_ptr(), 0, packed_blocks.size_in_bytes());
+
+	enc_out.m_image_block_info.resize(0, 0);
+	enc_out.m_image_block_info.resize(num_blocks_x, num_blocks_y);
+		
+	uint32_t max_subsets = 1;
+	bool use_subsets = false;
+	float var_thresh_2subsets = squaref(6.0f);
+	float var_thresh_3subsets = squaref(6.0f);
+	uint32_t num_subset_carriers = 1, num_subset_pats = 1;
+	uint32_t dot_thresh_fract_index_2subsets = 0;
+		
+	bool weight_polishing = (global_cfg.m_effort_level >= 2);
+	uint32_t num_candidates = 1;
+
+	const float feffort_level = global_cfg.m_effort_level * (1.0f / 10.0f);
+
+#if 0
+	if (block_width * block_height <= 25)
+	{ 
+		// tiny blocks make the DCT related candidate eval quite slow
+		if (has_alpha)
+			num_candidates = clamp<int>((int)std::round(lerp(8.0f, 24.0f, feffort_level)), 1, 64);
+		else
+			num_candidates = clamp<int>((int)std::round(lerp(1.0f, 16.0f, feffort_level)), 1, 64);
+	}
+	else
+#endif
+	{
+		if (has_alpha)
+			num_candidates = clamp<int>((int)std::round(lerp(16.0f, 48.0f, feffort_level)), 1, 64);
+		else
+			num_candidates = clamp<int>((int)std::round(lerp(1.0f, 48.0f, feffort_level)), 1, 64);
+	}
+
+	if (global_cfg.m_effort_level)
+	{
+		if (block_width * block_height <= 25)
+		{
+			num_subset_carriers = clamp<int>((int)std::round(lerp(1.0f, 2.0f, feffort_level)), 1, 3);
+			num_subset_pats = clamp<int>((int)std::round(lerp(1.0f, 6.0f, feffort_level)), 1, 16);
+		}
+		else
+		{
+			num_subset_carriers = clamp<int>((int)std::round(lerp(1.0f, 3.0f, feffort_level)), 1, 3);
+			num_subset_pats = clamp<int>((int)std::round(lerp(1.0f, 16.0f, feffort_level)), 1, 16);
+		}
+		
+		if (global_cfg.m_effort_level == 8)
+			dot_thresh_fract_index_2subsets = 1;
+		else if (global_cfg.m_effort_level == 9)
+			dot_thresh_fract_index_2subsets = 2;
+		else if (global_cfg.m_effort_level == 10)
+			dot_thresh_fract_index_2subsets = 3;
+
+		use_subsets = (num_subset_carriers > 0) && (num_subset_pats > 0);
+		if (use_subsets)
+		{
+			max_subsets = (global_cfg.m_effort_level > 1) ? 3 : 2;
+		}
+	}
+
+	if (global_cfg.m_force_disable_subsets)
+		use_subsets = false;
+				
+	basist::astc_ldr_t::grid_weight_dct grid_coder;
+	if (enc_cfg.m_use_dct)
+		grid_coder.init(block_width, block_height);
+
+	assert(enc_cfg.m_pJob_pool);
+	job_pool& job_pool = *enc_cfg.m_pJob_pool;
+	const uint32_t num_threads = (uint32_t)job_pool.get_total_threads();
+
+	std::atomic<int> cur_row;
+	cur_row.store(0);
+
+	std::atomic<bool> encoder_failed_flag;
+	encoder_failed_flag.store(false);
+		
+	astc_ldrf::subset_enc_context ctx;
+	
+	bool status = astc_ldrf::init_single_subset_context(
+		ctx,
+		block_width, block_height,
+		enc_cfg.m_cem_enc_params.m_decode_mode_srgb ? astc_helpers::decode_mode::cDecodeModeSRGB8 : astc_helpers::decode_mode::cDecodeModeLDR8,
+		enc_cfg.m_cem_enc_params.m_comp_weights,
+		num_candidates, 2, global_cfg.m_force_disable_rgb_dual_plane, has_alpha, weight_polishing);
+
+	if (global_cfg.m_effort_level <= 2)
+	{
+		// faster/weaker subset encoding
+		ctx.m_use_method2 = false;
+	}
+
+	if (global_cfg.m_effort_level <= 6)
+	{
+		// both very rarely worth the effort
+		ctx.m_higher_effort_bc = false;
+		ctx.m_try_base_ofs = false;
+	}
+
+	if ((status) && (use_subsets))
+	{
+		status = astc_ldrf::init_multi_subset_context(ctx, max_subsets, num_subset_carriers, num_subset_pats, 
+			var_thresh_2subsets, dot_thresh_fract_index_2subsets, var_thresh_3subsets, 
+			pPart_data_p2, pPart_data_p3);
+	}
+
+	if (!status)
+	{
+		fmt_error_printf("astc_ldrf::init_single_subset_context() failed!\n");
+		return false;
+	}
+
+	if (enc_cfg.m_debug_output)
+	{
+		fmt_debug_printf("num_candidates: {}, use subsets: {}, num_2subset_carriers: {}, num_2subset_pats: {}, 2 subsets threshold var: {}, dot_thresh_fract_index: {}, 3 subsets threshold var: {}, use subsets method1: {}, use subsets method2: {}, higher effort BC: {}, try base ofs: {}, max subsets: {}:\n",
+			num_candidates, use_subsets, num_subset_carriers, num_subset_pats, 
+			var_thresh_2subsets, dot_thresh_fract_index_2subsets, var_thresh_3subsets,
+			ctx.m_use_method1, ctx.m_use_method2, ctx.m_higher_effort_bc, ctx.m_try_base_ofs, ctx.m_max_subsets);
+	}
+					
+	for (uint32_t job_index = 0; job_index < num_threads; job_index++)
+	{
+		job_pool.add_job([job_index, num_threads, has_alpha, width, height, total_pixels, num_blocks_x, num_blocks_y, block_width, block_height, block_dim_index, total_blocks, total_block_pixels,
+			num_candidates, use_subsets, weight_polishing,
+			&cur_row, &encoder_failed_flag, &ctx, max_candidate_limit,
+			&orig_img, &enc_cfg, &encoder_trial_modes, &grid_coder, &grouped_encoder_trial_modes, &enc_out]
+			{
+				BASISU_NOTE_UNUSED(job_index); BASISU_NOTE_UNUSED(num_threads); BASISU_NOTE_UNUSED(has_alpha); BASISU_NOTE_UNUSED(width); BASISU_NOTE_UNUSED(height); BASISU_NOTE_UNUSED(total_pixels); BASISU_NOTE_UNUSED(total_blocks); BASISU_NOTE_UNUSED(weight_polishing); BASISU_NOTE_UNUSED(encoder_trial_modes); BASISU_NOTE_UNUSED(grouped_encoder_trial_modes);
+				if (encoder_failed_flag)
+					return;
+
+				basist::astc_ldr_t::fvec dct_temp;
+
+				astc_ldrf::astc_lblock_vec all_candidates;
+				all_candidates.reserve(num_candidates);
+
+				astc_ldrf::subset_enc_thread_context thread_ctx;
+
+				uint_vec sorted_indices;
+				sorted_indices.reserve(max_candidate_limit);
+								
+				for (; ; )
+				{
+					if (encoder_failed_flag)
+						return;
+
+					const uint32_t by = cur_row.fetch_add(1);
+					if (by >= num_blocks_y)
+						break;
+
+					for (uint32_t bx = 0; bx < num_blocks_x; bx++)
+					{
+						if (encoder_failed_flag)
+							return;
+
+						ldr_astc_block_encode_image_output::block_info& blk_info = enc_out.m_image_block_info(bx, by);
+
+						color_rgba block_pixels[astc_helpers::MAX_BLOCK_PIXELS];
+						orig_img.extract_block_clamped(block_pixels, bx * block_width, by * block_height, block_width, block_height);
+												
+						all_candidates.resize(0);
+												
+						astc_helpers::log_astc_block best_lblock;
+						if (use_subsets)
+						{
+							astc_ldrf::compress_block_subsets(ctx, thread_ctx, (const uint8_t*)block_pixels, best_lblock, &all_candidates);
+						}
+						else
+						{
+							astc_ldrf::compress_single_subset(ctx, (const uint8_t*)block_pixels, best_lblock, &all_candidates, false);
+						}
+
+						if (encoder_failed_flag)
+							return;
+						
+						if (!all_candidates.size())
+						{
+							fmt_error_printf("compress_block: returned no candidates!\n");
+
+							encoder_failed_flag.store(true);
+							return;
+						}
+
+						uint64_t best_cand_err = UINT64_MAX;
+						uint32_t best_cand_index = 0;
+
+						for (uint32_t cand_index = 0; cand_index < all_candidates.size(); cand_index++)
+						{
+							const astc_helpers::log_astc_block& candidate_log_blk = all_candidates[cand_index];
+														
+							encode_block_output* pEnc_block_output = blk_info.m_out_blocks.enlarge(1);
+							pEnc_block_output->clear();
+
+							pEnc_block_output->m_blur_id = BLUR_ID_ASTCF;
+							
+							astc_helpers::log_astc_block& log_blk = pEnc_block_output->m_log_blk;
+							
+							log_blk = candidate_log_blk;
+							astc_ldrf::convert_rank_lblock_to_ise(log_blk);
+							
+							int tm_index = find_tm_index(block_width, block_height, block_dim_index, log_blk);
+							if (tm_index == -2)
+							{
+								fmt_error_printf("compress_block: invalid candidate!\n");
+
+								encoder_failed_flag.store(true);
+								return;
+							}
+														
+							if ((tm_index >= 0) && (enc_cfg.m_use_dct))
+							{
+								const uint32_t num_planes = (log_blk.m_dual_plane ? 2 : 1);
+
+								uint32_t total_empty_planes = 0;
+
+								for (uint32_t plane_index = 0; plane_index < num_planes; plane_index++)
+								{
+									basist::astc_ldr_t::dct_syms& syms = pEnc_block_output->m_packed_dct_plane_data[plane_index];
+
+									code_block_weights(grid_coder, enc_cfg.m_base_q, plane_index, log_blk, syms, dct_temp);
+
+									// ensure existing weights get blown away 
+									for (uint32_t i = 0; i < (uint32_t)(log_blk.m_grid_width * log_blk.m_grid_height); i++)
+										log_blk.m_weights[i * num_planes + plane_index] = 0;
+
+									bool dec_status = grid_coder.decode_block_weights(enc_cfg.m_base_q, plane_index, log_blk, nullptr, nullptr, dct_temp, &syms);
+
+									assert(dec_status);
+									if (!dec_status)
+									{
+										error_printf("grid_coder.decode_block_weights() failed!\n");
+										encoder_failed_flag.store(true);
+										return;
+									}
+
+									// check for all-zero AC's
+									if (syms.m_coeffs.size() == 1)
+									{
+										if ((1 + syms.m_coeffs[0].m_num_zeros) == (log_blk.m_grid_width * log_blk.m_grid_height))
+										{
+											total_empty_planes++;
+										}
+									}
+								}
+
+								if ((log_blk.m_num_partitions == 1) && (total_empty_planes == num_planes))
+								{
+									// entire block post-quantization is DC only (no non-zero AC), switch to void-extent
+									uint32_t sum_r = 0, sum_g = 0, sum_b = 0, sum_a = 0;
+									for (uint32_t i = 0; i < total_block_pixels; i++)
+									{
+										sum_r += block_pixels[i].r;
+										sum_g += block_pixels[i].g;
+										sum_b += block_pixels[i].b;
+										sum_a += block_pixels[i].a;
+									}
+
+									const uint32_t round = total_block_pixels >> 1;
+									sum_r = (sum_r + round) / total_block_pixels;
+									sum_g = (sum_g + round) / total_block_pixels;
+									sum_b = (sum_b + round) / total_block_pixels;
+									sum_a = (sum_a + round) / total_block_pixels;
+
+									astc_helpers::set_ldr_solid_block(log_blk, sum_r, sum_g, sum_b, sum_a);
+
+									tm_index = -1;
+								}
+
+							} // if (enc_cfg.m_use_dct)
+
+							pEnc_block_output->m_trial_mode_index = basisu::safe_cast_int16(tm_index);
+
+							// unpack the block and compute actual WSSE
+							{
+								color_rgba dec_block_pixels[astc_helpers::MAX_BLOCK_PIXELS];
+
+								bool dec_status = astc_helpers::decode_block_xuastc_ldr(log_blk, dec_block_pixels, block_width, block_height,
+									enc_cfg.m_cem_enc_params.m_decode_mode_srgb ? astc_helpers::cDecodeModeSRGB8 : astc_helpers::cDecodeModeLDR8);
+
+								if (!dec_status)
+								{
+									// Shouldn't ever happen
+									assert(0);
+									
+									error_printf("decode_block_xuastc_ldr() failed!\n");
+
+									encoder_failed_flag.store(true);
+									return;
+								}
+
+								uint64_t total_err = 0;
+
+								for (uint32_t i = 0; i < total_block_pixels; i++)
+									total_err += weighted_color_error(dec_block_pixels[i], block_pixels[i], enc_cfg.m_cem_enc_params);
+
+								pEnc_block_output->m_sse = total_err;
+
+								if (total_err < best_cand_err)
+								{
+									best_cand_err = total_err;
+									best_cand_index = cand_index;
+								}
+							}
+														
+						} // cand_index
+
+						if (blk_info.m_out_blocks.size() > max_candidate_limit)
+						{
+							const uint64_t check_wsse = blk_info.m_out_blocks[best_cand_index].m_sse;
+							BASISU_NOTE_UNUSED(check_wsse);
+
+							// There were just too many candidates returned - we'll risk running out of RAM in WASM. So sort them and just keep the top X.
+							sorted_indices.resize(blk_info.m_out_blocks.size_u32());
+
+							for (uint32_t i = 0; i < sorted_indices.size(); i++)
+								sorted_indices[i] = i;
+
+							std::sort(sorted_indices.begin(), sorted_indices.end(),
+								[&blk_info](const uint32_t a, const uint32_t b) 
+								{
+									if (blk_info.m_out_blocks[a].m_sse < blk_info.m_out_blocks[b].m_sse)
+										return true;
+									return false;
+								}
+							);
+
+							basisu::vector<encode_block_output> shrunk_out_blocks(max_candidate_limit);
+							for (uint32_t i = 0; i < max_candidate_limit; i++)
+								shrunk_out_blocks[i] = blk_info.m_out_blocks[sorted_indices[i]];
+
+							blk_info.m_out_blocks.swap(shrunk_out_blocks);
+							best_cand_index = 0;
+																												
+							assert(check_wsse == blk_info.m_out_blocks[best_cand_index].m_sse);
+						}
+
+						blk_info.m_packed_out_block_index = best_cand_index;
+
+						const astc_helpers::log_astc_block& best_log_blk = blk_info.m_out_blocks[best_cand_index].m_log_blk;
+
+						bool pack_status = astc_helpers::pack_astc_block(enc_out.m_packed_phys_blocks(bx, by), best_log_blk);
+						if (!pack_status)
+						{
+							assert(0);
+							encoder_failed_flag.store(true);
+							return;
+						}
+					} // bx
+
+				} // for ( ; ; )
+
+			} // lambda function
+		);
+
+	} // job_index
+
+	job_pool.wait_for_all();
+		
+	if (encoder_failed_flag)
+	{
+		fmt_error_printf("ldr_astc_block_encode_image_astcf: Main compressor block loop failed!\n");
+		return false;
+	}
+		
+	if (enc_cfg.m_debug_output)
+	{
+		display_candidate_statistics(enc_out);
+				
+		fmt_debug_printf("ldr_astc_block_encode_image_astcf: OK\n");
+	}
+
+	return true;
+}
 
 const uint_vec& separate_tm_index(uint32_t block_width, uint32_t block_height, const basist::astc_ldr_t::grouped_trial_modes& grouped_enc_trial_modes, const basist::astc_ldr_t::trial_mode& tm,
 	uint32_t& cem_index, uint32_t& subset_index, uint32_t& ccs_index, uint32_t& grid_size, uint32_t& grid_aniso)
@@ -7503,7 +11067,7 @@ static bool compare_log_blocks_for_equality(const astc_helpers::log_astc_block& 
 	return false;
 }
 
-void configure_encoder_effort_level(int level, ldr_astc_block_encode_image_high_level_config& cfg)
+static void configure_encoder_effort_level(int level, ldr_astc_block_encode_image_high_level_config& cfg)
 {
 	switch (level)
 	{
@@ -7515,6 +11079,9 @@ void configure_encoder_effort_level(int level, ldr_astc_block_encode_image_high_
 		cfg.m_subsets_enabled = true;
 		cfg.m_use_blue_contraction = true;
 		cfg.m_use_base_ofs = true;
+
+		cfg.m_encode_trial_early_out_thresh = 0.01f;
+		cfg.m_encode_trial_subsets_early_out_thresh = 0.01f;
 
 		cfg.m_force_all_dual_plane_chan_evals = true;
 		cfg.m_filter_by_pca_angles_flag = false;
@@ -7556,6 +11123,8 @@ void configure_encoder_effort_level(int level, ldr_astc_block_encode_image_high_
 		cfg.m_grid_hv_filtering = false;
 		cfg.m_low_freq_block_filtering = false;
 
+		cfg.m_cem_enc_params.m_use_exhaustive_weight_eval = true;
+
 		break;
 	}
 	case 9:
@@ -7567,12 +11136,15 @@ void configure_encoder_effort_level(int level, ldr_astc_block_encode_image_high_
 		cfg.m_use_blue_contraction = true;
 		cfg.m_use_base_ofs = true;
 
+		cfg.m_encode_trial_early_out_thresh = 0.01f;
+		cfg.m_encode_trial_subsets_early_out_thresh = 0.01f;
+
 		cfg.m_force_all_dual_plane_chan_evals = false;
 		cfg.m_filter_by_pca_angles_flag = true;
 
-		cfg.m_superbucket_max_to_retain[0] = 8;
-		cfg.m_superbucket_max_to_retain[1] = 16;
-		cfg.m_superbucket_max_to_retain[2] = 32;
+		cfg.m_superbucket_max_to_retain[0] = 16;
+		cfg.m_superbucket_max_to_retain[1] = 32;
+		cfg.m_superbucket_max_to_retain[2] = 64;
 
 		cfg.m_base_parts2 = 32;
 		cfg.m_base_parts3 = 32;
@@ -7583,18 +11155,18 @@ void configure_encoder_effort_level(int level, ldr_astc_block_encode_image_high_
 		cfg.m_final_shortlist_fraction[1] = 1.0f;
 		cfg.m_final_shortlist_fraction[2] = 1.0f;
 
-		cfg.m_final_shortlist_max_size[0] = 4;
-		cfg.m_final_shortlist_max_size[1] = 12;
-		cfg.m_final_shortlist_max_size[2] = 24;
+		cfg.m_final_shortlist_max_size[0] = 16;
+		cfg.m_final_shortlist_max_size[1] = 32;
+		cfg.m_final_shortlist_max_size[2] = 64;
 
 		// Second superpass
-		cfg.m_second_superpass_fract_to_recompress = .075f;
+		cfg.m_second_superpass_fract_to_recompress = .15f;
 		cfg.m_superbucket_max_to_retain_p2[0] = 16;
 		cfg.m_superbucket_max_to_retain_p2[1] = 64;
 		cfg.m_superbucket_max_to_retain_p2[2] = 256;
-		cfg.m_final_shortlist_max_size_p2[0] = 8;
-		cfg.m_final_shortlist_max_size_p2[1] = 16;
-		cfg.m_final_shortlist_max_size_p2[2] = 32;
+		cfg.m_final_shortlist_max_size_p2[0] = 32;
+		cfg.m_final_shortlist_max_size_p2[1] = 64;
+		cfg.m_final_shortlist_max_size_p2[2] = 128;
 		cfg.m_base_parts2_p2 = 64;
 		cfg.m_base_parts3_p2 = 64;
 		cfg.m_force_all_dp_chans_p2 = false;
@@ -7605,10 +11177,13 @@ void configure_encoder_effort_level(int level, ldr_astc_block_encode_image_high_
 		cfg.m_early_stop_wpsnr = 75.0f;
 		cfg.m_early_stop2_wpsnr = 70.0f;
 
+		cfg.m_cem_enc_params.m_use_exhaustive_weight_eval = true;
+								
 		break;
 	}
 	case 8:
 	{
+#if 0
 		cfg.m_second_superpass_refinement = true;
 		cfg.m_third_superpass_try_neighbors = true;
 
@@ -7653,6 +11228,61 @@ void configure_encoder_effort_level(int level, ldr_astc_block_encode_image_high_
 
 		cfg.m_early_stop_wpsnr = 75.0f;
 		cfg.m_early_stop2_wpsnr = 70.0f;
+#endif
+
+		// old 9
+		cfg.m_second_superpass_refinement = true;
+		cfg.m_third_superpass_try_neighbors = true;
+
+		cfg.m_subsets_enabled = true;
+		cfg.m_use_blue_contraction = true;
+		cfg.m_use_base_ofs = true;
+
+		cfg.m_encode_trial_early_out_thresh = 0.01f;
+		cfg.m_encode_trial_subsets_early_out_thresh = 0.01f;
+
+		cfg.m_force_all_dual_plane_chan_evals = false;
+		cfg.m_filter_by_pca_angles_flag = true;
+
+		cfg.m_superbucket_max_to_retain[0] = 8;
+		cfg.m_superbucket_max_to_retain[1] = 16;
+		cfg.m_superbucket_max_to_retain[2] = 32;
+
+		cfg.m_base_parts2 = 32;
+		cfg.m_base_parts3 = 32;
+		cfg.m_part2_fraction_to_keep = 2;
+		cfg.m_part3_fraction_to_keep = 2;
+
+		cfg.m_final_shortlist_fraction[0] = 1.0f;
+		cfg.m_final_shortlist_fraction[1] = 1.0f;
+		cfg.m_final_shortlist_fraction[2] = 1.0f;
+
+		cfg.m_final_shortlist_max_size[0] = 4;
+		cfg.m_final_shortlist_max_size[1] = 12;
+		cfg.m_final_shortlist_max_size[2] = 24;
+
+		// Second superpass
+		cfg.m_second_superpass_fract_to_recompress = .15f;
+		cfg.m_superbucket_max_to_retain_p2[0] = 16;
+		cfg.m_superbucket_max_to_retain_p2[1] = 64;
+		cfg.m_superbucket_max_to_retain_p2[2] = 256;
+		cfg.m_final_shortlist_max_size_p2[0] = 8;
+		cfg.m_final_shortlist_max_size_p2[1] = 16;
+		cfg.m_final_shortlist_max_size_p2[2] = 32;
+		cfg.m_base_parts2_p2 = 64;
+		cfg.m_base_parts3_p2 = 64;
+		cfg.m_force_all_dp_chans_p2 = false;
+		cfg.m_filter_by_pca_angles_flag_p2 = false;
+
+		cfg.m_final_encode_always_try_rgb_direct = false;
+
+		cfg.m_early_stop_wpsnr = 75.0f;
+		cfg.m_early_stop2_wpsnr = 70.0f;
+
+		cfg.m_cem_enc_params.m_use_exhaustive_weight_eval = true;
+						
+		//cfg.m_second_pass_total_weight_refine_passes = 0;
+
 		break;
 	}
 	case 7:
@@ -8298,6 +11928,16 @@ static bool compress_image_full_zstd(
 	for (uint32_t y = 0; y < num_blocks_y; y++)
 		for (uint32_t x = 0; x < num_blocks_x; x++)
 			coded_blocks(x, y).clear();
+
+	vector2D<astc_helpers::log_astc_block> input_blocks;
+	if (global_cfg.m_debug_images)
+	{
+		input_blocks.resize(num_blocks_x, num_blocks_y);
+
+		for (uint32_t y = 0; y < num_blocks_y; y++)
+			for (uint32_t x = 0; x < num_blocks_x; x++)
+				input_blocks(x, y).clear();
+	}
 	
 	vector2D<basist::astc_ldr_t::prev_block_state_full_zstd> prev_block_states(num_blocks_x, num_blocks_y);
 
@@ -8371,6 +12011,11 @@ static bool compress_image_full_zstd(
 			const ldr_astc_block_encode_image_output::block_info& blk_info = enc_out.m_image_block_info(bx, by);
 
 			uint32_t best_packed_out_block_index = blk_info.m_packed_out_block_index;
+
+			if (global_cfg.m_debug_images)
+			{
+				input_blocks(bx, by) = blk_info.m_out_blocks[best_packed_out_block_index].m_log_blk;
+			}
 
 			// check for run 
 			if ((use_run_commands_global_enable) && (bx || by))
@@ -8858,14 +12503,14 @@ static bool compress_image_full_zstd(
 						for (part_iter = 0; part_iter < tm.m_num_parts; part_iter++)
 						{
 							const bool always_repack_flag = false;
-							bool blue_contraction_clamped_flag = false, base_ofs_clamped_flag = false;
+							bool blue_contraction_clamped_flag = false, try_direct_encoding_flag = false;
 
 							bool conv_status = basist::astc_ldr_t::convert_endpoints_across_cems(
 								pTrial_log_blk->m_color_endpoint_modes[0], pTrial_log_blk->m_endpoint_ise_range, pTrial_log_blk->m_endpoints,
 								cur_actual_cem, cur_log_blk.m_endpoint_ise_range, trial_predicted_endpoints[part_iter],
 								always_repack_flag,
 								endpoints_use_bc[part_iter], false,
-								blue_contraction_clamped_flag, base_ofs_clamped_flag);
+								blue_contraction_clamped_flag, try_direct_encoding_flag);
 
 							if (!conv_status)
 								break;
@@ -8939,14 +12584,14 @@ static bool compress_image_full_zstd(
 					for (uint32_t part_iter = 0; part_iter < tm.m_num_parts; part_iter++)
 					{
 						const bool always_repack_flag = false;
-						bool blue_contraction_clamped_flag = false, base_ofs_clamped_flag = false;
+						bool blue_contraction_clamped_flag = false, try_direct_encoding_flag = false;
 
 						bool conv_status = basist::astc_ldr_t::convert_endpoints_across_cems(
 							pEndpoint_pred_log_blk->m_color_endpoint_modes[0], pEndpoint_pred_log_blk->m_endpoint_ise_range, pEndpoint_pred_log_blk->m_endpoints,
 							cur_actual_cem, cur_log_blk.m_endpoint_ise_range, predicted_endpoints[part_iter],
 							always_repack_flag,
 							endpoints_use_bc[part_iter], false,
-							blue_contraction_clamped_flag, base_ofs_clamped_flag);
+							blue_contraction_clamped_flag, try_direct_encoding_flag);
 
 						if (!conv_status)
 						{
@@ -9030,6 +12675,13 @@ static bool compress_image_full_zstd(
 				for (uint32_t plane_iter = 0; plane_iter < total_planes; plane_iter++)
 				{
 					const basist::astc_ldr_t::dct_syms& syms = blk_out.m_packed_dct_plane_data[plane_iter];
+
+					if (!syms.m_coeffs.size())
+					{
+						fmt_error_printf("compress_image_full_zstd: internal error - no DCT coeffs\n");
+						return false;
+					}
+
 					if (syms.m_max_coeff_mag > basist::astc_ldr_t::DCT_MAX_ARITH_COEFF_MAG)
 					{
 						use_dct = false;
@@ -9153,8 +12805,9 @@ static bool compress_image_full_zstd(
 	weight3_bits.flush();
 	weight4_bits.flush();
 
-	const uint32_t zstd_level = 9;
-
+	// TODO: Make this configurable
+	const uint32_t zstd_level = (global_cfg.m_effort_level >= 3) ? 19 : 9;
+	
 	uint8_vec comp_mode, comp_solid_dpcm, comp_endpoint_dpcm_reuse_indices;
 	uint8_vec comp_use_bc_bits, comp_endpoint_dpcm_3bit, comp_endpoint_dpcm_4bit, comp_endpoint_dpcm_5bit, comp_endpoint_dpcm_6bit, comp_endpoint_dpcm_7bit, comp_endpoint_dpcm_8bit;
 
@@ -9245,6 +12898,7 @@ static bool compress_image_full_zstd(
 
 	if ((global_cfg.m_debug_images) || (global_cfg.m_debug_output))
 	{
+		image input_img(width, height);
 		image coded_img(width, height);
 
 		vector2D<astc_helpers::astc_block> phys_blocks(num_blocks_x, num_blocks_y);
@@ -9260,7 +12914,7 @@ static bool compress_image_full_zstd(
 				bool status = astc_helpers::decode_block(log_blk, block_pixels, block_width, block_height, enc_cfg.m_cem_enc_params.m_decode_mode_srgb ? astc_helpers::cDecodeModeSRGB8 : astc_helpers::cDecodeModeLDR8);
 				if (!status)
 				{
-					fmt_error_printf("astc_helpers::decode_block() failed\n");
+					fmt_error_printf("astc_helpers::decode_block() failed (1)\n");
 					return false;
 				}
 
@@ -9280,18 +12934,41 @@ static bool compress_image_full_zstd(
 				}
 
 				coded_img.set_block_clipped(block_pixels, bx * block_width, by * block_height, block_width, block_height);
+								
+				if (global_cfg.m_debug_images)
+				{
+					// input image
+
+					status = astc_helpers::decode_block(input_blocks(bx, by), block_pixels, block_width, block_height, enc_cfg.m_cem_enc_params.m_decode_mode_srgb ? astc_helpers::cDecodeModeSRGB8 : astc_helpers::cDecodeModeLDR8);
+					if (!status)
+					{
+						fmt_error_printf("astc_helpers::decode_block() failed (2)\n");
+						return false;
+					}
+
+					input_img.set_block_clipped(block_pixels, bx * block_width, by * block_height, block_width, block_height);
+				}
 
 			} // bx
 
 		} //by 
 
 		if (global_cfg.m_debug_images)
-			save_png(global_cfg.m_debug_file_prefix + "coded_img.png", coded_img);
+		{
+			save_png(global_cfg.m_debug_file_prefix + "input_img.png", input_img);
+			debug_printf("Wrote input_img.png\n");
 
-		if (global_cfg.m_debug_output)
+			save_png(global_cfg.m_debug_file_prefix + "coded_img.png", coded_img);
+			debug_printf("Wrote coded_img.png\n");
+		}
+
+		if ((global_cfg.m_debug_output) && (global_cfg.m_debug_output_image_metrics))
 		{
 			debug_printf("Orig image vs. coded img:\n");
 			print_image_metrics(orig_img, coded_img);
+
+			debug_printf("display_astc_statistics:\n");
+			display_astc_statistics(coded_blocks, block_width, block_height, orig_img.get_width(), orig_img.get_height(), false);
 		}
 	}
 
@@ -9342,12 +13019,1876 @@ static bool compress_image_full_zstd(
 }
 #endif
 
-bool compress_image(
-	const image& orig_img, uint8_vec& comp_data, vector2D<astc_helpers::log_astc_block>& coded_blocks,
+static uint64_t calc_block_wsse(
+	const image& orig_img, int sx, int sy, int block_width, int block_height, 
+	const image& tile_img, int tx, int ty,
+	const astc_ldr::cem_encode_params& p)
+{
+	assert(((int)tile_img.get_width() == block_width) && ((int)tile_img.get_height() == block_height));
+
+	uint64_t total_err = 0;
+
+	for (int y = 0; y < block_height; y++)
+	{
+		const int oy = sy + y;
+		if ((oy < 0) || (oy >= (int)orig_img.get_height()))
+			continue;
+
+		for (int x = 0; x < block_width; x++)
+		{
+			const int ox = sx + x;
+			if ((ox < 0) || (ox >= (int)orig_img.get_width()))
+				continue;
+			
+			total_err += weighted_color_error(orig_img(ox, oy), tile_img(tx + x, ty + y), p);
+		} // x
+
+	} // y
+
+	return total_err;
+}
+
+static inline vec4F calc_color_delta(const color_rgba& a, const color_rgba& b)
+{
+	return vec4F(
+		(float)(a.r - b.r),
+		(float)(a.g - b.g),
+		(float)(a.b - b.b),
+		(float)(a.a - b.a));
+}
+
+static inline double calc_penalty(const vec4F& orig, const vec4F& cand, const vec4F &comp_weights)
+{
+	vec4F delta(orig - cand);
+	delta = vec4F::component_mul(delta, delta);
+	delta = vec4F::component_mul(delta, comp_weights);
+	return delta[0] + delta[1] + delta[2] + delta[3];
+}
+
+static convar g_astc_refine_cross_block_penalty_weight("astc_refine_cross_block_penalty_weight", 2.5f, 0.0f, 1000.0f);
+
+static uint64_t calc_cross_block_boundary_delta_mismatch(const image& orig_img, const image& candidate_img, uint32_t block_width, uint32_t block_height, uint32_t bx, uint32_t by, const astc_ldr::cem_encode_params& p)
+{
+	const int ofs_x = block_width * bx, ofs_y = block_height * by;
+
+	const vec4F comp_weights((float)p.m_comp_weights[0], (float)p.m_comp_weights[1], (float)p.m_comp_weights[2], (float)p.m_comp_weights[3]);
+
+	double penalty = 0.0f;
+
+	// TODO: Compute in integer
+	for (int x = 0; x < (int)block_width; x++)
+	{
+		vec4F orig_delta_top(calc_color_delta(orig_img.get_clamped(ofs_x + x, ofs_y), orig_img.get_clamped(ofs_x + x, ofs_y - 1)));
+		vec4F cand_delta_top(calc_color_delta(candidate_img.get_clamped(ofs_x + x, ofs_y), candidate_img.get_clamped(ofs_x + x, ofs_y - 1)));
+		penalty += calc_penalty(orig_delta_top, cand_delta_top, comp_weights);
+
+		vec4F orig_delta_bot = calc_color_delta(orig_img.get_clamped(ofs_x + x, ofs_y + block_height - 1), orig_img.get_clamped(ofs_x + x, ofs_y + block_height - 1 + 1));
+		vec4F cand_delta_bot = calc_color_delta(candidate_img.get_clamped(ofs_x + x, ofs_y + block_height - 1), candidate_img.get_clamped(ofs_x + x, ofs_y + block_height - 1 + 1));
+		penalty += calc_penalty(orig_delta_bot, cand_delta_bot, comp_weights);
+	} // x
+
+	for (int y = 0; y < (int)block_height; y++)
+	{
+		vec4F orig_delta_left(calc_color_delta(orig_img.get_clamped(ofs_x, ofs_y + y), orig_img.get_clamped(ofs_x - 1, ofs_y + y)));
+		vec4F cand_delta_left(calc_color_delta(candidate_img.get_clamped(ofs_x, ofs_y + y), candidate_img.get_clamped(ofs_x - 1, ofs_y + y)));
+		penalty += calc_penalty(orig_delta_left, cand_delta_left, comp_weights);
+
+		vec4F orig_delta_right(calc_color_delta(orig_img.get_clamped(ofs_x + block_width - 1, ofs_y + y), orig_img.get_clamped(ofs_x + block_width - 1 + 1, ofs_y + y)));
+		vec4F cand_delta_right(calc_color_delta(candidate_img.get_clamped(ofs_x + block_width - 1, ofs_y + y), candidate_img.get_clamped(ofs_x + block_width - 1 + 1, ofs_y + y)));
+		penalty += calc_penalty(orig_delta_right, cand_delta_right, comp_weights);
+	} // x
+
+	//const float PENALTY_WEIGHT = 2.5f;
+	const float PENALTY_WEIGHT = g_astc_refine_cross_block_penalty_weight.get_float();
+	return (uint64_t)std::round(penalty * PENALTY_WEIGHT);
+}
+
+static inline vec3F calc_ycbcr(const vec3F& c)
+{
+	const float r = c[0], g = c[1], b = c[2];
+
+	float Y =  r *  0.212600f + g *  0.715200f + b *  0.072200f;
+	float Cb = r * -0.114572f + g * -0.385428f + b *  0.500000f;
+	float Cr = r *  0.500000f + g * -0.454153f + b * -0.045847f;
+	
+	return vec3F(Y, Cb, Cr);
+}
+
+static uint64_t calc_chroma_loss_penalty(const image& orig_img, const image& candidate_img, uint32_t block_width, uint32_t block_height, uint32_t bx, uint32_t by, const astc_ldr::cem_encode_params& p)
+{
+	color_rgba orig_block[astc_helpers::MAX_BLOCK_PIXELS];
+	color_rgba cand_block[astc_helpers::MAX_BLOCK_PIXELS];
+
+	orig_img.extract_block_clamped(orig_block, bx * block_width, by * block_height, block_width, block_height);
+	candidate_img.extract_block_clamped(cand_block, bx * block_width, by * block_height, block_width, block_height);
+
+	const uint32_t total_block_pixels = block_width * block_height;
+
+	vec4F avg_orig(0.0f), avg_cand(0.0f);
+	for (uint32_t i = 0; i < total_block_pixels; i++)
+	{
+		avg_orig += orig_block[i].get_vec4F();
+		avg_cand += cand_block[i].get_vec4F();
+	}
+
+	avg_orig *= (1.0f / (float)total_block_pixels);
+	avg_cand *= (1.0f / (float)total_block_pixels);
+		
+	vec3F o(calc_ycbcr(avg_orig));
+	vec3F c(calc_ycbcr(avg_cand));
+
+	vec3F delta(o - c);
+
+	float penalty = (delta[1] * delta[1]) + (delta[2] * delta[2]);
+
+	const float PENALTY_WEIGHT = ((float)total_block_pixels * .25f) * (float)p.m_comp_weights[1] * (14.0f * 14.0f);
+	penalty *= PENALTY_WEIGHT;
+
+	return (uint64_t)std::round(penalty);
+}
+
+static uint64_t calc_block_sse(
+	uint32_t block_width, uint32_t block_height, 
+	const color_rgba *pBlock_pixels,
+	const astc_helpers::log_astc_block& log_astc_blk, 
+	const ldr_astc_block_encode_image_high_level_config& enc_cfg)
+{
+	color_rgba dec_pixels[astc_helpers::MAX_BLOCK_PIXELS];
+	bool dec_status = astc_helpers::decode_block(log_astc_blk, dec_pixels, block_width, block_height, enc_cfg.m_cem_enc_params.m_decode_mode_srgb ? astc_helpers::cDecodeModeSRGB8 : astc_helpers::cDecodeModeLDR8);
+
+	assert(dec_status);
+	if (!dec_status)
+		return UINT64_MAX;
+
+	const uint32_t total_block_pixels = block_width * block_height;
+
+	uint64_t total_err = 0;
+	for (uint32_t i = 0; i < total_block_pixels; i++)
+		total_err += weighted_color_error(pBlock_pixels[i], dec_pixels[i], enc_cfg.m_cem_enc_params);
+
+	return total_err;
+}
+
+struct deblocking_thread_state
+{
+	image m_deblock_orig;		// bw*3 x by*3
+	image m_deblock_staging;	// bw*3 x by*3
+	image m_deblock_temp;		// (bw+2) x (by+2)
+};
+
+// true on success
+static bool deblocking_find_best_candidate(
+	uint32_t block_width, uint32_t block_height, uint32_t num_blocks_x, uint32_t num_blocks_y,
+	uint32_t pass, uint32_t bx, uint32_t by,
+	deblocking_thread_state &thread_state,
+	const image& candidate_img,
+	const image& orig_img,
 	const astc_ldr_encode_config& global_cfg,
+	const ldr_astc_block_encode_image_high_level_config& enc_cfg,
+	ldr_astc_block_encode_image_output& enc_out,
+	uint32_t &new_best_packed_block_index, uint64_t &best_err)
+{
+	BASISU_NOTE_UNUSED(pass);
+
+	best_err = UINT64_MAX;
+
+	const astc_helpers::decode_mode dec_mode = global_cfg.m_astc_decode_mode_srgb ? astc_helpers::cDecodeModeSRGB8 : astc_helpers::cDecodeModeLDR8;
+		
+	ldr_astc_block_encode_image_output::block_info& blk_info = enc_out.m_image_block_info(bx, by);
+
+	const basisu::vector<encode_block_output>& out_blocks = blk_info.m_out_blocks;
+
+	new_best_packed_block_index = blk_info.m_packed_out_block_index;
+		
+	const uint64_t cur_sse = out_blocks[blk_info.m_packed_out_block_index].m_sse;
+	if (!cur_sse)
+	{
+		best_err = 0;
+		return true;
+	}
+
+	// if a candidate has a WSSE worse than this, ignore it
+	//const uint64_t skip_sse_thresh = (cur_sse * 4) / 3;
+	const uint64_t skip_sse_thresh = UINT64_MAX;
+		
+	uint32_t best_cand_index = 0;
+
+	// always 3x3 blocks centered around our current block
+	image& deblock_orig_img = thread_state.m_deblock_orig;
+	image& deblock_staging_img = thread_state.m_deblock_staging;
+	image& deblock_temp_img = thread_state.m_deblock_temp;
+
+	// grab 3x3 block region around block from the original image and the current output, place into thread local temporary buffer
+	// this makes candidate evaluation simpler
+	deblock_orig_img.blit_clamped(
+		orig_img,
+		((int)bx - 1) * (int)block_width, ((int)by - 1) * (int)block_height,
+		block_width * 3, block_height * 3,
+		0, 0);
+		
+	deblock_staging_img.blit_clamped(
+		candidate_img,
+		((int)bx - 1) * (int)block_width, ((int)by - 1) * (int)block_height, 
+		block_width * 3, block_height * 3,
+		0, 0);
+		
+	uint32_t total_neighbors_base_ofs = 0, total_neighbors_examined = 0;
+	for (int k = 0; k < 4; k++)
+	{
+		int nbx = 0, nby = 0;
+
+		if (k < 2)
+			nbx = (int)bx + ((k & 1) ? -1 : 1);
+		else
+			nby = (int)by + (((k - 2) & 1) ? -1 : 1);
+
+		if ((nbx < 0) || (nbx >= (int)num_blocks_x))
+			continue;
+		if ((nby < 0) || (nby >= (int)num_blocks_y))
+			continue;
+
+		ldr_astc_block_encode_image_output::block_info& neighbor_blk_info = enc_out.m_image_block_info(nbx, nby);
+
+		const astc_helpers::log_astc_block& neighbor_block = neighbor_blk_info.m_out_blocks[neighbor_blk_info.m_packed_out_block_index].m_log_blk;
+
+		if (neighbor_block.m_solid_color_flag_ldr)
+			continue;
+
+		if (astc_helpers::cem_is_ldr_base_scale(neighbor_block.m_color_endpoint_modes[0]))
+			total_neighbors_base_ofs++;
+
+		total_neighbors_examined++;
+	}
+
+	bool penalize_isolated_base_ofs_blocks = false;
+	if (total_neighbors_examined)
+	{
+		const uint32_t neighbors_base_ofs_fract = (total_neighbors_base_ofs << 4) / total_neighbors_examined;
+
+		const uint32_t PENALIZE_ISOLATED_BASE_OFS_FRACT = 8; // div 16
+
+		penalize_isolated_base_ofs_blocks = neighbors_base_ofs_fract < PENALIZE_ISOLATED_BASE_OFS_FRACT;
+	}
+
+	[[maybe_unused]] bool applied_base_ofs_penalty = false;
+
+	color_rgba block_pixels[astc_helpers::MAX_BLOCK_PIXELS];
+
+	for (uint32_t cand_index = 0; cand_index < out_blocks.size(); cand_index++)
+	{
+		const encode_block_output& out_blk = out_blocks[cand_index];
+
+		const uint64_t cand_sse = out_blocks[cand_index].m_sse;
+
+		uint64_t block_wsse = UINT64_MAX, block_artifact_penalty_wsse = 0, chroma_loss_penalty_wsse = 0;
+		uint64_t cand_err = UINT64_MAX;
+
+		// skip if the pre-deblock error would just increase too much, likely not worth it
+		if (cand_sse > skip_sse_thresh)
+			continue;
+			
+		if (!astc_helpers::decode_block_xuastc_ldr(out_blk.m_log_blk, block_pixels, block_width, block_height, dec_mode))
+		{
+			assert(0);
+			return false;
+		}
+
+		// insert candidate block into the center of our 3x3 block staging image
+		deblock_staging_img.set_block_clipped(block_pixels, 1 * block_width, 1 * block_height, block_width, block_height);
+
+		if (global_cfg.m_scd_will_postfilter)
+		{
+			// deblocks a region of (block_width+2)x(block_height+2), with source pixel offset of (-1,-1), output into deblock_temp_img
+			deblock_block_region(block_width, block_height, deblock_staging_img, 1 * block_width, 1 * block_height, deblock_temp_img);
+
+			block_wsse = calc_block_wsse(
+				deblock_orig_img, 1 * block_width - 1, 1 * block_height - 1, block_width + 2, block_height + 2, 
+				deblock_temp_img, 0, 0,
+				enc_cfg.m_cem_enc_params);
+		}
+		else
+		{
+			block_wsse = 0;
+
+			for (int y = 0; y < (int)block_height; y++)
+				for (int x = 0; x < (int)block_width; x++)
+					block_wsse += weighted_color_error(deblock_orig_img.get_clamped(1 * block_width + x, 1 * block_height + y), block_pixels[x + y * block_width], enc_cfg.m_cem_enc_params);
+
+			// CPU/GPU postfilter is NOT going to be applied, but they want to deblock anyway. No impact to texels around this block.
+			const uint32_t num_filtered_texels = (block_width + 2) * (block_height + 2);
+			const uint32_t num_unfiltered_texels = block_width * block_height;
+
+			// boost this wsse so the other penalties (tuned with filtering enabled) are roughly relative to it
+			block_wsse = (block_wsse * num_filtered_texels) / num_unfiltered_texels;
+		}
+
+		block_artifact_penalty_wsse = calc_cross_block_boundary_delta_mismatch(deblock_orig_img, deblock_staging_img, block_width, block_height, 1, 1, enc_cfg.m_cem_enc_params);
+
+		chroma_loss_penalty_wsse = global_cfg.m_scd_preserve_chroma ? calc_chroma_loss_penalty(deblock_orig_img, deblock_staging_img, block_width, block_height, 1, 1, enc_cfg.m_cem_enc_params) : 0;
+
+		cand_err = block_wsse;
+
+		if (penalize_isolated_base_ofs_blocks)
+		{
+			if (!out_blk.m_log_blk.m_solid_color_flag_ldr && astc_helpers::cem_is_ldr_base_scale(out_blk.m_log_blk.m_color_endpoint_modes[0]))
+			{
+				// penalize base-ofs candidates if there are not enough base-ofs neighbors, as they will likely be more visible
+				cand_err = (cand_err * 5) / 4;
+				//total_base_ofs_penalties++;
+				applied_base_ofs_penalty = true;
+			}
+		}
+
+		cand_err += block_artifact_penalty_wsse + chroma_loss_penalty_wsse;
+
+		if ((cand_index != blk_info.m_packed_out_block_index) && (out_blk.m_log_blk.m_solid_color_flag_ldr))
+		{
+			// don't switch to solid unless it REALLY seems to help
+			cand_err = cand_err * 8;
+		}
+
+		if (cand_err < best_err)
+		{
+			best_err = cand_err;
+			best_cand_index = cand_index;
+		}
+
+	} // cand_index
+				
+	new_best_packed_block_index = best_cand_index;
+		
+	return true;
+}
+
+// ------
+
+// true on success
+static bool deblocking_compute_error(
+	uint32_t block_width, uint32_t block_height, uint32_t num_blocks_x, uint32_t num_blocks_y,
+	uint32_t bx, uint32_t by,
+	image& candidate_img,
+	const image& orig_img,
+	const astc_ldr_encode_config& global_cfg,
+	const ldr_astc_block_encode_image_high_level_config& enc_cfg,
+	const ldr_astc_block_encode_image_output& enc_out,
+	uint64_t& cur_err,
+	image &deblock_orig, image &deblock_temp)
+{
+	assert(deblock_orig.get_width() == block_width);
+	assert(deblock_orig.get_height() == block_height);
+
+	assert(deblock_temp.get_width() == (block_width + 2));
+	assert(deblock_temp.get_height() == (block_height + 2));
+
+	const astc_helpers::decode_mode dec_mode = global_cfg.m_astc_decode_mode_srgb ? astc_helpers::cDecodeModeSRGB8 : astc_helpers::cDecodeModeLDR8;
+
+	cur_err = UINT64_MAX;
+
+	const ldr_astc_block_encode_image_output::block_info& blk_info = enc_out.m_image_block_info(bx, by);
+
+	const basisu::vector<encode_block_output>& out_blocks = blk_info.m_out_blocks;
+				
+	deblock_orig.blit(candidate_img,
+		bx * block_width, by * block_height, block_width, block_height,
+		0, 0,
+		true);
+
+	color_rgba block_pixels[astc_helpers::MAX_BLOCK_PIXELS];
+
+	uint32_t total_neighbors_base_ofs = 0, total_neighbors_examined = 0;
+	for (int k = 0; k < 4; k++)
+	{
+		int nbx = 0, nby = 0;
+
+		if (k < 2)
+			nbx = (int)bx + ((k & 1) ? -1 : 1);
+		else
+			nby = (int)by + (((k - 2) & 1) ? -1 : 1);
+
+		if ((nbx < 0) || (nbx >= (int)num_blocks_x))
+			continue;
+		if ((nby < 0) || (nby >= (int)num_blocks_y))
+			continue;
+
+		const ldr_astc_block_encode_image_output::block_info& neighbor_blk_info = enc_out.m_image_block_info(nbx, nby);
+
+		const astc_helpers::log_astc_block& neighbor_block = neighbor_blk_info.m_out_blocks[neighbor_blk_info.m_packed_out_block_index].m_log_blk;
+
+		if (neighbor_block.m_solid_color_flag_ldr)
+			continue;
+
+		if (astc_helpers::cem_is_ldr_base_scale(neighbor_block.m_color_endpoint_modes[0]))
+			total_neighbors_base_ofs++;
+
+		total_neighbors_examined++;
+	}
+
+	bool penalize_isolated_base_ofs_blocks = false;
+	if (total_neighbors_examined)
+	{
+		const uint32_t neighbors_base_ofs_fract = (total_neighbors_base_ofs << 4) / total_neighbors_examined;
+
+		const uint32_t PENALIZE_ISOLATED_BASE_OFS_FRACT = 8; // div 16
+
+		penalize_isolated_base_ofs_blocks = neighbors_base_ofs_fract < PENALIZE_ISOLATED_BASE_OFS_FRACT;
+	}
+		
+	const uint32_t cand_index = blk_info.m_packed_out_block_index;
+
+	{
+		const encode_block_output& out_blk = out_blocks[cand_index];
+
+		//const uint64_t cand_sse = out_blocks[cand_index].m_sse;
+
+		uint64_t block_wsse = 0, block_artifact_penalty_wsse = 0, chroma_loss_penalty_wsse = 0;
+		
+		// skip if the pre-deblock error would just increase too much, likely not worth it
+
+		if (!astc_helpers::decode_block_xuastc_ldr(out_blk.m_log_blk, block_pixels, block_width, block_height, dec_mode))
+		{
+			assert(0);
+			return false;
+		}
+
+		candidate_img.set_block_clipped(block_pixels, bx * block_width, by * block_height, block_width, block_height);
+
+		if (global_cfg.m_scd_will_postfilter)
+		{
+			deblock_block_region(block_width, block_height, candidate_img, bx * block_width, by * block_height, deblock_temp);
+
+			block_wsse = calc_block_wsse(orig_img, bx * block_width - 1, by * block_height - 1, block_width + 2, block_height + 2, deblock_temp, 0, 0, enc_cfg.m_cem_enc_params);
+		}
+		else
+		{
+			block_wsse = 0;
+
+			const int sx = bx * block_width, sy = by * block_height;
+			for (int y = 0; y < (int)block_height; y++)
+				for (int x = 0; x < (int)block_width; x++)
+					block_wsse += weighted_color_error(orig_img.get_clamped(sx + x, sy + y), block_pixels[x + y * block_width], enc_cfg.m_cem_enc_params);
+
+			// CPU/GPU postfilter is NOT going to be applied, but they want to deblock anyway. No impact to texels around this block.
+			const uint32_t num_filtered_texels = (block_width + 2) * (block_height + 2);
+			const uint32_t num_unfiltered_texels = block_width * block_height;
+
+			// boost this wsse so the other penalties (tuned with filtering enabled) are roughly relative to it
+			block_wsse = (block_wsse * num_filtered_texels) / num_unfiltered_texels;
+		}
+
+		block_artifact_penalty_wsse = calc_cross_block_boundary_delta_mismatch(orig_img, candidate_img, block_width, block_height, bx, by, enc_cfg.m_cem_enc_params);
+
+		chroma_loss_penalty_wsse = global_cfg.m_scd_preserve_chroma ? calc_chroma_loss_penalty(orig_img, candidate_img, block_width, block_height, bx, by, enc_cfg.m_cem_enc_params) : 0;
+
+		uint64_t cand_err = block_wsse;
+
+		if (penalize_isolated_base_ofs_blocks)
+		{
+			if (!out_blk.m_log_blk.m_solid_color_flag_ldr && astc_helpers::cem_is_ldr_base_scale(out_blk.m_log_blk.m_color_endpoint_modes[0]))
+			{
+				// penalize base-ofs candidates if there are not enough base-ofs neighbors, as they will likely be more visible
+				cand_err = (cand_err * 5) / 4;
+				//total_base_ofs_penalties++;
+			}
+		}
+
+		cand_err += block_artifact_penalty_wsse + chroma_loss_penalty_wsse;
+
+		cur_err = cand_err;
+	}
+
+	candidate_img.blit(deblock_orig,
+		0, 0, block_width, block_height,
+		bx * block_width, by * block_height,
+		true);
+
+	return true;
+}
+
+static uint64_t deblocking_compute_overall_error(
+	uint32_t block_width, uint32_t block_height, uint32_t num_blocks_x, uint32_t num_blocks_y,
+	const image& orig_img,
+	const astc_ldr_encode_config& global_cfg,
+	const ldr_astc_block_encode_image_high_level_config& enc_cfg,
+	const ldr_astc_block_encode_image_output& enc_out)
+{
+	const uint32_t width = orig_img.get_width(), height = orig_img.get_height();
+
+	image candidate_img;
+	candidate_img.resize(width, height);
+
+	const astc_helpers::decode_mode dec_mode = global_cfg.m_astc_decode_mode_srgb ? astc_helpers::cDecodeModeSRGB8 : astc_helpers::cDecodeModeLDR8;
+
+	for (uint32_t by = 0; by < num_blocks_y; by++)
+	{
+		for (uint32_t bx = 0; bx < num_blocks_x; bx++)
+		{
+			const ldr_astc_block_encode_image_output::block_info& blk_info = enc_out.m_image_block_info(bx, by);
+			const encode_block_output& best_blk = blk_info.m_out_blocks[blk_info.m_packed_out_block_index];
+
+			const astc_helpers::log_astc_block& log_blk = best_blk.m_log_blk;
+
+			color_rgba block_pixels[astc_helpers::MAX_BLOCK_PIXELS];
+
+			if (!astc_helpers::decode_block_xuastc_ldr(log_blk, block_pixels, block_width, block_height, dec_mode))
+				return false;
+
+			candidate_img.set_block_clipped(block_pixels, bx * block_width, by * block_height, block_width, block_height);
+			
+		} // bx
+
+	} // by
+
+	const image orig_candidate_img(candidate_img);
+
+	image deblock_orig(block_width, block_height);
+	image deblock_temp(block_width + 2, block_height + 2);
+
+	uint64_t overall_err = 0;
+
+	for (uint32_t by = 0; by < num_blocks_y; by++)
+	{
+		for (uint32_t bx = 0; bx < num_blocks_x; bx++)
+		{
+			uint64_t cur_err = 0;
+
+			if (!deblocking_compute_error(
+				block_width, block_height, num_blocks_x, num_blocks_y,
+				bx, by,
+				candidate_img,
+				orig_img,
+				global_cfg,
+				enc_cfg,
+				enc_out,
+				cur_err,
+				deblock_orig, deblock_temp))
+			{
+				return UINT64_MAX;
+			}
+			
+			overall_err += cur_err;
+
+		} // bx
+	} // by
+
+	fmt_printf("Overall image error: {}, {3.3} per block\n", overall_err, (double)overall_err / (double)(num_blocks_x * num_blocks_y));
+
+	uint32_t total_cand_differences = 0;
+
+	for (uint32_t y = 0; y < height; y++)
+	{
+		for (uint32_t x = 0; x < width; x++)
+		{
+			if (candidate_img(x, y) != orig_candidate_img(x, y))
+				total_cand_differences++;
+		}
+	}
+
+	fmt_printf("Total cand differences: {}\n", total_cand_differences);
+	return overall_err;
+}
+
+// ------
+
+static convar g_astc_refine_max_new_blocks("astc_refine_max_new_blocks", 16, 1, 256);
+
+static convar g_astc_refine_try_nonprimary_candidates("astc_refine_try_nonprimary_candidates", 1, 0, 1);
+static convar g_astc_refine_mutate_part_id_prob("astc_refine_mutate_part_id_prob", 10, 0, 100);
+static convar g_astc_refine_mutate_endpoint_edge("astc_refine_mutate_endpoint_edge", 1, 0, 1);
+static convar g_astc_refine_mutate_dct("astc_refine_mutate_dct", 1, 0, 1);
+static convar g_astc_refine_mutate_endpoints("astc_refine_mutate_endpoints", 1, 0, 1);
+static convar g_astc_refine_base_seed("astc_refine_base_seed", 0, INT_MIN, INT_MAX);
+
+static bool mutate_candidates(
+	uint32_t pass, 
+	uint32_t block_width, uint32_t block_height, uint32_t num_blocks_x, uint32_t num_blocks_y, uint32_t total_blocks,
+	const uint32_t max_new_blocks, const uint_vec* const pJob_block_list, const vector2D<float> &block_std_dev,
+	const uint32_t NUM_SIMILAR_PATS, const vector2D<uint16_t> similar_pats[2], const vector2D<uint8_t> similar_pat_perm_index[2],
+	const image& orig_img, const image& candidate_img,
+	uint32_t num_threads, job_pool &jp, 
+	const astc_ldr_encode_config& global_cfg, const ldr_astc_block_encode_image_high_level_config& enc_cfg, ldr_astc_block_encode_image_output& enc_out)
+{
+	assert(num_threads);
+
+	basist::astc_ldr_t::grid_weight_dct grid_coder;
+	grid_coder.init(block_width, block_height);
+
+	float rnd_mag = 1.7f;
+
+	if (pass >= 16)
+		rnd_mag = .9f;
+	else if (pass >= 10)
+		rnd_mag = 1.5f;
+	else if (pass >= 6)
+		rnd_mag = 1.7f;
+	else if (pass >= 4)
+		rnd_mag = 2.5f;
+
+	std::atomic<uint32_t> cur_block_index;
+	cur_block_index.store(0);
+
+	std::atomic<bool> encoder_failed_flag;
+	encoder_failed_flag.store(false);
+
+	for (uint32_t job_index = 0; job_index < num_threads; job_index++)
+	{
+		jp.add_job([job_index, num_threads,
+			num_blocks_x, num_blocks_y, block_width, block_height, total_blocks, &grid_coder,
+			pJob_block_list, &block_std_dev, max_new_blocks, rnd_mag,
+			pass,
+			&cur_block_index, &encoder_failed_flag,
+			&candidate_img, &similar_pats, &similar_pat_perm_index, NUM_SIMILAR_PATS,
+			&orig_img,
+			&global_cfg, &enc_cfg, &enc_out]
+			{
+				BASISU_NOTE_UNUSED(job_index); BASISU_NOTE_UNUSED(num_threads); BASISU_NOTE_UNUSED(num_blocks_y); BASISU_NOTE_UNUSED(pJob_block_list);
+				// Thread locals
+				basist::astc_ldr_t::fvec dct_temp;
+
+				const uint32_t block_size_index = astc_helpers::find_astc_block_size_index(block_width, block_height);
+				[[maybe_unused]] const uint32_t num_unique_subset_pats[2] = { basist::astc_ldr_t::get_total_unique_patterns(block_size_index, 2), basist::astc_ldr_t::get_total_unique_patterns(block_size_index, 3) };
+
+				uint64_vec sorted_candidates;
+				sorted_candidates.reserve(1024);
+
+				for (; ;)
+				{
+					// Asynchronously fetch the next block index to process.
+					const uint32_t block_index = cur_block_index.fetch_add(1);
+					if (block_index >= total_blocks)
+						break;
+
+					const uint32_t bx = block_index % num_blocks_x;
+					const uint32_t by = block_index / num_blocks_x;
+
+					sorted_candidates.resize(0);
+
+					// first retire old mutated candidates (older than 4 passes)
+					{
+						ldr_astc_block_encode_image_output::block_info& blk_info = enc_out.m_image_block_info(bx, by);
+
+						basisu::vector<encode_block_output>& cur_out_blocks = blk_info.m_out_blocks;
+
+						basisu::vector<encode_block_output> new_out_blocks;
+						new_out_blocks.reserve(1 + (cur_out_blocks.size_u32() / 2));
+
+						int new_packed_out_block_index = -1;
+
+						for (uint32_t i = 0; i < cur_out_blocks.size(); i++)
+						{
+							const encode_block_output& blk = cur_out_blocks[i];
+
+							bool should_remove = false;
+
+							if (i == blk_info.m_packed_out_block_index)
+							{
+								new_packed_out_block_index = new_out_blocks.size_u32();
+							}
+							else
+							{
+								if (blk.m_blur_id >= BLUR_ID_EXP)
+								{
+									int blk_pass = blk.m_blur_id - BLUR_ID_EXP;
+
+									if (blk_pass <= (int)(pass - 4))
+										should_remove = true;
+								}
+							}
+
+							if (!should_remove)
+							{
+								sorted_candidates.push_back((blk.m_sse << 16u) | new_out_blocks.size());
+
+								new_out_blocks.push_back(blk);
+							}
+
+						} // i
+
+						assert(new_packed_out_block_index != -1);
+
+						blk_info.m_packed_out_block_index = new_packed_out_block_index;
+						blk_info.m_out_blocks.swap(new_out_blocks);
+					}
+
+					sorted_candidates.sort();
+
+					// generate new candidates via mutation
+					{
+						basisu::rand rnd;
+
+						const uint64_t h = 1ull + pass * (4096ull * 4096ull) + block_index;
+						rnd.seed(g_astc_refine_base_seed.get_int() + basist::hash_hsieh(reinterpret_cast<const uint8_t*>(&h), sizeof(h))); // endianness (not a big deal here)
+
+						ldr_astc_block_encode_image_output::block_info& blk_info = enc_out.m_image_block_info(bx, by);
+
+						basisu::vector<encode_block_output>& out_blocks = blk_info.m_out_blocks;
+
+						{
+							const encode_block_output& best_blk = out_blocks[blk_info.m_packed_out_block_index];
+							const astc_helpers::log_astc_block& log_blk = best_blk.m_log_blk;
+							if (log_blk.m_solid_color_flag_ldr)
+								continue;
+
+							//uint32_t cem_index = log_blk.m_color_endpoint_modes[0];
+							// TODO
+							//if ((cem_index != 6) && (cem_index != 8) && (cem_index != 9))
+							//	continue;
+						}
+
+						color_rgba orig_block[astc_helpers::MAX_BLOCK_PIXELS];
+						orig_img.extract_block_clamped(orig_block, bx * block_width, by * block_height, block_width, block_height);
+
+						const uint32_t num_rand_blocks = clamp<int>((int)std::round(block_std_dev(bx, by) * .25f), 1, max_new_blocks) + 2;
+
+						for (uint32_t q = 0; q < num_rand_blocks; q++)
+						{
+							const encode_block_output* pBest_blk = &out_blocks[blk_info.m_packed_out_block_index];
+
+							bool choose_nonprimary_cand_flag = false;
+
+							if (g_astc_refine_try_nonprimary_candidates.get_bool())
+							{
+								if ((q >= (num_rand_blocks - 2)) && (sorted_candidates.size_u32() >= 2))
+								{
+									uint32_t ix = rnd.irand(0, minimum(10u, sorted_candidates.size_u32()) - 1);
+
+									uint32_t rnd_cand_index = sorted_candidates[ix] & UINT16_MAX;
+									pBest_blk = &out_blocks[rnd_cand_index];
+								
+									if (pBest_blk->m_log_blk.m_solid_color_flag_ldr)
+									{
+										rnd_cand_index = sorted_candidates[(ix + 1) % sorted_candidates.size_u32()] & UINT16_MAX;
+										pBest_blk = &out_blocks[rnd_cand_index];
+									}
+									
+									choose_nonprimary_cand_flag = true;
+								}
+							}
+
+							const encode_block_output& best_blk = *pBest_blk;
+
+							if (best_blk.m_log_blk.m_solid_color_flag_ldr)
+								continue;
+
+							const astc_helpers::log_astc_block& log_blk = best_blk.m_log_blk;
+							
+							const uint32_t cem_index = log_blk.m_color_endpoint_modes[0];
+							const uint32_t num_cem_vals = astc_helpers::get_num_cem_values(cem_index);
+
+							astc_helpers::log_astc_block new_log_blk(log_blk);
+
+							const auto& endpoint_tab = astc_helpers::g_dequant_tables.get_endpoint_tab(log_blk.m_endpoint_ise_range);
+
+							bool any_changed = false;
+
+							basist::astc_ldr_t::dct_syms new_packed_dct_plane_data[2];
+							bool has_new_packed_dct_plane_data = false;
+
+							if (choose_nonprimary_cand_flag)
+								new_log_blk.m_user_mode |= 8;
+
+							if (g_astc_refine_mutate_part_id_prob.get_int() && (new_log_blk.m_num_partitions >= 2) && rnd.iprob(g_astc_refine_mutate_part_id_prob.get_int()))
+							{
+								// partition pattern mutation
+								const uint32_t r = rnd.irand(0, NUM_SIMILAR_PATS - 1);
+
+								const uint32_t k = similar_pats[new_log_blk.m_num_partitions - 2](new_log_blk.m_partition_id, r);
+
+								if (k != UINT16_MAX)
+								{
+									new_log_blk.m_partition_id = safe_cast_uint16(k);
+
+									const uint32_t perm_index = similar_pat_perm_index[new_log_blk.m_num_partitions - 2](new_log_blk.m_partition_id, r);
+
+									// now permute the endpoints if necessary so they roughly match
+									if (perm_index)
+									{
+										//const uint32_t num_cem_vals = astc_helpers::get_num_cem_values(new_log_blk.m_color_endpoint_modes[0]);
+
+										uint8_t cur_endpoints[astc_helpers::MAX_ENDPOINT_VALS];
+										memcpy(cur_endpoints, new_log_blk.m_endpoints, num_cem_vals * new_log_blk.m_num_partitions);
+
+										for (uint32_t src_index = 0; src_index < new_log_blk.m_num_partitions; src_index++)
+										{
+											uint32_t dst_index;
+											if (new_log_blk.m_num_partitions == 2)
+												dst_index = src_index ^ 1;
+											else
+												dst_index = g_part3_mapping[perm_index][src_index];
+
+											memcpy(new_log_blk.m_endpoints + dst_index * num_cem_vals, cur_endpoints + src_index * num_cem_vals, num_cem_vals);
+										}
+									}
+
+									new_log_blk.m_user_mode |= 1;
+
+									any_changed = true;
+								}
+							}
+
+							if (!any_changed && g_astc_refine_mutate_endpoint_edge.get_bool() && rnd.iprob(10))
+							{
+								// lerp endpoint towards adjacent block edge mutation
+								const uint32_t subset_index = (new_log_blk.m_num_partitions == 1) ? 0 : rnd.irand(0, new_log_blk.m_num_partitions - 1);
+
+								vec4F avg_edge(0.0f);
+								const uint32_t edge_index = rnd.irand(0, 3);
+
+								if ((edge_index == 0) || (edge_index == 2))
+								{
+									// top (0) or bottom (2)
+									for (uint32_t x = 0; x < block_width; x++)
+									{
+										const int src_x = bx * block_width + x;
+										const int src_y = ((int)by * (int)block_height) + ((edge_index == 0) ? -1 : (int)block_height);
+										avg_edge += candidate_img.get_clamped(src_x, src_y).get_vec4F();
+									}
+									avg_edge *= (1.0f / (float)block_width);
+								}
+								else
+								{
+									// right (1) or left (3)
+									for (uint32_t y = 0; y < block_height; y++)
+									{
+										const int src_x = ((int)bx * (int)block_width) + ((edge_index == 1) ? (int)block_width : -1);
+										const int src_y = by * block_height + y;
+										avg_edge += candidate_img.get_clamped(src_x, src_y).get_vec4F();
+									}
+									avg_edge *= (1.0f / (float)block_height);
+								}
+
+								uint8_t* pDst_endpoints = new_log_blk.m_endpoints + num_cem_vals * subset_index;
+
+								color_rgba le, he;
+								decode_endpoints(cem_index, pDst_endpoints, new_log_blk.m_endpoint_ise_range, le, he, nullptr);
+
+								const float lrp = rnd.frand(0.0f, .3f);
+								const uint32_t ei = rnd.irand(0, 2);
+
+								for (uint32_t i = 0; i < 4; i++)
+								{
+									if ((ei == 0) || (ei == 2))
+										le[i] = (uint8_t)clamp(basisu::fast_roundf_int(lerp<float>((float)le[i], avg_edge[i], lrp)), 0, 255);
+
+									if ((ei == 1) || (ei == 2))
+										he[i] = (uint8_t)clamp(basisu::fast_roundf_int(lerp<float>((float)he[i], avg_edge[i], lrp)), 0, 255);
+								} // i
+
+								const float fendpoints[8] = {
+									(float)le[0], (float)he[0],
+									(float)le[1], (float)he[1],
+									(float)le[2], (float)he[2],
+									(float)le[3], (float)he[3] };
+
+								uint8_t new_endpoints[8] = { };
+
+								astc_ldrf::cem_encode(cem_index, fendpoints, new_log_blk.m_endpoint_ise_range, new_endpoints, true, false);
+
+								if (memcmp(pDst_endpoints, new_endpoints, num_cem_vals) != 0)
+								{
+									memcpy(pDst_endpoints, new_endpoints, num_cem_vals);
+									new_log_blk.m_user_mode |= 2;
+									any_changed = true;
+								}
+							}
+
+							if (!any_changed && global_cfg.m_use_dct && g_astc_refine_mutate_dct.get_bool() && (rnd.iprob(10)))
+							{
+								// DCT coefficient mutation
+								if (rnd.iprob(10))
+								{
+									// DC
+									const uint32_t plane_to_change = new_log_blk.m_dual_plane ? rnd.irand(0, 1) : 0;
+
+									for (uint32_t plane_index = 0; plane_index < (new_log_blk.m_dual_plane ? 2u : 1u); plane_index++)
+									{
+										auto& new_coeffs = new_packed_dct_plane_data[plane_index];
+
+										new_coeffs = best_blk.m_packed_dct_plane_data[plane_index];
+
+										if (plane_to_change == plane_index)
+										{
+											int new_dc_sym = new_coeffs.m_dc_sym;
+
+											new_dc_sym += rnd.bit() ? -1 : 1; //basisu::fast_roundf_int((float)new_dc_sym + rnd.gaussian(0.0f, 1.0f));
+
+											new_dc_sym = clamp<int>(new_dc_sym, 0, new_coeffs.m_num_dc_levels - 1);
+
+											if (new_dc_sym != (int)new_coeffs.m_dc_sym)
+											{
+												new_coeffs.m_dc_sym = new_dc_sym;
+
+												any_changed = true;
+												has_new_packed_dct_plane_data = true;
+												new_log_blk.m_user_mode |= 16;
+											}
+										}
+									}
+								}
+
+								if (!any_changed)
+								{
+									// AC
+									for (uint32_t plane_index = 0; plane_index < (new_log_blk.m_dual_plane ? 2u : 1u); plane_index++)
+									{
+										auto& new_coeffs = new_packed_dct_plane_data[plane_index];
+
+										new_coeffs = best_blk.m_packed_dct_plane_data[plane_index];
+
+										uint32_t total_coeffs = new_coeffs.m_coeffs.size_u32();
+
+										if ((total_coeffs) && (new_coeffs.m_coeffs[total_coeffs - 1].m_coeff == INT16_MAX))
+											total_coeffs--;
+
+										if (!total_coeffs)
+											continue;
+
+										int rnd_coeff_index = rnd.irand(0, total_coeffs - 1);
+
+										int cur_coeff = new_coeffs.m_coeffs[rnd_coeff_index].m_coeff;
+
+										if (rnd.iprob(10))
+											cur_coeff = -cur_coeff;
+										else if (rnd.bit())
+											cur_coeff++;
+										else
+											cur_coeff--;
+
+										if ((!cur_coeff) || (iabs(cur_coeff) > basist::astc_ldr_t::DCT_MAX_ARITH_COEFF_MAG))
+											continue;
+
+										new_coeffs.m_coeffs[rnd_coeff_index].m_coeff = safe_cast_int16(cur_coeff);
+										new_coeffs.m_max_coeff_mag = basisu::maximum(new_coeffs.m_max_coeff_mag, iabs(cur_coeff));
+
+										any_changed = true;
+										has_new_packed_dct_plane_data = true;
+										new_log_blk.m_user_mode |= 4;
+
+									} // plane_index
+								} // if (!any_changed)
+							}
+
+							if ((!any_changed) && g_astc_refine_mutate_endpoints.get_bool())
+							{
+								// gaussian endpoint CEM value mutation
+								const uint32_t subset_index = (log_blk.m_num_partitions == 1) ? 0 : rnd.irand(0, log_blk.m_num_partitions - 1);
+								const uint32_t e = rnd.bit();
+
+								const bool cem_has_alpha = astc_helpers::does_cem_have_alpha(cem_index);
+
+								bool mutate_rgb = true, mutate_alpha = false;
+
+								if (cem_has_alpha)
+								{
+									uint32_t c = rnd.irand(0, 2);
+									mutate_rgb = (c == 0) || (c == 2);
+									mutate_alpha = (c == 1) || (c == 2);
+								}
+
+								if (mutate_rgb)
+								{
+									uint32_t e_ofs = subset_index * num_cem_vals, e_stride = 0, nc = 0;
+									
+									switch (cem_index)
+									{
+									case astc_helpers::CEM_LDR_LUM_DIRECT:
+									case astc_helpers::CEM_LDR_LUM_ALPHA_DIRECT:
+									{
+										e_ofs += e;
+										e_stride = 2;
+										nc = 1;
+										break;
+									}
+									case astc_helpers::CEM_LDR_RGB_BASE_SCALE:
+									case astc_helpers::CEM_LDR_RGB_BASE_SCALE_PLUS_TWO_A:
+									{
+										// e=0 -> scale, e=1 -> base rgb
+										e_ofs += (e ? 0 : 3);
+										e_stride = 1;
+										nc = e ? 3 : 1;
+										break;
+									}
+									case astc_helpers::CEM_LDR_RGB_DIRECT:
+									case astc_helpers::CEM_LDR_RGB_BASE_PLUS_OFFSET:
+									case astc_helpers::CEM_LDR_RGBA_DIRECT:
+									case astc_helpers::CEM_LDR_RGBA_BASE_PLUS_OFFSET:
+									{
+										e_ofs += e;
+										e_stride = 2;
+										nc = 3;
+										break;
+									}
+									default:
+									{
+										assert(0);
+										break;
+									}
+									}
+
+									for (uint32_t c = 0; c < nc; c++)
+									{
+										assert((e_ofs + c * e_stride) < (num_cem_vals * new_log_blk.m_num_partitions));
+										const int cur_rank = endpoint_tab.m_ISE_to_rank[new_log_blk.m_endpoints[e_ofs + c * e_stride]];
+
+										int new_rank = clamp<int>((int)std::round(cur_rank + rnd.gaussian(0.0f, rnd_mag)), 0, astc_helpers::get_ise_levels(log_blk.m_endpoint_ise_range) - 1);
+
+										if (new_rank != cur_rank)
+											any_changed = true;
+
+										new_log_blk.m_endpoints[e_ofs + c * e_stride] = endpoint_tab.m_rank_to_ISE[new_rank];
+									}
+
+								} // mutate_rgb
+
+								if (mutate_alpha)
+								{
+									uint32_t e_ofs = subset_index * num_cem_vals;
+									
+									switch (cem_index)
+									{
+									case astc_helpers::CEM_LDR_LUM_ALPHA_DIRECT:
+									{
+										e_ofs += 2 + e;
+										break;
+									}
+									case astc_helpers::CEM_LDR_RGB_BASE_SCALE_PLUS_TWO_A:
+									{
+										e_ofs += 4 + e;
+										break;
+									}
+									case astc_helpers::CEM_LDR_RGBA_DIRECT:
+									case astc_helpers::CEM_LDR_RGBA_BASE_PLUS_OFFSET:
+									{
+										e_ofs += 6 + e;
+										break;
+									}
+									default:
+									{
+										assert(0);
+										break;
+									}
+									}
+
+									{
+										assert(e_ofs < num_cem_vals * new_log_blk.m_num_partitions);
+										const int cur_rank = endpoint_tab.m_ISE_to_rank[new_log_blk.m_endpoints[e_ofs]];
+
+										int new_rank = clamp<int>((int)std::round(cur_rank + rnd.gaussian(0.0f, rnd_mag)), 0, astc_helpers::get_ise_levels(log_blk.m_endpoint_ise_range) - 1);
+
+										if (new_rank != cur_rank)
+											any_changed = true;
+
+										new_log_blk.m_endpoints[e_ofs] = endpoint_tab.m_rank_to_ISE[new_rank];
+									}
+
+								} // mutate_alpha
+
+							}
+
+							if (!any_changed)
+								continue;
+
+							encode_block_output new_out_block;
+							new_out_block.m_trial_mode_index = best_blk.m_trial_mode_index;
+							new_out_block.m_blur_id = safe_cast_uint16(BLUR_ID_EXP + pass);
+
+							if (enc_cfg.m_use_dct)
+							{
+								if (has_new_packed_dct_plane_data)
+								{
+									new_out_block.m_packed_dct_plane_data[0] = new_packed_dct_plane_data[0];
+									new_out_block.m_packed_dct_plane_data[1] = new_packed_dct_plane_data[1];
+								}
+								else
+								{
+									new_out_block.m_packed_dct_plane_data[0] = best_blk.m_packed_dct_plane_data[0];
+									new_out_block.m_packed_dct_plane_data[1] = best_blk.m_packed_dct_plane_data[1];
+								}
+
+								for (uint32_t plane_index = 0; plane_index < (new_log_blk.m_dual_plane ? 2u : 1u); plane_index++)
+								{
+									basist::astc_ldr_t::dct_syms& syms = new_out_block.m_packed_dct_plane_data[plane_index];
+
+									bool status = grid_coder.decode_block_weights(enc_cfg.m_base_q, plane_index, new_log_blk, nullptr, nullptr, dct_temp, &syms);
+									assert(status);
+
+									if (!status)
+									{
+										encoder_failed_flag.store(true);
+										return;
+									}
+								}
+							}
+
+							new_out_block.m_log_blk = new_log_blk;
+
+							new_out_block.m_sse = calc_block_sse(block_width, block_height, orig_block, new_log_blk, enc_cfg);
+
+							out_blocks.push_back(new_out_block);
+						} // q
+					}
+
+				} // for (; ;)
+
+			}
+		);
+
+	} // job_index
+
+	jp.wait_for_all();
+
+	if (encoder_failed_flag)
+	{
+		fmt_error_printf("refine_output_for_deblocking: Threaded deblocking pass failed! (2)\n");
+		return false;
+	}
+
+	return true;
+}
+
+static bool refine_output_for_deblocking(
+	const image& orig_img,
+	const astc_ldr_encode_config& global_cfg,
+	const ldr_astc_block_encode_image_high_level_config& enc_cfg,
+	ldr_astc_block_encode_image_output& enc_out)
+{
+	if (global_cfg.m_debug_output)
+		fmt_debug_printf("------------------- refine_output_for_deblocking:\n");
+
+	const uint32_t width = orig_img.get_width();
+	const uint32_t height = orig_img.get_height();
+	const uint32_t block_width = global_cfg.m_astc_block_width;
+	const uint32_t block_height = global_cfg.m_astc_block_height;
+	const uint32_t total_block_pixels = block_width * block_height;
+
+	//const uint32_t total_pixels = width * height;
+	const uint32_t num_blocks_x = (width + block_width - 1) / block_width;
+	const uint32_t num_blocks_y = (height + block_height - 1) / block_height;
+	const uint32_t total_blocks = num_blocks_x * num_blocks_y;
+
+	uint64_t initial_deblocked_err = 0;
+	if (global_cfg.m_debug_output)
+	{
+		initial_deblocked_err = deblocking_compute_overall_error(
+			block_width, block_height, num_blocks_x, num_blocks_y,
+			orig_img,
+			global_cfg,
+			enc_cfg,
+			enc_out);
+	}
+
+	image candidate_img;
+	candidate_img.resize(width, height);
+
+	const astc_helpers::decode_mode dec_mode = global_cfg.m_astc_decode_mode_srgb ? astc_helpers::cDecodeModeSRGB8 : astc_helpers::cDecodeModeLDR8;
+
+	uint32_t num_min_candidates = UINT32_MAX, num_max_candidates = 1;
+	uint32_t total_overall_candidates = 0;
+
+	vector2D<float> block_std_dev(num_blocks_x, num_blocks_y);
+
+	for (uint32_t by = 0; by < num_blocks_y; by++)
+	{
+		for (uint32_t bx = 0; bx < num_blocks_x; bx++)
+		{
+			ldr_astc_block_encode_image_output::block_info& blk_info = enc_out.m_image_block_info(bx, by);
+			const encode_block_output& best_blk = blk_info.m_out_blocks[blk_info.m_packed_out_block_index];
+
+			const astc_helpers::log_astc_block& log_blk = best_blk.m_log_blk;
+
+			color_rgba block_pixels[astc_helpers::MAX_BLOCK_PIXELS];
+
+			if (!astc_helpers::decode_block_xuastc_ldr(log_blk, block_pixels, block_width, block_height, dec_mode))
+				return false;
+
+			vec4F sum(0.0f), sum2(0.0f);
+			for (uint32_t i = 0; i < total_block_pixels; i++)
+			{
+				vec4F p(block_pixels[i].get_vec4F());
+				sum += p;
+				sum2 += vec4F::component_mul(p, p);
+			}
+
+			const float oo_total_texels = 1.0f / (float)total_block_pixels;
+
+			const vec4F var = vec4F::component_max(sum2 - vec4F::component_mul(sum, sum) * oo_total_texels, vec4F(0.0f)) * oo_total_texels;
+			const vec4F std_dev = vec4F::component_sqrt(var);
+
+			const float block_stddev = basisu::maximum(std_dev[0], std_dev[1], std_dev[2], std_dev[3]);
+			for (int dy = -1; dy <= 1; dy++)
+			{
+				const int y = by + dy;
+				if ((y < 0) || (y >= (int)num_blocks_y))
+					continue;
+				for (int dx = -1; dx <= 1; dx++)
+				{
+					const int x = bx + dx;
+					if ((x < 0) || (x >= (int)num_blocks_x))
+						continue;
+					block_std_dev(x, y) = basisu::maximum<float>(block_std_dev(x, y), block_stddev);
+				} // dx 
+			} // dy
+
+			candidate_img.set_block_clipped(block_pixels, bx * block_width, by * block_height, block_width, block_height);
+
+			num_min_candidates = minimum(num_min_candidates, blk_info.m_out_blocks.size_u32());
+			num_max_candidates = maximum(num_max_candidates, blk_info.m_out_blocks.size_u32());
+
+			total_overall_candidates += blk_info.m_out_blocks.size_u32();
+		} // bx
+
+	} // by
+
+	if (global_cfg.m_debug_images)
+	{
+		image std_dev_vis(width, height);
+		for (uint32_t by = 0; by < num_blocks_y; by++)
+		{
+			for (uint32_t bx = 0; bx < num_blocks_x; bx++)
+			{
+				const float std_dev = block_std_dev(bx, by);
+
+				const float STD_DEV_SCALE = 4.0f;
+				std_dev_vis.fill_box(bx * block_width, by * block_height, block_width, block_height, color_rgba((uint8_t)std::min(255.0f, std_dev * STD_DEV_SCALE), 255));
+			}
+		}
+
+		save_png("deblock_std_dev_vis.png", std_dev_vis);
+		fmt_printf("Wrote deblock_std_dev_vis.png\n");
+	}
+
+	if (global_cfg.m_debug_output)
+	{
+		fmt_debug_printf("Total candidates: {}, Avg candidates per block: {}, Min candidates: {}, Max candidates: {}\n",
+			total_overall_candidates,
+			(float)total_overall_candidates / (float)total_blocks,
+			num_min_candidates, num_max_candidates);
+	}
+
+	{
+		image candidate_img_deblocked;
+		deblock_image(block_width, block_height, candidate_img, candidate_img_deblocked);
+
+		if (global_cfg.m_debug_images)
+		{
+			save_png(global_cfg.m_debug_file_prefix + "deblock_initial_candidate_img.png", candidate_img);
+			save_png(global_cfg.m_debug_file_prefix + "deblock_initial_candidate_img_deblocked.png", candidate_img_deblocked);
+		}
+
+		if ((global_cfg.m_debug_output) && (global_cfg.m_debug_output_image_metrics))
+		{
+			fmt_debug_printf("orig vs. initial candidate image:\n");
+			print_image_metrics(orig_img, candidate_img);
+
+			fmt_debug_printf("\norig vs. initial candidate image deblocked:\n");
+			print_image_metrics(orig_img, candidate_img_deblocked);
+		}
+	}
+
+	if (num_max_candidates == 1)
+	{
+		if (global_cfg.m_debug_output)
+			fmt_debug_printf("No candidates to try for any block, exiting.\n");
+		return true;
+	}
+
+	image deblock_orig(block_width * 3, block_height * 3);
+	image deblock_temp(block_width + 2, block_height + 2);
+
+#if 0
+	image debug_block_image;
+	uint32_t debug_block_cur_x = 0, debug_block_cur_y = 0;
+	const int DEBUG_IMG_COL_WIDTH = 680;
+	if (global_cfg.m_debug_block_x != -1)
+	{
+		debug_block_image.resize(3072, 2048);
+
+		debug_block_image.blit(orig_img,
+			global_cfg.m_debug_block_x * block_width, global_cfg.m_debug_block_y * block_height, block_width, block_height,
+			debug_block_cur_x, debug_block_cur_y,
+			true);
+
+		debug_block_cur_y += block_height + 2;
+
+		debug_printf("Debug block coordinate {}x{}\n", global_cfg.m_debug_block_x, global_cfg.m_debug_block_y);
+	}
+#endif
+		
+	uint_vec white_list, black_list;
+	white_list.reserve(total_blocks);
+	black_list.reserve(total_blocks);
+	for (uint32_t y = 0; y < num_blocks_y; y++)
+	{
+		for (uint32_t x = 0; x < num_blocks_x; x++)
+		{
+			const uint32_t color_index = (x ^ y) & 1;
+			(color_index ? black_list : white_list).push_back(x + y * num_blocks_x);
+		} // x
+	} // y
+
+	vector2D<uint64_t> block_best_err(num_blocks_x, num_blocks_y);
+	block_best_err.set_all(UINT64_MAX);
+
+	const uint32_t max_new_blocks = ((width * height) >= (2048 * 2048)) ? ((g_astc_refine_max_new_blocks.get_int() + 1) / 2) : g_astc_refine_max_new_blocks.get_int();
+
+	assert(enc_cfg.m_pJob_pool);
+	job_pool& job_pool = *enc_cfg.m_pJob_pool;
+
+	const uint32_t num_threads = (uint32_t)job_pool.get_total_threads();
+	assert(num_threads);
+		
+	const uint32_t num_passes = clamp<uint32_t>(global_cfg.m_num_scd_passes, 2, 256);
+		
+	// TODO
+	const bool mutation_enabled = true;
+
+	vector2D<uint32_t> orig_best_block_indices(num_blocks_x, num_blocks_y);
+	for (uint32_t by = 0; by < num_blocks_y; by++)
+	{
+		for (uint32_t bx = 0; bx < num_blocks_x; bx++)
+		{
+			ldr_astc_block_encode_image_output::block_info& blk_info = enc_out.m_image_block_info(bx, by);
+
+			orig_best_block_indices(bx, by) = blk_info.m_packed_out_block_index;
+		}
+	}
+
+#if 1
+	// TODO: Move to init, this is per-mipmap
+	const uint32_t NUM_SIMILAR_PATS = 16;
+	vector2D<uint16_t> similar_pats[2];
+	vector2D<uint8_t> similar_pat_perm_index[2];
+	for (uint32_t p = 0; p < 2; p++)
+	{
+		similar_pats[p].resize(1024, NUM_SIMILAR_PATS);
+		similar_pat_perm_index[p].resize(1024, NUM_SIMILAR_PATS);
+
+		similar_pats[p].set_all(UINT16_MAX);
+	}
+	
+	const uint32_t block_size_index = astc_helpers::find_astc_block_size_index(block_width, block_height);
+		
+	for (uint32_t num_subsets = 2; num_subsets <= 3; num_subsets++)
+	{
+		const uint32_t num_unique_subset_pats = basist::astc_ldr_t::get_total_unique_patterns(block_size_index, num_subsets);
+		
+		const partitions_data& pat_data = (num_subsets == 2) ? enc_out.m_part_data_p2 : enc_out.m_part_data_p3;
+
+		assert(num_unique_subset_pats == pat_data.m_total_unique_patterns);
+
+		for (uint32_t unique_pat_index = 0; unique_pat_index < num_unique_subset_pats; unique_pat_index++)
+		{
+			const uint32_t seed_index = pat_data.m_unique_index_to_part_seed[unique_pat_index];
+
+			const partition_pattern_vec& desired_pat_vec = pat_data.m_partition_pats[unique_pat_index];
+			
+			uint32_t results[NUM_SIMILAR_PATS + 1];
+
+			uint32_t num_results = pat_data.m_part_lhs_map.find(desired_pat_vec, results, NUM_SIMILAR_PATS + 1, false);
+			
+			uint32_t dst_index = 0;
+
+			for (uint32_t i = 0; i < num_results; i++)
+			{
+				assert(results[i] < num_unique_subset_pats);
+				if (results[i] == unique_pat_index)
+					continue;
+
+				const uint32_t similar_unique_pat_index = results[i];
+
+				similar_pats[num_subsets - 2](seed_index, dst_index) = safe_cast_uint16(pat_data.m_unique_index_to_part_seed[similar_unique_pat_index]);
+
+				const uint32_t total_perms = (num_subsets == 2) ? 2 : NUM_PART3_MAPPINGS;
+				uint32_t best_dist = UINT32_MAX, best_perm_index = 0;
+
+				const partition_pattern_vec& similar_pat_vec = pat_data.m_partition_pats[similar_unique_pat_index];
+
+				for (uint32_t perm_index = 0; perm_index < total_perms; perm_index++)
+				{
+					partition_pattern_vec desired_pat_vec_permuted = (num_subsets == 2) ? desired_pat_vec.get_permuted2(perm_index) : desired_pat_vec.get_permuted3(perm_index);
+
+					uint32_t dist = desired_pat_vec_permuted.get_squared_distance(similar_pat_vec);
+					if (dist < best_dist)
+					{
+						best_dist = dist;
+						best_perm_index = perm_index;
+					}
+				} // p
+
+				similar_pat_perm_index[num_subsets - 2](seed_index, dst_index) = safe_cast_uint8(best_perm_index);
+
+				dst_index++;
+				if (dst_index >= NUM_SIMILAR_PATS)
+					break;
+			} // i
+
+		} // unique_pat_index
+
+	} // num_subsets
+#endif
+
+	for (uint32_t pass = 0; pass < num_passes; pass++)
+	{
+		const bool final_pass_flag = (pass == (num_passes - 1));
+
+		if (global_cfg.m_debug_output)
+			fmt_debug_printf("Pass: {}\n", pass);
+						
+		uint_vec* const pJob_block_list = (pass & 1) ? &black_list : &white_list;
+
+		vector2D<int> new_best_packed_block_indices(num_blocks_x, num_blocks_y);
+		new_best_packed_block_indices.set_all(-1);
+
+		std::atomic<uint64_t> total_err;
+		total_err.store(0);
+
+		if (pJob_block_list->size())
+		{
+			std::atomic<uint32_t> cur_block_list_index;
+			cur_block_list_index.store(0);
+
+			std::atomic<bool> encoder_failed_flag;
+			encoder_failed_flag.store(false);
+												
+			for (uint32_t job_index = 0; job_index < num_threads; job_index++)
+			{
+				job_pool.add_job([job_index, num_threads,
+					num_blocks_x, num_blocks_y, block_width, block_height, total_blocks,
+					pJob_block_list,
+					pass, &block_best_err, &new_best_packed_block_indices, &total_err,
+					&cur_block_list_index, &encoder_failed_flag,
+					&candidate_img,
+					&orig_img,
+					&global_cfg, &enc_cfg, &enc_out]
+					{
+						BASISU_NOTE_UNUSED(job_index); BASISU_NOTE_UNUSED(num_threads); BASISU_NOTE_UNUSED(total_blocks);
+						deblocking_thread_state thread_state;
+						thread_state.m_deblock_orig.resize(block_width * 3, block_height * 3);
+						thread_state.m_deblock_staging.resize(block_width * 3, block_height * 3);
+						thread_state.m_deblock_temp.resize(block_width + 2, block_height + 2);
+
+						for (; ; )
+						{
+							if (encoder_failed_flag)
+								return;
+
+							const uint32_t block_list_index = cur_block_list_index.fetch_add(1);
+							if (block_list_index >= pJob_block_list->size_u32())
+								break;
+
+							const uint32_t block_index = (*pJob_block_list)[block_list_index];
+							const uint32_t bx = block_index % num_blocks_x;
+							const uint32_t by = block_index / num_blocks_x;
+														
+							uint32_t new_best_packed_block_index = 0;
+							uint64_t best_err = 0;
+
+							if (!deblocking_find_best_candidate(
+								block_width, block_height, num_blocks_x, num_blocks_y,
+								pass, bx, by,
+								thread_state,
+								candidate_img,
+								orig_img,
+								global_cfg,
+								enc_cfg,
+								enc_out,
+								new_best_packed_block_index, best_err))
+							{
+								encoder_failed_flag.store(true);
+								return;
+							}
+
+							total_err.fetch_add(best_err, std::memory_order_relaxed);
+																												
+							new_best_packed_block_indices(bx, by) = new_best_packed_block_index;
+
+							block_best_err(bx, by) = best_err;
+
+						} // for
+
+					});
+
+			} // job_index
+
+			job_pool.wait_for_all();
+
+			if (encoder_failed_flag)
+			{
+				fmt_error_printf("refine_output_for_deblocking: Threaded deblocking pass failed!\n");
+				return false;
+			}
+		}
+				
+		uint32_t total_blocks_changed = 0;
+
+		// now commit changed blocks to candidate_img
+		for (uint32_t by = 0; by < num_blocks_y; by++)
+		{
+			for (uint32_t bx = 0; bx < num_blocks_x; bx++)
+			{
+				const int new_best_packed_block_index = new_best_packed_block_indices(bx, by);
+
+				if (new_best_packed_block_index < 0)
+					continue;
+
+				ldr_astc_block_encode_image_output::block_info& blk_info = enc_out.m_image_block_info(bx, by);
+
+				if ((int)blk_info.m_packed_out_block_index == new_best_packed_block_index)
+					continue;
+
+				const basisu::vector<encode_block_output>& out_blocks = blk_info.m_out_blocks;
+								
+				total_blocks_changed++;
+
+				blk_info.m_packed_out_block_index = new_best_packed_block_index;
+
+				const encode_block_output& out_blk = out_blocks[new_best_packed_block_index];
+
+				color_rgba block_pixels[astc_helpers::MAX_BLOCK_PIXELS];
+
+				if (!astc_helpers::decode_block_xuastc_ldr(out_blk.m_log_blk, block_pixels, block_width, block_height, dec_mode))
+				{
+					assert(0);
+					return false;
+				}
+
+				candidate_img.set_block_clipped(block_pixels, bx * block_width, by * block_height, block_width, block_height);
+
+			} // bx
+		} // by
+
+#if 0
+		if ((pass == 0) && (global_cfg.m_debug_block_x != -1))
+		{
+			save_png(global_cfg.m_debug_file_prefix + "debug_block_image.png", debug_block_image);
+		}
+#endif
+
+		if (global_cfg.m_debug_output)
+		{
+			fmt_debug_printf("Pass total error: {}\n", total_err);
+			fmt_debug_printf("Total blocks changed: {} {3.2}% (rel to all blocks)\n", total_blocks_changed, (float)total_blocks_changed * 100.0f / total_blocks);
+		}
+
+		if ((pass & 1) && (global_cfg.m_debug_output))
+		{
+			uint64_t img_total_err = 0;
+			for (uint32_t by = 0; by < num_blocks_y; by++)
+			{
+				for (uint32_t bx = 0; bx < num_blocks_x; bx++)
+				{
+					uint64_t block_err = block_best_err(bx, by);
+					assert(block_err != UINT64_MAX);
+					img_total_err += block_err;
+				} // bx
+			} // by
+
+			fmt_printf("Total image error: {}\n", img_total_err);
+		}
+
+		image final_candidate_img_deblocked;
+		if ((global_cfg.m_debug_images) || 
+			((global_cfg.m_debug_output) && (global_cfg.m_debug_output_image_metrics)))
+		{
+			deblock_image(block_width, block_height, candidate_img, final_candidate_img_deblocked);
+
+			if ((final_pass_flag) && (global_cfg.m_debug_images))
+			{
+				save_png(global_cfg.m_debug_file_prefix + "deblock_final_candidate_img.png", candidate_img);
+				save_png(global_cfg.m_debug_file_prefix + "deblock_final_candidate_img_deblocked.png", final_candidate_img_deblocked);
+			}
+		}
+
+		if ((global_cfg.m_debug_output) && (global_cfg.m_debug_output_image_metrics))
+		{
+			fmt_debug_printf("\norig vs. final candidate image:\n");
+			print_image_metrics(orig_img, candidate_img);
+
+			if (final_candidate_img_deblocked.get_total_pixels())
+			{
+				fmt_debug_printf("\norig vs. final candidate image deblocked:\n");
+				print_image_metrics(orig_img, final_candidate_img_deblocked);
+			}
+		}
+
+		if ((mutation_enabled) && (((int)pass >= 4) && (pass < (num_passes - 2))))
+		{
+			if (!mutate_candidates(
+				pass,
+				block_width, block_height, num_blocks_x, num_blocks_y, total_blocks,
+				max_new_blocks, pJob_block_list, block_std_dev,
+				NUM_SIMILAR_PATS, similar_pats, similar_pat_perm_index,
+				orig_img,
+				candidate_img,
+				num_threads,
+				job_pool,
+				global_cfg,
+				enc_cfg,
+				enc_out))
+			{
+				return false;
+			}
+		}
+
+	} // pass
+
+	if (global_cfg.m_debug_output)
+	{
+		uint32_t total_changed_blocks = 0, total_mutated_blocks = 0, total_part_id_blocks = 0, total_endpoint_lerp_blocks = 0, total_mutated_dct_ac_blocks = 0, total_mutated_dct_dc_blocks = 0, total_nonprimary_candidate_blocks = 0;
+
+		for (uint32_t by = 0; by < num_blocks_y; by++)
+		{
+			for (uint32_t bx = 0; bx < num_blocks_x; bx++)
+			{
+				ldr_astc_block_encode_image_output::block_info& blk_info = enc_out.m_image_block_info(bx, by);
+
+				if (orig_best_block_indices(bx, by) != blk_info.m_packed_out_block_index)
+					total_changed_blocks++;
+
+				const encode_block_output& best_blk = blk_info.m_out_blocks[blk_info.m_packed_out_block_index];
+				if (best_blk.m_blur_id >= BLUR_ID_EXP)
+					total_mutated_blocks++;
+
+				if (best_blk.m_log_blk.m_user_mode & 1)
+					total_part_id_blocks++;
+				
+				if (best_blk.m_log_blk.m_user_mode & 2)
+					total_endpoint_lerp_blocks++;
+
+				if (best_blk.m_log_blk.m_user_mode & 4)
+					total_mutated_dct_ac_blocks++;
+
+				if (best_blk.m_log_blk.m_user_mode & 8)
+					total_nonprimary_candidate_blocks++;
+
+				if (best_blk.m_log_blk.m_user_mode & 16)
+					total_mutated_dct_dc_blocks++;
+			}
+		}
+
+		fmt_printf("------ SCD complete:\n");
+		fmt_printf("Total candidate ID changed blocks: {} {3.2}%\n", total_changed_blocks, (total_changed_blocks * 100.0f) / (float)total_blocks);
+		fmt_printf("Total mutated blocks: {} {3.2}%\n", total_mutated_blocks, (total_mutated_blocks * 100.0f) / (float)total_blocks);
+		fmt_printf("Total mutated part id blocks: {} {3.2}%\n", total_part_id_blocks, (total_part_id_blocks * 100.0f) / (float)total_blocks);
+		fmt_printf("Total mutated endpoint lerp blocks: {} {3.2}%\n", total_endpoint_lerp_blocks, (total_endpoint_lerp_blocks * 100.0f) / (float)total_blocks);
+		fmt_printf("Total mutated DCT AC blocks: {} {3.2}%\n", total_mutated_dct_ac_blocks, (total_mutated_dct_ac_blocks * 100.0f) / (float)total_blocks);
+		fmt_printf("Total mutated DCT DC blocks: {} {3.2}%\n", total_mutated_dct_dc_blocks, (total_mutated_dct_dc_blocks * 100.0f) / (float)total_blocks);
+		fmt_printf("Total non-primary candidate blocks: {} {3.2}%\n", total_nonprimary_candidate_blocks, (total_nonprimary_candidate_blocks * 100.0f) / (float)total_blocks);
+
+		const uint64_t final_deblocked_err = deblocking_compute_overall_error(
+			block_width, block_height, num_blocks_x, num_blocks_y,
+			orig_img,
+			global_cfg,
+			enc_cfg,
+			enc_out);
+
+		fmt_printf("Cross check: Initial error: {} {3.3} per block, final error: {} {3.3} per block, Avg. change per block: {3.3}\n",
+			initial_deblocked_err, (double)initial_deblocked_err / (double)total_blocks,
+			final_deblocked_err, (double)final_deblocked_err / (double)total_blocks,
+			((double)final_deblocked_err - (double)initial_deblocked_err) / (double)total_blocks);
+
+		fmt_debug_printf("------------------- refine_output_for_deblocking: OK\n");
+	}
+		
+	return true;
+}
+
+static bool sharpen_image(const image& in, image& out, const astc_ldr_encode_config& global_cfg)
+{
+	const float amount = global_cfg.m_sharpen_amount;
+
+	if ((in.get_width() <= 4) && (in.get_height() <= 4))
+	{
+		out = in;
+		return true;
+	}
+
+	if (global_cfg.m_debug_output)
+		fmt_debug_printf("sharpen_image: DoG amount {} (note this modifies the original image and impacts downstream PSNR's)\n", amount);
+
+	image blur1, blur2;
+	blur1.match_dimensions(in);
+	blur2.match_dimensions(in);
+
+	if (!image_resample(in, blur1, false, "gaussian", 1.05f))
+		return false;
+	if (!image_resample(in, blur2, false, "gaussian", 1.3f))
+		return false;
+		
+	out.match_dimensions(in);
+
+	for (uint32_t y = 0; y < in.get_height(); y++)
+	{
+		for (uint32_t x = 0; x < in.get_width(); x++)
+		{
+			const color_rgba& i = in(x, y);
+			const color_rgba& b1 = blur1(x, y);
+			const color_rgba& b2 = blur2(x, y);
+
+			color_rgba o(0, 0, 0, i.a);
+
+			for (int c = 0; c < 3; c++)
+			{
+				int k = (int)std::round((float)i[c] + amount * ((float)b1[c] - (float)b2[c]));
+				o[c] = (uint8_t)clamp<int>(k, 0, 255);
+			}
+
+			out(x, y) = o;
+		} // x 
+	} // y
+
+	return true;
+}
+
+// merges output candidates (with no de-dup) from enc_out2 to enc_out, returns # of better blocks found in enc_out2 vs. enc_out
+static uint32_t merge_output_candidates(ldr_astc_block_encode_image_output& enc_out, const ldr_astc_block_encode_image_output& enc_out2)
+{
+	uint32_t total_better_blocks = 0;
+
+	// Merge the two outputs now
+	for (uint32_t by = 0; by < enc_out2.m_image_block_info.get_height(); by++)
+	{
+		for (uint32_t bx = 0; bx < enc_out2.m_image_block_info.get_width(); bx++)
+		{
+			ldr_astc_block_encode_image_output::block_info& blk_info1 = enc_out.m_image_block_info(bx, by);
+			const ldr_astc_block_encode_image_output::block_info& blk_info2 = enc_out2.m_image_block_info(bx, by);
+
+			const uint32_t orig_out_block_size = blk_info1.m_out_blocks.size_u32();
+
+			blk_info1.m_out_blocks.append(blk_info2.m_out_blocks);
+
+#if 0
+			for (uint32_t i = 0; i < blk_info2.m_out_blocks.size(); i++)
+			{
+				blk_info1.m_out_blocks[orig_out_block_size + i].m_blur_id = 768;
+			}
+#endif
+
+			const uint64_t best_err1 = blk_info1.m_out_blocks[blk_info1.m_packed_out_block_index].m_sse;
+			const uint64_t best_err2 = blk_info2.m_out_blocks[blk_info2.m_packed_out_block_index].m_sse;
+
+			if (best_err2 < best_err1)
+			{
+				total_better_blocks++;
+
+				blk_info1.m_packed_out_block_index = orig_out_block_size + blk_info2.m_packed_out_block_index;
+
+				enc_out.m_packed_phys_blocks(bx, by) = enc_out2.m_packed_phys_blocks(bx, by);
+			}
+
+		} // bx
+	} // by
+
+	return total_better_blocks;
+}
+
+static bool cross_check_dct(
+	uint32_t block_width, uint32_t block_height, uint32_t num_blocks_x, uint32_t num_blocks_y,
+	const ldr_astc_block_encode_image_output &enc_out,
+	const astc_ldr_encode_config& global_cfg,
+	const ldr_astc_block_encode_image_high_level_config& enc_cfg)
+{
+	if (global_cfg.m_debug_output)
+		fmt_debug_printf("cross_check_dct:\n");
+
+	basist::astc_ldr_t::grid_weight_dct grid_coder;
+	grid_coder.init(block_width, block_height);
+
+	basist::astc_ldr_t::fvec dct_temp;
+
+	for (uint32_t by = 0; by < num_blocks_y; by++)
+	{
+		for (uint32_t bx = 0; bx < num_blocks_x; bx++)
+		{
+			const ldr_astc_block_encode_image_output::block_info& blk_info = enc_out.m_image_block_info(bx, by);
+
+			const uint32_t best_packed_out_block_index = blk_info.m_packed_out_block_index;
+
+			if (best_packed_out_block_index >= blk_info.m_out_blocks.size())
+			{
+				fmt_error_printf("astc_ldr::cross_check_dct(): best_packed_out_block_index is invalid\n");
+				return false;
+			}
+
+			const auto& out_blk = blk_info.m_out_blocks[best_packed_out_block_index];
+
+			const auto& log_blk = out_blk.m_log_blk;
+			if (log_blk.m_solid_color_flag_ldr)
+				continue;
+
+			astc_helpers::log_astc_block temp_log_blk(log_blk);
+
+			for (uint32_t plane_index = 0; plane_index < (log_blk.m_dual_plane ? 2u : 1u); plane_index++)
+			{
+				const basist::astc_ldr_t::dct_syms& syms = out_blk.m_packed_dct_plane_data[plane_index];
+
+				bool status = grid_coder.decode_block_weights(enc_cfg.m_base_q, plane_index, temp_log_blk, nullptr, nullptr, dct_temp, &syms);
+				assert(status);
+
+				if (!status)
+				{
+					fmt_error_printf("astc_ldr::cross_check_dct(): failed decoding weight grids\n");
+					return false;
+				}
+
+				int max_coeff = 0;
+
+				for (uint32_t i = 0; i < syms.m_coeffs.size(); i++)
+				{
+					if (syms.m_coeffs[i].m_coeff != INT16_MAX)
+						max_coeff = basisu::maximum<int>(max_coeff, iabs(syms.m_coeffs[i].m_coeff));
+				}
+
+				// TODO: the DCT mutator can only boost the max not reduce it, so it's not entirely accurate now but safe enough for supercompression purposes
+				if (max_coeff > (int)syms.m_max_coeff_mag)
+				{
+					fmt_error_printf("astc_ldr::cross_check_dct(): m_max_coeff_mag is invalid\n");
+					return false;
+				}
+			}
+			
+			// Ensure the decoded weight grid matches the stored weight grids, or there's a serious problem.
+			const uint32_t total_grid_weights = astc_helpers::get_total_weights(temp_log_blk);
+			if (memcmp(log_blk.m_weights, temp_log_blk.m_weights, total_grid_weights) != 0)
+			{
+				fmt_error_printf("astc_ldr::cross_check_dct(): decoded weight grid mismatch\n");
+				return false;
+			}
+
+		} // bx
+
+	} // by
+
+	if (global_cfg.m_debug_output)
+		fmt_debug_printf("Weight grid DCT decode cross-check OK\n");
+
+	return true;
+}
+
+bool compress_image(
+	const image& actual_orig_img, uint8_vec& comp_data, vector2D<astc_helpers::log_astc_block>& coded_blocks,
+	const astc_ldr_encode_config& orig_global_cfg,
 	job_pool& job_pool)
 {
 	assert(g_initialized);
+
+	astc_ldr_encode_config global_cfg(orig_global_cfg);
+
+	//global_cfg.m_debug_block_x = 17;
+	//global_cfg.m_debug_block_y = 26;
+		
+#if !BASISU_SUPPORT_ASTCENC
+	if (global_cfg.m_use_astcenc)
+	{
+		fmt_error_printf("Can't use astcenc as it hasn't been enabled at compilation time (BASISU_SUPPORT_ASTCENC is 0)\n");
+		global_cfg.m_use_astcenc = false;
+	}
+#endif
+		
+	if (global_cfg.m_scd_enabled)
+	{
+		fmt_debug_printf("Disabling lossy supercompression: SCD is incompatible with it\n");
+		global_cfg.m_lossy_supercompression = false;
+	}
 
 	if (global_cfg.m_debug_output)
 	{
@@ -9362,6 +14903,19 @@ bool compress_image(
 
 	if (!g_initialized)
 		return false;
+
+	image sharpened_img;
+	const image *pOrig_img = &actual_orig_img;
+
+	if ((global_cfg.m_sharpen_flag) && (global_cfg.m_sharpen_amount > 0.0f))
+	{
+		if (!sharpen_image(actual_orig_img, sharpened_img, global_cfg))
+			return false;
+
+		pOrig_img = &sharpened_img;
+	}
+
+	const image& orig_img = *pOrig_img;
 
 	const uint32_t width = orig_img.get_width(), height = orig_img.get_height();
 
@@ -9382,7 +14936,10 @@ bool compress_image(
 	const bool has_alpha = orig_img.has_alpha();
 
 	if (global_cfg.m_debug_output)
+	{
+		fmt_debug_printf("Alternative compressors active: astcenc: {}, astcf: {}\n", global_cfg.m_use_astcenc, global_cfg.m_use_astcf);
 		fmt_debug_printf("Encoding image dimensions {}x{}, has alpha: {}\n", orig_img.get_width(), orig_img.get_height(), has_alpha);
+	}
 
 	ldr_astc_block_encode_image_high_level_config enc_cfg;
 
@@ -9405,15 +14962,20 @@ bool compress_image(
 	const float psnr_trial_diff_thresh = has_alpha ? global_cfg.m_psnr_trial_diff_thresh_alpha : global_cfg.m_psnr_trial_diff_thresh;
 	const float psnr_trial_diff_thresh_edge = has_alpha ? global_cfg.m_psnr_trial_diff_thresh_edge_alpha : global_cfg.m_psnr_trial_diff_thresh_edge;
 
-	enc_cfg.m_blurring_enabled = global_cfg.m_block_blurring_p1;
+	enc_cfg.m_blurring_enabled_p1 = global_cfg.m_block_blurring_p1;
 	enc_cfg.m_blurring_enabled_p2 = global_cfg.m_block_blurring_p2;
+
+	enc_cfg.m_try_simplified_latent_configs = global_cfg.m_try_simplified_latent_configs;
 
 	for (uint32_t i = 0; i < 4; i++)
 	{
 		enc_cfg.m_cem_enc_params.m_comp_weights[i] = global_cfg.m_comp_weights[i];
 
 		if (!is_in_range(global_cfg.m_comp_weights[i], 1, 256))
+		{
+			fmt_error_printf("astc_ldr::compress_image: m_comp_weights[] are out of range\n");
 			return false;
+		}
 	}
 
 	int cfg_effort_level = global_cfg.m_effort_level;
@@ -9421,7 +14983,7 @@ bool compress_image(
 		fmt_debug_printf("Using cfg effort level: {}\n", cfg_effort_level);
 
 	configure_encoder_effort_level(cfg_effort_level, enc_cfg);
-	
+
 	if (global_cfg.m_force_disable_subsets)
 	{
 		enc_cfg.m_subsets_enabled = false;
@@ -9437,19 +14999,166 @@ bool compress_image(
 	enc_cfg.m_cem_enc_params.m_decode_mode_srgb = global_cfg.m_astc_decode_mode_srgb;
 
 	enc_cfg.m_debug_output = global_cfg.m_debug_output;
+	enc_cfg.m_debug_output_image_metrics = global_cfg.m_debug_output_image_metrics;
 	enc_cfg.m_debug_images = global_cfg.m_debug_images;
 	enc_cfg.m_debug_file_prefix = global_cfg.m_debug_file_prefix;
 
-	ldr_astc_block_encode_image_output enc_out;
-		
-	const bool enc_status = ldr_astc_block_encode_image(orig_img, enc_cfg, enc_out);
-		
-	if (global_cfg.m_debug_output)
-		fmt_debug_printf("ldr_astc_block_encode_image: {}\n", enc_status);
+	//ldr_astc_block_encode_image_output enc_out;
 
-	if (!enc_status)
-		return false;
-		
+	std::unique_ptr<ldr_astc_block_encode_image_output> pEnc_out = std::make_unique<ldr_astc_block_encode_image_output>();
+	ldr_astc_block_encode_image_output& enc_out = *pEnc_out;
+
+	bool enc_status = false;
+
+	bool encoded_flag = false; // has the input been encoded yet
+
+	// Candidates are expensive memory wise, so try to place sane limits on them (especially important for WASM).
+	// This is a per-encoder limit (not total after merging).
+	uint32_t max_candidate_limit = 16;
+
+	if (global_cfg.m_scd_enabled)
+	{
+		if (total_blocks >= (512 * 512))
+		{
+			if (global_cfg.m_merge_basisu_into_output)
+				max_candidate_limit = 8;
+			else
+				max_candidate_limit = 16;
+		}
+		else if (total_blocks >= (256 * 256))
+		{
+			if (global_cfg.m_merge_basisu_into_output)
+				max_candidate_limit = 16;
+			else
+				max_candidate_limit = 32;
+		}
+		else
+		{
+			if (global_cfg.m_merge_basisu_into_output)
+				max_candidate_limit = 32;
+			else
+				max_candidate_limit = 64;
+		}
+	}
+				
+#if BASISU_SUPPORT_ASTCENC
+	if (global_cfg.m_use_astcenc)
+	{
+		// TODO: If this somehow fails, we could fall back to our encoder.
+		enc_status = ldr_astc_block_encode_image_astcenc(orig_img, enc_cfg, global_cfg, enc_out, max_candidate_limit);
+		if (!enc_status)
+		{
+			fmt_error_printf("ldr_astc_block_encode_image_astcenc() failed!\n");
+			return false;
+		}
+
+		if (global_cfg.m_use_astcf)
+		{
+			std::unique_ptr<ldr_astc_block_encode_image_output> pEnc_out_astcf = std::make_unique<ldr_astc_block_encode_image_output>();
+			
+			enc_status = ldr_astc_block_encode_image_astcf(orig_img, enc_cfg, global_cfg, *pEnc_out_astcf, max_candidate_limit);
+			if (!enc_status)
+			{
+				fmt_error_printf("ldr_astc_block_encode_image_astcf() failed!\n");
+				return false;
+			}
+
+			if (global_cfg.m_debug_output)
+				fmt_debug_printf("Merging outputs from astcenc and astcf encoders\n");
+
+			const uint32_t total_better_blocks_astcf = merge_output_candidates(enc_out, *pEnc_out_astcf);
+
+			if (global_cfg.m_debug_output)
+				fmt_debug_printf("Total astcf blocks better than astcenc's: {} {3.2}%, out of {} total blocks\n", total_better_blocks_astcf, ((float)total_better_blocks_astcf * 100.0f) / (float)total_blocks, total_blocks);
+		}
+
+		encoded_flag = true;
+	}
+#endif
+
+	if ((!encoded_flag) && (global_cfg.m_use_astcf))
+	{
+		enc_status = ldr_astc_block_encode_image_astcf(orig_img, enc_cfg, global_cfg, enc_out, max_candidate_limit);
+		if (!enc_status)
+		{
+			fmt_error_printf("ldr_astc_block_encode_image_astcf() failed!\n");
+			return false;
+		}
+				
+		encoded_flag = true;
+	}
+
+	// combine the outputs now
+	if ((encoded_flag) && (global_cfg.m_merge_basisu_into_output))
+	{
+		std::unique_ptr<ldr_astc_block_encode_image_output> pEnc_out_basisu = std::make_unique<ldr_astc_block_encode_image_output>();
+
+		if ((global_cfg.m_effort_level == 0) && (global_cfg.m_astc_block_width == 4) && (global_cfg.m_astc_block_height == 4))
+			enc_status = ldr_astc_block_encode_image_fast_4x4(orig_img, enc_cfg, global_cfg, *pEnc_out_basisu, max_candidate_limit);
+		else
+			enc_status = ldr_astc_block_encode_image(orig_img, enc_cfg, *pEnc_out_basisu, max_candidate_limit);
+
+		if (global_cfg.m_debug_output)
+			fmt_debug_printf("ldr_astc_block_encode_image: {}\n", enc_status);
+
+		if (!enc_status)
+		{
+			fmt_error_printf("ldr_astc_block_encode_image_fast_4x4() or ldr_astc_block_encode_image() failed!\n");
+			return false;
+		}
+
+		if (global_cfg.m_debug_output)
+			fmt_debug_printf("Merging basisu output\n");
+
+		const uint32_t total_better_blocks_basisu = merge_output_candidates(enc_out, *pEnc_out_basisu);
+
+		if (global_cfg.m_debug_output)
+			fmt_debug_printf("Total better basisu blocks: {} {3.2}%, out of {} total blocks\n", total_better_blocks_basisu, ((float)total_better_blocks_basisu * 100.0f) / (float)total_blocks, total_blocks);
+	}
+	else if (!encoded_flag)
+	{
+		if ((global_cfg.m_effort_level == 0) && (global_cfg.m_astc_block_width == 4) && (global_cfg.m_astc_block_height == 4))
+		{
+			enc_status = ldr_astc_block_encode_image_fast_4x4(orig_img, enc_cfg, global_cfg, enc_out, max_candidate_limit);
+		}
+		else
+		{
+			enc_status = ldr_astc_block_encode_image(orig_img, enc_cfg, enc_out, max_candidate_limit);
+		}
+
+		if (global_cfg.m_debug_output)
+			fmt_debug_printf("ldr_astc_block_encode_image: {}\n", enc_status);
+
+		if (!enc_status)
+		{
+			fmt_error_printf("ldr_astc_block_encode_image_fast_4x4() or ldr_astc_block_encode_image() failed!\n");
+			return false;
+		}
+
+		encoded_flag = true;
+	}
+
+	assert(encoded_flag);
+
+	if (global_cfg.m_debug_output)
+		display_candidate_statistics(enc_out);
+
+	if (global_cfg.m_scd_enabled)
+	{
+		if (!refine_output_for_deblocking(orig_img, global_cfg, enc_cfg, enc_out))
+			return false;
+	}
+
+	// sanity check decoded weight grids
+	if (global_cfg.m_use_dct)
+	{
+		if (!cross_check_dct(block_width, block_height, num_blocks_x, num_blocks_y, enc_out, global_cfg, enc_cfg))
+			return false;
+	}
+
+	if (global_cfg.m_debug_output)
+		display_candidate_statistics(enc_out);
+
 	basist::astc_ldr_t::xuastc_ldr_syntax syntax = global_cfg.m_compressed_syntax;
 	
 	if (syntax >= basist::astc_ldr_t::xuastc_ldr_syntax::cTotal)
@@ -9598,6 +15307,16 @@ bool compress_image(
 		for (uint32_t x = 0; x < num_blocks_x; x++)
 			coded_blocks(x, y).clear();
 
+	vector2D<astc_helpers::log_astc_block> input_blocks;
+	if (global_cfg.m_debug_images)
+	{
+		input_blocks.resize(num_blocks_x, num_blocks_y);
+
+		for (uint32_t y = 0; y < num_blocks_y; y++)
+			for (uint32_t x = 0; x < num_blocks_x; x++)
+				input_blocks(x, y).clear();
+	}
+
 	const bool endpoint_dpcm_global_enable = true;
 	uint32_t total_used_endpoint_dpcm = 0, total_used_endpoint_raw = 0;
 
@@ -9673,6 +15392,11 @@ bool compress_image(
 
 			uint32_t best_packed_out_block_index = blk_info.m_packed_out_block_index;
 
+			if (global_cfg.m_debug_images)
+			{
+				input_blocks(bx, by) = blk_info.m_out_blocks[best_packed_out_block_index].m_log_blk;
+			}
+
 			// check for run 
 			if ((use_run_commands) && (bx || by))
 			{
@@ -9727,6 +15451,7 @@ bool compress_image(
 			if ((global_cfg.m_lossy_supercompression) && (ref_wpsnr >= replacement_min_psnr) &&
 				(!blk_info.m_out_blocks[blk_info.m_packed_out_block_index].m_log_blk.m_solid_color_flag_ldr))
 			{
+				// TODO: recompute m_strong_edges? Not all encoders set it.
 				const float psnr_thresh = blk_info.m_strong_edges ? psnr_trial_diff_thresh_edge : psnr_trial_diff_thresh;
 
 				float best_alt_wpsnr = 0.0f;
@@ -10297,14 +16022,14 @@ bool compress_image(
 						for (part_iter = 0; part_iter < tm.m_num_parts; part_iter++)
 						{
 							const bool always_repack_flag = false;
-							bool blue_contraction_clamped_flag = false, base_ofs_clamped_flag = false;
+							bool blue_contraction_clamped_flag = false, try_direct_encoding_flag = false;
 
 							bool conv_status = basist::astc_ldr_t::convert_endpoints_across_cems(
 								pTrial_log_blk->m_color_endpoint_modes[0], pTrial_log_blk->m_endpoint_ise_range, pTrial_log_blk->m_endpoints,
 								cur_actual_cem, cur_log_blk.m_endpoint_ise_range, trial_predicted_endpoints[part_iter],
 								always_repack_flag,
 								endpoints_use_bc[part_iter], false,
-								blue_contraction_clamped_flag, base_ofs_clamped_flag);
+								blue_contraction_clamped_flag, try_direct_encoding_flag);
 
 							if (!conv_status)
 								break;
@@ -10381,14 +16106,14 @@ bool compress_image(
 					for (uint32_t part_iter = 0; part_iter < tm.m_num_parts; part_iter++)
 					{
 						const bool always_repack_flag = false;
-						bool blue_contraction_clamped_flag = false, base_ofs_clamped_flag = false;
+						bool blue_contraction_clamped_flag = false, try_direct_encoding_flag = false;
 
 						bool conv_status = basist::astc_ldr_t::convert_endpoints_across_cems(
 							pEndpoint_pred_log_blk->m_color_endpoint_modes[0], pEndpoint_pred_log_blk->m_endpoint_ise_range, pEndpoint_pred_log_blk->m_endpoints,
 							cur_actual_cem, cur_log_blk.m_endpoint_ise_range, predicted_endpoints[part_iter],
 							always_repack_flag,
 							endpoints_use_bc[part_iter], false,
-							blue_contraction_clamped_flag, base_ofs_clamped_flag);
+							blue_contraction_clamped_flag, try_direct_encoding_flag);
 
 						if (!conv_status)
 						{
@@ -10495,6 +16220,13 @@ bool compress_image(
 					for (uint32_t plane_iter = 0; plane_iter < total_planes; plane_iter++)
 					{
 						const basist::astc_ldr_t::dct_syms& syms = blk_out.m_packed_dct_plane_data[plane_iter];
+						
+						if (!syms.m_coeffs.size())
+						{
+							fmt_error_printf("compress_image: internal error - no DCT coeffs\n");
+							return false;
+						}
+
 						if (syms.m_max_coeff_mag > basist::astc_ldr_t::DCT_MAX_ARITH_COEFF_MAG)
 						{
 							use_dct = false;
@@ -10769,7 +16501,7 @@ bool compress_image(
 
 	if (global_cfg.m_debug_output)
 	{
-		fmt_debug_printf("Encoding time: {} secs\n", itm.get_elapsed_secs());
+		fmt_debug_printf("Supercompression (backend) encoding time: {} secs\n", itm.get_elapsed_secs());
 	}
 
 	if (global_cfg.m_debug_images)
@@ -10779,6 +16511,7 @@ bool compress_image(
 
 	if ((global_cfg.m_debug_images) || (global_cfg.m_debug_output))
 	{
+		image input_img(width, height);
 		image coded_img(width, height);
 
 		vector2D<astc_helpers::astc_block> phys_blocks(num_blocks_x, num_blocks_y);
@@ -10794,7 +16527,7 @@ bool compress_image(
 				bool status = astc_helpers::decode_block(log_blk, block_pixels, block_width, block_height, enc_cfg.m_cem_enc_params.m_decode_mode_srgb ? astc_helpers::cDecodeModeSRGB8 : astc_helpers::cDecodeModeLDR8);
 				if (!status)
 				{
-					fmt_error_printf("astc_helpers::decode_block() failed\n");
+					fmt_error_printf("astc_helpers::decode_block() failed (3)\n");
 					return false;
 				}
 
@@ -10815,17 +16548,44 @@ bool compress_image(
 
 				coded_img.set_block_clipped(block_pixels, bx * block_width, by * block_height, block_width, block_height);
 
+				if (global_cfg.m_debug_images)
+				{
+					// input image
+
+					status = astc_helpers::decode_block(input_blocks(bx, by), block_pixels, block_width, block_height, enc_cfg.m_cem_enc_params.m_decode_mode_srgb ? astc_helpers::cDecodeModeSRGB8 : astc_helpers::cDecodeModeLDR8);
+					if (!status)
+					{
+						fmt_error_printf("astc_helpers::decode_block() failed (4)\n");
+						return false;
+					}
+
+					input_img.set_block_clipped(block_pixels, bx * block_width, by * block_height, block_width, block_height);
+				}
+
 			} // bx
 
-		} //by 
+		} // by
 
 		if (global_cfg.m_debug_images)
-			save_png(global_cfg.m_debug_file_prefix + "coded_img.png", coded_img);
-
-		if (global_cfg.m_debug_output)
 		{
-			debug_printf("Orig image vs. coded img:\n");
+			save_png(global_cfg.m_debug_file_prefix + "input_img.png", input_img);
+			debug_printf("Wrote input_img.png\n");
+
+			save_png(global_cfg.m_debug_file_prefix + "coded_img.png", coded_img);
+			debug_printf("Wrote coded_img.png\n");
+		}
+
+		if ((global_cfg.m_debug_output) && (global_cfg.m_debug_output_image_metrics))
+		{
+			if ((global_cfg.m_sharpen_flag) && (global_cfg.m_sharpen_amount > 0.0f))
+				debug_printf("Sharepened orig image vs. coded img:\n");
+			else
+				debug_printf("Orig image vs. coded img:\n");
+
 			print_image_metrics(orig_img, coded_img);
+
+			debug_printf("display_astc_statistics:\n");
+			display_astc_statistics(coded_blocks, block_width, block_height, orig_img.get_width(), orig_img.get_height(), false);
 		}
 	}
 		
@@ -10992,8 +16752,61 @@ void encoder_init()
 		return;
 		
 	g_initialized = true;
+
+	for (uint32_t h_iter = 0; h_iter < basist::astc_ldr_t::astc_block_grid_data_hash_t::LUT_SIZE; ++h_iter)
+	{
+		const uint32_t hash_index = basist::astc_ldr_t::g_astc_block_grid_data_hash.m_hash[h_iter];
+		if (!hash_index)
+			continue;
+		
+		uint32_t block_width, block_height, grid_width, grid_height;
+		basist::astc_ldr_t::astc_block_grid_data_hash_t::astc_cfg_from_index(h_iter, block_width, block_height, grid_width, grid_height);
+
+		basist::astc_ldr_t::astc_block_grid_data& grid_data = basist::astc_ldr_t::g_astc_block_grid_data_hash.m_grid_data[hash_index - 1];
+
+#if defined(DEBUG) || defined(_DEBUG)
+		assert(grid_data.m_bw == block_width);
+		assert(grid_data.m_bh == block_height);
+		assert(grid_data.m_gw == grid_width);
+		assert(grid_data.m_gh == grid_height);
+#endif
+						
+		const uint32_t num_block_samples = block_width * block_height;
+		const uint32_t num_grid_samples = grid_width * grid_height;
+
+		grid_data.m_upsample_weights.resize(num_block_samples);
+		astc_helpers::compute_upsample_weights(block_width, block_height, grid_width, grid_height, grid_data.m_upsample_weights.get_ptr());
+
+		grid_data.m_grid_to_texel_influence_list.resize(num_grid_samples);
+		for (uint32_t grid_sample = 0; grid_sample < num_grid_samples; grid_sample++)
+		{
+			for (uint32_t block_sample = 0; block_sample < num_block_samples; block_sample++)
+			{
+				const float weight = grid_data.m_downsample_matrix[grid_sample * num_block_samples + block_sample];
+				if (weight == 0.0f)
+					continue;
+
+				const uint32_t texel_x = block_sample % block_width;
+				const uint32_t texel_y = block_sample / block_width;
+				
+				// Create a list of texels that influence each grid sample, for fast lookup during encoding.
+				grid_data.m_grid_to_texel_influence_list[grid_sample].push_back(basisu::safe_cast_uint16(texel_x | (texel_y << 8)));
+			}
+			
+		} // grid_sample
+		
+		// used for gradient descent
+		compute_upsample_matrix_transposed(grid_data.m_unweighted_downsample_matrix, block_width, block_height, grid_width, grid_height);
+
+		grid_data.m_one_over_diag_AtA.resize(num_grid_samples);
+		compute_diag_AtA_vector(block_width, block_height, grid_width, grid_height, grid_data.m_upsample_matrix, grid_data.m_one_over_diag_AtA.get_ptr());
+		for (uint32_t i = 0; i < num_grid_samples; i++)
+			grid_data.m_one_over_diag_AtA[i] = 1.0f / grid_data.m_one_over_diag_AtA[i];
+		
+	} // it
 }
 
+#if 0
 void deblock_filter(uint32_t filter_block_width, uint32_t filter_block_height, const image& src_img, image& dst_img, bool stronger_filtering, int SKIP_THRESH)
 {
 	image temp_img(src_img);
@@ -11096,6 +16909,8 @@ void deblock_filter(uint32_t filter_block_width, uint32_t filter_block_height, c
 
 	} // y
 }
+#endif
 
 } // namespace astc_ldr
 }  // namespace basisu
+

@@ -53,9 +53,7 @@ namespace basisu
 	uint64_t interval_timer::g_init_ticks, interval_timer::g_freq;
 	double interval_timer::g_timer_freq;
 
-#if BASISU_SUPPORT_SSE
-	bool g_cpu_supports_sse41;
-#endif
+	bool g_cpu_supports_sse41 = false;
 
 	fast_linear_to_srgb g_fast_linear_to_srgb;
 		
@@ -182,7 +180,7 @@ namespace basisu
 	};
 
 	float g_srgb_to_linear_table[256];
-
+		
 	void init_srgb_to_linear_table()
 	{
 		for (int i = 0; i < 256; ++i)
@@ -465,6 +463,20 @@ namespace basisu
 
 		return true;
 	}
+		
+	bool load_qoi(const uint8_t* pBuf, size_t buf_size, image& img)
+	{
+		qoi_desc desc;
+		clear_obj(desc);
+
+		void* p = qoi_decode(pBuf, (size_t)buf_size, &desc, 4);
+		if (!p)
+			return false;
+
+		img.grant_ownership(static_cast<color_rgba*>(p), desc.width, desc.height);
+
+		return true;
+	}
 
 	bool load_qoi(const char* pFilename, image& img)
 	{
@@ -630,7 +642,7 @@ namespace basisu
 		{
 		case hdr_image_type::cHITRGBAHalfFloat:
 		{
-			if (mem_size != width * height * sizeof(basist::half_float) * 4)
+			if (mem_size != (uint64_t)width * height * sizeof(basist::half_float) * 4)
 			{
 				assert(0);
 				return false;
@@ -665,7 +677,7 @@ namespace basisu
 		}
 		case hdr_image_type::cHITRGBAFloat:
 		{
-			if (mem_size != width * height * sizeof(float) * 4)
+			if (mem_size != (uint64_t)width * height * sizeof(float) * 4)
 			{
 				assert(0);
 				return false;
@@ -698,6 +710,30 @@ namespace basisu
 				return false;
 
 			convert_ldr_to_hdr_image(img, ldr_img, ldr_srgb_to_linear, linear_nit_multiplier, ldr_black_bias);
+			break;
+		}
+		case hdr_image_type::cHITQOIImage:
+		{
+			image ldr_img;
+			if (!load_qoi(static_cast<const uint8_t*>(pMem), mem_size, ldr_img))
+				return false;
+
+			convert_ldr_to_hdr_image(img, ldr_img, ldr_srgb_to_linear, linear_nit_multiplier, ldr_black_bias);
+			break;
+		}
+		case hdr_image_type::cHITRGBA8Image:
+		{
+			if (!width || !height)
+				return false;
+
+			const uint64_t expected_size = (uint64_t)width * height * sizeof(uint32_t);
+			if (mem_size != expected_size)
+				return false;
+
+			image ldr_img(static_cast<const uint8_t*>(pMem), width, height, 4);
+						
+			convert_ldr_to_hdr_image(img, ldr_img, ldr_srgb_to_linear, linear_nit_multiplier, ldr_black_bias);
+						
 			break;
 		}
 		case hdr_image_type::cHITEXRImage:
@@ -2217,6 +2253,303 @@ namespace basisu
 		im.print("Y 601  ");
 	}
 
+	// PSNR-HVS and PSNR-HVS-M references:
+	// https://www.researchgate.net/profile/Vladimir_Lukin2/publication/251229783_A_NEW_FULL-REFERENCE_QUALITY_METRICS_BASED_ON_HVS/links/0046351f669a9c1869000000.pdf
+    // https://www.ponomarenko.info/psnrhvsm.htm
+    // https://github.com/lyckantropen/psnr_hvsm
+	// Note: to Match the Python implementation, convert to 8-bit REC 601 like this and compute only on Y.
+	// static inline uint8_t get_601_y(int r, int g, int b) { return (uint8_t)std::round(16.0f + 65.481f * (float)r / 255.0f + 128.553f * (float)g / 255.0f + 24.966f * (float)b / 255.0f); }
+	// For testing (image must be divisible by 8 pixels on each dimension, can't be grayscale): python3.12 -m psnr_hvsm image_a.png image_b.png
+	// Our 8-bit 601 Y metrics should very closely (within ~.001 dB) match the Python implementation (as of 4/1/2026) on RGB images divisible by 8 pixels on each dimension, otherwise there's something wrong.
+		
+	static const float g_csf[64] = 
+	{
+		1.608443f, 2.339554f, 2.573509f, 1.608443f, 1.072295f, 0.643377f, 0.504610f, 0.421887f,
+		2.144591f, 2.144591f, 1.838221f, 1.354478f, 0.989811f, 0.443708f, 0.428918f, 0.467911f,
+		1.838221f, 1.979622f, 1.608443f, 1.072295f, 0.643377f, 0.451493f, 0.372972f, 0.459555f,
+		1.838221f, 1.513829f, 1.169777f, 0.887417f, 0.504610f, 0.295806f, 0.321689f, 0.415082f,
+		1.429727f, 1.169777f, 0.695543f, 0.459555f, 0.378457f, 0.236102f, 0.249855f, 0.334222f,
+		1.072295f, 0.735288f, 0.467911f, 0.402111f, 0.317717f, 0.247453f, 0.227744f, 0.279729f,
+		0.525206f, 0.402111f, 0.329937f, 0.295806f, 0.249855f, 0.212687f, 0.214459f, 0.254803f,
+		0.357432f, 0.279729f, 0.270896f, 0.262603f, 0.229778f, 0.257351f, 0.249855f, 0.259950f
+	};
+
+	static const float g_mask[64] =
+	{
+		0.390625f, 0.826446f, 1.000000f, 0.390625f, 0.173611f, 0.062500f, 0.038447f, 0.026874f,
+		0.694444f, 0.694444f, 0.510204f, 0.277008f, 0.147929f, 0.029727f, 0.027778f, 0.033058f,
+		0.510204f, 0.591716f, 0.390625f, 0.173611f, 0.062500f, 0.030779f, 0.021004f, 0.031888f,
+		0.510204f, 0.346021f, 0.206612f, 0.118906f, 0.038447f, 0.013212f, 0.015625f, 0.026015f,
+		0.308642f, 0.206612f, 0.073046f, 0.031888f, 0.021626f, 0.008417f, 0.009426f, 0.016866f,
+		0.173611f, 0.081633f, 0.033058f, 0.024414f, 0.015242f, 0.009246f, 0.007831f, 0.011815f,
+		0.041649f, 0.024414f, 0.016437f, 0.013212f, 0.009426f, 0.006830f, 0.006944f, 0.009803f,
+		0.019290f, 0.011815f, 0.011080f, 0.010412f, 0.007972f, 0.010000f, 0.009426f, 0.010203f
+	};
+
+	static float vari_ddof1_times_n(const float* s, uint32_t n)
+	{
+		assert(n);
+
+		if (n <= 1)
+			return 0.0f;
+
+		float mean = 0.0f;
+		for (uint32_t i = 0; i < n; ++i)
+			mean += s[i];
+		mean /= static_cast<float>(n);
+
+		float sum_sq = 0.0f;
+		for (uint32_t i = 0; i < n; ++i)
+		{
+			const float d = s[i] - mean;
+			sum_sq += d * d;
+		}
+
+		// sample variance * N = sum_sq/(N-1) * N (to match the Python implementation)
+		return sum_sq * (static_cast<float>(n) / static_cast<float>(n - 1));
+	}
+
+	static float vari_8x8_ddof1_times_n(const float block[64])
+	{
+		return vari_ddof1_times_n(block, 64);
+	}
+
+	static float vari_4x4_ddof1_times_n(const float block[64], uint32_t x0, uint32_t y0)
+	{
+		float tmp[16];
+		uint32_t k = 0;
+		for (uint32_t y = 0; y < 4; ++y)
+			for (uint32_t x = 0; x < 4; ++x)
+				tmp[k++] = block[(y0 + y) * 8 + (x0 + x)];
+		return vari_ddof1_times_n(tmp, 16);
+	}
+
+	static float compute_mask_strength(const float block[64], const float dct[64])
+	{
+		float mask = 0.0f;
+		for (uint32_t i = 1; i < 64; ++i)
+			mask += (dct[i] * dct[i]) * g_mask[i];
+
+		float pop = vari_8x8_ddof1_times_n(block);
+		if (pop != 0.0f)
+		{
+			const float qsum = vari_4x4_ddof1_times_n(block, 0, 0) + vari_4x4_ddof1_times_n(block, 4, 0) + vari_4x4_ddof1_times_n(block, 0, 4) + vari_4x4_ddof1_times_n(block, 4, 4);
+			pop = qsum / pop;
+		}
+
+		return std::sqrt(mask * pop / 16.0f / 64.0f);
+	}
+		
+	bool psnr_hvs_compute_chan(const image& a, const image& b, int chan, psnr_hvs_chan_metrics&res)
+	{
+		clear_obj(res);
+				
+		// we allow the inputs to differ due to block size padding (which we assume has been done with clamping beyond the valid edges)
+		const uint32_t width = minimum(a.get_width(), b.get_width());
+		const uint32_t height = minimum(a.get_height(), b.get_height());
+		
+		if (!width || !height)
+		{
+			assert(0);
+			return false;
+		}
+
+		const uint32_t num_blocks_x = (width + 7) / 8;
+		const uint32_t num_blocks_y = (height + 7) / 8;
+				
+		basist::astc_ldr_t::dct2f dct2d;
+		
+		bool status = dct2d.init(8, 8);
+		assert(status);
+			
+		if (!status)
+			return false;
+
+		basist::astc_ldr_t::fvec dct_work;
+
+		double sum_hvs = 0.0f, sum_hvsm = 0.0f;
+
+		// Note: Python/Matlab variants only process full blocks, we process ALL blocks with clamping as needed.
+		for (uint32_t by = 0; by < num_blocks_y; by++)
+		{
+			for (uint32_t bx = 0; bx < num_blocks_x; bx++)
+			{
+				color_rgba a_block_rgba[64];
+				a.extract_block_clamped(a_block_rgba, bx * 8, by * 8, 8, 8);
+																
+				color_rgba b_block_rgba[64];
+				b.extract_block_clamped(b_block_rgba, bx * 8, by * 8, 8, 8);
+
+				float a_block[64], b_block[64];
+				if (chan < 0)
+				{
+					if ((psnr_hvs_channel_use)chan == psnr_hvs_channel_use::cUse601Y8Bit)
+					{
+						// convert to BT.601 Y 8-bit to match the Python implementation for testing/verification
+						for (uint32_t i = 0; i < 64; i++)
+						{
+							a_block[i] = (float)get_psnr_hvs_601_y(a_block_rgba[i]) * (1.0f / 255.0f);
+							b_block[i] = (float)get_psnr_hvs_601_y(b_block_rgba[i]) * (1.0f / 255.0f);
+						}
+					}
+					else
+					{
+						assert((psnr_hvs_channel_use)chan == psnr_hvs_channel_use::cUse601YFloat);
+
+						// convert to BT.601 Y float for more precision (but doesn't match the Python implementation, resulting in significantly different output)
+						for (uint32_t i = 0; i < 64; i++)
+						{
+							a_block[i] = get_psnr_hvs_601_yf(a_block_rgba[i]);
+							b_block[i] = get_psnr_hvs_601_yf(b_block_rgba[i]);
+						}
+					}
+				}
+				else
+				{
+					for (uint32_t i = 0; i < 64; i++)
+					{
+						a_block[i] = (float)(a_block_rgba[i])[chan] * (1.0f / 255.0f);
+						b_block[i] = (float)(b_block_rgba[i])[chan] * (1.0f / 255.0f);
+					}
+				}
+
+				float a_dct[64], b_dct[64];
+				dct2d.forward(a_block, a_dct, dct_work);
+				dct2d.forward(b_block, b_dct, dct_work);
+
+				float mask_a = compute_mask_strength(a_block, a_dct);
+				float mask_b = compute_mask_strength(b_block, b_dct);
+				if (mask_b > mask_a)
+					mask_a = mask_b;
+								
+				for (uint32_t i = 0; i < 64; i++)
+				{
+					float u = std::fabs(a_dct[i] - b_dct[i]);
+
+					// PSNR-HVS
+					{
+						const float weighted = u * g_csf[i];
+						sum_hvs += static_cast<double>(weighted * weighted);
+					}
+
+					// PSNR-HVS-M
+					if (i != 0)
+					{
+						const float threshold = mask_a / g_mask[i];
+						if (u < threshold)
+							u = 0.0f;
+						else
+							u = u - threshold;
+					}
+
+					{
+						const float weighted = u * g_csf[i];
+						sum_hvsm += static_cast<double>(weighted * weighted);
+					}
+
+				} // j
+
+			} // bx
+		} // by
+
+		const uint32_t total_blocks = num_blocks_x * num_blocks_y;
+		const uint32_t total_samples = total_blocks * 64;
+
+		res.m_mseh_hvs = sum_hvs / double(total_samples);
+		res.m_mseh_hvsm = sum_hvsm / double(total_samples);
+
+		res.m_psnr_hvs = psnr_hvs_calc_psnr(res.m_mseh_hvs, 1.0f);
+		res.m_psnr_hvsm = psnr_hvs_calc_psnr(res.m_mseh_hvsm, 1.0f);
+				
+		return true;
+	}
+				
+	bool psnr_hvs_compute_metrics(const image& a, const image& b, psnr_hvs_metrics& metrics)
+	{
+		metrics.clear();
+
+		// This should closely match the psnr_hvsm project's output, but see Issue #9: https://github.com/lyckantropen/psnr_hvsm/issues/9
+		bool status = psnr_hvs_compute_chan(a, b, (int)psnr_hvs_channel_use::cUse601Y8Bit, metrics.m_y_601_8bit);
+		if (!status)
+			return false;
+		
+		// Now compute as 601 float - noticeably more precise, but doesn't match psnr_hvsm (python)
+		status = psnr_hvs_compute_chan(a, b, (int)psnr_hvs_channel_use::cUse601YFloat, metrics.m_y_601_float);
+		if (!status)
+			return false;
+								
+		double sum_hvs_rgb = 0, sum_hvsm_rgb = 0;
+		double sum_hvs_rgba = 0, sum_hvsm_rgba = 0;
+		for (uint32_t c = 0; c < 4; c++)
+		{
+			auto& chan_metrics = metrics.m_chan[c];
+
+			bool status2 = psnr_hvs_compute_chan(a, b, c, chan_metrics);
+			if (!status2)
+				return false;
+									
+			if (c < 3)
+			{
+				sum_hvs_rgb += chan_metrics.m_mseh_hvs;
+				sum_hvsm_rgb += chan_metrics.m_mseh_hvsm;
+			}
+			sum_hvs_rgba += chan_metrics.m_mseh_hvs;
+			sum_hvsm_rgba += chan_metrics.m_mseh_hvsm;
+		}
+
+		sum_hvs_rgb /= 3.0f;
+		sum_hvsm_rgb /= 3.0f;
+
+		sum_hvs_rgba /= 4.0f;
+		sum_hvsm_rgba /= 4.0f;
+
+		metrics.m_rgb.m_mseh_hvs = sum_hvs_rgb;
+		metrics.m_rgb.m_mseh_hvsm = sum_hvsm_rgb;
+		metrics.m_rgb.m_psnr_hvs = psnr_hvs_calc_psnr(sum_hvs_rgb, 1.0f);
+		metrics.m_rgb.m_psnr_hvsm = psnr_hvs_calc_psnr(sum_hvsm_rgb, 1.0f);
+
+		metrics.m_rgba.m_mseh_hvs = sum_hvs_rgba;
+		metrics.m_rgba.m_mseh_hvsm = sum_hvsm_rgba;
+		metrics.m_rgba.m_psnr_hvs = psnr_hvs_calc_psnr(sum_hvs_rgba, 1.0f);
+		metrics.m_rgba.m_psnr_hvsm = psnr_hvs_calc_psnr(sum_hvsm_rgba, 1.0f);
+
+		metrics.m_valid = true;
+				
+		return true;
+	}
+
+	void psnr_hvs_print_metrics(const psnr_hvs_metrics& metrics)
+	{
+		if (!metrics.m_valid)
+		{
+			fmt_printf("  PSNR-HVS metrics are not valid.\n");
+			return;
+		}
+
+		fmt_printf("  Float Y 601 PSNR-HVS: {1.3} dB, PSNR-HVS-M: {1.3} dB\n", metrics.m_y_601_float.m_psnr_hvs, metrics.m_y_601_float.m_psnr_hvsm);
+		fmt_printf("  8-Bit Y 601 PSNR-HVS: {1.3} dB, PSNR-HVS-M: {1.3} dB\n", metrics.m_y_601_8bit.m_psnr_hvs, metrics.m_y_601_8bit.m_psnr_hvsm);
+		
+		fmt_printf("    RGB  Avg. PSNR-HVS: {1.3} dB, PSNR-HVS-M: {1.3} dB\n", metrics.m_rgb.m_psnr_hvs, metrics.m_rgb.m_psnr_hvsm);
+		fmt_printf("    RGBA Avg. PSNR-HVS: {1.3} dB, PSNR-HVS-M: {1.3} dB\n", metrics.m_rgba.m_psnr_hvs, metrics.m_rgba.m_psnr_hvsm);
+
+		for (uint32_t c = 0; c < 4; c++)
+		{
+			fmt_printf("            {c} PSNR-HVS: {1.3} dB, PSNR-HVS-M: {1.3} dB\n", "RGBA"[c], metrics.m_chan[c].m_psnr_hvs, metrics.m_chan[c].m_psnr_hvsm);
+		}
+	}
+
+	void print_psnr_hvs_image_metrics(const image& a, const image& b)
+	{
+		psnr_hvs_metrics metrics;
+		if (!psnr_hvs_compute_metrics(a, b, metrics))
+		{
+			fmt_error_printf("print_psnr_hvs_image_metrics: psnr_hvs_compute_metrics() failed!\n");
+			return;
+		}
+
+		psnr_hvs_print_metrics(metrics);
+	}
+
 	void fill_buffer_with_random_bytes(void *pBuf, size_t size, uint32_t seed)
 	{
 		rand r(seed);
@@ -2235,6 +2568,156 @@ namespace basisu
 			*pDst++ = r.byte();
 			size--;
 		}
+	}
+
+	std::vector<float> bounded_samples(
+		size_t num_samples,
+		float half_span,
+		float sigma,
+		uint32_t seed,
+		float min_tail_prob,
+		float tail_amp_cap,
+		bool fix_tail_count,
+		bool recenter)
+	{
+		assert(num_samples > 0);
+		assert(half_span > 0.0f);
+
+		if (sigma < 0.0f)
+			sigma = 0.0f;
+		if (sigma > half_span)
+			sigma = half_span;
+		tail_amp_cap = clamp(tail_amp_cap, 0.0f, 1.0f);
+
+		std::mt19937 rng(seed ? seed : std::random_device{}());
+		std::uniform_real_distribution<float> uniform_dist(-half_span, half_span);
+		std::bernoulli_distribution coin(0.5);
+		auto unit_rand = [&]() { return std::generate_canonical<float, 24>(rng); };
+
+		const float H = half_span;
+		const float H2 = H * H;
+		const float V = sigma * sigma;           // target variance
+		const float varU = H2 / 3.0f;            // variance of Uniform[-H, H]
+		const float Amax = tail_amp_cap;
+
+		float p = 0.0f;     // tail probability
+		float A = 0.0f;     // tail amplitude fraction actually used (<= Amax)
+		float k2 = 0.0f;    // bulk scale^2 for the k*Uniform component
+
+		if (V <= varU + 1e-12f)
+		{
+			// Small target sigma: a scaled uniform already covers the variance, unless occasional tails are requested.
+			if (min_tail_prob <= 0.0f)
+			{
+				p = 0.0f;
+				k2 = (varU > 0.0f) ? (V / varU) : 0.0f; // support +/-kH
+			}
+			else
+			{
+				// Enforce a small tail probability, shrinking the amplitude so p*A^2*H^2 <= V.
+				p = clamp(min_tail_prob, 0.0f, 1.0f);
+
+				// Max feasible amplitude for this p under the variance budget: A_needed <= sqrt(V/(p*H^2)).
+				float A_needed = (p > 0.0f) ? std::sqrt(maximum(0.0f, V) / (p * H2)) : 0.0f;
+				A = clamp(A_needed, 0.0f, Amax);
+				const float varT = (A * A) * H2;
+
+				// Remaining variance goes to the scaled uniform.
+				const float denom = (1.0f - p) * varU;
+				k2 = (denom > 0.0f) ? ((V - p * varT) / denom) : 0.0f;
+				k2 = clamp(k2, 0.0f, 1.0f);
+			}
+		}
+		else
+		{
+			// Large target sigma: need enough tail mass to exceed the uniform's variance.
+			// Use the maximum tail amplitude, then solve for the required tail probability.
+			A = Amax;
+			const float varT = (A * A) * H2;
+			const float denom = (varT - varU);
+			float p_needed = (denom > 0.0f) ? ((V - varU) / denom) : 1.0f;
+			p_needed = clamp(p_needed, 0.0f, 1.0f);
+
+			// Take at least p_needed, but also honor any requested baseline tail probability.
+			p = maximum(p_needed, clamp(min_tail_prob, 0.0f, 1.0f));
+			if (p >= 1.0f - 1e-12f)
+			{
+				p = 1.0f;
+				k2 = 0.0f;
+			}
+			else
+			{
+				const float denom2 = (1.0f - p) * varU;
+				k2 = (denom2 > 0.0f) ? ((V - p * varT) / denom2) : 0.0f;
+				k2 = clamp(k2, 0.0f, 1.0f);
+			}
+		}
+
+		const float k = std::sqrt(k2);
+		const float edge = A * H;
+
+		std::vector<float> out;
+		out.reserve(num_samples);
+
+		if (p == 0.0f)
+		{
+			// Scaled uniform only (support +/-kH).
+			for (size_t i = 0; i < num_samples; ++i)
+				out.push_back(k * uniform_dist(rng));
+		}
+		else if (fix_tail_count)
+		{
+			size_t num_tail = static_cast<size_t>(std::round(p * num_samples));
+			if (num_tail > num_samples)
+				num_tail = num_samples;
+			if (num_tail & 1)
+			{
+				// Keep the tail count even so the +edge / -edge halves stay symmetric.
+				if (num_tail < num_samples)
+					++num_tail;
+				else
+					--num_tail;
+			}
+
+			for (size_t i = 0; i < num_tail / 2; ++i)
+				out.push_back(+edge);
+			for (size_t i = 0; i < num_tail / 2; ++i)
+				out.push_back(-edge);
+			for (size_t i = out.size(); i < num_samples; ++i)
+				out.push_back(k * uniform_dist(rng));
+		}
+		else
+		{
+			for (size_t i = 0; i < num_samples; ++i)
+			{
+				if (unit_rand() < p)
+					out.push_back(coin(rng) ? +edge : -edge);
+				else
+					out.push_back(k * uniform_dist(rng));
+			}
+		}
+
+		if (recenter)
+		{
+			float sum = 0.0f;
+			for (float v : out)
+				sum += v;
+
+			const float mu = sum / static_cast<float>(num_samples);
+			if (std::abs(mu) > 0.0f)
+			{
+				for (float& v : out)
+				{
+					v -= mu;
+					if (v > H)
+						v = H;
+					else if (v < -H)
+						v = -H;
+				}
+			}
+		}
+
+		return out;
 	}
 
 	job_pool::job_pool(uint32_t num_threads) : 
@@ -2269,11 +2752,21 @@ namespace basisu
 		m_has_work.notify_all();
 
 #ifdef __EMSCRIPTEN__
+		// Without this wait the join()'s aren't reliable, and I have no idea why. WASM threading in the browser is sometimes mysterious.
+		const uint32_t max_iterations = 90;
+
+		uint32_t iteration_index = 0;
 		for ( ; ; )
 		{
 			if (m_num_active_workers.load() <= 0)
 				break;
 			std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+			if (++iteration_index > max_iterations)
+			{
+				debug_printf("job_pool::~job_pool: wait timed out!\n");
+				break;
+			}
 		}
 		
 		// At this point all worker threads should be exiting or exited.
@@ -2283,6 +2776,8 @@ namespace basisu
 		// Wait for all worker threads to exit.
 		for (uint32_t i = 0; i < m_threads.size(); i++)
 			m_threads[i].join();
+
+		debug_printf("job_pool::~job_pool: joined OK\n");
 	}
 				
 	void job_pool::add_job(const std::function<void()>& job)
@@ -4620,7 +5115,7 @@ namespace basisu
 				
 		if (pFilename_prefix)
 		{
-			std::string mode_vis_filename(std::string(pFilename_prefix) + "bc7_mode_vis.png");
+			std::string mode_vis_filename(std::string(pFilename_prefix) + "_bc7_mode_vis.png");
 			save_png(mode_vis_filename, bc7_mode_vis);
 
 			fmt_debug_printf("Wrote BC7 mode visualization to PNG file {}\n", mode_vis_filename);
@@ -4723,6 +5218,120 @@ namespace basisu
 			} // x
 		} // y
 	}
+		
+	static inline float eval_rotated_gaussian(float x, float y, float cos_t, float sin_t, float sigma_par, float sigma_perp)
+	{
+		// Project (x,y) onto the rotated axes
+		const float u = cos_t * x + sin_t * y; // parallel to blur direction
+		const float v = -sin_t * x + cos_t * y; // perpendicular
+
+		const float inv_par2 = 1.0f / (2.0f * sigma_par * sigma_par);
+		const float inv_perp2 = 1.0f / (2.0f * sigma_perp * sigma_perp);
+
+		return std::exp(-(u * u * inv_par2 + v * v * inv_perp2));
+	}
+
+	DirectionalKernel make_directional_kernel(float angle_deg, float sigma_par, float sigma_perp)
+	{
+		assert(sigma_par > 0.0f && "sigma_par must be positive");
+		assert(sigma_perp > 0.0f && "sigma_perp must be positive");
+
+		// Convert angle to radians
+		const float angle_rad = angle_deg * (3.14159265358979323846f / 180.0f);
+		const float cos_t = std::cos(angle_rad);
+		const float sin_t = std::sin(angle_rad);
+
+		// Determine kernel half-size and total size
+		const float sigma_x = std::sqrt(sigma_par * sigma_par * cos_t * cos_t + sigma_perp * sigma_perp * sin_t * sin_t);
+		const float sigma_y = std::sqrt(sigma_par * sigma_par * sin_t * sin_t + sigma_perp * sigma_perp * cos_t * cos_t);
+		const float reach = 3.0f * basisu::maximum(sigma_x, sigma_y) + 0.5f;
+		int half = maximum(1, static_cast<int>(std::ceil(reach)));
+
+		const int size = 2 * half + 1; // always odd
+		assert(size >= 3 && "kernel must be at least 3x3");
+
+		DirectionalKernel kernel;
+		kernel.m_size = size;
+		kernel.m_data.resize(size * size, 0.0f);
+
+		// Fill with un-normalised Gaussian values, accumulate sum for normalisation
+		float sum = 0.0f;
+		for (int row = 0; row < size; ++row)
+		{
+			// y offset from kernel centre (positive = downward in image space)
+			const float y = static_cast<float>(row - half);
+
+			for (int col = 0; col < size; ++col)
+			{
+				const float x = static_cast<float>(col - half);
+				const float w = eval_rotated_gaussian(x, y, cos_t, sin_t, sigma_par, sigma_perp);
+				kernel.m_data[row * size + col] = w;
+				sum += w;
+			}
+		}
+				
+		assert(sum > 0.0f && "kernel sum is zero - sigma values too small?");
+		const float inv_sum = 1.0f / sum;
+		for (float& v : kernel.m_data)
+			v *= inv_sum;
+
+#if defined(DEBUG) || defined(_DEBUG)
+		{
+			float check = 0.0f;
+			for (float v : kernel.m_data) check += v;
+			assert(std::abs(check - 1.0f) < 1e-4f && "kernel normalisation failed");
+		}
+#endif
+
+		return kernel;
+	}
+
+	void directional_gaussian_blur(const image& src_img, image& dst_img, float angle_deg, float sigma_par, float sigma_perp)
+	{
+		assert((sigma_par > 0.0f) && (sigma_par > 0.0f));
+
+		dst_img.match_dimensions(src_img);
+
+		const int width = src_img.get_width();
+		const int height = src_img.get_height();
+
+		DirectionalKernel kernel(make_directional_kernel(angle_deg, sigma_par, sigma_perp));
+		const int kernel_size = kernel.m_size;
+		const int half_kernel_size = kernel_size >> 1;
+
+		for (int y = 0; y < height; y++)
+		{
+			for (int x = 0; x < width; x++)
+			{
+				float sum_r = 0, sum_g = 0, sum_b = 0, sum_a = 0;
+
+				for (int ky = 0; ky < kernel_size; ky++)
+				{
+					const int sy = clamp(y + (ky - half_kernel_size), 0, height - 1);
+
+					for (int kx = 0; kx < kernel_size; kx++)
+					{
+						const int sx = clamp(x + (kx - half_kernel_size), 0, width - 1);
+
+						float weight = kernel.m_data[kx + ky * kernel_size];
+
+						const color_rgba& pixel = src_img(sx, sy);
+
+						sum_r += (float)pixel.r * weight;
+						sum_g += (float)pixel.g * weight;
+						sum_b += (float)pixel.b * weight;
+						sum_a += (float)pixel.a * weight;
+
+					} // kx
+
+				} // ky
+
+				color_rgba& dst_pixel = dst_img(x, y);
+				dst_pixel.set(basisu::fast_roundf_pos_int(sum_r), basisu::fast_roundf_pos_int(sum_g), basisu::fast_roundf_pos_int(sum_b), basisu::fast_roundf_pos_int(sum_a));
+
+			} // x
+		} // y
+	}
 
 	// macro sent by CMakeLists.txt file when (TARGET_WASM AND WASM_THREADING)
 #if BASISU_WASI_THREADS
@@ -4747,5 +5356,528 @@ namespace basisu
 				
 		return num_threads;
 	}
-							
+		
+	bool display_astc_statistics(
+		const vector2D<astc_helpers::astc_block>& blocks,
+		uint32_t block_width, uint32_t block_height, uint32_t image_width, uint32_t image_height, bool verbose)
+	{
+		const uint32_t total_block_pixels = block_width * block_height;
+
+		fmt_printf("------- display_astc_statistics:\n");
+		fmt_printf("Image dimensions in pixels: {}x{}, blocks: {}x{}\n", image_width, image_height, blocks.get_width(), blocks.get_height());
+		fmt_printf("Block dimensions in pixels: {}x{}, {} total pixels\n", block_width, block_height, total_block_pixels);
+
+		fmt_printf("Extra cols/rows to pad image to ASTC block dimensions: {}x{}\n",
+			blocks.get_width() * block_width - image_width,
+			blocks.get_height() * block_height - image_height);
+
+		image dec_image_srgb(image_width, image_height);
+		image dec_image_linear(image_width, image_height);
+		imagef dec_image_float(image_width, image_height);
+
+		uint32_t cem_hist[16] = { };
+		uint32_t cem_dp_hist[16] = { };
+		uint32_t cem_used_bc_hist[16] = { };
+		uint32_t total_dp = 0;
+		uint32_t cem_ccs_hist[16][4] = { };
+		uint32_t cem_part_hist[16][4] = { }; // 1-4 subsets
+
+		uint32_t total_solid_blocks_ldr = 0;
+		uint32_t total_solid_blocks_hdr = 0;
+		uint32_t total_normal_blocks = 0;
+
+		uint32_t part_hist[4] = { };
+		uint32_t used_endpoint_levels_hist[astc_helpers::LAST_VALID_ENDPOINT_ISE_RANGE - astc_helpers::FIRST_VALID_ENDPOINT_ISE_RANGE + 1] = { };
+		uint32_t used_weight_levels_hist[astc_helpers::LAST_VALID_WEIGHT_ISE_RANGE - astc_helpers::FIRST_VALID_WEIGHT_ISE_RANGE + 1] = { };
+
+		uint32_t total_unequal_cem_blocks = 0;
+		uint32_t total_unequal_cem_blocks_2subsets = 0;
+		uint32_t total_unequal_cem_blocks_3subsets = 0;
+		uint32_t total_unequal_cem_blocks_4subsets = 0;
+
+		uint32_t highest_part_seed = 0;
+
+		uint32_t total_suboptimal_cem_blocks = 0;
+		uint32_t total_unnecessary_suboptimal_cem_blocks = 0;
+		uint32_t total_useful_suboptimal_cem_blocks = 0;
+
+		int min_weight_grid_width = INT_MAX, min_weight_grid_height = INT_MAX;
+		int max_weight_grid_width = 0, max_weight_grid_height = 0;
+
+		uint32_t total_ldr_blocks = 0, total_hdr_blocks = 0;
+
+		basisu::hash_map<uint32_t, uint32_t> weight_grid_histogram;
+
+		basisu::hash_map<uint32_t, uint32_t> part_seed_hash;
+
+		struct log_astc_block_config_cmp_t
+		{
+			bool operator()(const astc_helpers::log_astc_block& a,
+				const astc_helpers::log_astc_block& b) const
+			{
+				// This only compares the ASTC configuration for equality, NOT the contents.
+				if (a.m_error_flag != b.m_error_flag)
+					return false;
+				if (a.m_error_flag)
+					return true;
+
+				if (a.m_grid_width != b.m_grid_width)
+					return false;
+				if (a.m_grid_height != b.m_grid_height)
+					return false;
+
+				if (a.m_solid_color_flag_ldr != b.m_solid_color_flag_ldr)
+					return false;
+				if (a.m_solid_color_flag_hdr != b.m_solid_color_flag_hdr)
+					return false;
+
+				if (a.m_solid_color_flag_ldr || a.m_solid_color_flag_hdr)
+					return true;
+
+				if (a.m_dual_plane != b.m_dual_plane)
+					return false;
+				if (a.m_color_component_selector != b.m_color_component_selector)
+					return false;
+
+				if (a.m_num_partitions != b.m_num_partitions)
+					return false;
+				if (a.m_uses_suboptimal_cem_encoding != b.m_uses_suboptimal_cem_encoding)
+					return false;
+
+				if (a.m_endpoint_ise_range != b.m_endpoint_ise_range)
+					return false;
+				if (a.m_weight_ise_range != b.m_weight_ise_range)
+					return false;
+
+				for (uint32_t i = 0; i < a.m_num_partitions; i++)
+					if (a.m_color_endpoint_modes[i] != b.m_color_endpoint_modes[i])
+						return false;
+
+				return true;
+			}
+		};
+
+		basisu::hash_map<astc_helpers::log_astc_block, uint32_t, basist::bit_hasher<astc_helpers::log_astc_block>, log_astc_block_config_cmp_t > unique_config_histogram;
+
+		uint32_t total_subsets = 0;
+
+		for (uint32_t by = 0; by < blocks.get_height(); by++)
+		{
+			for (uint32_t bx = 0; bx < blocks.get_width(); bx++)
+			{
+				astc_helpers::log_astc_block log_blk;
+
+				if (!astc_helpers::unpack_block(&blocks(bx, by), log_blk, block_width, block_height))
+				{
+					fmt_error_printf("astc_helpers::unpack_block() failed on block {}x{}\n", bx, by);
+					return false;
+				}
+
+				if (log_blk.m_error_flag)
+				{
+					fmt_error_printf("astc_helpers::unpack_block() returned an error flag on block {}x{}\n", bx, by);
+					return false;
+				}
+
+				if (log_blk.m_uses_suboptimal_cem_encoding)
+				{
+					total_suboptimal_cem_blocks++;
+
+					astc_helpers::log_astc_block temp_log_blk(log_blk);
+					temp_log_blk.m_uses_suboptimal_cem_encoding = false;
+
+					astc_helpers::astc_block temp_phys_block;
+
+					int expected_endpoint_range = -1;
+
+					bool pack_status = astc_helpers::pack_astc_block(temp_phys_block, temp_log_blk, &expected_endpoint_range);
+
+					// If the packing succeeded without the suboptimal CEM encoding, it means the BISE endpoint range didn't change, and it was unnecessary to use the suboptimal CEM encoding in the first place.
+					if (pack_status)
+					{
+						total_unnecessary_suboptimal_cem_blocks++;
+					}
+					else
+					{
+						// the endpoint range should have changed, and be valid
+						assert(expected_endpoint_range != -1);
+						assert(expected_endpoint_range != log_blk.m_endpoint_ise_range);
+						total_useful_suboptimal_cem_blocks++;
+					}
+				}
+
+				{
+					astc_helpers::log_astc_block scrubbed_log_blk;
+					memset(&scrubbed_log_blk, 0, sizeof(scrubbed_log_blk));
+
+					// just record the config, not the contents, so only the config hashes
+					scrubbed_log_blk.m_solid_color_flag_ldr = log_blk.m_solid_color_flag_ldr;
+					scrubbed_log_blk.m_solid_color_flag_hdr = log_blk.m_solid_color_flag_hdr;
+					scrubbed_log_blk.m_dual_plane = log_blk.m_dual_plane;
+					scrubbed_log_blk.m_color_component_selector = log_blk.m_color_component_selector;
+					scrubbed_log_blk.m_grid_width = log_blk.m_grid_width;
+					scrubbed_log_blk.m_grid_height = log_blk.m_grid_height;
+					scrubbed_log_blk.m_num_partitions = log_blk.m_num_partitions;
+					scrubbed_log_blk.m_uses_suboptimal_cem_encoding = log_blk.m_uses_suboptimal_cem_encoding;
+					scrubbed_log_blk.m_color_endpoint_modes[0] = log_blk.m_color_endpoint_modes[0];
+					scrubbed_log_blk.m_color_endpoint_modes[1] = log_blk.m_color_endpoint_modes[1];
+					scrubbed_log_blk.m_color_endpoint_modes[2] = log_blk.m_color_endpoint_modes[2];
+					scrubbed_log_blk.m_color_endpoint_modes[3] = log_blk.m_color_endpoint_modes[3];
+					scrubbed_log_blk.m_weight_ise_range = log_blk.m_weight_ise_range;
+					scrubbed_log_blk.m_endpoint_ise_range = log_blk.m_endpoint_ise_range;
+
+					auto ins_res(unique_config_histogram.insert(scrubbed_log_blk, 0));
+					(ins_res.first)->second = (ins_res.first)->second + 1;
+				}
+
+				bool is_hdr = log_blk.m_solid_color_flag_hdr;
+
+				if (log_blk.m_solid_color_flag_ldr)
+				{
+					total_solid_blocks_ldr++;
+					total_ldr_blocks++;
+				}
+				else if (log_blk.m_solid_color_flag_hdr)
+				{
+					total_solid_blocks_hdr++;
+					total_hdr_blocks++;
+				}
+				else
+				{
+					total_normal_blocks++;
+
+					min_weight_grid_width = minimum<int>(min_weight_grid_width, log_blk.m_grid_width);
+					min_weight_grid_height = minimum<int>(min_weight_grid_height, log_blk.m_grid_height);
+
+					max_weight_grid_width = maximum<int>(max_weight_grid_width, log_blk.m_grid_width);
+					max_weight_grid_height = maximum<int>(max_weight_grid_height, log_blk.m_grid_height);
+
+					{
+						uint32_t weight_grid_hash_key = log_blk.m_grid_width | (log_blk.m_grid_height << 8);
+						auto ins_res(weight_grid_histogram.insert(weight_grid_hash_key, 0));
+						(ins_res.first)->second = (ins_res.first)->second + 1;
+					}
+
+					if (log_blk.m_dual_plane)
+					{
+						total_dp++;
+						cem_ccs_hist[log_blk.m_color_endpoint_modes[0]][log_blk.m_color_component_selector]++;
+					}
+
+					cem_part_hist[log_blk.m_color_endpoint_modes[0]][log_blk.m_num_partitions - 1]++;
+
+					part_hist[log_blk.m_num_partitions - 1]++;
+
+					// For debugging seed packing bugs
+					highest_part_seed = basisu::maximum<uint32_t>(highest_part_seed, log_blk.m_partition_id);
+
+					if (log_blk.m_num_partitions > 1)
+					{
+						auto ins_it = part_seed_hash.insert(log_blk.m_partition_id, 0);
+						(ins_it.first)->second = (ins_it.first)->second + 1;
+					}
+
+					uint32_t cur_endpoint_ofs = 0;
+					bool has_unequal_cems = false;
+
+					total_subsets += log_blk.m_num_partitions;
+
+					for (uint32_t p = 0; p < log_blk.m_num_partitions; p++)
+					{
+						if (astc_helpers::is_cem_hdr(log_blk.m_color_endpoint_modes[p]))
+							is_hdr = true;
+
+						cem_hist[log_blk.m_color_endpoint_modes[p]]++;
+
+						if (log_blk.m_dual_plane)
+							cem_dp_hist[log_blk.m_color_endpoint_modes[p]]++;
+
+						if ((p) && (log_blk.m_color_endpoint_modes[p] != log_blk.m_color_endpoint_modes[0]))
+						{
+							has_unequal_cems = true;
+						}
+
+						if (astc_helpers::is_cem_ldr(log_blk.m_color_endpoint_modes[p]))
+						{
+							bool uses_bc = astc_helpers::used_blue_contraction(log_blk.m_color_endpoint_modes[p], log_blk.m_endpoints + cur_endpoint_ofs, log_blk.m_endpoint_ise_range);
+
+							cem_used_bc_hist[log_blk.m_color_endpoint_modes[p]] += uses_bc;
+						}
+
+						cur_endpoint_ofs += astc_helpers::get_num_cem_values(log_blk.m_color_endpoint_modes[p]);
+					}
+
+					if (log_blk.m_num_partitions >= 2)
+					{
+						total_unequal_cem_blocks += has_unequal_cems;
+
+						if (log_blk.m_num_partitions == 2)
+							total_unequal_cem_blocks_2subsets += has_unequal_cems;
+						else if (log_blk.m_num_partitions == 3)
+							total_unequal_cem_blocks_3subsets += has_unequal_cems;
+						else if (log_blk.m_num_partitions == 4)
+							total_unequal_cem_blocks_4subsets += has_unequal_cems;
+					}
+
+					used_weight_levels_hist[open_range_check<int>(log_blk.m_weight_ise_range - astc_helpers::FIRST_VALID_WEIGHT_ISE_RANGE, std::size(used_weight_levels_hist))]++;
+					used_endpoint_levels_hist[open_range_check<int>(log_blk.m_endpoint_ise_range - astc_helpers::FIRST_VALID_ENDPOINT_ISE_RANGE, std::size(used_endpoint_levels_hist))]++;
+				}
+
+				if (is_hdr)
+				{
+					total_hdr_blocks++;
+				}
+				else
+				{
+					total_ldr_blocks++;
+
+					color_rgba block_pixels[astc_helpers::MAX_BLOCK_PIXELS];
+
+					// sRGB8 decode profile unpack
+					bool status = astc_helpers::decode_block(log_blk, block_pixels, block_width, block_height, astc_helpers::cDecodeModeSRGB8);
+					if (!status)
+					{
+						fmt_error_printf("astc_helpers::decode_block() failed on block {}x{}\n", bx, by);
+						return false;
+					}
+
+					dec_image_srgb.set_block_clipped(block_pixels, bx * block_width, by * block_height, block_width, block_height);
+
+					// linear8 decode profile unpack
+					status = astc_helpers::decode_block(log_blk, block_pixels, block_width, block_height, astc_helpers::cDecodeModeLDR8);
+					if (!status)
+					{
+						fmt_error_printf("astc_helpers::decode_block() failed on block {}x{}\n", bx, by);
+						return false;
+					}
+
+					dec_image_linear.set_block_clipped(block_pixels, bx * block_width, by * block_height, block_width, block_height);
+				}
+
+				// half float unpack
+				{
+					basist::half_float block_pixels_half[astc_helpers::MAX_BLOCK_PIXELS][4];
+
+					bool status = astc_helpers::decode_block(log_blk, block_pixels_half, block_width, block_height, astc_helpers::cDecodeModeHDR16);
+					if (!status)
+					{
+						fmt_error_printf("astc_helpers::decode_block() failed on block {}x{}\n", bx, by);
+						return false;
+					}
+
+					vec4F block_pixels_float[astc_helpers::MAX_BLOCK_PIXELS];
+					for (uint32_t i = 0; i < total_block_pixels; i++)
+						for (uint32_t j = 0; j < 4; j++)
+							block_pixels_float[i][j] = basist::half_to_float(block_pixels_half[i][j]);
+
+					dec_image_float.set_block_clipped(block_pixels_float, bx * block_width, by * block_height, block_width, block_height);
+				}
+
+			} // bx
+
+		} //by
+
+		fmt_printf("Total LDR blocks: {}, total HDR blocks: {}\n", total_ldr_blocks, total_hdr_blocks);
+
+		if (verbose)
+		{
+			save_png("astc_decoded_srgb8_ldr.png", dec_image_srgb);
+			fmt_printf("Wrote astc_decoded_srgb8_ldr.png\n");
+
+			save_png("astc_decoded_linear8_ldr.png", dec_image_linear);
+			fmt_printf("Wrote astc_decoded_linear8_ldr.png\n");
+
+			write_exr("astc_decoded_half.exr", dec_image_float, 4, 0);
+			fmt_printf("Wrote astc_decoded_half.exr\n");
+		}
+
+		fmt_printf("\nASTC file statistics:\n");
+
+		const uint32_t total_blocks = (uint32_t)blocks.size();
+
+		fmt_printf("Total blocks: {}, total void extent LDR: {}, total void extent HDR: {}, total normal: {}\n", total_blocks, total_solid_blocks_ldr, total_solid_blocks_hdr, total_normal_blocks);
+		fmt_printf("Total dual plane: {} {3.2}%\n", total_dp, total_dp * 100.0f / (float)total_blocks);
+
+		fmt_printf("Total blocks using suboptimal CEM encodings: {} {3.2}%\n", total_suboptimal_cem_blocks, total_suboptimal_cem_blocks * 100.0f / (float)total_blocks);
+		fmt_printf("Total blocks using unnecessary suboptimal CEM encodings: {} {3.2}%\n", total_unnecessary_suboptimal_cem_blocks, total_unnecessary_suboptimal_cem_blocks * 100.0f / (float)total_blocks);
+		fmt_printf("Total blocks using useful suboptimal CEM encodings: {} {3.2}%\n", total_useful_suboptimal_cem_blocks, total_useful_suboptimal_cem_blocks * 100.0f / (float)total_blocks);
+
+		fmt_printf("Total subsets across all blocks: {}, Avg. subsets per block: {}\n", total_subsets, (float)total_subsets / (float)total_blocks);
+
+		fmt_printf("Min weight grid usage bounds: {}x{}\n", min_weight_grid_width, min_weight_grid_height);
+		fmt_printf("Max weight grid usage bounds: {}x{}\n", max_weight_grid_width, max_weight_grid_height);
+
+		fmt_printf("\nPartition usage histogram:\n");
+		for (uint32_t i = 0; i < 4; i++)
+			fmt_printf("{}: {} {3.2}%\n", i + 1, part_hist[i], (float)part_hist[i] * 100.0f / (float)total_blocks);
+
+		fmt_printf("\nCEM usage histogram (percentages relative to total overall subsets used in texture):\n");
+		for (uint32_t i = 0; i < 15; i++)
+		{
+			fmt_printf("{}: {} {3.2}%, total BC: {} {3.2}%, total DP: {} {3.2}% (R:{} G:{} B:{} A:{}), parts: {} {} {} {})\n", i,
+				cem_hist[i], (float)cem_hist[i] * 100.0f / (float)total_subsets,
+				cem_used_bc_hist[i], (float)cem_used_bc_hist[i] * 100.0f / (float)total_subsets,
+				cem_dp_hist[i], (float)cem_dp_hist[i] * 100.0f / (float)total_subsets,
+				cem_ccs_hist[i][0], cem_ccs_hist[i][1], cem_ccs_hist[i][2], cem_ccs_hist[i][3],
+				cem_part_hist[i][0], cem_part_hist[i][1], cem_part_hist[i][2], cem_part_hist[i][3]);
+		}
+
+		fmt_printf("\nUsed endpoint ISE levels:\n");
+		for (uint32_t i = 0; i < std::size(used_endpoint_levels_hist); i++)
+			fmt_printf("{} levels: {}\n", astc_helpers::get_ise_levels(astc_helpers::FIRST_VALID_ENDPOINT_ISE_RANGE + i), used_endpoint_levels_hist[i]);
+
+		fmt_printf("\nUsed weight ISE levels:\n");
+		for (uint32_t i = 0; i < std::size(used_weight_levels_hist); i++)
+			fmt_printf("{} levels: {}\n", astc_helpers::get_ise_levels(astc_helpers::FIRST_VALID_WEIGHT_ISE_RANGE + i), used_weight_levels_hist[i]);
+
+		fmt_printf("\nTotal 2+ subset blocks using unequal CEM's: {} {3.2}%\n", total_unequal_cem_blocks, (float)total_unequal_cem_blocks * 100.0f / (float)total_blocks);
+		fmt_printf("Total 2 subset blocks using unequal CEM's: {} {3.2}%\n", total_unequal_cem_blocks_2subsets, (float)total_unequal_cem_blocks_2subsets * 100.0f / (float)total_blocks);
+		fmt_printf("Total 3 subset blocks using unequal CEM's: {} {3.2}%\n", total_unequal_cem_blocks_3subsets, (float)total_unequal_cem_blocks_3subsets * 100.0f / (float)total_blocks);
+		fmt_printf("Total 4 subset blocks using unequal CEM's: {} {3.2}%\n", total_unequal_cem_blocks_4subsets, (float)total_unequal_cem_blocks_4subsets * 100.0f / (float)total_blocks);
+
+		fmt_printf("\nHighest part ID seed: {}, 0x{0x}\n", highest_part_seed, highest_part_seed);
+
+		fmt_printf("Total used partition seed ID's: {}\n", part_seed_hash.size_u32());
+		if (verbose)
+		{
+			for (auto it = part_seed_hash.begin(); it != part_seed_hash.end(); ++it)
+				fmt_printf("  Seed ID {} used {} times\n", it->first, it->second);
+		}
+
+		fmt_printf("\nWeight grid usage histogram:\n");
+
+		uint64_vec v;
+		for (auto it = weight_grid_histogram.begin(); it != weight_grid_histogram.end(); ++it)
+			v.push_back(((uint64_t)it->first << 32) | it->second);
+
+		v.sort();
+
+		for (uint32_t i = 0; i < v.size(); i++)
+			fmt_printf("  {}x{}: total blocks {}\n", (v[i] >> 32) & 0xFF, (v[i] >> 40) & 0xFF, v[i] & UINT32_MAX);
+
+		fmt_printf("\nTotal unique ASTC configurations: {}\n", unique_config_histogram.size_u32());
+
+		if (verbose)
+		{
+			uint32_t config_idx = 0;
+			for (auto it = unique_config_histogram.begin(); it != unique_config_histogram.end(); ++it)
+			{
+				const auto& l = it->first;
+				const uint32_t total = it->second;
+
+				fmt_printf("  {}. Used {} {3.2}% times: Solid LDR: {} HDR: {}, Grid: {}x{}, Dual Plane: {}, CCS: {}, NumParts: {}, SuboptimalCEM: {}, CEMS: {} {} {} {}, WeightISERange: {} ({} levels), EndpointISERange: {} ({} levels)\n",
+					config_idx, total, float(total) * 100.0f / total_blocks,
+					l.m_solid_color_flag_ldr, l.m_solid_color_flag_hdr,
+					l.m_grid_width, l.m_grid_height,
+					l.m_dual_plane, l.m_color_component_selector,
+					l.m_num_partitions, l.m_uses_suboptimal_cem_encoding,
+					l.m_color_endpoint_modes[0], l.m_color_endpoint_modes[1], l.m_color_endpoint_modes[2], l.m_color_endpoint_modes[3],
+					l.m_weight_ise_range, astc_helpers::get_ise_levels(l.m_weight_ise_range),
+					l.m_endpoint_ise_range, astc_helpers::get_ise_levels(l.m_endpoint_ise_range));
+
+				config_idx++;
+			}
+		}
+
+		fmt_printf("------- display_astc_statistics: OK\n");
+		return true;
+	}
+
+	bool display_astc_statistics(
+		const vector2D<astc_helpers::log_astc_block>& blocks,
+		uint32_t block_width, uint32_t block_height, uint32_t image_width, uint32_t image_height, bool verbose)
+	{
+		vector2D<astc_helpers::astc_block> phys_blocks(blocks.get_width(), blocks.get_height());
+
+		// ugh, but it's just for development/testing
+		for (uint32_t y = 0; y < blocks.get_height(); y++)
+			for (uint32_t x = 0; x < blocks.get_width(); x++)
+				if (!astc_helpers::pack_astc_block(phys_blocks(x, y), blocks(x, y)))
+					return false;
+
+		return display_astc_statistics(
+			phys_blocks,
+			block_width, block_height, image_width, image_height, verbose);
+	}
+
+	basisu::vector<convar*>& get_convars()
+	{
+		static basisu::vector<convar*> s_convars;
+		return s_convars;
+	}
+
+	void list_convars()
+	{
+		fmt_printf("{} convars:\n", get_convars().size_u32());
+
+		for (size_t i = 0; i < get_convars().size(); i++)
+		{
+			const convar* p = get_convars()[i];
+
+			fmt_printf("convar: {} type: {} value: {}\n", p->get_name(), get_convar_type_string(p->get_type()), p->get_val_as_string());
+		}
+	}
+
+	static convar* find_convar(const std::string& name)
+	{
+		for (size_t i = 0; i < get_convars().size(); i++)
+			if (name == get_convars()[i]->get_name())
+				return get_convars()[i];
+
+		return nullptr;
+	}
+
+	void print_convar(const std::string& name)
+	{
+		convar* p = find_convar(name);
+		if (!p)
+		{
+			fmt_printf("error: convar \"{}\" not found\n", name);
+			return;
+		}
+		
+		fmt_printf("convar: {} type: {} value: {}\n", name, get_convar_type_string(p->get_type()), p->get_val_as_string());
+	}
+
+	void reset_convar(const std::string& name)
+	{
+		convar* p = find_convar(name);
+		if (!p)
+		{
+			fmt_printf("error: convar \"{}\" not found\n", name);
+			return;
+		}
+
+		p->reset();
+
+		fmt_printf("OK\n");
+	}
+
+	void set_convar(const std::string& name, const std::string& val)
+	{
+		convar* p = find_convar(name);
+		if (!p)
+		{
+			fmt_printf("error: convar \"{}\" not found\n", name);
+			return;
+		}
+
+		if (!val.size())
+		{
+			fmt_printf("error: empty value for convar \"{}\"\n", name);
+			return;
+		}
+
+		if (p->get_type() == cConvarFloat)
+		{
+			p->set((float)atof(val.c_str()));
+		}
+		else
+		{
+			p->set(atoi(val.c_str()));
+		}
+
+		fmt_printf("OK\n");
+	}
+									
 } // namespace basisu

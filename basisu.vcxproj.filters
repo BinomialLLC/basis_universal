@@ -2,11 +2,18 @@
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
     <ClCompile Include="basisu_tool.cpp" />
+    <ClCompile Include="basisu_text_image.cpp" />
   </ItemGroup>
   <ItemGroup>
     <Manifest Include="basisu.manifest" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="basisu_tool_help.h" />
+    <ClInclude Include="basisu_text_image.h" />
+    <ClInclude Include="basisu_tool_test_codecs.inl" />
+  </ItemGroup>
+  <ItemGroup>
+    <Natvis Include="bu_math_fixed.natvis" />
+    <Natvis Include="basisu_containers.natvis" />
   </ItemGroup>
 </Project>
