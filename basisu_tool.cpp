@@ -7754,7 +7754,8 @@ static bool run_codec_test_case(basisu::job_pool& jp, const std::string& dir, co
 
 static uint32_t codec_test_num_threads()
 {
-	uint32_t n = std::thread::hardware_concurrency();
+	//uint32_t n = std::thread::hardware_concurrency();
+	uint32_t n = get_num_hardware_threads();
 	return n ? n : 1;
 }
 
