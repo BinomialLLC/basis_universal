@@ -1368,27 +1368,51 @@ bool TinyDDS_ReadHeader(TinyDDS_ContextHandle handle) {
 		return false;
 	}
 
-	// correct for dodgy mipmap levels counts
+	// rg: The original tinydds mipmap-count "correction" below is WRONG and is
+	// disabled. For COMPRESSED formats it stopped counting at the 4x4 block size
+	// (w <= 4 || h <= 4) and truncated mipMapCount there, which drops the perfectly
+	// valid sub-block mip levels (e.g. 2x2 and 1x1) -- those levels are legal and are
+	// simply stored padded to a single 4x4 block. ANY DDS file, block-compressed or
+	// uncompressed, can carry a full mip chain down to 1x1.
+	//
+	// Original (incorrect) code:
+	//
+	// if(ctx->header.mipMapCount > 1) {
+	// 	uint32_t w = ctx->header.width;
+	// 	uint32_t h = ctx->header.height;
+	//
+	// 	for(uint32_t i = 0; i < ctx->header.mipMapCount;++i) {
+	// 		if (TinyDDS_IsCompressed(ctx->format)) {
+	// 			if (w <= 4 || h <= 4) {
+	// 				ctx->header.mipMapCount = i + 1;
+	// 				break;
+	// 			}
+	// 		} else if (w <= 1 || h <= 1) {
+	// 			ctx->header.mipMapCount = i + 1;
+	// 			break;
+	// 		}
+	//
+	// 		w = w / 2;
+	// 		h = h / 2;
+	// 	}
+	// }
+	//
+	// Replacement: count the true maximum number of mip levels for these dimensions
+	// (halving each axis down to 1x1, for every format) and clamp the header's count
+	// to it ONLY if the file claims MORE levels than are dimensionally possible.
 	if(ctx->header.mipMapCount > 1) {
 		uint32_t w = ctx->header.width;
 		uint32_t h = ctx->header.height;
 
-		for(uint32_t i = 0; i < ctx->header.mipMapCount;++i) {
-			if (TinyDDS_IsCompressed(ctx->format)) {
-				if (w <= 4 || h <= 4) {
-					ctx->header.mipMapCount = i + 1;
-					break;
-				}
-			} else if (w <= 1 || h <= 1) {
-				ctx->header.mipMapCount = i + 1;
-				break;
-			}
-
-
-			w = w / 2;
-			h = h / 2;
+		uint32_t maxMipMapCount = 1;
+		while ((w > 1) || (h > 1)) {
+			w = (w > 1) ? (w >> 1) : 1;
+			h = (h > 1) ? (h >> 1) : 1;
+			maxMipMapCount++;
 		}
 
+		if (ctx->header.mipMapCount > maxMipMapCount)
+			ctx->header.mipMapCount = maxMipMapCount;
 	}
 
 	if (TinyDDS_IsCompressed(ctx->format)) {

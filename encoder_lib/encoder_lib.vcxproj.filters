@@ -45,6 +45,12 @@
     <ClCompile Include="..\encoder\basisu_comp.cpp">
       <Filter>Source Files\encoder</Filter>
     </ClCompile>
+    <ClCompile Include="..\encoder\basisu_bc15_spmd.cpp">
+      <Filter>Source Files\encoder</Filter>
+    </ClCompile>
+    <ClCompile Include="..\encoder\basisu_bc15_spmd_sse.cpp">
+      <Filter>Source Files\encoder</Filter>
+    </ClCompile>
     <ClCompile Include="..\encoder\basisu_enc.cpp">
       <Filter>Source Files\encoder</Filter>
     </ClCompile>
@@ -78,6 +84,12 @@
     <ClCompile Include="..\encoder\basisu_uastc_enc.cpp">
       <Filter>Source Files\encoder</Filter>
     </ClCompile>
+    <ClCompile Include="..\encoder\basisu_bc7e_scalar.cpp">
+      <Filter>Source Files\encoder</Filter>
+    </ClCompile>
+    <ClCompile Include="..\encoder\basisu_dds_export.cpp">
+      <Filter>Source Files\encoder</Filter>
+    </ClCompile>
     <ClCompile Include="..\encoder\jpgd.cpp">
       <Filter>Source Files\encoder</Filter>
     </ClCompile>
@@ -102,7 +114,13 @@
     <ClCompile Include="..\encoder\basisu_astc_ldr_encode.cpp">
       <Filter>Source Files\encoder</Filter>
     </ClCompile>
+    <ClCompile Include="..\encoder\basisu_xbc7_encode.cpp">
+      <Filter>Source Files\encoder</Filter>
+    </ClCompile>
     <ClCompile Include="..\encoder\basisu_tinyexr.cpp">
+      <Filter>Source Files\encoder</Filter>
+    </ClCompile>
+    <ClCompile Include="..\encoder\basisu_astc_ldr_fencode.cpp">
       <Filter>Source Files\encoder</Filter>
     </ClCompile>
   </ItemGroup>
@@ -158,6 +176,12 @@
     <ClInclude Include="..\encoder\basisu_basis_file.h">
       <Filter>Source Files\encoder</Filter>
     </ClInclude>
+    <ClInclude Include="..\encoder\basisu_bc15_spmd.h">
+      <Filter>Source Files\encoder</Filter>
+    </ClInclude>
+    <ClInclude Include="..\encoder\basisu_bc15_spmd_kernels.inl">
+      <Filter>Source Files\encoder</Filter>
+    </ClInclude>
     <ClInclude Include="..\encoder\basisu_bc7enc.h">
       <Filter>Source Files\encoder</Filter>
     </ClInclude>
@@ -206,6 +230,12 @@
     <ClInclude Include="..\encoder\basisu_uastc_enc.h">
       <Filter>Source Files\encoder</Filter>
     </ClInclude>
+    <ClInclude Include="..\encoder\basisu_bc7e_scalar.h">
+      <Filter>Source Files\encoder</Filter>
+    </ClInclude>
+    <ClInclude Include="..\encoder\basisu_dds_export.h">
+      <Filter>Source Files\encoder</Filter>
+    </ClInclude>
     <ClInclude Include="..\encoder\jpgd.h">
       <Filter>Source Files\encoder</Filter>
     </ClInclude>
@@ -236,7 +266,16 @@
     <ClInclude Include="..\encoder\basisu_astc_ldr_encode.h">
       <Filter>Source Files\encoder</Filter>
     </ClInclude>
+    <ClInclude Include="..\encoder\basisu_xbc7_encode.h">
+      <Filter>Source Files\encoder</Filter>
+    </ClInclude>
     <ClInclude Include="..\transcoder\basisu_idct.h">
+      <Filter>Source Files\transcoder</Filter>
+    </ClInclude>
+    <ClInclude Include="..\encoder\basisu_astc_ldr_fencode.h">
+      <Filter>Source Files\encoder</Filter>
+    </ClInclude>
+    <ClInclude Include="..\transcoder\basisu_xbc7_decoder.h">
       <Filter>Source Files\transcoder</Filter>
     </ClInclude>
   </ItemGroup>
@@ -269,6 +308,12 @@
       <Filter>Source Files\encoder</Filter>
     </None>
     <None Include="..\transcoder\basisu_astc_cfgs.inl">
+      <Filter>Source Files\transcoder</Filter>
+    </None>
+    <None Include="..\transcoder\basisu_xbc7_decoder.inl">
+      <Filter>Source Files\transcoder</Filter>
+    </None>
+    <None Include="..\transcoder\basisu_dds_transcoder.inl">
       <Filter>Source Files\transcoder</Filter>
     </None>
   </ItemGroup>
