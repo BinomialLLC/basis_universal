@@ -19,7 +19,7 @@ Basis Universal™ v2.5 is an open source [supercompressed](http://gamma.cs.unc.
 
 Our overall goal is to simplify the encoding and efficient distribution of *portable* LDR and HDR GPU texture, image, and short animated [texture video](https://github.com/BinomialLLC/basis_universal/wiki/Encoding-ETC1S-and-XUASTC-LDR-Texture-Video) content in a way that is compatible with any GPU or rendering/graphics API. 
 
-The system supports seven modes (or codecs). In the order they were implemented:
+The system supports eight modes (or codecs). In the order they were implemented:
 1. **ETC1S**: A supercompressed subset of ETC1 designed for very fast transcoding to other LDR texture formats, low/medium quality but high compression, slightly faster transcoding to other LDR texture formats vs. libjpeg.
 2. **UASTC LDR 4x4 (with or without RDO)**: Custom ASTC 4x4-like format designed for very fast transcoding to other LDR texture formats, high quality
 3. **UASTC HDR 4x4**: Standard ASTC HDR 4x4 texture data, but constrained for very fast transcoding to BC6H
@@ -31,9 +31,11 @@ The system supports seven modes (or codecs). In the order they were implemented:
 
 The C/C++ encoder and transcoder libraries can be compiled to native code or WebAssembly (web or WASI), and all encoder/transcoder features can be accessed from JavaScript via a C++ wrapper library which optionally supports [WASM multithreading](https://web.dev/articles/webassembly-threads) for fast encoding in the browser. [WASM WASI](https://wasi.dev/) builds, for the command line tool and the encoder/transcoder as a WASI module using a pure C API, are also supported.
 
-The transcoder module (in v2.5) now fully supports reading and transcoding LDR .DDS files in a variety of formats (BC1-7 and numerous 1/2/3/4 channel uncompressed formats). It supports DX9 and DX10 format files, cubemaps, texture arrays, mipmaps, etc. The .DDS transcoder supports near-lossless transcoding to ASTC LDR 4x4, and real-time encoding to ETC1/2, PVRTC1, etc. This new feature for v2.5 permits standard .DDS files to be easily deployed to any GPU device/API/etc.
-
 Full Python support for encoding/transcoding is now available, supporting native or WASM modules, but is still in the early stages of development.
+
+## DDS Transcoding Support
+
+The transcoder module (in v2.5) now fully supports reading and transcoding LDR .DDS files in a variety of formats (BC1-7 and numerous 1/2/3/4 channel uncompressed formats). It supports DX9 and DX10 format files, cubemaps, texture arrays, mipmaps, etc. The .DDS transcoder supports near-lossless transcoding to ASTC LDR 4x4, and real-time encoding to ETC1/2, PVRTC1, etc. This new feature for v2.5 permits standard .DDS files to be easily deployed to any GPU device/API/etc. The encoder library, command line tool, and UI tool can also create .DDS files in a variety of formats, and for development/testing .KTX2 files can be exported to .DDS files.
 
 License/Legal
 -------------
