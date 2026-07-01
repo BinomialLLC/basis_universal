@@ -127,6 +127,8 @@ XUASTC LDR supports the following ASTC configurations: L/LA/RGB/RGBA CEMs; base+
 Here's a XUASTC LDR 4x4 (arithmetic vs. Zstd profile) bit rate vs. distortion graph across 151 test textures/images (the same test corpus we used to create [bc7e.ispc](https://github.com/richgel999/bc7enc_rdo)). Distortion was measured using [PSNR-HVS-M](https://pypi.org/project/psnr-hvsm/). Another R-D graph created at effort 9 for various block sizes is in our wiki [here](https://github.com/BinomialLLC/basis_universal/wiki/JPEG-for-ASTC#rate-vs-distortion-graph-at-various-block-sizes).
 <img width="1284" height="760" alt="image" src="https://github.com/user-attachments/assets/60f56279-3efd-4ec9-b866-a456e6fa9735" />
 
+8. **XUBC7**: Supercompressed BC7 with absolute and residual **Weight Grid DCT** and residual weight grid DPCM.
+
 Notes:  
 - Mode #1 (ETC1S) has special support and optimizations for basic temporal supercompression ([texture video](https://github.com/BinomialLLC/basis_universal/wiki/Encoding-ETC1S-and-XUASTC-LDR-Texture-Video)).
 - Modes #3 (UASTC HDR 4x4) and #4 (RDO ASTC HDR 6x6), and #6 (ASTC LDR 4x4-12x12) output 100% standard ASTC texture data (with or without RDO), like any other ASTC encoder. The .KTX2 files are just plain textures.
