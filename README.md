@@ -13,7 +13,7 @@ An LDR/HDR portable GPU supercompressed texture transcoding system.
 Intro
 -----
 
-Basis Universal™ v2.1 is an open source [supercompressed](http://gamma.cs.unc.edu/GST/gst.pdf) LDR/HDR GPU compressed texture interchange system from Binomial LLC that supports two intermediate file formats: the [.KTX2 open standard from the Khronos Group](https://registry.khronos.org/KTX/specs/2.0/ktxspec.v2.html), and our own ".basis" file format. These file formats support rapid transcoding to virtually any compressed [GPU texture format](https://grokipedia.com/page/texture_compression) released over the past quarter century. 
+Basis Universal™ v2.5 is an open source [supercompressed](http://gamma.cs.unc.edu/GST/gst.pdf) LDR/HDR GPU compressed texture interchange system from Binomial LLC that supports two intermediate file formats: the [.KTX2 open standard from the Khronos Group](https://registry.khronos.org/KTX/specs/2.0/ktxspec.v2.html), and our own ".basis" file format. These file formats support rapid transcoding to virtually any compressed [GPU texture format](https://grokipedia.com/page/texture_compression) released over the past quarter century. 
 
 ## GPU Textures are Infrastructure
 
@@ -514,7 +514,7 @@ KTX2 Support Status
 
 Note as of March 2026 we are working with Khronos on the exact details of how we embed XUASTC LDR supercompressed texture data into the KTX2 file format. KTX2 texture files using our previous codecs (including the recently added UASTC HDR 4x4 and UASTC HDR 6x6i formats) can now be interchanged with other KTX2 tools. See our [KTX2 technical information document](https://github.com/BinomialLLC/basis_universal/wiki/KTX2-File-Format-Support-Technical-Details) for more info.
 
-Whenever possible, we keep full introspection/transcode compatibility with all of our previously written KTX2 files, even if during standardization a file format change is made. We don't expect how we embed XUASTC LDR into KTX2 in basisu v2.1 to change.
+Whenever possible, we keep full introspection/transcode compatibility with all of our previously written KTX2 files, even if during standardization a file format change is made. We don't expect how we embed XUASTC LDR into KTX2 in basisu v2.1/v2.5 to change.
 
 ----
 
