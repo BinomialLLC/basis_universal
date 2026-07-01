@@ -338,12 +338,14 @@ int transcode_ktx2_file(const void* pKTX2_data, size_t ktx2_data_size, const cha
     uint32_t block_height = bt_ktx2_get_block_height(ktx2_handle);
     uint32_t is_srgb = bt_ktx2_is_srgb(ktx2_handle);
     uint32_t is_video = bt_ktx2_is_video(ktx2_handle); // only reliably set after calling bt_ktx2_start_transcoding()
+    uint32_t deblocking_filter_index = bt_ktx2_get_deblocking_filter_index(ktx2_handle);
     
     printf("KTX2 Dimensions: %ux%u, Levels: %u, Faces: %u, Layers: %u\n", width, height, levels, faces, layers);
     printf("basis_tex_format: %u\n", basis_tex_format);
     printf("Block dimensions: %ux%u\n", block_width, block_height);
     printf("is sRGB: %u\n", is_srgb);
     printf("is video: %u\n", is_video);
+    printf("deblocking filter index: %u\n", deblocking_filter_index);
 
     assert((width >= 1) && (height >= 1));
     assert(levels >= 1);
@@ -509,6 +511,7 @@ int test_2D()
     //uint32_t basis_tex_format = BTF_ASTC_LDR_8X5;
     //uint32_t basis_tex_format = BTF_ETC1S;
     //uint32_t basis_tex_format = BTF_UASTC_LDR_4X4;
+    //uint32_t basis_tex_format = BTF_XUBC7; // supercompressed BC7; transcodes near-losslessly to ASTC LDR 4x4 (block dims 4x4)
 
     uint32_t quality_level = 85;
     uint32_t effort_level = 2;
@@ -667,7 +670,7 @@ int main(int argc, char **argv)
     (void)argv;
     printf("example_capi.c:\n");
         
-	// Initialize the encoder (which initializers the transcoder for us)
+	// Initialize the encoder (which initializes the transcoder for us)
     printf("bu_init:\n");
 	bu_init();
 	

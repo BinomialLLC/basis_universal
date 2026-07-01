@@ -208,6 +208,87 @@ bool save_png(const char* pFilename, const image_u8& img, bool save_alpha)
 }
 #endif
 
+// Writes a basic uncompressed (BI_RGB, no RLE) Windows .BMP. 32-bpp BGRA when save_alpha, else 24-bpp BGR.
+// Rows are stored bottom-up (the classic BMP convention) and padded to a 4-byte boundary.
+bool save_bmp(const char* pFilename, const image_u8& img, bool save_alpha)
+{
+	const uint32_t w = img.width(), h = img.height();
+	if (!w || !h)
+		return false;
+
+	// 24-bpp uses the classic 40-byte BITMAPINFOHEADER (BI_RGB). 32-bpp uses the 108-byte BITMAPV4HEADER with
+	// explicit channel masks (BI_BITFIELDS) so the alpha channel is unambiguously recognized -- a basic 32-bpp
+	// BI_RGB BMP leaves the 4th byte "undefined", which many tools/viewers treat as opaque or garbage.
+	const uint32_t bytes_per_pixel = save_alpha ? 4 : 3;
+	const uint32_t dib_header_bytes = save_alpha ? 108u : 40u; // BITMAPV4HEADER vs BITMAPINFOHEADER
+	const uint32_t pixel_data_offset = 14 + dib_header_bytes;
+	const uint32_t row_bytes = (w * bytes_per_pixel + 3u) & ~3u; // each row padded up to a 4-byte multiple
+	const uint32_t image_bytes = row_bytes * h;
+	const uint32_t file_bytes = pixel_data_offset + image_bytes;
+
+	uint8_vec buf;
+	buf.reserve(file_bytes);
+	auto put16 = [&buf](uint32_t v) { buf.push_back((uint8_t)v); buf.push_back((uint8_t)(v >> 8)); };
+	auto put32 = [&buf](uint32_t v) { buf.push_back((uint8_t)v); buf.push_back((uint8_t)(v >> 8)); buf.push_back((uint8_t)(v >> 16)); buf.push_back((uint8_t)(v >> 24)); };
+
+	// BITMAPFILEHEADER (14 bytes)
+	buf.push_back('B'); buf.push_back('M');
+	put32(file_bytes);            // bfSize
+	put32(0);                     // bfReserved1/2
+	put32(pixel_data_offset);     // bfOffBits -> start of pixel data
+
+	// DIB header (BITMAPINFOHEADER, with the BITMAPV4HEADER extension appended when 32-bpp). First 40 bytes:
+	put32(dib_header_bytes);                 // biSize (40 or 108)
+	put32(w);                                // biWidth
+	put32(h);                                // biHeight (positive => bottom-up)
+	put16(1);                                // biPlanes
+	put16((uint16_t)(bytes_per_pixel * 8));  // biBitCount (24 or 32)
+	put32(save_alpha ? 3u : 0u);             // biCompression: BI_BITFIELDS (3) for 32bpp masks, else BI_RGB (0)
+	put32(image_bytes);                      // biSizeImage
+	put32(2835); put32(2835);                // ~72 DPI in pixels/meter
+	put32(0); put32(0);                      // biClrUsed / biClrImportant
+	if (save_alpha)
+	{
+		// BITMAPV4HEADER extension (68 more bytes). The masks describe the B,G,R,A byte order written below.
+		put32(0x00FF0000u);                  // bV4RedMask
+		put32(0x0000FF00u);                  // bV4GreenMask
+		put32(0x000000FFu);                  // bV4BlueMask
+		put32(0xFF000000u);                  // bV4AlphaMask
+		put32(0x57696E20u);                  // bV4CSType = 'Win ' (LCS_WINDOWS_COLOR_SPACE)
+		for (int i = 0; i < 9; i++) put32(0);// bV4Endpoints (CIEXYZTRIPLE, ignored for this color space)
+		put32(0); put32(0); put32(0);        // bV4GammaRed/Green/Blue (ignored)
+	}
+
+	// Pixel data, bottom-up. BMP channel order is B,G,R(,A); image_u8 stores R,G,B,A.
+	for (int y = (int)h - 1; y >= 0; y--)
+	{
+		uint32_t bytes_written = 0;
+		for (uint32_t x = 0; x < w; x++)
+		{
+			const color_quad_u8& c = img(x, (uint32_t)y);
+			buf.push_back(c[2]); // B
+			buf.push_back(c[1]); // G
+			buf.push_back(c[0]); // R
+			if (save_alpha)
+				buf.push_back(c[3]); // A
+			bytes_written += bytes_per_pixel;
+		}
+		while (bytes_written < row_bytes) { buf.push_back(0); bytes_written++; } // 4-byte row padding
+	}
+
+	FILE* pFile = NULL;
+#ifdef _MSC_VER
+	fopen_s(&pFile, pFilename, "wb");
+#else
+	pFile = fopen(pFilename, "wb");
+#endif
+	if (!pFile)
+		return false;
+	const bool ok = (fwrite(buf.data(), 1, buf.size(), pFile) == buf.size());
+	fclose(pFile);
+	return ok;
+}
+
 static float gauss(int x, int y, float sigma_sqr)
 {
 	float pow = expf(-((x * x + y * y) / (2.0f * sigma_sqr)));

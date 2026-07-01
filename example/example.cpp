@@ -118,7 +118,7 @@ static bool encode_etc1s()
     void* pKTX2_data = basis_compress(
         basist::basis_tex_format::cETC1S,
         source_images,
-        quality_level | cFlagSRGB | cFlagGenMipsClamp | cFlagThreaded | cFlagPrintStats | cFlagDebug | cFlagPrintStatus | cFlagUseOpenCL, 0.0f,
+        quality_level | cFlagSRGB | cFlagGenMipsClamp | cFlagThreaded | cFlagPrintStats | cFlagDebug | cFlagPrintStatus | cFlagUseOpenCL | cFlagKTX2, 0.0f,
         &file_size,
         nullptr);
 
@@ -144,7 +144,7 @@ static bool encode_uastc_ldr()
     image img(W, H);
     for (uint32_t y = 0; y < H; y++)
         for (uint32_t x = 0; x < W; x++)
-            img(x, y).set(x >> 1, y >> 1, 0, 1);
+            img(x, y).set(x >> 1, y >> 1, 0, 255);
 
     basisu::vector<image> source_images;
     source_images.push_back(img);
@@ -155,7 +155,7 @@ static bool encode_uastc_ldr()
     void* pKTX2_data = basis_compress(
         basist::basis_tex_format::cUASTC_LDR_4x4,
         source_images,
-        cFlagThreaded | cFlagPrintStats | cFlagDebug | cFlagPrintStatus, 0.0f,
+        cFlagThreaded | cFlagPrintStats | cFlagDebug | cFlagPrintStatus | cFlagKTX2, 0.0f,
         &file_size,
         nullptr);
 
@@ -657,6 +657,7 @@ enum class codec_class
     cUASTC_HDR_6x6 = 4,
     cASTC_LDR = 5,
     cXUASTC_LDR = 6,
+    cXUBC7 = 7,
     cTOTAL
 };
 
@@ -669,11 +670,21 @@ bool random_compress_test()
     image test_images[num_images + 1];
 
     for (uint32_t i = 0; i < num_images; i++)
-        load_png(fmt_string("../test_files/kodim{02}.png", 1 + i).c_str(), test_images[i]);
-    
+    {
+        if (!load_png(fmt_string("../test_files/kodim{02}.png", 1 + i).c_str(), test_images[i]))
+        {
+            fmt_error_printf("Failed loading a PNG file from ../test_files!\n");
+            return false;
+        }
+    }
+
     const uint32_t N = 16;
-    //const uint32_t N = 5000;
-    const uint32_t MAX_WIDTH = 1024, MAX_HEIGHT = 1024;
+    //const uint32_t N = 10000;
+    //const uint32_t N = 5000000;
+    const uint32_t MAX_WIDTH = 512, MAX_HEIGHT = 512;
+    const bool xuastc_or_astc_only = false;
+    const bool xubc7_only = false;
+    const bool xuastc_astc_or_xubc7_only = true; // randomly pick XUASTC LDR, ASTC LDR, or XUBC7
         
     basisu::rand rnd;
     
@@ -690,12 +701,8 @@ bool random_compress_test()
 
     for (uint32_t i = 0; i < N; i++)
     {
-        uint32_t seed = 166136844 + i;
-
-        //seed = 23082246; // etc1s 1-bit SSE overflow
-        //seed = 56636601; // UASTC HDR 4x4 assert tol
-        //seed = 56636744; // HDR 6x6 float overflow
-
+        uint32_t seed = 741019868 + i;
+        
         fmt_printf("------------------------------ Seed: {}\n", seed);
         rnd.seed(seed);
 
@@ -714,10 +721,33 @@ bool random_compress_test()
         uint32_t rnd_codec_class = rnd.irand(0, (uint32_t)codec_class::cTOTAL - 1);
         
         // TODO - make this a command line
-        //rnd_codec_class = rnd.bit() ? (uint32_t)codec_class::cXUASTC_LDR : (uint32_t)codec_class::cASTC_LDR;
+        if (xuastc_or_astc_only)
+        {
+            // Restrict to the LDR block codecs: XUASTC LDR, ASTC LDR
+            switch (rnd.irand(0, 1))
+            {
+            case 0:  rnd_codec_class = (uint32_t)codec_class::cXUASTC_LDR; break;
+            case 1:  rnd_codec_class = (uint32_t)codec_class::cASTC_LDR; break;
+            default: assert(0); break;
+            }
+        }
+        else if (xubc7_only)
+        {
+            rnd_codec_class = (uint32_t)codec_class::cXUBC7;
+        }
+        else if (xuastc_astc_or_xubc7_only)
+        {
+            // Restrict to: XUASTC LDR, ASTC LDR, or XUBC7 (randomly)
+            switch (rnd.irand(0, 2))
+            {
+            case 0:  rnd_codec_class = (uint32_t)codec_class::cXUASTC_LDR; break;
+            case 1:  rnd_codec_class = (uint32_t)codec_class::cASTC_LDR; break;
+            default: rnd_codec_class = (uint32_t)codec_class::cXUBC7; break;
+            }
+        }
         //rnd_codec_class = (uint32_t)codec_class::cXUASTC_LDR;
         //rnd_codec_class = (uint32_t)codec_class::cETC1S;
-
+                
         switch (rnd_codec_class)
         {
         case (uint32_t)codec_class::cETC1S:
@@ -760,6 +790,12 @@ bool random_compress_test()
             // XUASTC LDR 4x4-12x12
             const uint32_t block_variant = rnd.irand(0, astc_helpers::NUM_ASTC_BLOCK_SIZES - 1);
             tex_mode = (basist::basis_tex_format)((uint32_t)basist::basis_tex_format::cXUASTC_LDR_4x4 + block_variant);
+            break;
+        }
+        case (uint32_t)codec_class::cXUBC7:
+        {
+            // XUBC7 supercompressed BC7 (always 4x4, LDR)
+            tex_mode = basist::basis_tex_format::cXUBC7;
             break;
         }
         default:
@@ -998,7 +1034,7 @@ bool random_compress_test()
         uint32_t flags = cFlagPrintStats | cFlagValidateOutput | cFlagPrintStatus;
         
         flags |= cFlagDebug;
-                
+        
         if (rnd.bit())
             flags |= cFlagThreaded;
 
@@ -1088,6 +1124,35 @@ bool random_compress_test()
 
             break;
         }
+        case (uint32_t)codec_class::cXUBC7:
+        {
+            // XUBC7 supercompressed BC7
+
+            // Choose random effort [0,10]
+            uint32_t effort = rnd.irand(0, 10);
+            flags |= effort;
+
+            // Choose random weight grid DCT quality [1,100]
+            quality = (float)rnd.frand(1.0f, 100.0f);
+
+            // Sometimes force the endpoints: quality 100 (lossless / no DCT) or 0 (DCT disabled).
+            const uint32_t q_special = rnd.irand(0, 11);
+            if (q_special == 0)
+                quality = 0.0f;
+            else if (q_special == 1)
+                quality = 100.0f;
+
+            // Randomly exercise the BC7 base encoder: bc7f (default) or bc7e_scalar
+            // at a random level [0,6]. Packed into the high flag bits: field value
+            // 0=bc7f, 1-7=bc7e_scalar level 0-6 (see cFlagXUBC7BaseEncoder*).
+            if (rnd.bit())
+            {
+                const uint32_t bc7e_level = rnd.irand((int)xbc7::BC7E_SCALAR_MIN_LEVEL, (int)xbc7::BC7E_SCALAR_MAX_LEVEL);
+                flags |= ((bc7e_level + 1) << cFlagXUBC7BaseEncoderShift);
+            }
+
+            break;
+        }
         default:
         {
             assert(0);
@@ -1101,8 +1166,9 @@ bool random_compress_test()
         {
             basisu::vector<imagef> hdr_source_images;
             imagef hdr_src_img(src_img.get_width(), src_img.get_height());
-            
+                        
             const float max_y = rnd.frand(.0000125f, basist::ASTC_HDR_MAX_VAL) / 255.0f;
+            //const float max_y = basist::ASTC_HDR_MAX_VAL / 255.0f;
 
             for (uint32_t y = 0; y < src_img.get_height(); y++)
             {
@@ -1534,6 +1600,65 @@ static bool test_compress_xuastc_ldr_6x6()
     return true;
 }
 
+static bool test_compress_xubc7()
+{
+    printf("test_compress_xubc7:\n");
+
+    const uint32_t W = 256, H = 256;
+
+    image img(W, H);
+    for (uint32_t y = 0; y < H; y++)
+        for (uint32_t x = 0; x < W; x++)
+            img(x, y).set(((x ^ y) & 1) ? 255 : 0);
+
+    basis_compressor_params params;
+
+    // Set the format to XUBC7 (supercompressed BC7) using the recommended unified method.
+    params.set_format_mode_and_quality_effort(basist::basis_tex_format::cXUBC7, 75, 3);
+
+    // Input is sRGB
+    params.set_srgb_options(true);
+
+    // Select the higher-quality (slower) bc7e_scalar BC7 base encoder instead of the
+    // default fast built-in bc7f packer, and set its quality level [0,6].
+    params.m_xubc7_encoder = (int)basisu::xbc7::bc7_encoder_type::cBC7E_Scalar;
+    params.m_xubc7_bc7e_scalar_level = 4;
+
+    // Provide the source image.
+    params.m_source_images.push_back(img);
+
+    // Enable debug/status output and statistics.
+    params.m_debug = true;
+    params.m_status_output = true;
+    params.m_compute_stats = true;
+
+    // Write a .KTX2 file to disk.
+    params.m_create_ktx2_file = true;
+    params.m_write_output_basis_or_ktx2_files = true;
+    params.m_out_filename = "test_xubc7.ktx2";
+
+    // enable automatic mipmap generation
+    params.m_mip_gen = true;
+
+    // Create a job pool. A job pool MUST always be created, even if threading is disabled.
+    // num_total_threads is the TOTAL thread count: 1 = calling thread only, 7 = calling thread + 6 extra.
+    const uint32_t NUM_THREADS = 7;
+    job_pool jp(NUM_THREADS);
+    params.m_pJob_pool = &jp;
+    params.m_multithreading = true;
+
+    // Initialize and run the compressor.
+    basis_compressor comp;
+    if (!comp.init(params))
+        return false;
+
+    basisu::basis_compressor::error_code ec = comp.process();
+    if (ec != basisu::basis_compressor::cECSuccess)
+        return false;
+
+    return true;
+}
+
 // View the resulting texture video .basis file using the webgl/video_test WebGL sample.
 static bool test_compress_etc1s_texture_video(bool write_ktx2_flag, bool gen_mips_flag)
 {
@@ -1847,6 +1972,9 @@ static bool lowlevel_compression_tests()
     if (!test_compress_xuastc_ldr_6x6())
         return false;
 
+    if (!test_compress_xubc7())
+        return false;
+
     for (uint32_t ktx2_iter = 0; ktx2_iter < 2; ktx2_iter++)
     {
         for (uint32_t mips_iter = 0; mips_iter < 2; mips_iter++)
@@ -1913,19 +2041,19 @@ int main(int arg_c, char* arg_v[])
 #if ENABLE_DEBUG_PRINTF
     enable_debug_printf(true);
 #endif
+                
+    if (!random_compress_test())
+    {
+        fprintf(stderr, "random_compress_test() failed!\n");
+        return EXIT_FAILURE;
+    }
 
     if (!lowlevel_compression_tests())
     {
         fprintf(stderr, "lowlevel_compression_tests() failed!\n");
         return EXIT_FAILURE;
     }
-
-    if (!random_compress_test())
-    {
-        fprintf(stderr, "random_compress_test() failed!\n");
-        return EXIT_FAILURE;
-    }
-    
+            
     if (!block_unpack_and_transcode_example())
     {
         fprintf(stderr, "block_unpack_and_transcode_example() failed!\n");

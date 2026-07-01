@@ -2047,6 +2047,12 @@ private:
 
 //bool save_png(const char* pFilename, const image_u8& img, bool save_alpha);
 
+// Writes an uncompressed (no-RLE) Windows .BMP. Self-contained (no PNG library needed). save_alpha=true writes
+// 32-bpp BGRA using a BITMAPV4HEADER with explicit channel masks (so the alpha channel is unambiguously
+// recognized by viewers/tools); save_alpha=false writes 24-bpp BGR (rows padded to 4 bytes). Returns false on
+// file I/O error.
+bool save_bmp(const char* pFilename, const image_u8& img, bool save_alpha);
+
 class image_metrics
 {
 public:
