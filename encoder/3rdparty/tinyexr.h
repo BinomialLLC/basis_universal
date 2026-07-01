@@ -63,6 +63,8 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 //
 ///////////////////////////////////////////////////////////////////////////
 
+// RG 6/28/2026: Various UBSAN bit shifting related fixes are below.
+
 // End of OpenEXR license -------------------------------------------------
 
 
@@ -2273,7 +2275,7 @@ inline long long hufCode(long long code) { return code >> 6; }
 
 inline void outputBits(int nBits, long long bits, long long &c, int &lc,
                        char *&out) {
-  c <<= nBits;
+  c = static_cast<long long>(static_cast<unsigned long long>(c) << nBits);
   lc += nBits;
 
   c |= bits;
@@ -2283,7 +2285,9 @@ inline void outputBits(int nBits, long long bits, long long &c, int &lc,
 
 inline long long getBits(int nBits, long long &c, int &lc, const char *&in) {
   while (lc < nBits) {
-    c = (c << 8) | *(reinterpret_cast<const unsigned char *>(in++));
+    c = static_cast<long long>(
+        (static_cast<unsigned long long>(c) << 8) |
+        *(reinterpret_cast<const unsigned char *>(in++)));
     lc += 8;
   }
 
@@ -2586,7 +2590,8 @@ static void hufPackEncTable(
     outputBits(6, l, c, lc, p);
   }
 
-  if (lc > 0) *p++ = (unsigned char)(c << (8 - lc));
+  if (lc > 0)
+    *p++ = (unsigned char)(static_cast<unsigned long long>(c) << (8 - lc));
 
   *pcode = p;
 }
@@ -2842,7 +2847,7 @@ static int hufEncode            // return: output size (in bits)
 
   sendCode(hcode[s], cs, hcode[rlc], c, lc, out);
 
-  if (lc) *out = (c << (8 - lc)) & 0xff;
+  if (lc) *out = (static_cast<unsigned long long>(c) << (8 - lc)) & 0xff;
 
   return (out - outStart) * 8 + lc;
 }
@@ -2857,10 +2862,11 @@ static int hufEncode            // return: output size (in bits)
 // instead of "inline" functions.
 //
 
-#define getChar(c, lc, in)                   \
-  {                                          \
-    c = (c << 8) | *(unsigned char *)(in++); \
-    lc += 8;                                 \
+#define getChar(c, lc, in)                                                   \
+  {                                                                          \
+    c = (long long)(((unsigned long long)(c) << 8) |                        \
+                    *(unsigned char *)(in++));                              \
+    lc += 8;                                                                 \
   }
 
 #if 0
@@ -3021,7 +3027,9 @@ static bool hufDecode(const long long *hcode,  // i : encoding table
   lc -= i;
 
   while (lc > 0) {
-    const HufDec pl = hdecod[(c << (HUF_DECBITS - lc)) & HUF_DECMASK];
+    const HufDec pl =
+        hdecod[(static_cast<unsigned long long>(c) << (HUF_DECBITS - lc)) &
+               HUF_DECMASK];
 
     if (pl.len) {
       lc -= pl.len;
