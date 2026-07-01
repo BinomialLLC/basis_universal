@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+   <meta charset="utf-8" />
+   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+   <title>Shader Deblocking</title>
+   <style>
+      html, body {
+         margin: 0;
+         padding: 0;
+         height: 100%;
+         background: #202020;
+         color: #e0e0e0;
+         font-family: Consolas, "Courier New", monospace;
+         overflow: hidden;
+         overscroll-behavior: none; /* stop Android pull-to-refresh / iOS rubber-banding */
+      }
+      #canvas {
+         display: block;
+         width: 100vw;
+         height: 100vh;   /* fallback for older browsers */
+         height: 100dvh;  /* dynamic viewport height: correct under the mobile URL bar */
+         touch-action: none; /* we handle drag/pinch ourselves; stop browser pan/zoom */
+      }
+      /* Text overlays sit on top of the GL canvas. The native sample drew an
+         8x8 bitmap font into the framebuffer; in the browser plain HTML/CSS is
+         simpler and crisper. */
+      .overlay {
+         position: fixed;
+         left: calc(8px + env(safe-area-inset-left));
+         pointer-events: none;
+         white-space: pre;
+         font-size: 13px;
+         line-height: 1.35;
+         text-shadow: 0 0 3px #000, 0 0 3px #000;
+      }
+      /* #info top-left; #help stacked just below it (kept away from the bottom
+         button bar, which can wrap to multiple rows on a narrow phone). */
+      #info { top: calc(8px + env(safe-area-inset-top)); }
+      #help { top: calc(70px + env(safe-area-inset-top)); color: #b0b0b0; font-size: 12px; }
+      /* On-screen control bar — keeps the sample fully usable on touch devices. */
+      #buttons {
+         position: fixed;
+         left: 50%;
+         bottom: calc(10px + env(safe-area-inset-bottom));
+         transform: translateX(-50%);
+         display: flex;
+         flex-wrap: nowrap;           /* single horizontal row along the bottom */
+         gap: 6px;
+         justify-content: center;
+         max-width: calc(100vw - 12px);
+         overflow-x: auto;            /* scroll rather than stack if a screen is too narrow */
+         pointer-events: auto;
+      }
+      #buttons button {
+         background: #303030;
+         color: #e0e0e0;
+         border: 1px solid #555;
+         font-family: inherit;
+         font-size: 13px;
+         padding: 10px 8px;
+         min-height: 44px;            /* iOS HIG minimum tap target */
+         white-space: nowrap;         /* keep each label on one line */
+         flex: 0 0 auto;
+         border-radius: 5px;
+         cursor: pointer;
+         touch-action: manipulation;  /* kill the 300ms double-tap delay/zoom */
+      }
+      /* Guard :hover so it doesn't "stick" after a tap on touch devices. */
+      @media (hover: hover) { #buttons button:hover { background: #3a3a3a; } }
+      #buttons button:active { background: #454545; }  /* immediate touch feedback */
+      #buttons button.active { background: #2a5d2a; border-color: #3a8a3a; }
+      /* Pulldown sits BELOW the debug text (#info 3 lines + #help), left-aligned, so
+         it never overlaps/obscures the overlay text on a narrow phone screen. */
+      #controls {
+         position: fixed;
+         top: calc(112px + env(safe-area-inset-top));
+         left: calc(8px + env(safe-area-inset-left));
+         pointer-events: auto;
+         font-size: 13px;
+      }
+      #controls select {
+         background: #303030;
+         color: #e0e0e0;
+         border: 1px solid #555;
+         font-family: inherit;
+         font-size: 16px;     /* >=16px stops iOS auto-zoom on focus */
+         padding: 8px 10px;
+         min-height: 44px;
+         touch-action: manipulation;
+      }
+      #error {
+         position: fixed;
+         left: 50%;
+         top: 50%;
+         transform: translate(-50%, -50%);
+         color: #ff8080;
+         font-size: 15px;
+         max-width: 80vw;
+         text-align: center;
+         display: none;
+      }
+   </style>
+</head>
+<body>
+   <canvas id="canvas"></canvas>
+
+   <div id="info" class="overlay">Loading…</div>
+   <div id="help" class="overlay"></div>
+
+   <div id="buttons">
+      <button id="btnMode">Quad</button>
+      <button id="btnDeblock">Deblock</button>
+      <button id="btnEdges">Edges</button>
+      <button id="btnFilter">Trilinear</button>
+      <button id="btnReset">Reset</button>
+   </div>
+
+   <div id="controls">
+      <label for="asset">Texture: </label>
+      <select id="asset">
+         <option value="assets/kodim01.ktx2">kodim01.ktx2</option>
+         <option value="assets/kodim03.ktx2">kodim03.ktx2</option>
+         <option value="assets/kodim23.ktx2" selected>kodim23.ktx2</option>
+         <option value="assets/tng.ktx2">tng.ktx2 (8x8, mipped)</option>
+         <option value="assets/tng2.ktx2">tng2.ktx2 (8x8, mipped, 1000h)</option>
+         <option value="assets/tng3.ktx2">tng3.ktx2 (12x12, mipped)</option>
+         <option value="assets/frymire.ktx2">frymire.ktx2</option>
+         <option value="assets/frymire2.ktx2">frymire2.ktx2</option>
+      </select>
+   </div>
+
+   <div id="error"></div>
+
+   <!-- Shared Basis Universal transcoder (transcode-only WASM build), same one
+        used by the other webgl/ samples. main.js boots it via BASIS(). -->
+   <script src="../transcoder/build/basis_transcoder.js"></script>
+   <script src="main.js"></script>
+</body>
+</html>
