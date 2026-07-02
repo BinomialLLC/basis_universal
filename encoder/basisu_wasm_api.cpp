@@ -233,7 +233,7 @@ wasm_bool_t bu_comp_params_set_image_float_rgba(
 	if (pitch_in_bytes < width * bytes_per_pixel)
 		return false;
 
-	if (image_index >= pParams->m_images.size())
+	if (image_index >= pParams->m_imagesf.size())
 	{
 		if (!pParams->m_imagesf.try_resize(image_index + 1))
 			return false;
