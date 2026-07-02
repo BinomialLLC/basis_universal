@@ -2,6 +2,8 @@
 
 *Block boundaries are predictable.*
 
+A WebGL port of this sample is [here](https://github.com/BinomialLLC/basis_universal/tree/master/webgl/shader_deblocking), and is [live here](https://binomial.biz/shader_deblocking/).
+
 This is a native C++ port (using GLFW + OpenGL) of the Python+GLSL shader deblocking
 sample. It demonstrates how to use a simple pixel shader to greatly reduce ASTC
 texture block artifacts, which can be quite noticeable when the block size goes beyond
