@@ -594,109 +594,109 @@ namespace xbc7 {
 	};
 
 	bool blob_stream_reader::init_internal(const void* pData, size_t data_size, uint64_t max_total_uncomp)
+	{
+		clear();
+
+		const uint8_t* pBytes = static_cast<const uint8_t*>(pData);
+
+		if ((!pBytes) || (data_size < 3)) // magic + count + magic minimum
+			return false;
+
+		uint64_t ofs = 0;
+		if (pBytes[ofs++] != BLOB_STREAM_MAGIC_BEGIN)
+			return false;
+		const uint32_t num_blobs = pBytes[ofs++];
+
+		// pass 1: walk + validate the directory, total the arena size
+		struct entry { uint32_t id, uncomp_size, stored_size; uint64_t data_ofs; };
+		entry entries[255];
+		uint64_t total_arena = 0;
+
+		for (uint32_t i = 0; i < num_blobs; i++)
 		{
-			clear();
-
-			const uint8_t* pBytes = static_cast<const uint8_t*>(pData);
-
-			if ((!pBytes) || (data_size < 3)) // magic + count + magic minimum
+			if (ofs >= data_size)
 				return false;
 
-			uint64_t ofs = 0;
-			if (pBytes[ofs++] != BLOB_STREAM_MAGIC_BEGIN)
+			entry& e = entries[i];
+			const uint8_t id_flag = pBytes[ofs++];
+			e.id = id_flag & 0x7Fu;
+			const bool compressed = (id_flag & 0x80u) != 0;
+
+			if (!read_varint(pBytes, data_size, ofs, e.uncomp_size))
 				return false;
-			const uint32_t num_blobs = pBytes[ofs++];
-
-			// pass 1: walk + validate the directory, total the arena size
-			struct entry { uint32_t id, uncomp_size, stored_size; uint64_t data_ofs; };
-			entry entries[255];
-			uint64_t total_arena = 0;
-
-			for (uint32_t i = 0; i < num_blobs; i++)
+			e.stored_size = 0;
+			if (compressed)
 			{
-				if (ofs >= data_size)
+				if (!read_varint(pBytes, data_size, ofs, e.stored_size))
 					return false;
-
-				entry& e = entries[i];
-				const uint8_t id_flag = pBytes[ofs++];
-				e.id = id_flag & 0x7Fu;
-				const bool compressed = (id_flag & 0x80u) != 0;
-
-				if (!read_varint(pBytes, data_size, ofs, e.uncomp_size))
+				if (!e.stored_size)
 					return false;
-				e.stored_size = 0;
-				if (compressed)
-				{
-					if (!read_varint(pBytes, data_size, ofs, e.stored_size))
-						return false;
-					if (!e.stored_size)
-						return false;
-				}
-				e.data_ofs = ofs;
+			}
+			e.data_ofs = ofs;
 
-				if (!e.uncomp_size)
-					return false; // empty blobs are never stored
+			if (!e.uncomp_size)
+				return false; // empty blobs are never stored
 
-				if (m_sizes[e.id] || m_ptrs[e.id])
-					return false; // duplicate id
+			if (m_sizes[e.id] || m_ptrs[e.id])
+				return false; // duplicate id
 
-				const uint64_t stored_bytes = e.stored_size ? e.stored_size : e.uncomp_size;
-				if ((ofs + stored_bytes) > data_size)
+			const uint64_t stored_bytes = e.stored_size ? e.stored_size : e.uncomp_size;
+			if ((ofs + stored_bytes) > data_size)
+				return false;
+			ofs += stored_bytes;
+
+			if (e.stored_size)
+			{
+				if (e.stored_size >= e.uncomp_size)
+					return false; // compressed must be strictly smaller (writer guarantees it)
+				total_arena += e.uncomp_size;
+				if (total_arena > max_total_uncomp)
 					return false;
-				ofs += stored_bytes;
-
-				if (e.stored_size)
-				{
-					if (e.stored_size >= e.uncomp_size)
-						return false; // compressed must be strictly smaller (writer guarantees it)
-					total_arena += e.uncomp_size;
-					if (total_arena > max_total_uncomp)
-						return false;
-				}
-
-				// mark id as seen (real ptr/size set in pass 2)
-				m_sizes[e.id] = e.uncomp_size;
-				m_ptrs[e.id] = pBytes; // placeholder, nonzero for dup detection
 			}
 
-			// end marker must be the exact final byte: rejects truncation,
-			// trailing garbage, and directory/data length disagreements
-			if ((ofs != (data_size - 1)) || (pBytes[ofs] != BLOB_STREAM_MAGIC_END))
-				return false;
+			// mark id as seen (real ptr/size set in pass 2)
+			m_sizes[e.id] = e.uncomp_size;
+			m_ptrs[e.id] = pBytes; // placeholder, nonzero for dup detection
+		}
 
-			// pass 2: single arena allocation, decompress, wire up pointers
-			if (!m_arena.try_resize((size_t)total_arena))
-				return false;
+		// end marker must be the exact final byte: rejects truncation,
+		// trailing garbage, and directory/data length disagreements
+		if ((ofs != (data_size - 1)) || (pBytes[ofs] != BLOB_STREAM_MAGIC_END))
+			return false;
 
-			uint64_t arena_ofs = 0;
-			for (uint32_t i = 0; i < num_blobs; i++)
+		// pass 2: single arena allocation, decompress, wire up pointers
+		if (!m_arena.try_resize((size_t)total_arena))
+			return false;
+
+		uint64_t arena_ofs = 0;
+		for (uint32_t i = 0; i < num_blobs; i++)
+		{
+			const entry& e = entries[i];
+
+			if (!e.stored_size)
 			{
-				const entry& e = entries[i];
-
-				if (!e.stored_size)
-				{
-					m_ptrs[e.id] = pBytes + e.data_ofs; // raw: zero copy into input
-				}
-				else
-				{
-					uint8_t* pDst = m_arena.data() + arena_ofs;
+				m_ptrs[e.id] = pBytes + e.data_ofs; // raw: zero copy into input
+			}
+			else
+			{
+				uint8_t* pDst = m_arena.data() + arena_ofs;
 
 #if BASISD_SUPPORT_KTX2_ZSTD
-					const size_t res = ZSTD_decompress(pDst, e.uncomp_size, pBytes + e.data_ofs, e.stored_size);
-					if (ZSTD_isError(res) || (res != e.uncomp_size))
-						return false;
+				const size_t res = ZSTD_decompress(pDst, e.uncomp_size, pBytes + e.data_ofs, e.stored_size);
+				if (ZSTD_isError(res) || (res != e.uncomp_size))
+					return false;
 #else
-					BASISU_NOTE_UNUSED(pDst);
-					return false; // zstd disabled at compile time
+				BASISU_NOTE_UNUSED(pDst);
+				return false; // zstd disabled at compile time
 #endif
 
-					m_ptrs[e.id] = pDst;
-					arena_ofs += e.uncomp_size;
-				}
+				m_ptrs[e.id] = pDst;
+				arena_ofs += e.uncomp_size;
 			}
-
-			return true;
 		}
+
+		return true;
+	}
 
 	bool image_unpacker::init(
 		const byte_span& comp,
