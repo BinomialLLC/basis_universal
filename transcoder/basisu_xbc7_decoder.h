@@ -1114,7 +1114,9 @@ inline constexpr xbc7_xy_delta g_xbc7_xy_deltas[NUM_XY_DELTAS] =
 		cBlobPartition2 = 3,	// modes 1, 3, 7 (64 patterns)
 		cBlobPartition3 = 4,	// modes 0, 2   (mode 0: index < 16, else reject)
 
-		// Joint (candidate, amp code) predictor byte, WT = DCT blocks only.
+		// Joint (candidate, amp code) predictor byte, one per full-block
+		// command (CMD = new-config/reuse-config), consumed by BOTH weight
+		// modes (DPCM and DCT).
 		// value = cand_index + amp_code * cTotalCandidates; >= 200 rejects.
 		cBlobWeightPredictors = 5,
 
@@ -1130,8 +1132,10 @@ inline constexpr xbc7_xy_delta g_xbc7_xy_deltas[NUM_XY_DELTAS] =
 		// Bit-packed raw sign bits: AC signs, plus DC signs where present.
 		cBlobCoeffSigns = 9,
 
-		// Bit-packed endpoint p-bits (1 or 2 per subset per the mode's pbit
-		// shape), raw. Own stream so the accounting can price them.
+		// Bit-packed endpoint p-bit RESIDUALS for the DPCM endpoint modes
+		// (1 or 2 per subset per the mode's pbit shape), stored raw. The
+		// EP = raw escape path's p-bits travel in cBlobEPRaw instead. Own
+		// stream so the accounting can price them.
 		cBlobPBits = 10,
 
 		cBlobEPDeltaFineR = 11, // >= 6 bits
@@ -1158,10 +1162,11 @@ inline constexpr xbc7_xy_delta g_xbc7_xy_deltas[NUM_XY_DELTAS] =
 		cBlobRawWeightBits = 21,
 
 		// CMD = solid: per-solid-block DPCM residual vs the neighbor edge
-		// prediction, 4 interleaved wrapped bytes (G, R-G, B-G, A) in 8-bit
-		// PIXEL space -- distinct domain and predictor from the endpoint
-		// deltas, so its own stream and FSE context. Interleaved rather than
-		// planar; revisit if UI-class corpora make this blob dominant.
+		// prediction, one wrapped byte per channel in R,G,B,A order (3 bytes
+		// when the file has no alpha, 4 with alpha) in 8-bit PIXEL space --
+		// distinct domain and predictor from the endpoint deltas, so its own
+		// stream and FSE context. Interleaved rather than planar; revisit if
+		// UI-class corpora make this blob dominant.
 		cBlobSolidRGBADeltas = 22,
 
 		// WT = DPCM with a real predictor: wrapped n-bit weight index residuals,
