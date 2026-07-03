@@ -259,6 +259,9 @@ static std::string read_file(const std::string& path) {
 }
 
 static ID3DBlob* compile_hlsl_file(const std::string& path, const char* entry, const char* target) {
+    // Byte-to-wchar widen: fine for the ASCII "deblock.hlsl" path this sample uses,
+    // but it mangles non-ASCII paths -- use MultiByteToWideChar(CP_UTF8,...) if you
+    // adapt this to load shaders from arbitrary (possibly Unicode) asset paths.
     std::wstring wpath(path.begin(), path.end());
     ID3DBlob* code = nullptr, * errors = nullptr;
     // Warnings print but do not fail the compile: the R-key hot-reload workflow
