@@ -1527,13 +1527,13 @@ namespace basisu
 		case texture_format::cBC6HSigned:
 		{
 			internal_fmt = KTX_COMPRESSED_RGB_BPTC_SIGNED_FLOAT;
-			base_internal_fmt = KTX_RGBA;
+			base_internal_fmt = KTX_RGB;
 			break;
 		}
 		case texture_format::cBC6HUnsigned:
 		{
 			internal_fmt = KTX_COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT;
-			base_internal_fmt = KTX_RGBA;
+			base_internal_fmt = KTX_RGB;
 			break;
 		}
 		case texture_format::cBC7:
@@ -1556,8 +1556,8 @@ namespace basisu
 		case texture_format::cASTC_HDR_6x6:
 		{
 			internal_fmt = KTX_COMPRESSED_RGBA_ASTC_6x6_KHR;
-			// TODO: should we write RGB? We don't support generating HDR 6x6 with alpha.
-			base_internal_fmt = KTX_RGBA; 
+			// RGBA is correct: ASTC HDR can have alpha, and the RGBA ASTC token's base format is RGBA.
+			base_internal_fmt = KTX_RGBA;
 			break;
 		}
 		// We use different enums for HDR vs. LDR ASTC, but internally they are both just ASTC.

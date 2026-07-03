@@ -273,7 +273,7 @@ namespace basist
 		// Disable deblock filtering for XUASTC LDR/ASTC LDR transcoding to non-ASTC formats.
 		// For block sizes smaller than 10x8 (block area < BASISU_DEBLOCKING_BLOCK_SIZE_THRESHOLD texels), deblocking is disabled by default during encoding, but it can be enabled via compressor parameters.
 		// Note: The encoder writes a "DeblockFilterID" key value field into KTX2 files. By default (i.e. when neither this flag nor cDecodeFlagsForceDeblockFiltering
-		// is specified), the transcoder uses that field to decide if CPU deblocking should occur during transcoding. Specifying this flag, or
+		// is specified), the KTX2 transcoder uses that field to decide if CPU deblocking should occur during transcoding. Specifying this flag, or
 		// cDecodeFlagsForceDeblockFiltering, causes the transcoder to IGNORE the file's DeblockFilterID field and use the requested behavior instead.
 		cDecodeFlagsNoDeblockFiltering = 128,
 
