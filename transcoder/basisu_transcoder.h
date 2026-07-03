@@ -270,12 +270,15 @@ namespace basist
 		// Disable ETC1S->BC7 adaptive chroma filtering, for much faster transcoding to BC7.
 		cDecodeFlagsNoETC1SChromaFiltering = 64,
 
-		// Disable deblock filtering for XUASTC LDR transcoding to non-ASTC formats. 
-		// For ASTC 8x6 or smaller block sizes, deblocking is always disabled unless you force it on using cDecodeFlagsForceDeblockFiltering.
+		// Disable deblock filtering for XUASTC LDR/ASTC LDR transcoding to non-ASTC formats.
+		// For block sizes smaller than 10x8 (block area < BASISU_DEBLOCKING_BLOCK_SIZE_THRESHOLD texels), deblocking is disabled by default during encoding, but it can be enabled via compressor parameters.
+		// Note: The encoder writes a "DeblockFilterID" key value field into KTX2 files. By default (i.e. when neither this flag nor cDecodeFlagsForceDeblockFiltering
+		// is specified), the transcoder uses that field to decide if CPU deblocking should occur during transcoding. Specifying this flag, or
+		// cDecodeFlagsForceDeblockFiltering, causes the transcoder to IGNORE the file's DeblockFilterID field and use the requested behavior instead.
 		cDecodeFlagsNoDeblockFiltering = 128,
-						
-		// Always apply deblocking, even for smaller ASTC block sizes (4x4-8x6).
-		cDecodeFlagsForceDeblockFiltering = 512, 
+
+		// Always apply deblocking, even for smaller ASTC block sizes (smaller than 10x8). Overrides the KTX2 file's DeblockFilterID field (see above).
+		cDecodeFlagsForceDeblockFiltering = 512,
 
 		// By default XUASTC LDR 4x4, 6x6 and 8x6 are directly transcoded to BC7 without always requiring a full ASTC block unpack and analytical BC7 encode. This is 1.4x up to 3x faster in WASM.
 		// This trade offs some quality. The largest transcoding speed gain is achieved when the source XUASTC data isn't dual plane and only uses 1 subset. Otherwise the actual perf. gain is variable.
