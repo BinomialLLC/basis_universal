@@ -466,7 +466,7 @@ namespace basisu
 			
 			// 4/26/2026: The default ASTC/XUASTC/XUBC7/DDS creation LDR channel weights are now 9,11,1 - this looks a lot better for photos vs. 1,1,1.
 			// The challenge with this new default: developers compressing normal maps or non-sRGB content must now override these channel weights to 1,1,1,1.
-			set_xuastc_ldr_srgb_channel_weights(true);
+			set_ldr_srgb_channel_weights(true);
 
 			m_xuastc_ldr_blurring.clear();
 			m_xuastc_ldr_astc_comp_selection.clear();
