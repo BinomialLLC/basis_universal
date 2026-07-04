@@ -597,7 +597,7 @@ namespace basisu
 
 		// Sets all the sRGB-related options (m_perceptual, m_mip_srgb, m_ktx2_and_basis_srgb_transfer_function) to the specified value.
 		// If m_perceptual is true, the encoder assumes the input is sRGB photographic-like data and optimizes for perceptual quality. If false, the encoder assumes the input is linear data and optimizes for PSNR.
-		// For ASTC/XUASTC LDR and XUBC7, also see the channel weights below: m_ldr_channel_weights. They default to 9,11,1,11.
+		// For ASTC/XUASTC LDR and XUBC7, also see the channel weights below (m_ldr_channel_weights) and the set_ldr_srgb_channel_weights(bool srgb_flag) helper method. The channel weights default to 9,11,1,11 (perceptual).
 		void set_srgb_options(bool srgb_flag)
 		{
 			m_perceptual = srgb_flag;
