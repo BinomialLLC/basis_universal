@@ -860,7 +860,7 @@ namespace basisu
 		// Disable RGB dual plane usage (still can use dual plane on alpha blocks), for faster transcoding to BC7 but lower quality.
 		bool_param<false> m_xuastc_ldr_force_disable_rgb_dual_plane; 
 
-		// Entropy coding syntax: Default is basist::astc_ldr_t::xuastc_ldr_syntax::cFullZstd (fastest transcoding but lower ratio).
+		// Entropy coding syntax: Default is basist::astc_ldr_t::xuastc_ldr_syntax::cFullZStd (fastest transcoding but lower ratio).
 		param<int> m_xuastc_ldr_syntax; 
 
 		// ASTC/XUASTC/XUBC7 weights - these per-channel weights are also used when encoding .DDS files
