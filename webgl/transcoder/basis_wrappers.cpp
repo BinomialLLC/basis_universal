@@ -3740,7 +3740,6 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
     }))
 
     // setNormalMapMode is the same as the basisu.exe "-normal_map" option. It tunes several codec parameters so compression works better on normal maps.
-    // ETC1S/UASTC LDR 4x4/UASTC HDR 4x4
     .function("setNormalMapPreset", optional_override([](basis_encoder& self) {
         
 		self.m_params.set_srgb_options(false);
@@ -3748,7 +3747,7 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
         self.m_params.m_no_selector_rdo = true;
         self.m_params.m_no_endpoint_rdo = true;
 		
-		self.m_params.set_xuastc_ldr_srgb_channel_weights(false);
+		self.m_params.set_ldr_srgb_channel_weights(false);
 		
 		self.m_params.m_xuastc_ldr_sharpen_mode = (int)xuastc_ldr_sharpen_mode::cDisabled;
 		self.m_params.m_xuastc_ldr_deblocking_mode = (int)xuastc_ldr_deblocking_mode::cDisabled;
@@ -3762,7 +3761,7 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
         self.m_params.m_no_selector_rdo = false;
         self.m_params.m_no_endpoint_rdo = false;
 		
-		self.m_params.set_xuastc_ldr_srgb_channel_weights(true);
+		self.m_params.set_ldr_srgb_channel_weights(true);
 		
 		self.m_params.m_xuastc_ldr_sharpen_mode = (int)xuastc_ldr_sharpen_mode::cDisabled;
 		self.m_params.m_xuastc_ldr_deblocking_mode = (int)xuastc_ldr_deblocking_mode::cUseSCDAndFilteringOnlyLargestBlocks;
@@ -3773,7 +3772,7 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
         
 		self.m_params.set_srgb_options(false);
 		
-		self.m_params.set_xuastc_ldr_srgb_channel_weights(false);
+		self.m_params.set_ldr_srgb_channel_weights(false);
     }))
 	
 	// -srgb option	
@@ -3781,7 +3780,7 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
         
 		self.m_params.set_srgb_options(true);
 		
-		self.m_params.set_xuastc_ldr_srgb_channel_weights(true);
+		self.m_params.set_ldr_srgb_channel_weights(true);
     }))
         
     // Sets ETC1S selector RDO threshold
@@ -3823,7 +3822,7 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
     }))
 		
 	// Sets all the sRGB-related options (m_perceptual, m_mip_srgb, m_ktx2_and_basis_srgb_transfer_function) to the specified value, ensuring they are all kept in sync.
-	// For ASTC/XUASTC LDR, also see the channel weights below: m_xuastc_ldr_channel_weights. They default to 3,11,1,11.
+	// For ASTC/XUASTC LDR and XUBC7, also see the channel weights below: m_ldr_channel_weights. They default to 9,11,1,11.
     .function("setSRGBOptions", optional_override([](basis_encoder& self, bool srgb_flag) {
         self.m_params.set_srgb_options(srgb_flag);
     }))
@@ -3967,13 +3966,22 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
         self.m_params.m_xuastc_ldr_effort_level = effort_level;
     }))
 
-    // Sets the ASTC/XUASTC LDR channel weights
-	// The default channel weights are 3,11,1,11 - so override them for linear content (like normal maps or non-sRGB content).
+    // Sets the ASTC/XUASTC/XUBC7 LDR channel weights
+	// The default channel weights are 9,11,1,11 - so override them for linear content (like normal maps or non-sRGB content).
     .function("setASTCOrXUASTCLDRWeights", optional_override([](basis_encoder& self, uint32_t x, uint32_t y, uint32_t z, uint32_t w) {
-        self.m_params.m_xuastc_ldr_channel_weights[0] = x;
-        self.m_params.m_xuastc_ldr_channel_weights[1] = y;
-        self.m_params.m_xuastc_ldr_channel_weights[2] = z;
-        self.m_params.m_xuastc_ldr_channel_weights[3] = w;
+        self.m_params.m_ldr_channel_weights[0] = x;
+        self.m_params.m_ldr_channel_weights[1] = y;
+        self.m_params.m_ldr_channel_weights[2] = z;
+        self.m_params.m_ldr_channel_weights[3] = w;
+    }))
+	
+	// Sets the ASTC/XUASTC/XUBC7 LDR channel weights
+	// The default channel weights are 9,11,1,11 - so override them for linear content (like normal maps or non-sRGB content).
+    .function("setLDRChannelWeights", optional_override([](basis_encoder& self, uint32_t x, uint32_t y, uint32_t z, uint32_t w) {
+        self.m_params.m_ldr_channel_weights[0] = x;
+        self.m_params.m_ldr_channel_weights[1] = y;
+        self.m_params.m_ldr_channel_weights[2] = z;
+        self.m_params.m_ldr_channel_weights[3] = w;
     }))
 
     // Sets XUASTC LDR lossy supercompression (bounded/windows RDO) parameters.

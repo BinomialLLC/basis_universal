@@ -597,7 +597,7 @@ namespace basisu
 
 		// Sets all the sRGB-related options (m_perceptual, m_mip_srgb, m_ktx2_and_basis_srgb_transfer_function) to the specified value.
 		// If m_perceptual is true, the encoder assumes the input is sRGB photographic-like data and optimizes for perceptual quality. If false, the encoder assumes the input is linear data and optimizes for PSNR.
-		// For ASTC/XUASTC LDR, also see the channel weights below: m_xuastc_ldr_channel_weights. They default to 9,11,1,11.
+		// For ASTC/XUASTC LDR and XUBC7, also see the channel weights below: m_ldr_channel_weights. They default to 9,11,1,11.
 		void set_srgb_options(bool srgb_flag)
 		{
 			m_perceptual = srgb_flag;
@@ -862,12 +862,12 @@ namespace basisu
 		// Entropy coding syntax: Default is basist::astc_ldr_t::xuastc_ldr_syntax::cFullZstd (fastest transcoding but lower ratio).
 		param<int> m_xuastc_ldr_syntax; 
 
-		// XUASTC/XUBC7 weights (TODO: rename to make it clear these are shared now)
+		// XUASTC/XUBC7 weights (TODO: rename to make it clear these are shared between different codecs now)
 		// Each component channel weight must be >= 1 (no 0 weights allowed). 
 		// Important: Default channel weights are 9,11,1,11. 
 		// For best photo quality, especially on the largest block sizes, the RGB weights should be set to roughly 9,11,1, and alpha set to ~G, so 11.
 		// For non-photographic, non-sRGB or linear (normal map) content, this should be set to 1,1,1,1.
-		uint32_t m_xuastc_ldr_channel_weights[4]; 
+		uint32_t m_ldr_channel_weights[4]; 
 
 		// Set ASTC/XUASTC/XUBC7 LDR linear or Rec 709-like channel weights. On larger ASTC/XUASTC LDR block sizes, 709-like weights make a noticeable difference in quality.
 		void set_ldr_srgb_channel_weights(bool srgb_flag)
@@ -875,17 +875,17 @@ namespace basisu
 			if (srgb_flag)
 			{
 				// 9,11,1,11
-				m_xuastc_ldr_channel_weights[0] = 9;
-				m_xuastc_ldr_channel_weights[1] = 11;
-				m_xuastc_ldr_channel_weights[2] = 1;
-				m_xuastc_ldr_channel_weights[3] = 11;
+				m_ldr_channel_weights[0] = 9;
+				m_ldr_channel_weights[1] = 11;
+				m_ldr_channel_weights[2] = 1;
+				m_ldr_channel_weights[3] = 11;
 			}
 			else
 			{
-				m_xuastc_ldr_channel_weights[0] = 1;
-				m_xuastc_ldr_channel_weights[1] = 1;
-				m_xuastc_ldr_channel_weights[2] = 1;
-				m_xuastc_ldr_channel_weights[3] = 1;
+				m_ldr_channel_weights[0] = 1;
+				m_ldr_channel_weights[1] = 1;
+				m_ldr_channel_weights[2] = 1;
+				m_ldr_channel_weights[3] = 1;
 			}
 		}
 		

@@ -631,9 +631,9 @@ namespace basisu
 			PRINT_BOOL_VALUE(m_xuastc_ldr_force_disable_rgb_dual_plane);
 			PRINT_INT_VALUE(m_xuastc_ldr_syntax);
 						
-			debug_printf("XUASTC LDR channel weights: ");
+			debug_printf("LDR channel weights: ");
 			for (uint32_t i = 0; i < 4; i++)
-				fmt_debug_printf("{} ", m_params.m_xuastc_ldr_channel_weights[i]);
+				fmt_debug_printf("{} ", m_params.m_ldr_channel_weights[i]);
 			debug_printf("\n");
 						
 			PRINT_FLOAT_VALUE(m_ls_min_psnr);
@@ -929,7 +929,7 @@ namespace basisu
 							(bool)m_params.m_xuastc_ldr_use_lossy_supercompression,
 							(bool)m_params.m_ktx2_and_basis_srgb_transfer_function,
 							(int)m_params.m_xuastc_ldr_syntax,
-							m_params.m_xuastc_ldr_channel_weights[0], m_params.m_xuastc_ldr_channel_weights[1], m_params.m_xuastc_ldr_channel_weights[2], m_params.m_xuastc_ldr_channel_weights[3]);
+							m_params.m_ldr_channel_weights[0], m_params.m_ldr_channel_weights[1], m_params.m_ldr_channel_weights[2], m_params.m_ldr_channel_weights[3]);
 					}
 					else
 					{
@@ -938,7 +938,7 @@ namespace basisu
 							(int)m_params.m_xuastc_ldr_effort_level, (bool)m_params.m_xuastc_ldr_force_disable_subsets, (bool)m_params.m_xuastc_ldr_force_disable_rgb_dual_plane,
 							(bool)m_params.m_ktx2_and_basis_srgb_transfer_function,
 							(int)m_params.m_xuastc_ldr_syntax,
-							m_params.m_xuastc_ldr_channel_weights[0], m_params.m_xuastc_ldr_channel_weights[1], m_params.m_xuastc_ldr_channel_weights[2], m_params.m_xuastc_ldr_channel_weights[3]);
+							m_params.m_ldr_channel_weights[0], m_params.m_ldr_channel_weights[1], m_params.m_ldr_channel_weights[2], m_params.m_ldr_channel_weights[3]);
 					}
 				}
 
@@ -1634,7 +1634,7 @@ namespace basisu
 		cfg.m_lossy_supercompression = m_params.m_xuastc_ldr_use_lossy_supercompression;
 
 		for (uint32_t i = 0; i < 4; i++)
-			cfg.m_comp_weights[i] = m_params.m_xuastc_ldr_channel_weights[i];
+			cfg.m_comp_weights[i] = m_params.m_ldr_channel_weights[i];
 
 		cfg.m_replacement_min_psnr = m_params.m_ls_min_psnr;
 		cfg.m_psnr_trial_diff_thresh = m_params.m_ls_thresh_psnr;
@@ -1852,10 +1852,10 @@ namespace basisu
 		options.m_dct_q = (m_params.m_quality_level < 0) ? 100 : clamp<int>(m_params.m_quality_level, 1, 100);
 		options.set_rdo_level(m_params.m_xubc7_rdo_level);
 
-		options.m_weights[0] = m_params.m_xuastc_ldr_channel_weights[0];
-		options.m_weights[1] = m_params.m_xuastc_ldr_channel_weights[1];
-		options.m_weights[2] = m_params.m_xuastc_ldr_channel_weights[2];
-		options.m_weights[3] = m_params.m_xuastc_ldr_channel_weights[3];
+		options.m_weights[0] = m_params.m_ldr_channel_weights[0];
+		options.m_weights[1] = m_params.m_ldr_channel_weights[1];
+		options.m_weights[2] = m_params.m_ldr_channel_weights[2];
+		options.m_weights[3] = m_params.m_ldr_channel_weights[3];
 
 		if ((options.m_dct_q >= 90) && (m_params.m_xubc7_effort_level >= 3))
 		{
@@ -1889,9 +1889,10 @@ namespace basisu
 
 		if (m_params.m_status_output)
 		{
-			fmt_printf("XUBC7 encoder: {} (bc7e_scalar level: {}), effort: {}, RDO level [0,100]: {}, Desired stripes [1,16]: {}\n",
+			fmt_printf("XUBC7 encoder: {} (bc7e_scalar level: {}), effort: {}, RDO level [0,100]: {}, Desired stripes [1,16]: {}, Channel weights: {}, {}, {}, {}\n",
 				(options.m_bc7_encoder == xbc7::bc7_encoder_type::cBC7E_Scalar) ? "bc7e_scalar" : "bc7f", options.m_bc7e_scalar_level,
-				m_params.m_xubc7_effort_level, m_params.m_xubc7_rdo_level, desired_num_stripes);
+				m_params.m_xubc7_effort_level, m_params.m_xubc7_rdo_level, desired_num_stripes,
+				m_params.m_ldr_channel_weights[0], m_params.m_ldr_channel_weights[1], m_params.m_ldr_channel_weights[2], m_params.m_ldr_channel_weights[3]);
 		}
 
 		for (uint32_t slice_index = 0; slice_index < m_slice_descs.size(); slice_index++)
@@ -5710,8 +5711,8 @@ namespace basisu
 		// Correct for sRGB transfer function during mipmapping
 		comp_params.m_mip_srgb = srgb_flag;
 
-		// Set linear or Rec 709 weights (we assume Rec 709 weights if content is sRGB)
-		comp_params.set_xuastc_ldr_srgb_channel_weights(srgb_flag);
+		// Set linear or Rec 709 weights (we assume Rec 709 weights if content is sRGB) - ASTC/XUASTC/XUBC7
+		comp_params.set_ldr_srgb_channel_weights(srgb_flag);
 
 		comp_params.m_mip_gen = (flags_and_quality & (cFlagGenMipsWrap | cFlagGenMipsClamp)) != 0;
 		comp_params.m_mip_wrapping = (flags_and_quality & cFlagGenMipsWrap) != 0;

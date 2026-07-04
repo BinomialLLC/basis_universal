@@ -457,10 +457,10 @@ class command_line_params
 		else if (opt_match(pArg, {"-xuastc_weights", "-xuastc_ldr_weights", "-weights"}))
 		{
 			REMAINING_ARGS_CHECK(4);
-			m_comp_params.m_xuastc_ldr_channel_weights[0] = (uint32_t)clamp<float>((float)atof(arg_v[arg_index + 1]), 1.0f, 1024.0f);
-			m_comp_params.m_xuastc_ldr_channel_weights[1] = (uint32_t)clamp<float>((float)atof(arg_v[arg_index + 2]), 1.0f, 1024.0f);
-			m_comp_params.m_xuastc_ldr_channel_weights[2] = (uint32_t)clamp<float>((float)atof(arg_v[arg_index + 3]), 1.0f, 1024.0f);
-			m_comp_params.m_xuastc_ldr_channel_weights[3] = (uint32_t)clamp<float>((float)atof(arg_v[arg_index + 4]), 1.0f, 1024.0f);
+			m_comp_params.m_ldr_channel_weights[0] = (uint32_t)clamp<float>((float)atof(arg_v[arg_index + 1]), 1.0f, 1024.0f);
+			m_comp_params.m_ldr_channel_weights[1] = (uint32_t)clamp<float>((float)atof(arg_v[arg_index + 2]), 1.0f, 1024.0f);
+			m_comp_params.m_ldr_channel_weights[2] = (uint32_t)clamp<float>((float)atof(arg_v[arg_index + 3]), 1.0f, 1024.0f);
+			m_comp_params.m_ldr_channel_weights[3] = (uint32_t)clamp<float>((float)atof(arg_v[arg_index + 4]), 1.0f, 1024.0f);
 			arg_count += 4;
 			return true;
 		}
@@ -1770,7 +1770,7 @@ public:
 				m_comp_params.m_no_selector_rdo = true;
 				m_comp_params.m_no_endpoint_rdo = true;
 
-				m_comp_params.set_xuastc_ldr_srgb_channel_weights(false);
+				m_comp_params.set_ldr_srgb_channel_weights(false);
 
 				m_comp_params.m_xuastc_ldr_sharpen_mode = (int)xuastc_ldr_sharpen_mode::cDisabled;
 				m_comp_params.m_xuastc_ldr_deblocking_mode = (int)xuastc_ldr_deblocking_mode::cDisabled;
@@ -1786,7 +1786,7 @@ public:
 				m_comp_params.m_no_selector_rdo = false;
 				m_comp_params.m_no_endpoint_rdo = false;
 
-				m_comp_params.set_xuastc_ldr_srgb_channel_weights(true);
+				m_comp_params.set_ldr_srgb_channel_weights(true);
 
 				m_comp_params.m_xuastc_ldr_sharpen_mode = (int)xuastc_ldr_sharpen_mode::cDisabled;
 				m_comp_params.m_xuastc_ldr_deblocking_mode = (int)xuastc_ldr_deblocking_mode::cUseSCDAndFilteringOnlyLargestBlocks;
@@ -1796,14 +1796,14 @@ public:
 				// linear preset (opposite of -srgb)
 				m_comp_params.set_srgb_options(false);
 
-				m_comp_params.set_xuastc_ldr_srgb_channel_weights(false);
+				m_comp_params.set_ldr_srgb_channel_weights(false);
 			}
 			else if (opt_match(pArg, "-srgb"))
 			{
 				// sRGB preset (opposite of -linear)
 				m_comp_params.set_srgb_options(true);
 
-				m_comp_params.set_xuastc_ldr_srgb_channel_weights(true);
+				m_comp_params.set_ldr_srgb_channel_weights(true);
 			}
 			else if (opt_match(pArg, "-no_alpha"))
 				m_comp_params.m_check_for_alpha = false;

@@ -483,7 +483,7 @@ namespace basisu
 			if (!perceptual)
 			{
 				for (uint32_t i = 0; i < 4; i++)
-					bc7ctx.m_bc7e_params.m_weights[i] = comp.get_params().m_xuastc_ldr_channel_weights[i];
+					bc7ctx.m_bc7e_params.m_weights[i] = comp.get_params().m_ldr_channel_weights[i];
 			}
 		}
 
@@ -513,7 +513,7 @@ namespace basisu
 
 				const int bc7e_lvl = clamp<int>(params.m_bc7e_scalar_level, 0, 6);
 				const bool perceptual = comp.get_params().m_perceptual;
-				const uint32_t* pW = comp.get_params().m_xuastc_ldr_channel_weights;
+				const uint32_t* pW = comp.get_params().m_ldr_channel_weights;
 
 				debug_printf("DDS export: BC7 encoder=%s\n", using_bc7e ? "bc7e_scalar" : "bc7f");
 				debug_printf("DDS export:   bc7f level=%d (%s), pack flags=0x%X%s\n",
