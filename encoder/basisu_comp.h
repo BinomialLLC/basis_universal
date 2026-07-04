@@ -908,7 +908,8 @@ namespace basisu
 		// If true, low DCT quality factor quality is greatly improved - at the cost of slower encoding and higher bitrate. Experimental.
 		bool_param<false> m_xuastc_ldr_heavy_subset_usage;
 				
-		// Sharpening mode and amount. Sharpening uses a Difference of Gaussians based unsharp masking approach to ALL levels including mip 0 before any compression. All PSNR's will be against the post-sharpened images.
+		// Sharpening mode and amount (somewhat experimental). Sharpening uses a Difference of Gaussians based unsharp masking approach to ALL levels including mip 0 before any compression.
+		// Note the encoder's internal metrics are computed against the post-sharpened images, but the top-level compressor stats (m_compute_stats) compare against the original unsharpened source images, so reported PSNR will read lower when sharpening is enabled.
 		// By default sharpening is disabled.
 		param<int> m_xuastc_ldr_sharpen_mode; // enum class xuastc_ldr_sharpen_mode, default is cDisabled
 		param<float> m_xuastc_ldr_sharpen_amount; // defaults to BASISU_XUASTC_LDR_DEFAULT_SHARPEN_AMOUNT, or 1.1 - the higher, the more sharpening, but also the more likely to introduce artifacts.
