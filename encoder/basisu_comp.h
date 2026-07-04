@@ -869,8 +869,8 @@ namespace basisu
 		// For non-photographic, non-sRGB or linear (normal map) content, this should be set to 1,1,1,1.
 		uint32_t m_xuastc_ldr_channel_weights[4]; 
 
-		// Set ASTC/XUASTC LDR linear or Rec 709-like channel weights. On larger ASTC/XUASTC LDR block sizes, 709-like weights make a noticeable difference in quality.
-		void set_xuastc_ldr_srgb_channel_weights(bool srgb_flag)
+		// Set ASTC/XUASTC/XUBC7 LDR linear or Rec 709-like channel weights. On larger ASTC/XUASTC LDR block sizes, 709-like weights make a noticeable difference in quality.
+		void set_ldr_srgb_channel_weights(bool srgb_flag)
 		{
 			if (srgb_flag)
 			{
@@ -887,6 +887,12 @@ namespace basisu
 				m_xuastc_ldr_channel_weights[2] = 1;
 				m_xuastc_ldr_channel_weights[3] = 1;
 			}
+		}
+		
+		// Previous method to set the channel weights for ASTC/XUASTC - but now these channel weights drive other codecs like XUBC7, too.
+		void set_xuastc_ldr_srgb_channel_weights(bool srgb_flag)
+		{
+			set_ldr_srgb_channel_weights(srgb_flag);
 		}
 
 		// Enable prefiltering (slight H and/or V axis blurring) during encoding: much slower, but higher quality especially on larger block sizes with DCT enabled.
