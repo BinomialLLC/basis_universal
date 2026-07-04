@@ -911,7 +911,7 @@ namespace basisu
 		// Sharpening mode and amount. Sharpening uses a Difference of Gaussians based unsharp masking approach to ALL levels including mip 0 before any compression. All PSNR's will be against the post-sharpened images.
 		// By default sharpening is disabled.
 		param<int> m_xuastc_ldr_sharpen_mode; // enum class xuastc_ldr_sharpen_mode, default is cDisabled
-		param<float> m_xuastc_ldr_sharpen_amount; // defaults to BASISU_XUASTC_LDR_DEFAULT_SHARPEN_AMOUNT, or 2.0 - the higher, the more sharpening, but also the more likely to introduce artifacts.
+		param<float> m_xuastc_ldr_sharpen_amount; // defaults to BASISU_XUASTC_LDR_DEFAULT_SHARPEN_AMOUNT, or 1.1 - the higher, the more sharpening, but also the more likely to introduce artifacts.
 						
 		// XUASTC LDR: Lossy supercompression PSNR threshold parameters
 		param<float> m_ls_min_psnr, m_ls_min_alpha_psnr;
@@ -920,7 +920,9 @@ namespace basisu
 
 		param<int> m_xuastc_ldr_debug_block_x, m_xuastc_ldr_debug_block_y;
 
-		// Use astcenc vs. our ASTC LDR encoder: highly experimental/development. Not usable unless lib is compiled in/enabled via BASISU_SUPPORT_ASTCENC. Has known quality issues with alpha blocks as of 4/24/2026.
+		// Selects which ASTC LDR block encoder(s) to use (basisu, astcf, or merged combinations - all fully supported).
+		// ASTCENC options: we have an experimental fork of astcenc that we optionally support as a candidate generator, but it's not released yet.
+		// Not usable unless the lib is compiled in/enabled via BASISU_SUPPORT_ASTCENC. ASTCENC has known quality issues with alpha blocks as of 4/24/2026.
 		param<int> m_xuastc_ldr_astc_comp_selection; // enum class xuastc_ldr_astc_comp_selection
 
 		// XUBC7
