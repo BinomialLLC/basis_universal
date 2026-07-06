@@ -29,6 +29,10 @@ namespace xbc7 {
 	struct pack_options
 	{
 		uint32_t m_dct_q = 100; // [1,100]; 100 == lossless mode (weights always residual DPCM)
+
+		// Per-channel error weights. ALWAYS used by the XBC7 encoder when evaluating block candidates vs. the
+		// original pixels during supercompression, regardless of the BC7 base encoder. (The base encoders differ:
+		// bc7f supports neither weights nor perceptual; bc7e_scalar supports either - see m_perceptual below.)
 		uint32_t m_weights[4] = { 1, 1, 1, 1 };
 
 		// Encoder effort/speed knob [0,10]: 0 == fastest, 10 == slowest/best
