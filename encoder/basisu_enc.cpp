@@ -2313,24 +2313,20 @@ namespace basisu
 				return;
 
 			item job;
-			if (!job_steal(job, tok, lock))
-				break;
-
-			job_run(job, lock);
-		}
-
-#ifndef __EMSCRIPTEN__
-		m_job_done.wait(lock, [wait_token] { return *wait_token == 0; });
-#else
-		// Avoid infinite blocking
-		for (; ; )
-		{
-			if (m_job_done.wait_for(lock, std::chrono::milliseconds(50), [wait_token] { return *wait_token == 0; }))
+			if (job_steal(job, tok, lock))
 			{
-				break;
+				job_run(job, lock);
+				continue;
 			}
-		}
+
+			// Nothing stealable right now; wait until a job completes, then retry to see if we can steal freshly enqueued work
+#ifndef __EMSCRIPTEN__
+			m_job_done.wait(lock);
+#else
+			// Avoid infinite blocking
+			m_job_done.wait_for(lock, std::chrono::milliseconds(50));
 #endif
+		}
 	}
 
 	bool job_pool::job_steal(item& job, token* tok, std::unique_lock<std::mutex>&)
