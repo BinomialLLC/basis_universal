@@ -37009,7 +37009,7 @@ namespace bc7f
 		// Fall back to mode 6
 		int saxis_r = 256, saxis_g = 256, saxis_b = 256, saxis_a = 256;
 
-		float k = basisu::maximum(fabsf(x1), fabsf(y1), fabsf(z1), fabs(w1));
+		float k = basisu::maximum(fabsf(x1), fabsf(y1), fabsf(z1), fabsf(w1));
 		if (fabs(k) >= basisu::SMALL_FLOAT_VAL)
 		{
 			float m = 2048.0f / k;
@@ -37409,7 +37409,7 @@ namespace bc7f
 		// Fall back to mode 6
 		int saxis_r = 256, saxis_g = 256, saxis_b = 256, saxis_a = 256;
 
-		float k = basisu::maximum(fabsf(x1), fabsf(y1), fabsf(z1), fabs(w1));
+		float k = basisu::maximum(fabsf(x1), fabsf(y1), fabsf(z1), fabsf(w1));
 		if (fabs(k) >= basisu::SMALL_FLOAT_VAL)
 		{
 			float m = 2048.0f / k;
