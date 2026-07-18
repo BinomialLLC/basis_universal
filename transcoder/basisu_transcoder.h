@@ -984,7 +984,41 @@ namespace basist
 	uint32_t get_debug_flags();
 	void set_debug_flags(uint32_t f);
 
-	// ------------------------------------------------------------------------------------------------------ 
+	// Information about a single 2D texture "image" in a KTX2 file. (Also used by the DDS transcoder, so it is defined unconditionally, i.e. even when BASISD_SUPPORT_KTX2 is 0.)
+	struct ktx2_image_level_info
+	{
+		// The mipmap level index (0=largest), texture array layer index, and cubemap face index of the image.
+		uint32_t m_level_index;
+		uint32_t m_layer_index;
+		uint32_t m_face_index;
+
+		// The image's ACTUAL (or the original source image's) width/height in pixels, which may not be divisible by the block size (4-12 pixels).
+		uint32_t m_orig_width;
+		uint32_t m_orig_height;
+
+		// The image's physical width/height, which will always be divisible by the format's block size (4-12 pixels).
+		uint32_t m_width;
+		uint32_t m_height;
+
+		// The texture's dimensions in 4x4-12x12 texel blocks.
+		uint32_t m_num_blocks_x;
+		uint32_t m_num_blocks_y;
+
+		// The format's block width/height (4-12).
+		uint32_t m_block_width;
+		uint32_t m_block_height;
+
+		// The total number of blocks
+		uint32_t m_total_blocks;
+
+		// true if the image has alpha data
+		bool m_alpha_flag;
+
+		// true if the image is an I-Frame. Currently, for ETC1S textures, the first frame will always be an I-Frame, and subsequent frames will always be P-Frames.
+		bool m_iframe_flag;
+	};
+
+	// ------------------------------------------------------------------------------------------------------
 	// Optional .KTX2 file format support
 	// KTX2 reading optionally requires miniz or Zstd decompressors for supercompressed UASTC files.
 	// ------------------------------------------------------------------------------------------------------ 
@@ -1196,39 +1230,7 @@ namespace basist
 		return "?";
 	}	
 
-	// Information about a single 2D texture "image" in a KTX2 file.
-	struct ktx2_image_level_info
-	{
-		// The mipmap level index (0=largest), texture array layer index, and cubemap face index of the image.
-		uint32_t m_level_index;
-		uint32_t m_layer_index;
-		uint32_t m_face_index;
-
-		// The image's ACTUAL (or the original source image's) width/height in pixels, which may not be divisible by the block size (4-12 pixels).
-		uint32_t m_orig_width;
-		uint32_t m_orig_height;
-
-		// The image's physical width/height, which will always be divisible by the format's block size (4-12 pixels).
-		uint32_t m_width;
-		uint32_t m_height;
-				
-		// The texture's dimensions in 4x4-12x12 texel blocks.
-		uint32_t m_num_blocks_x;
-		uint32_t m_num_blocks_y;
-
-		// The format's block width/height (4-12).
-		uint32_t m_block_width;
-		uint32_t m_block_height;
-
-		// The total number of blocks
-		uint32_t m_total_blocks;
-
-		// true if the image has alpha data
-		bool m_alpha_flag;
-
-		// true if the image is an I-Frame. Currently, for ETC1S textures, the first frame will always be an I-Frame, and subsequent frames will always be P-Frames.
-		bool m_iframe_flag;
-	};
+	// ktx2_image_level_info is defined above, before the BASISD_SUPPORT_KTX2 block (unconditionally, since the DDS transcoder also uses it).
 		
 	// Thread-specific ETC1S/supercompressed UASTC transcoder state. (If you're not doing multithreading transcoding you can ignore this.)
 	struct ktx2_transcoder_state

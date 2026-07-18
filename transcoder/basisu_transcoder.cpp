@@ -171,13 +171,11 @@
 	#define BASISD_ENABLE_DEBUG_FLAGS	0
 #endif
 
-// If KTX2 support is enabled, we may need Zstd for decompression of supercompressed UASTC files. Include this header.
-#if BASISD_SUPPORT_KTX2
-   // If BASISD_SUPPORT_KTX2_ZSTD is 0, UASTC files compressed with Zstd cannot be loaded.
-	#if BASISD_SUPPORT_KTX2_ZSTD
-		// We only use two Zstd API's: ZSTD_decompress() and ZSTD_isError()
-		#include "../zstd/zstd.h"
-	#endif
+// Zstd is used both for KTX2 supercompressed UASTC files and for Zstd-compressed data in other codecs (independent of KTX2 support), so include the header whenever Zstd usage is enabled -- not just when KTX2 is enabled.
+// If BASISD_SUPPORT_KTX2_ZSTD is 0, data compressed with Zstd cannot be loaded.
+#if BASISD_SUPPORT_KTX2_ZSTD
+	// We only use these Zstd API's: ZSTD_decompress(), ZSTD_isError() and ZSTD_getFrameContentSize()
+	#include "../zstd/zstd.h"
 #endif
 
 #if BASISD_SUPPORT_UASTC_HDR
