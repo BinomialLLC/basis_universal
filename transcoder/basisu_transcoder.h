@@ -1097,6 +1097,7 @@ namespace basist
 	const uint32_t KTX2_IMAGE_IS_P_FRAME = 2;
 	const uint32_t KTX2_UASTC_BLOCK_SIZE = 16; // also the block size for UASTC_HDR
 	const uint32_t KTX2_MAX_SUPPORTED_LEVEL_COUNT = 16; // this is an implementation specific constraint and can be increased
+	const uint32_t KTX2_MAX_SUPPORTED_LAYER_COUNT = 65535; // this is an implementation specific constraint and can be increased
 
 	// The KTX2 transfer functions supported by KTX2
 	const uint32_t KTX2_KHR_DF_TRANSFER_LINEAR = 1;
