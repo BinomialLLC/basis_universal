@@ -171,13 +171,11 @@
 	#define BASISD_ENABLE_DEBUG_FLAGS	0
 #endif
 
-// If KTX2 support is enabled, we may need Zstd for decompression of supercompressed UASTC files. Include this header.
-#if BASISD_SUPPORT_KTX2
-   // If BASISD_SUPPORT_KTX2_ZSTD is 0, UASTC files compressed with Zstd cannot be loaded.
-	#if BASISD_SUPPORT_KTX2_ZSTD
-		// We only use two Zstd API's: ZSTD_decompress() and ZSTD_isError()
-		#include "../zstd/zstd.h"
-	#endif
+// Zstd is used both for KTX2 supercompressed UASTC files and for Zstd-compressed data in other codecs (independent of KTX2 support), so include the header whenever Zstd usage is enabled -- not just when KTX2 is enabled.
+// If BASISD_SUPPORT_KTX2_ZSTD is 0, data compressed with Zstd cannot be loaded.
+#if BASISD_SUPPORT_KTX2_ZSTD
+	// We only use these Zstd API's: ZSTD_decompress(), ZSTD_isError() and ZSTD_getFrameContentSize()
+	#include "../zstd/zstd.h"
 #endif
 
 #if BASISD_SUPPORT_UASTC_HDR
@@ -19880,6 +19878,13 @@ namespace basist
 			return false;
 		}
 
+		// Sanity check the layer count. m_layer_count is a full attacker-controlled 32-bit value; bound it so that layer_count * face_count * level_count (used to size the per-image descriptor arrays) stays small. (layer_count==0 means a non-array texture, i.e. one layer.)
+		if (m_header.m_layer_count > KTX2_MAX_SUPPORTED_LAYER_COUNT)
+		{
+			BASISU_DEVEL_ERROR("ktx2_transcoder::init: Too many layers or file is corrupted or invalid\n");
+			return false;
+		}
+
 		if ((m_header.m_supercompression_scheme == KTX2_SS_UASTC_HDR_6x6I) ||
 			(m_header.m_supercompression_scheme == KTX2_SS_XUASTC_LDR) ||
 			(m_header.m_supercompression_scheme == KTX2_SS_XUBC7))
@@ -19898,13 +19903,17 @@ namespace basist
 			(m_header.m_supercompression_scheme == KTX2_SS_XUASTC_LDR) ||
 			(m_header.m_supercompression_scheme == KTX2_SS_XUBC7))
 		{
-			if (m_header.m_sgd_byte_offset.get_uint64() < sizeof(ktx2_header))
+			const uint64_t sgd_byte_offset = m_header.m_sgd_byte_offset.get_uint64();
+			const uint64_t sgd_byte_length = m_header.m_sgd_byte_length.get_uint64();
+
+			if (sgd_byte_offset < sizeof(ktx2_header))
 			{
 				BASISU_DEVEL_ERROR("ktx2_transcoder::init: Supercompression global data offset is too low\n");
 				return false;
 			}
 
-			if (m_header.m_sgd_byte_offset.get_uint64() + m_header.m_sgd_byte_length.get_uint64() > m_data_size)
+			// Overflow-safe range check: m_sgd_byte_offset/m_sgd_byte_length are attacker-controlled full 64-bit values, so "offset + length > m_data_size" can wrap past 2^64 and pass. Compare against the remaining bytes instead (sgd_byte_offset <= m_data_size is checked first, so the subtraction can't underflow).
+			if ((sgd_byte_offset > m_data_size) || (sgd_byte_length > (uint64_t)m_data_size - sgd_byte_offset))
 			{
 				BASISU_DEVEL_ERROR("ktx2_transcoder::init: Supercompression global data offset and/or length is too high\n");
 				return false;
@@ -19930,18 +19939,23 @@ namespace basist
 		// Sanity check the level offsets and byte sizes
 		for (uint32_t i = 0; i < m_levels.size(); i++)
 		{
-			if (m_levels[i].m_byte_offset.get_uint64() < sizeof(ktx2_header))
+			const uint64_t level_byte_offset = m_levels[i].m_byte_offset.get_uint64();
+			const uint64_t level_byte_length = m_levels[i].m_byte_length.get_uint64();
+
+			if (level_byte_offset < sizeof(ktx2_header))
 			{
 				BASISU_DEVEL_ERROR("ktx2_transcoder::init: Invalid level offset (too low)\n");
 				return false;
 			}
 
-			if (!m_levels[i].m_byte_length.get_uint64())
+			if (!level_byte_length)
 			{
 				BASISU_DEVEL_ERROR("ktx2_transcoder::init: Invalid level byte length\n");
+				return false;
 			}
 
-			if ((m_levels[i].m_byte_offset.get_uint64() + m_levels[i].m_byte_length.get_uint64()) > m_data_size)
+			// Overflow-safe range check: m_byte_offset/m_byte_length are attacker-controlled full 64-bit values, so "offset + length > m_data_size" can wrap past 2^64 and pass, leaving an arbitrarily large offset that later flows into pointer arithmetic (transcode_image_level/decompress_level_data). Compare against the remaining bytes instead (level_byte_offset <= m_data_size is checked first, so the subtraction can't underflow).
+			if ((level_byte_offset > m_data_size) || (level_byte_length > (uint64_t)m_data_size - level_byte_offset))
 			{
 				BASISU_DEVEL_ERROR("ktx2_transcoder::init: Invalid level offset and/or length\n");
 				return false;
@@ -20943,39 +20957,41 @@ namespace basist
 
 	bool ktx2_transcoder::read_slice_offset_len_global_data(bool read_std_structs)
 	{
-		const uint32_t image_count = basisu::maximum<uint32_t>(m_header.m_layer_count, 1) * m_header.m_face_count * m_header.m_level_count;
+		// m_layer_count (<= KTX2_MAX_SUPPORTED_LAYER_COUNT), m_face_count (1 or 6) and m_level_count (<= KTX2_MAX_SUPPORTED_LEVEL_COUNT) were all validated in init(), so this product is small. Computed in 64-bit anyway as defense in depth against a future limit increase overflowing a uint32_t (or a 32-bit size_t).
+		const uint64_t image_count = (uint64_t)basisu::maximum<uint32_t>(m_header.m_layer_count, 1) * m_header.m_face_count * m_header.m_level_count;
 		assert(image_count);
-		
+
 		const uint8_t* pSrc = m_pData + m_header.m_sgd_byte_offset.get_uint64();
 
-		m_slice_offset_len_descs.resize(image_count);
+		// The descriptor array must exactly fill the supercompression global data, whose offset/length were already sanity checked in init() to be inside the file and after the KTX2 header.
+		// Validate the expected byte size BEFORE allocating, so an attacker can't force a huge speculative allocation (e.g. via a bogus layer count) that would abort the process. Because m_sgd_byte_length is bounded by the file size, this also bounds image_count.
+		const uint64_t desc_size = read_std_structs ? sizeof(ktx2_slice_offset_len_desc_std) : sizeof(ktx2_slice_offset_len_desc_orig);
 
-		// SGD offset/length already sanity checked to be inside the file and after the KTX2 header.
+		if (m_header.m_sgd_byte_length.get_uint64() != image_count * desc_size)
+		{
+			BASISU_DEVEL_ERROR("ktx2_transcoder::read_slice_offset_len_global_data: Invalid global data length\n");
+			return false;
+		}
+
+		if (!m_slice_offset_len_descs.try_resize(image_count))
+		{
+			BASISU_DEVEL_ERROR("ktx2_transcoder::read_slice_offset_len_global_data: Out of memory\n");
+			return false;
+		}
+
 		if (read_std_structs)
 		{
-			if (m_header.m_sgd_byte_length.get_uint64() != image_count * sizeof(ktx2_slice_offset_len_desc_std))
-			{
-				BASISU_DEVEL_ERROR("ktx2_transcoder::read_slice_offset_len_global_data: Invalid global data length (0)\n");
-				return false;
-			}
-
 			const ktx2_slice_offset_len_desc_std* pSrc_std_descs = reinterpret_cast<const ktx2_slice_offset_len_desc_std*>(pSrc);
 
 			for (uint32_t i = 0; i < image_count; i++)
 			{
-				// TODO: Ignoring type (profile) for now, but we could check it 
+				// TODO: Ignoring type (profile) for now, but we could check it
 				m_slice_offset_len_descs[i].m_slice_byte_offset = pSrc_std_descs[i].m_slice_byte_offset;
 				m_slice_offset_len_descs[i].m_slice_byte_length = pSrc_std_descs[i].m_slice_byte_length;
 			}
 		}
 		else
 		{
-			if (m_header.m_sgd_byte_length.get_uint64() != image_count * sizeof(ktx2_slice_offset_len_desc_orig))
-			{
-				BASISU_DEVEL_ERROR("ktx2_transcoder::read_slice_offset_len_global_data: Invalid global data length (1)\n");
-				return false;
-			}
-						
 			memcpy((void*)m_slice_offset_len_descs.data(), pSrc, sizeof(ktx2_slice_offset_len_desc_orig) * image_count);
 		}
 
@@ -21001,7 +21017,8 @@ namespace basist
 		//for (uint32_t i = 1; i < m_header.m_level_count; i++)
 		//	layer_pixel_depth += basisu::maximum<uint32_t>(m_header.m_pixel_depth >> i, 1);
 
-		const uint32_t image_count = basisu::maximum<uint32_t>(m_header.m_layer_count, 1) * m_header.m_face_count * m_header.m_level_count;
+		// m_layer_count (<= KTX2_MAX_SUPPORTED_LAYER_COUNT), m_face_count (1 or 6) and m_level_count (<= KTX2_MAX_SUPPORTED_LEVEL_COUNT) were all validated in init(), so this product is small. Computed in 64-bit anyway as defense in depth against a future limit increase overflowing a uint32_t (or a 32-bit size_t in the size check below).
+		const uint64_t image_count = (uint64_t)basisu::maximum<uint32_t>(m_header.m_layer_count, 1) * m_header.m_face_count * m_header.m_level_count;
 		assert(image_count);
 
 		const uint8_t* pSrc = m_pData + m_header.m_sgd_byte_offset.get_uint64();
