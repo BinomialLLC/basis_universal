@@ -8,7 +8,8 @@
 #   ./build.sh                      # build both (transcoder, then encoder)
 #   ./build.sh transcoder           # build only the transcoder
 #   ./build.sh encoder              # build only the encoder
-#   ./build.sh --clean              # wipe each build dir's CMake cache first
+#   ./build.sh --clean              # make clean + wipe CMake cache first (full rebuild)
+#   ./build.sh --slow               # serial build (plain make, one file at a time)
 #   ./build.sh encoder -DKTX2_ZSTANDARD=OFF -DCMAKE_BUILD_TYPE=Debug
 #
 # Any -D... argument is forwarded to cmake. Runnable from any directory.
@@ -25,14 +26,16 @@ die()  { printf '%serror:%s %s\n' "$B$R" "$N" "$*" >&2; exit 1; }
 
 # ---- parse args ----
 CLEAN=0
+SLOW=0
 TARGETS=()
 CMAKE_ARGS=()
 for a in "$@"; do
   case "$a" in
     -c|--clean)         CLEAN=1 ;;
+    --slow)             SLOW=1 ;;
     transcoder|encoder) TARGETS+=("$a") ;;
     -D*)                CMAKE_ARGS+=("$a") ;;
-    -h|--help)          sed -n '3,14p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help)          sed -n '3,15p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *)                  die "unknown argument: '$a' (try --help)" ;;
   esac
 done
@@ -49,12 +52,14 @@ command -v emcmake >/dev/null 2>&1 || die "emcmake not found. Activate emsdk fir
 command -v cmake   >/dev/null 2>&1 || die "cmake not found."
 
 JOBS="$(nproc 2>/dev/null || echo 4)"
+# --slow => serial (one file at a time, the classic `make`); otherwise all cores.
+if [ "$SLOW" -eq 1 ]; then MAKEJ=(-j1); JOBDESC="serial (make -j1)"; else MAKEJ=(-j"$JOBS"); JOBDESC="make -j$JOBS"; fi
 
 # ---- build one project ----
 build_one() {
   local name="$1" dir="$WEBGL_DIR/$1/build"
   [ -f "$WEBGL_DIR/$1/CMakeLists.txt" ] || die "no CMakeLists.txt in webgl/$1"
-  info "Building $name -> $1/build  (make -j$JOBS)"
+  info "Building $name -> $1/build  ($JOBDESC)"
   mkdir -p "$dir"
   if [ "$CLEAN" -eq 1 ]; then
     # make clean first (removes build outputs + objects via the existing build system),
@@ -66,7 +71,7 @@ build_one() {
     info "  removing CMake cache + build state"
     rm -rf "$dir/CMakeCache.txt" "$dir/CMakeFiles"
   fi
-  ( cd "$dir" && emcmake cmake ../ "${CMAKE_ARGS[@]}" && make -j"$JOBS" )
+  ( cd "$dir" && emcmake cmake ../ "${CMAKE_ARGS[@]}" && make "${MAKEJ[@]}" )
 }
 
 # ---- go ----
