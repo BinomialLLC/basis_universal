@@ -57,7 +57,13 @@ build_one() {
   info "Building $name -> $1/build  (make -j$JOBS)"
   mkdir -p "$dir"
   if [ "$CLEAN" -eq 1 ]; then
-    info "  cleaning CMake cache"
+    # make clean first (removes build outputs + objects via the existing build system),
+    # then wipe the CMake cache/state so the next configure starts fresh (and picks up any -D changes).
+    if [ -f "$dir/Makefile" ]; then
+      info "  make clean"
+      ( cd "$dir" && make clean ) || info "  (make clean failed; wiping cache anyway)"
+    fi
+    info "  removing CMake cache + build state"
     rm -rf "$dir/CMakeCache.txt" "$dir/CMakeFiles"
   fi
   ( cd "$dir" && emcmake cmake ../ "${CMAKE_ARGS[@]}" && make -j"$JOBS" )
