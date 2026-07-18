@@ -88,7 +88,7 @@ IFACEMETHODIMP BasisThumbProvider::GetThumbnail(UINT cx, HBITMAP *phbmp, WTS_ALP
 										dprintf("Decoded!!!!");
 										*phbmp = rgbToBitmap(static_cast<uint32_t*>(rgbBuf), descW, descH, fileInfo.m_y_flipped);
 									}
-									delete rgbBuf;
+									free(rgbBuf);
 								}
 							}
 						}
