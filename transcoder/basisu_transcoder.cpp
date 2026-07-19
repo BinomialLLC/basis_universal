@@ -19965,7 +19965,7 @@ namespace basist
 			
 			if (m_levels[i].m_uncompressed_byte_length.get_uint64() >= MAX_SANE_LEVEL_UNCOMP_SIZE)
 			{
-				BASISU_DEVEL_ERROR("ktx2_transcoder::init: Invalid level offset (too large)\n");
+				BASISU_DEVEL_ERROR("ktx2_transcoder::init: Invalid level uncompressed byte length (too large)\n");
 				return false;
 			}
 
