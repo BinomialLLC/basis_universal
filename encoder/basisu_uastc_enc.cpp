@@ -4125,6 +4125,8 @@ namespace basisu
 		}
 		else
 		{
+			job_pool::token token{0};
+
 			bool all_succeeded = true;
 
 			for (uint32_t block_index_iter = 0; block_index_iter < num_blocks; block_index_iter += blocks_per_job)
@@ -4148,12 +4150,11 @@ namespace basisu
 						total_smooth += job_smooth;
 					}
 
-					}
-				);
+					}, &token);
 
 			} // block_index_iter
 
-			pJob_pool->wait_for_all();
+			pJob_pool->wait_for_all(&token);
 
 			status = all_succeeded;
 		}
