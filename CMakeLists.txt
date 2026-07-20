@@ -556,6 +556,13 @@ if (MSVC)
             RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}
         )   
     endif()
+
+    if(CMAKE_SYSTEM_NAME STREQUAL "WindowsStore")
+        # Disable deprecation of unsafe `fopen` that tinyexr.h uses.
+        # Otherwise MSVC will emit warnings (error C4996) that break the UWP build.
+        target_compile_definitions(basisu_encoder PRIVATE _CRT_SECURE_NO_WARNINGS)
+    endif()
+
 endif()
 
 # ------------------------------------------------------------
