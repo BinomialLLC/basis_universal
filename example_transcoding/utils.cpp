@@ -22,8 +22,12 @@ uint32_t image_u8::flood_fill(int x, int y, const color_quad_u8& c, const color_
 	FLOOD_PUSH(y, x, x, 1);
 	FLOOD_PUSH(y + 1, x, x, -1);
 
+	const size_t MAX_STACK_SIZE = 65536; // Prevent unbounded stack growth
 	while (stack.size())
 	{
+		if (stack.size() > MAX_STACK_SIZE)
+			return 0; // Return error on stack overflow
+
 		fill_segment s = stack.back();
 		stack.pop_back();
 
