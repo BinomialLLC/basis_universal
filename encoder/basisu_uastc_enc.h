@@ -136,5 +136,5 @@ namespace basisu
 	// num_blocks, pBlocks: Number of blocks and pointer to UASTC blocks to process.
 	// pBlock_pixels: Pointer to an array of 4x4 blocks containing the original texture pixels. This is NOT a raster image, but a pointer to individual 4x4 blocks.
 	// flags: Pass in the same flags used to encode the UASTC blocks. The flags are used to reencode the transcode hints in the same way.
-	bool uastc_rdo(uint32_t num_blocks, basist::uastc_block* pBlocks, const color_rgba* pBlock_pixels, const uastc_rdo_params &params, uint32_t flags = cPackUASTCLevelDefault, job_pool* pJob_pool = nullptr, uint32_t total_jobs = 0);
+	bool uastc_rdo(uint32_t num_blocks, basist::uastc_block* pBlocks, const color_rgba* pBlock_pixels, const uastc_rdo_params &params, uint32_t flags = cPackUASTCLevelDefault, job_pool_base* pJob_pool = nullptr, uint32_t total_jobs = 0);
 } // namespace basisu
