@@ -633,7 +633,7 @@ namespace xbc7 {
 	// reconstruction snaps to a 2^n-level grid (step ~64/(2^n - 1) in [0,64]
 	// space), so coarse planes tolerate proportionally coarser DC. Same
 	// build-alike caveat as above.
-	static bool g_xbc7_dc_quant_per_weight_bits = true;
+	static const bool g_xbc7_dc_quant_per_weight_bits = true;
 
 	static inline int get_xbc7_dc_quant(uint32_t num_weight_bits)
 	{
