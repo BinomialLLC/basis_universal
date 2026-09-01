@@ -15,7 +15,7 @@ Basis Universal™ v2.5 is an open source [supercompressed](http://gamma.cs.unc.
 
 ## GPU Textures as Infrastructure
 
-Our overall goal is to simplify the encoding and efficient distribution of *portable* LDR and HDR GPU texture, image, and short animated [animated texture](https://github.com/BinomialLLC/basis_universal/wiki/Encoding-ETC1S-and-XUASTC-LDR-Texture-Video) content in a way that is compatible with any GPU or rendering/graphics API. 
+Our overall goal is to simplify the encoding and efficient distribution of *portable* LDR and HDR GPU texture, image, and short [animated texture](https://github.com/BinomialLLC/basis_universal/wiki/Encoding-ETC1S-and-XUASTC-LDR-Texture-Video) content in a way that is compatible with any GPU or rendering/graphics API. 
 
 The system supports eight modes/codecs. In the order they were implemented:
 1. [**ETC1S**](https://github.com/BinomialLLC/basis_universal/wiki/.basis-File-Format-and-ETC1S-Texture-Video-Specification): A supercompressed subset of ETC1 designed for very fast transcoding to other LDR texture formats, low/medium quality but high compression, slightly faster transcoding to other LDR texture formats vs. libjpeg.
