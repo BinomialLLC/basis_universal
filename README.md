@@ -254,6 +254,7 @@ basisu -test_hdr_4x4
 basisu -test_hdr_6x6
 basisu -test_hdr_6x6i
 basisu -test_xuastc_ldr
+basisu -test_codecs
 ```
 
 To test the codec in OpenCL mode (must have OpenCL libs/headers/drivers installed and have compiled OpenCL support in by running cmake with `-DBASISU_OPENCL=TRUE`):
@@ -261,6 +262,8 @@ To test the codec in OpenCL mode (must have OpenCL libs/headers/drivers installe
 ```
 basisu -test -opencl
 ```
+
+A new test mode, enabled via `-test_codecs`, was added in v2.5. This option tests all the codecs in various ways.
 
 ----
 
