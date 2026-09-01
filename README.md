@@ -48,10 +48,11 @@ Links
 - [Live Compression/Transcoding Tool: .KTX2/.DDS Studio v2.50](https://binomial.biz/ktx2_studio/) - A WASM64 compatible browser is recommended (such as Chrome/Edge/Firefox), especially for XUASTC LDR compression, but it works under plain WASM too (with resolution limits due to less available memory).
 - [Live WebGL Examples](https://binomial.biz/). Note the previous v2.1 examples are [here](https://subquantumtech.com/xu/).
 - [JavaScript API/WASM/WebGL info](https://github.com/BinomialLLC/basis_universal/tree/master/webgl)
+
+### Codec Specific Links
+
 - [XUASTC LDR Specification](https://github.com/BinomialLLC/basis_universal/wiki/XUASTC-LDR-Specification-v1.0)
-
-### UASTC HDR 4x4/6x6 Specific Links:
-
+- [XUBC7 LDR Specification](https://github.com/BinomialLLC/basis_universal/wiki/XUBC7-Low-Level-Format)
 - [UASTC HDR 4x4 Example Images](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-HDR-Examples)
 - [UASTC HDR 6x6 Example Images](https://github.com/BinomialLLC/basis_universal/wiki/ASTC-HDR-6x6-Example-Images)
 - [UASTC HDR 6x6 Support Notes](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-HDR-6x6-Support-Notes)
