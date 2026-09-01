@@ -20,7 +20,7 @@ Our overall goal is to simplify the encoding and efficient distribution of *port
 The system supports eight modes (or codecs). In the order they were implemented:
 1. [**ETC1S**](https://github.com/BinomialLLC/basis_universal/wiki/.basis-File-Format-and-ETC1S-Texture-Video-Specification): A supercompressed subset of ETC1 designed for very fast transcoding to other LDR texture formats, low/medium quality but high compression, slightly faster transcoding to other LDR texture formats vs. libjpeg.
 2. [**UASTC LDR 4x4**](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-LDR-4x4-Texture-Specification) (with or without RDO): Custom ASTC 4x4-like format designed for very fast transcoding to other LDR texture formats, high quality
-3. **UASTC HDR 4x4**: Standard ASTC HDR 4x4 texture data, but constrained for very fast transcoding to BC6H
+3. [**UASTC HDR 4x4**](https://github.com/BinomialLLC/basis_universal/wiki/UASTC-HDR-4x4-Texture-Specification): Standard ASTC HDR 4x4 texture data, but constrained for very fast transcoding to BC6H
 4. **ASTC HDR 6x6 (with or without RDO)**: Standard ASTC HDR 6x6
 5. **UASTC HDR 6x6 Intermediate ("GPU Photo HDR")**: Supercompressed ASTC HDR 6x6
 6. **ASTC LDR 4x4-12x12 (all 14 standard ASTC block sizes, with or without basic windowed RDO)**: Standard ASTC LDR 4x4-12x12
