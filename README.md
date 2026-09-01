@@ -77,7 +77,7 @@ Supported HDR GPU Texture Formats
 UASTC HDR 4x4, ASTC HDR 6x6, and UASTC HDR 6x6 files can be transcoded to:
 - ASTC HDR 4x4 (8bpp, UASTC HDR 4x4 only)
 - ASTC HDR 6x6 RGB (3.56bpp, ASTC HDR 6x6 or UASTC HDR 6x6 intermediate only)
-- BC6H RGB (8bpp, either UASTC HDR 4x4 or UASTC HDR 6x6)
+- BC6H RGB (8bpp, unsigned, either UASTC HDR 4x4 or UASTC HDR 6x6)
 - Uncompressed HDR raster image formats: RGB_16F/RGBA_16F (half float/FP16 RGB, 48 or 64bpp), or 32-bit/pixel shared exponent [RGB_9E5](https://registry.khronos.org/OpenGL/extensions/EXT/EXT_texture_shared_exponent.txt)
 
 ----
