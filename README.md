@@ -33,10 +33,6 @@ The C/C++ encoder and transcoder libraries can be compiled to native code or Web
 
 Full Python support for encoding/transcoding is now available, supporting native or WASM modules, but is still in the early stages of development.
 
-## DDS Transcoding Support
-
-The transcoder module (in v2.5) now fully supports reading and transcoding LDR .DDS files in a variety of formats (BC1-7 and numerous 1/2/3/4 channel uncompressed formats). It supports DX9 and DX10 format files, cubemaps, texture arrays, mipmaps, etc. The .DDS transcoder supports near-lossless transcoding to ASTC LDR 4x4, and real-time encoding to ETC1/2, PVRTC1, etc. This new feature for v2.5 permits standard .DDS files to be easily deployed to any GPU device/API/etc. The encoder library, command line tool, and UI tool can also create .DDS files in a variety of formats, and for development/testing .KTX2 files can be exported to .DDS files.
-
 License/Legal
 -------------
 
@@ -86,6 +82,10 @@ UASTC HDR 4x4, ASTC HDR 6x6, and UASTC HDR 6x6 files can be transcoded to:
 - Uncompressed HDR raster image formats: RGB_16F/RGBA_16F (half float/FP16 RGB, 48 or 64bpp), or 32-bit/pixel shared exponent [RGB_9E5](https://registry.khronos.org/OpenGL/extensions/EXT/EXT_texture_shared_exponent.txt)
 
 ----
+
+## DDS File Format Transcoding Support
+
+The transcoder module (in v2.5) now fully supports reading and transcoding LDR .DDS files in a variety of formats (BC1-7 and numerous 1/2/3/4 channel uncompressed formats). It supports DX9 and DX10 format files, cubemaps, texture arrays, mipmaps, etc. The .DDS transcoder supports near-lossless transcoding to ASTC LDR 4x4, and real-time encoding to ETC1/2, PVRTC1, etc. This new feature for v2.5 permits standard .DDS files to be easily deployed to any GPU device/API/etc. The encoder library, command line tool, and UI tool can also create .DDS files in a variety of formats, and for development/testing .KTX2 files can be exported to .DDS files.
 
 Supported Texture Compression/Supercompression Modes
 ----------------------------------------------------
