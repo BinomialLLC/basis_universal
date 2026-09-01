@@ -4105,7 +4105,7 @@ namespace basisu
 	// It only changes selectors and then updates the hints. It uses very approximate LZ bitprice estimation.
 	// There's A LOT that can be done better in here, but it's a start.
 	// One nice advantage of the method used here is that it works for any input, no matter which or how many modes it uses.
-	bool uastc_rdo(uint32_t num_blocks, basist::uastc_block* pBlocks, const color_rgba* pBlock_pixels, const uastc_rdo_params& params, uint32_t flags, job_pool* pJob_pool, uint32_t total_jobs)
+	bool uastc_rdo(uint32_t num_blocks, basist::uastc_block* pBlocks, const color_rgba* pBlock_pixels, const uastc_rdo_params& params, uint32_t flags, job_pool_base* pJob_pool, uint32_t total_jobs)
 	{
 		assert(params.m_max_allowed_rms_increase_ratio > 1.0f);
 		assert(params.m_lz_dict_size > 0);
