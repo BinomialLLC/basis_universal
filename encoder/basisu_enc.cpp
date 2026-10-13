@@ -54,6 +54,7 @@ namespace basisu
 	double interval_timer::g_timer_freq;
 
 	bool g_cpu_supports_sse41 = false;
+	bool g_cpu_supports_neon = false;
 
 	fast_linear_to_srgb g_fast_linear_to_srgb;
 		
@@ -199,6 +200,7 @@ namespace basisu
 			return true;
 
 		detect_sse41();
+		g_cpu_supports_neon = BASISU_SUPPORT_NEON != 0;
 				
 		basist::basisu_transcoder_init();
 		pack_etc1_solid_color_init();

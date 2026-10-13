@@ -30,9 +30,27 @@ option(BASISU_SUPPORT_ASTCENC "Enable astcenc support in encoder" FALSE)
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/bin)
 
+# CMAKE_SYSTEM_PROCESSOR describes the host in macOS cross builds, so use the
+# requested architecture when one is provided.
+set(BASISU_TARGET_PROCESSOR "${CMAKE_SYSTEM_PROCESSOR}")
+if (APPLE AND CMAKE_OSX_ARCHITECTURES)
+    set(BASISU_TARGET_PROCESSOR "${CMAKE_OSX_ARCHITECTURES}")
+elseif (MSVC AND CMAKE_GENERATOR_PLATFORM MATCHES "^ARM64$")
+    set(BASISU_TARGET_PROCESSOR "arm64")
+endif()
+set(BASISU_NEON_DEFAULT OFF)
+if (BASISU_TARGET_PROCESSOR MATCHES "^(aarch64|arm64|ARM64)$" AND NOT BASISU_BUILD_WASM AND NOT EMSCRIPTEN)
+    set(BASISU_NEON_DEFAULT ON)
+endif()
+option(BASISU_NEON "AArch64 NEON encoder support" ${BASISU_NEON_DEFAULT})
+
 # For MSVC builds default to SSE enabled, and determine if it's a 64-bit (-A x64) vs. 32-bit (-A Win32) build.
 if (MSVC)
-    option(BASISU_SSE "SSE 4.1 support" TRUE)
+    if (BASISU_TARGET_PROCESSOR MATCHES "^(aarch64|arm64|ARM64)$")
+        option(BASISU_SSE "SSE 4.1 support" FALSE)
+    else()
+        option(BASISU_SSE "SSE 4.1 support" TRUE)
+    endif()
     if ( CMAKE_GENERATOR_PLATFORM STREQUAL Win32 )    
         set(BASISU_BUILD_X64 0)
     else()
@@ -87,12 +105,29 @@ if (BASISU_BUILD_WASM)
     set(BASISU_SAN OFF CACHE BOOL "" FORCE)
 endif()
 
+if (BASISU_NEON AND (BASISU_BUILD_WASM OR EMSCRIPTEN OR NOT BASISU_TARGET_PROCESSOR MATCHES "^(aarch64|arm64|ARM64)$"))
+    message(FATAL_ERROR "BASISU_NEON requires a native AArch64 target")
+endif()
+if (BASISU_NEON AND BASISU_SSE)
+    message(FATAL_ERROR "BASISU_NEON and BASISU_SSE are mutually exclusive")
+endif()
+add_compile_definitions(BASISU_SUPPORT_NEON=$<BOOL:${BASISU_NEON}>)
+if (BASISU_TARGET_PROCESSOR MATCHES "^(aarch64|arm64|ARM64)$")
+    # Keep covariance/selector rounding identical between scalar and NEON builds.
+    if (MSVC)
+        add_compile_options(/fp:strict)
+    else()
+        add_compile_options(-ffp-contract=off)
+    endif()
+endif()
+
 message("Initial CMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}")
 message("Initial BASISU_BUILD_X64=${BASISU_BUILD_X64}")
 message("Initial BASISU_BUILD_WASM=${BASISU_BUILD_WASM}")
 message("Initial BASISU_WASM_THREADING=${BASISU_WASM_THREADING}")
 message("Initial BASISU_BUILD_PYTHON=${BASISU_BUILD_PYTHON}")
 message("Initial BASISU_SSE=${BASISU_SSE}")
+message("Initial BASISU_NEON=${BASISU_NEON}")
 message("Initial BASISU_ZSTD=${BASISU_ZSTD}")
 message("Initial BASISU_OPENCL=${BASISU_OPENCL}")
 message("Initial BASISU_SAN=${BASISU_SAN}")
@@ -244,8 +279,11 @@ set(ENCODER_LIB_SRC_LIST
     encoder/basisu_bc7enc.cpp
     encoder/jpgd.cpp
     encoder/basisu_kernels_sse.cpp
+    encoder/basisu_kernels_neon.cpp
+    encoder/basisu_neon.h
     encoder/basisu_bc15_spmd.cpp
     encoder/basisu_bc15_spmd_sse.cpp
+    encoder/basisu_bc15_spmd_neon.cpp
     encoder/basisu_opencl.cpp
     encoder/pvpngreader.cpp
     encoder/basisu_uastc_hdr_4x4_enc.cpp
@@ -346,6 +384,7 @@ endif()
 
 # Create the static library
 add_library(basisu_encoder STATIC ${ENCODER_LIB_SRC_LIST})
+target_compile_definitions(basisu_encoder PUBLIC BASISU_SUPPORT_NEON=$<BOOL:${BASISU_NEON}>)
 
 if (BASISU_SUPPORT_ASTCENC)
     target_compile_definitions(basisu_encoder PRIVATE BASISU_SUPPORT_ASTCENC=1)

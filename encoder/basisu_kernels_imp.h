@@ -616,37 +616,37 @@ namespace CPPSPMD_NAME(basisu_kernels_namespace)
 
 using namespace CPPSPMD_NAME(basisu_kernels_namespace);
 
-void CPPSPMD_NAME(perceptual_distance_rgb_4_N)(int64_t* pDistance, const uint8_t* pSelectors, const color_rgba* pBlock_colors, const color_rgba* pSrc_pixels, uint32_t n, int64_t early_out_err)
+void perceptual_distance_rgb_4_N_simd(int64_t* pDistance, const uint8_t* pSelectors, const color_rgba* pBlock_colors, const color_rgba* pSrc_pixels, uint32_t n, int64_t early_out_err)
 {
    spmd_call< perceptual_distance_rgb_4_N >(pDistance, pSelectors, pBlock_colors, pSrc_pixels, n, early_out_err);
 }
 
-void CPPSPMD_NAME(linear_distance_rgb_4_N)(int64_t* pDistance, const uint8_t* pSelectors, const color_rgba* pBlock_colors, const color_rgba* pSrc_pixels, uint32_t n, int64_t early_out_err)
+void linear_distance_rgb_4_N_simd(int64_t* pDistance, const uint8_t* pSelectors, const color_rgba* pBlock_colors, const color_rgba* pSrc_pixels, uint32_t n, int64_t early_out_err)
 {
    spmd_call< linear_distance_rgb_4_N >(pDistance, pSelectors, pBlock_colors, pSrc_pixels, n, early_out_err);
 }
 
-void CPPSPMD_NAME(find_selectors_perceptual_rgb_4_N)(int64_t *pDistance, uint8_t* pSelectors, const color_rgba* pBlock_colors, const color_rgba* pSrc_pixels, uint32_t n, int64_t early_out_err)
+void find_selectors_perceptual_rgb_4_N_simd(int64_t *pDistance, uint8_t* pSelectors, const color_rgba* pBlock_colors, const color_rgba* pSrc_pixels, uint32_t n, int64_t early_out_err)
 {
    spmd_call< find_selectors_perceptual_rgb_4_N >(pDistance, pSelectors, pBlock_colors, pSrc_pixels, n, early_out_err);
 }
 
-void CPPSPMD_NAME(find_selectors_linear_rgb_4_N)(int64_t* pDistance, uint8_t* pSelectors, const color_rgba* pBlock_colors, const color_rgba* pSrc_pixels, uint32_t n, int64_t early_out_err)
+void find_selectors_linear_rgb_4_N_simd(int64_t* pDistance, uint8_t* pSelectors, const color_rgba* pBlock_colors, const color_rgba* pSrc_pixels, uint32_t n, int64_t early_out_err)
 {
    spmd_call< find_selectors_linear_rgb_4_N >(pDistance, pSelectors, pBlock_colors, pSrc_pixels, n, early_out_err);
 }
 
-void CPPSPMD_NAME(find_lowest_error_perceptual_rgb_4_N)(int64_t* pDistance, const color_rgba* pBlock_colors, const color_rgba* pSrc_pixels, uint32_t n, int64_t early_out_error)
+void find_lowest_error_perceptual_rgb_4_N_simd(int64_t* pDistance, const color_rgba* pBlock_colors, const color_rgba* pSrc_pixels, uint32_t n, int64_t early_out_error)
 {
    spmd_call< find_lowest_error_perceptual_rgb_4_N >(pDistance, pBlock_colors, pSrc_pixels, n, early_out_error);
 }
 
-void CPPSPMD_NAME(find_lowest_error_linear_rgb_4_N)(int64_t* pDistance, const color_rgba* pBlock_colors, const color_rgba* pSrc_pixels, uint32_t n, int64_t early_out_error)
+void find_lowest_error_linear_rgb_4_N_simd(int64_t* pDistance, const color_rgba* pBlock_colors, const color_rgba* pSrc_pixels, uint32_t n, int64_t early_out_error)
 {
    spmd_call< find_lowest_error_linear_rgb_4_N >(pDistance, pBlock_colors, pSrc_pixels, n, early_out_error);
 }
 
-void CPPSPMD_NAME(update_covar_matrix_16x16)(uint32_t num_vecs, const void* pWeighted_vecs, const void* pOrigin, const uint32_t *pVec_indices, void* pMatrix16x16)
+void update_covar_matrix_16x16_simd(uint32_t num_vecs, const void* pWeighted_vecs, const void* pOrigin, const uint32_t *pVec_indices, void* pMatrix16x16)
 {
    spmd_call < update_covar_matrix_16x16 >(num_vecs, pWeighted_vecs, pOrigin, pVec_indices, pMatrix16x16);
 }

@@ -17,6 +17,14 @@
 
 using namespace CPPSPMD;
 
+namespace
+{
+	inline vint simd_set4(int a, int b, int c, int d)
+	{
+		return vint(_mm_setr_epi32(a, b, c, d));
+	}
+} // namespace
+
 #include "basisu_bc15_spmd_kernels.inl"
 
 #endif // BASISU_SUPPORT_SSE
