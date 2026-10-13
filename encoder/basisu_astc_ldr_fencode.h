@@ -21,7 +21,7 @@ BASISU_FORCE_INLINE int popcount64(uint64_t x)
 #elif defined(_MSC_VER) && defined(_M_X64)
 	return static_cast<int>(__popcnt64(x));
 
-#elif defined(_MSC_VER) && (defined(_M_IX86) || defined(_M_ARM64) || defined(_M_ARM))
+#elif defined(_MSC_VER) && (defined(_M_IX86) || defined(_M_ARM64))
 	return static_cast<int>(
 		__popcnt(static_cast<uint32_t>(x)) +
 		__popcnt(static_cast<uint32_t>(x >> 32))
