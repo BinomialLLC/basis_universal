@@ -281,6 +281,9 @@ set(ENCODER_LIB_SRC_LIST
     encoder/basisu_kernels_sse.cpp
     encoder/basisu_kernels_neon.cpp
     encoder/basisu_neon.h
+    encoder/basisu_uastc_neon.inl
+    encoder/basisu_uastc_sse.inl
+    encoder/basisu_uastc_selectors_neon.inl
     encoder/basisu_bc15_spmd.cpp
     encoder/basisu_bc15_spmd_sse.cpp
     encoder/basisu_bc15_spmd_neon.cpp

@@ -15,6 +15,11 @@
 #include "basisu_uastc_enc.h"
 #include "basisu_gpu_texture.h"
 #include "basisu_bc7enc.h"
+#if BASISU_SUPPORT_NEON
+#include "basisu_neon.h"
+#elif BASISU_SUPPORT_SSE
+#include <smmintrin.h>
+#endif
 
 #ifdef _DEBUG
 // When BASISU_VALIDATE_UASTC_ENC is 1, we pack and unpack to/from UASTC and ASTC, then validate that each codec returns the exact same results. This is slower.
@@ -2650,6 +2655,12 @@ namespace basisu
 		return ((int64_t)y_delta * y_delta * 4) + ((int64_t)cr_delta * cr_delta) + ((int64_t)cb_delta * cb_delta);
 	}
 
+#if BASISU_SUPPORT_NEON
+#include "basisu_uastc_neon.inl"
+#elif BASISU_SUPPORT_SSE
+#include "basisu_uastc_sse.inl"
+#endif
+
 	static inline int gray_distance2(const color_rgba& c, int r, int g, int b)
 	{
 		int gray_dist = (((int)c[0] - r) + ((int)c[1] - g) + ((int)c[2] - b) + 1) / 3;
@@ -2689,6 +2700,10 @@ namespace basisu
 		}
 
 #undef GET_XY
+#if BASISU_SUPPORT_SIMD
+		if (g_cpu_supports_sse41 || g_cpu_supports_neon)
+			return uastc_estimate_flip_simd(pSrc_pixels, upper_avg, lower_avg, left_avg, right_avg);
+#endif
 #define GET_XY(x, y, a) gray_distance2(pSrc_pixels[(x) + ((y) * 4)], a[0], a[1], a[2])
 
 		int upper_gray_dist = 0, lower_gray_dist = 0, left_gray_dist = 0, right_gray_dist = 0;
@@ -2711,7 +2726,8 @@ namespace basisu
 		return upper_lower_sum < left_right_sum;
 	}
 
-	static void compute_etc1_hints(etc_block& best_etc1_blk, uint32_t& best_etc1_bias, const uastc_encode_results& best_results, const color_rgba block[4][4], const color_rgba decoded_uastc_block[4][4], int level, uint32_t flags)
+	template<bool use_simd>
+	static void compute_etc1_hints_impl(etc_block& best_etc1_blk, uint32_t& best_etc1_bias, const uastc_encode_results& best_results, const color_rgba block[4][4], const color_rgba decoded_uastc_block[4][4], int level, uint32_t flags)
 	{
 		best_etc1_bias = 0;
 
@@ -2803,6 +2819,34 @@ namespace basisu
 		{
 			trial_block.set_flip_bit(flip != 0);
 
+			uint32_t subset_sums[2][3];
+			int min_r[2] = { 255, 255 }, min_g[2] = { 255, 255 }, min_b[2] = { 255, 255 }, max_r[2] = { 0, 0 }, max_g[2] = { 0, 0 }, max_b[2] = { 0, 0 };
+
+			for (uint32_t subset = 0; subset < 2; subset++)
+			{
+				uint32_t* avg_color = subset_sums[subset];
+				memset(avg_color, 0, sizeof(subset_sums[subset]));
+
+				for (uint32_t j = 0; j < 8; j++)
+				{
+					const etc_coord2 &c = g_etc1_pixel_coords[flip][subset][j];
+					const color_rgba& p = decoded_uastc_block[c.m_y][c.m_x];
+
+					avg_color[0] += p.r;
+					avg_color[1] += p.g;
+					avg_color[2] += p.b;
+
+					min_r[subset] = basisu::minimum<uint32_t>(min_r[subset], p.r);
+					min_g[subset] = basisu::minimum<uint32_t>(min_g[subset], p.g);
+					min_b[subset] = basisu::minimum<uint32_t>(min_b[subset], p.b);
+
+					max_r[subset] = basisu::maximum<uint32_t>(max_r[subset], p.r);
+					max_g[subset] = basisu::maximum<uint32_t>(max_g[subset], p.g);
+					max_b[subset] = basisu::maximum<uint32_t>(max_b[subset], p.b);
+				} // j
+
+			} // subset
+
 			for (uint32_t individ = first_individ; individ < last_individ; individ++)
 			{
 				const uint32_t mul = individ ? 15 : 31;
@@ -2811,31 +2855,9 @@ namespace basisu
 
 				color_rgba unbiased_block_colors[2];
 
-				int min_r[2] = { 255, 255 }, min_g[2] = { 255, 255 }, min_b[2] = { 255, 255 }, max_r[2] = { 0, 0 }, max_g[2] = { 0, 0 }, max_b[2] = { 0, 0 };
-
 				for (uint32_t subset = 0; subset < 2; subset++)
 				{
-					uint32_t avg_color[3];
-					memset(avg_color, 0, sizeof(avg_color));
-
-					for (uint32_t j = 0; j < 8; j++)
-					{
-						const etc_coord2 &c = g_etc1_pixel_coords[flip][subset][j];
-						const color_rgba& p = decoded_uastc_block[c.m_y][c.m_x];
-												
-						avg_color[0] += p.r;
-						avg_color[1] += p.g;
-						avg_color[2] += p.b;
-
-						min_r[subset] = basisu::minimum<uint32_t>(min_r[subset], p.r);
-						min_g[subset] = basisu::minimum<uint32_t>(min_g[subset], p.g);
-						min_b[subset] = basisu::minimum<uint32_t>(min_b[subset], p.b);
-
-						max_r[subset] = basisu::maximum<uint32_t>(max_r[subset], p.r);
-						max_g[subset] = basisu::maximum<uint32_t>(max_g[subset], p.g);
-						max_b[subset] = basisu::maximum<uint32_t>(max_b[subset], p.b);
-					} // j
-
+					const uint32_t* avg_color = subset_sums[subset];
 					unbiased_block_colors[subset][0] = (uint8_t)((avg_color[0] * mul + 1020) / (8 * 255));
 					unbiased_block_colors[subset][1] = (uint8_t)((avg_color[1] * mul + 1020) / (8 * 255));
 					unbiased_block_colors[subset][2] = (uint8_t)((avg_color[2] * mul + 1020) / (8 * 255));
@@ -2856,10 +2878,16 @@ namespace basisu
 					else
 						trial_block.set_block_color5_clamp(block_colors[0], block_colors[1]);
 
+#if BASISU_SUPPORT_SIMD
+					color_rgba simd_base_colors[2];
+#endif
 					uint32_t range[2];
 					for (uint32_t subset = 0; subset < 2; subset++)
 					{
 						const color_rgba base_c(trial_block.get_block_color(subset, true));
+#if BASISU_SUPPORT_SIMD
+						simd_base_colors[subset] = base_c;
+#endif
 
 						const int pos_r = iabs(max_r[subset] - base_c.r);
 						const int neg_r = iabs(base_c.r - min_r[subset]);
@@ -2885,12 +2913,20 @@ namespace basisu
 						{
 							trial_block.set_inten_table(subset, inten_table);
 
-							color_rgba color_table[4];
-							trial_block.get_block_colors(color_table, subset);
-
 							ycbcr color_table_ycbcr[4];
-							for (uint32_t i = 0; i < 4; i++)
-								rgb_to_y_cb_cr(color_table[i], color_table_ycbcr[i]);
+#if BASISU_SUPPORT_SIMD
+							uastc_hint_palette_simd simd_palette;
+							if (use_simd)
+								simd_palette = uastc_hint_palette(simd_base_colors[subset], inten_table);
+							else
+#endif
+							{
+								color_rgba color_table[4];
+								trial_block.get_block_colors(color_table, subset);
+
+								for (uint32_t i = 0; i < 4; i++)
+									rgb_to_y_cb_cr(color_table[i], color_table_ycbcr[i]);
+							}
 
 							uint64_t total_error = 0;
 							if (flip)
@@ -2899,19 +2935,39 @@ namespace basisu
 								{
 									{
 										const ycbcr& c = decoded_uastc_block_ycbcr[subset * 2 + y][0];
-										total_error += minimum(color_diff(color_table_ycbcr[0], c), color_diff(color_table_ycbcr[1], c), color_diff(color_table_ycbcr[2], c), color_diff(color_table_ycbcr[3], c));
+#if BASISU_SUPPORT_SIMD
+										if (use_simd)
+											total_error += uastc_hint_min_error(simd_palette, c, false);
+										else
+#endif
+											total_error += minimum(color_diff(color_table_ycbcr[0], c), color_diff(color_table_ycbcr[1], c), color_diff(color_table_ycbcr[2], c), color_diff(color_table_ycbcr[3], c));
 									}
 									{
 										const ycbcr& c = decoded_uastc_block_ycbcr[subset * 2 + y][1];
-										total_error += minimum(color_diff(color_table_ycbcr[0], c), color_diff(color_table_ycbcr[1], c), color_diff(color_table_ycbcr[2], c), color_diff(color_table_ycbcr[3], c));
+#if BASISU_SUPPORT_SIMD
+										if (use_simd)
+											total_error += uastc_hint_min_error(simd_palette, c, false);
+										else
+#endif
+											total_error += minimum(color_diff(color_table_ycbcr[0], c), color_diff(color_table_ycbcr[1], c), color_diff(color_table_ycbcr[2], c), color_diff(color_table_ycbcr[3], c));
 									}
 									{
 										const ycbcr& c = decoded_uastc_block_ycbcr[subset * 2 + y][2];
-										total_error += minimum(color_diff(color_table_ycbcr[0], c), color_diff(color_table_ycbcr[1], c), color_diff(color_table_ycbcr[2], c), color_diff(color_table_ycbcr[3], c));
+#if BASISU_SUPPORT_SIMD
+										if (use_simd)
+											total_error += uastc_hint_min_error(simd_palette, c, false);
+										else
+#endif
+											total_error += minimum(color_diff(color_table_ycbcr[0], c), color_diff(color_table_ycbcr[1], c), color_diff(color_table_ycbcr[2], c), color_diff(color_table_ycbcr[3], c));
 									}
 									{
 										const ycbcr& c = decoded_uastc_block_ycbcr[subset * 2 + y][3];
-										total_error += minimum(color_diff(color_table_ycbcr[0], c), color_diff(color_table_ycbcr[1], c), color_diff(color_table_ycbcr[2], c), color_diff(color_table_ycbcr[3], c));
+#if BASISU_SUPPORT_SIMD
+										if (use_simd)
+											total_error += uastc_hint_min_error(simd_palette, c, false);
+										else
+#endif
+											total_error += minimum(color_diff(color_table_ycbcr[0], c), color_diff(color_table_ycbcr[1], c), color_diff(color_table_ycbcr[2], c), color_diff(color_table_ycbcr[3], c));
 									}
 									if (total_error >= best_subset_err)
 										break;
@@ -2923,11 +2979,21 @@ namespace basisu
 								{
 									{
 										const ycbcr& c = decoded_uastc_block_ycbcr[y][subset * 2 + 0];
-										total_error += minimum(color_diff(color_table_ycbcr[0], c), color_diff(color_table_ycbcr[1], c), color_diff(color_table_ycbcr[2], c), color_diff(color_table_ycbcr[3], c));
+#if BASISU_SUPPORT_SIMD
+										if (use_simd)
+											total_error += uastc_hint_min_error(simd_palette, c, false);
+										else
+#endif
+											total_error += minimum(color_diff(color_table_ycbcr[0], c), color_diff(color_table_ycbcr[1], c), color_diff(color_table_ycbcr[2], c), color_diff(color_table_ycbcr[3], c));
 									}
 									{
 										const ycbcr& c = decoded_uastc_block_ycbcr[y][subset * 2 + 1];
-										total_error += minimum(color_diff(color_table_ycbcr[0], c), color_diff(color_table_ycbcr[1], c), color_diff(color_table_ycbcr[2], c), color_diff(color_table_ycbcr[3], c));
+#if BASISU_SUPPORT_SIMD
+										if (use_simd)
+											total_error += uastc_hint_min_error(simd_palette, c, false);
+										else
+#endif
+											total_error += minimum(color_diff(color_table_ycbcr[0], c), color_diff(color_table_ycbcr[1], c), color_diff(color_table_ycbcr[2], c), color_diff(color_table_ycbcr[3], c));
 									}
 								}
 								if (total_error >= best_subset_err)
@@ -2952,12 +3018,23 @@ namespace basisu
 
 					for (uint32_t subset = 0; subset < 2; subset++)
 					{
-						color_rgba color_table[4];
-						trial_block.get_block_colors(color_table, subset);
-
 						ycbcr color_table_ycbcr[4];
-						for (uint32_t i = 0; i < 4; i++)
-							rgb_to_y_cb_cr(color_table[i], color_table_ycbcr[i]);
+#if BASISU_SUPPORT_SIMD
+						uastc_hint_palette_simd simd_palette;
+						if (use_simd)
+						{
+							simd_palette = uastc_hint_palette(simd_base_colors[subset], best_inten_table[subset]);
+							uastc_hint_store_palette(simd_palette, color_table_ycbcr);
+						}
+						else
+#endif
+						{
+							color_rgba color_table[4];
+							trial_block.get_block_colors(color_table, subset);
+
+							for (uint32_t i = 0; i < 4; i++)
+								rgb_to_y_cb_cr(color_table[i], color_table_ycbcr[i]);
+						}
 
 						if (flip)
 						{
@@ -2966,7 +3043,11 @@ namespace basisu
 								for (uint32_t x = 0; x < 4; x++)
 								{
 									const ycbcr& c = decoded_uastc_block_ycbcr[subset * 2 + y][x];
-									const uint64_t best_index_err = minimum(color_diff(color_table_ycbcr[0], c) << 2, (color_diff(color_table_ycbcr[1], c) << 2) + 1, (color_diff(color_table_ycbcr[2], c) << 2) + 2, (color_diff(color_table_ycbcr[3], c) << 2) + 3);
+									const uint64_t best_index_err =
+#if BASISU_SUPPORT_SIMD
+										use_simd ? uastc_hint_min_error(simd_palette, c, true) :
+#endif
+										minimum(color_diff(color_table_ycbcr[0], c) << 2, (color_diff(color_table_ycbcr[1], c) << 2) + 1, (color_diff(color_table_ycbcr[2], c) << 2) + 2, (color_diff(color_table_ycbcr[3], c) << 2) + 3);
 
 									const uint32_t best_index = (uint32_t)best_index_err & 3;
 									err += color_diff(block_ycbcr[subset * 2 + y][x], color_table_ycbcr[best_index]);
@@ -2982,7 +3063,11 @@ namespace basisu
 								for (uint32_t x = 0; x < 2; x++)
 								{
 									const ycbcr& c = decoded_uastc_block_ycbcr[y][subset * 2 + x];
-									const uint64_t best_index_err = minimum(color_diff(color_table_ycbcr[0], c) << 2, (color_diff(color_table_ycbcr[1], c) << 2) + 1, (color_diff(color_table_ycbcr[2], c) << 2) + 2, (color_diff(color_table_ycbcr[3], c) << 2) + 3);
+									const uint64_t best_index_err =
+#if BASISU_SUPPORT_SIMD
+										use_simd ? uastc_hint_min_error(simd_palette, c, true) :
+#endif
+										minimum(color_diff(color_table_ycbcr[0], c) << 2, (color_diff(color_table_ycbcr[1], c) << 2) + 1, (color_diff(color_table_ycbcr[2], c) << 2) + 2, (color_diff(color_table_ycbcr[3], c) << 2) + 3);
 
 									const uint32_t best_index = (uint32_t)best_index_err & 3;
 									err += color_diff(block_ycbcr[y][subset * 2 + x], color_table_ycbcr[best_index]);
@@ -3007,6 +3092,18 @@ namespace basisu
 			} // individ
 
 		} // flip
+	}
+
+	static void compute_etc1_hints(etc_block& best_etc1_blk, uint32_t& best_etc1_bias, const uastc_encode_results& best_results, const color_rgba block[4][4], const color_rgba decoded_uastc_block[4][4], int level, uint32_t flags)
+	{
+#if BASISU_SUPPORT_SIMD
+		if (g_cpu_supports_sse41 || g_cpu_supports_neon)
+		{
+			compute_etc1_hints_impl<true>(best_etc1_blk, best_etc1_bias, best_results, block, decoded_uastc_block, level, flags);
+			return;
+		}
+#endif
+		compute_etc1_hints_impl<false>(best_etc1_blk, best_etc1_bias, best_results, block, decoded_uastc_block, level, flags);
 	}
 
 	struct uastc_pack_eac_a8_results
