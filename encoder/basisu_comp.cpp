@@ -5607,7 +5607,7 @@ namespace basisu
 		}
 		else
 		{
-			if (!pSource_images_hdr->size())
+			if ((!pSource_images_hdr) || (!pSource_images_hdr->size()))
 			{
 				error_printf("basis_compress: No source HDR images\n");
 				assert(0);
@@ -5687,7 +5687,7 @@ namespace basisu
 					comp_params.m_source_mipmap_images_hdr.resize(1);
 					comp_params.m_source_mipmap_images_hdr[0].resize(pSource_images_hdr->size() - 1);
 
-					for (uint32_t i = 1; i < pSource_images->size(); i++)
+					for (uint32_t i = 1; i < pSource_images_hdr->size(); i++)
 						comp_params.m_source_mipmap_images_hdr[0][i - 1] = (*pSource_images_hdr)[i];
 				}
 			}
