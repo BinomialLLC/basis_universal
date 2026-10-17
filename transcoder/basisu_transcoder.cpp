@@ -20639,7 +20639,11 @@ namespace basist
 			const uint32_t num_blocks6_y = (level_height + 5) / 6;
 
 			// Compute length and offset to uncompressed 2D UASTC texture data, given the face/layer indices.
-			assert(uncomp_level_data_size == m_levels[level_index].m_uncompressed_byte_length.get_uint64());
+			if (uncomp_level_data_size != m_levels[level_index].m_uncompressed_byte_length.get_uint64())
+			{
+				BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_level: m_uncompressed_byte_length is invalid\n");
+				return false;
+			}
 
 			const uint64_t total_2D_image_size = (uint64_t)num_blocks6_x * num_blocks6_y * sizeof(astc_helpers::astc_block);
 
@@ -20804,7 +20808,12 @@ namespace basist
 			// UASTC LDR 4x4 and UASTC HDR 4x4
 			
 			// Compute length and offset to uncompressed 2D UASTC texture data, given the face/layer indices.
-			assert(uncomp_level_data_size == m_levels[level_index].m_uncompressed_byte_length.get_uint64());
+			if (uncomp_level_data_size != m_levels[level_index].m_uncompressed_byte_length.get_uint64())
+			{
+				BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_level: m_uncompressed_byte_length is invalid\n");
+				return false;
+			}
+
 			const uint64_t total_2D_image_size = (uint64_t)num_blocks4_x * num_blocks4_y * KTX2_UASTC_BLOCK_SIZE;
 						
 			const uint64_t uncomp_ofs = (layer_index * m_header.m_face_count + face_index) * total_2D_image_size;
