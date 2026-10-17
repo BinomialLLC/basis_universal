@@ -20933,6 +20933,35 @@ namespace basist
 			return false;
 		}
 
+		// uncomp_size is taken from the level index, so don't trust it: bound it by the largest level this file's dimensions, format, layers and faces can need before allocating it.
+		// Only the formats whose levels are raw blocks (UASTC 4x4 LDR/HDR, ASTC HDR 6x6, ASTC LDR 4x4-12x12) are decoded from the decompressed level data.
+		uint32_t bytes_per_block = 0;
+		if ((m_format == basist::basis_tex_format::cUASTC_LDR_4x4) || (m_format == basist::basis_tex_format::cUASTC_HDR_4x4))
+			bytes_per_block = KTX2_UASTC_BLOCK_SIZE;
+		else if ((m_format == basist::basis_tex_format::cASTC_HDR_6x6) || basis_tex_format_is_astc_ldr(m_format))
+			bytes_per_block = sizeof(astc_helpers::astc_block);
+		else
+		{
+			BASISU_DEVEL_ERROR("ktx2_transcoder::decompress_level_data: Supercompressed level data is not supported for this texture format\n");
+			return false;
+		}
+
+		{
+			const uint32_t block_width = basis_tex_format_get_block_width(m_format), block_height = basis_tex_format_get_block_height(m_format);
+			const uint32_t level_width = basisu::maximum<uint32_t>(m_header.m_pixel_width >> level_index, 1);
+			const uint32_t level_height = basisu::maximum<uint32_t>(m_header.m_pixel_height >> level_index, 1);
+			const uint64_t num_blocks_x = (level_width + block_width - 1) / block_width;
+			const uint64_t num_blocks_y = (level_height + block_height - 1) / block_height;
+			const uint64_t num_images = (uint64_t)basisu::maximum<uint32_t>(m_header.m_layer_count, 1) * m_header.m_face_count;
+			const uint64_t max_uncomp_size = num_blocks_x * num_blocks_y * bytes_per_block * num_images;
+
+			if (uncomp_size > max_uncomp_size)
+			{
+				BASISU_DEVEL_ERROR("ktx2_transcoder::decompress_level_data: Uncompressed level byte length is larger than the level can hold, file is invalid or corrupted\n");
+				return false;
+			}
+		}
+
 		if (!uncomp_data.try_resize((size_t)uncomp_size))
 		{
 			BASISU_DEVEL_ERROR("ktx2_transcoder::decompress_level_data: Out of memory\n");
