@@ -793,6 +793,9 @@ namespace basisu
 		return load_png(buffer.data(), buffer.size(), img, pFilename);
 	}
 
+	// With the Wuffs loader, Wuffs' accept/reject is final. Known valid JPEGs it rejects (and so we can't load): 16-bit (Pq=1)
+	// quantization tables ("jpeg: unsupported precision"), which libjpeg writes when a quantizer exceeds 255 and jpgd/libjpeg-turbo
+	// decode; also truncated files / files missing the EOI marker, and images over 16384 in either dimension.
 	bool load_jpg(const char *pFilename, image& img)
 	{
 #if BASISU_USE_WUFFS_LDR_LOADER
