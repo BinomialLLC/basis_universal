@@ -3993,7 +3993,7 @@ namespace basisu
 
 #if BASISU_USE_WUFFS_LDR_LOADER
 	// Decode caps, checked from the image header BEFORE any pixel or work buffer is allocated. Override with -D.
-	// Maximum width/height. Default: basist::BASISU_MAX_SUPPORTED_TEXTURE_DIMENSION (16384) = jpgd's JPGD_MAX_DIMENSION = read_tga()'s MAX_TGA_IMAGE_SIZE.
+	// Maximum width/height. Default: basist::BASISU_MAX_SUPPORTED_TEXTURE_DIMENSION (16384) = read_tga()'s MAX_TGA_IMAGE_SIZE. (The older pv_png and jpgd loaders accepted up to 32768.)
 #ifndef BASISU_WUFFS_LDR_MAX_DIM
 #define BASISU_WUFFS_LDR_MAX_DIM basist::BASISU_MAX_SUPPORTED_TEXTURE_DIMENSION
 #endif

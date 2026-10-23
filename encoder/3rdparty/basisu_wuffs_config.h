@@ -5,7 +5,7 @@
 #pragma once
 
 // Only the modules the PNG, TGA, JPEG and QOI decoders need. The base module is limited to its core, interfaces and pixel
-// conversion sub-modules (no base64/floatconv/intconv/utf8/magic).
+// conversion sub-modules (no floatconv/intconv/utf8/magic).
 #define WUFFS_CONFIG__MODULES
 #define WUFFS_CONFIG__MODULE__BASE__CORE
 #define WUFFS_CONFIG__MODULE__BASE__INTERFACES
