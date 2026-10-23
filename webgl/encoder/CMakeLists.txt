@@ -5,8 +5,18 @@ project(basisu_encoder_js)
 option(KTX2_ZSTANDARD "Enable KTX2 Zstandard support" TRUE)
 option(SUPPORT_ASTCENC "Enable astcenc support" FALSE)
 
+# Build JavaScript glue that never calls eval() or new Function(), so the module
+# loads under a Content-Security-Policy without 'unsafe-eval' (OFF by default).
+option(NO_DYNAMIC_EXECUTION "Disallow eval()/new Function() in the JS glue" FALSE)
+
+# With NO_DYNAMIC_EXECUTION, generate the embind call wrappers at build time (fast)
+# instead of using the slower generic wrappers. No effect unless NO_DYNAMIC_EXECUTION is ON.
+option(EMBIND_AOT "Generate embind wrappers at build time" TRUE)
+
 message("KTX2_ZSTANDARD=${KTX2_ZSTANDARD}")
 message("SUPPORT_ASTCENC=${SUPPORT_ASTCENC}")
+message("NO_DYNAMIC_EXECUTION=${NO_DYNAMIC_EXECUTION}")
+message("EMBIND_AOT=${EMBIND_AOT}")
 
 # Only for Emscripten builds.
 if(EMSCRIPTEN)
@@ -132,6 +142,13 @@ if(EMSCRIPTEN)
 
   # Base link flags 
   set(LINK_BASE "--bind -s ALLOW_MEMORY_GROWTH=1 -s INITIAL_MEMORY=134217728 -s STACK_SIZE=2097152 -s MODULARIZE=1 -s EXPORT_NAME=BASIS -s EXPORTED_RUNTIME_METHODS=['HEAP8']")
+  if(NO_DYNAMIC_EXECUTION)
+    set(LINK_BASE "${LINK_BASE} -s DYNAMIC_EXECUTION=0")
+    if(EMBIND_AOT)
+      set(LINK_BASE "${LINK_BASE} -s EMBIND_AOT=1")
+    endif()
+  endif()
+
   set(LINK_THREADS "-s USE_PTHREADS=1 -s PTHREAD_POOL_SIZE=32 -s ENVIRONMENT=web,worker")
   set(LINK_WASM64  "-s MEMORY64=1 -sWASM_BIGINT=1 --profiling-funcs")
 

@@ -3347,17 +3347,17 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
 	constant("ASTC_HDR_MAX_VAL", basist::ASTC_HDR_MAX_VAL);
 
     // UASTC LDR/HDR flags/options
-    constant("cPackUASTCLevelFastest", cPackUASTCLevelFastest);
-    constant("cPackUASTCLevelFaster", cPackUASTCLevelFaster);
-    constant("cPackUASTCLevelDefault", cPackUASTCLevelDefault);
-    constant("cPackUASTCLevelSlower", cPackUASTCLevelSlower);
-    constant("cPackUASTCLevelVerySlow", cPackUASTCLevelVerySlow);
-    constant("cPackUASTCLevelMask", cPackUASTCLevelMask);
-    constant("cPackUASTCFavorUASTCError", cPackUASTCFavorUASTCError);
-    constant("cPackUASTCFavorBC7Error", cPackUASTCFavorBC7Error);
-    constant("cPackUASTCETC1FasterHints", cPackUASTCETC1FasterHints);
-    constant("cPackUASTCETC1FastestHints", cPackUASTCETC1FastestHints);
-    constant("cPackUASTCETC1DisableFlipAndIndividual", cPackUASTCETC1DisableFlipAndIndividual);
+    constant("cPackUASTCLevelFastest", static_cast<uint32_t>(cPackUASTCLevelFastest));
+    constant("cPackUASTCLevelFaster", static_cast<uint32_t>(cPackUASTCLevelFaster));
+    constant("cPackUASTCLevelDefault", static_cast<uint32_t>(cPackUASTCLevelDefault));
+    constant("cPackUASTCLevelSlower", static_cast<uint32_t>(cPackUASTCLevelSlower));
+    constant("cPackUASTCLevelVerySlow", static_cast<uint32_t>(cPackUASTCLevelVerySlow));
+    constant("cPackUASTCLevelMask", static_cast<uint32_t>(cPackUASTCLevelMask));
+    constant("cPackUASTCFavorUASTCError", static_cast<uint32_t>(cPackUASTCFavorUASTCError));
+    constant("cPackUASTCFavorBC7Error", static_cast<uint32_t>(cPackUASTCFavorBC7Error));
+    constant("cPackUASTCETC1FasterHints", static_cast<uint32_t>(cPackUASTCETC1FasterHints));
+    constant("cPackUASTCETC1FastestHints", static_cast<uint32_t>(cPackUASTCETC1FastestHints));
+    constant("cPackUASTCETC1DisableFlipAndIndividual", static_cast<uint32_t>(cPackUASTCETC1DisableFlipAndIndividual));
     
     constant("UASTC_RDO_DEFAULT_MAX_ALLOWED_RMS_INCREASE_RATIO", UASTC_RDO_DEFAULT_MAX_ALLOWED_RMS_INCREASE_RATIO);
     constant("UASTC_RDO_DEFAULT_SKIP_BLOCK_RMS_THRESH", UASTC_RDO_DEFAULT_SKIP_BLOCK_RMS_THRESH);

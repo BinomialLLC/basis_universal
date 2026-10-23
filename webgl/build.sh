@@ -11,6 +11,7 @@
 #   ./build.sh --clean              # make clean + wipe CMake cache first (full rebuild)
 #   ./build.sh --slow               # serial build (plain make, one file at a time)
 #   ./build.sh encoder -DKTX2_ZSTANDARD=OFF -DCMAKE_BUILD_TYPE=Debug
+#   ./build.sh -DNO_DYNAMIC_EXECUTION=ON   # no eval/new Function (strict CSP)
 #
 # Any -D... argument is forwarded to cmake. Runnable from any directory.
 #
@@ -35,7 +36,7 @@ for a in "$@"; do
     --slow)             SLOW=1 ;;
     transcoder|encoder) TARGETS+=("$a") ;;
     -D*)                CMAKE_ARGS+=("$a") ;;
-    -h|--help)          sed -n '3,15p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help)          sed -n '3,16p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *)                  die "unknown argument: '$a' (try --help)" ;;
   esac
 done
