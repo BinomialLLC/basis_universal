@@ -47,10 +47,10 @@ namespace basisu
 		// Basic sanity check min_new_capacity
 		if (!can_fit_into_size_t((uint64_t)min_new_capacity * element_size))
 		{
-			assert(0);
-			
 			if (nofail_flag)
 				return false;
+			
+			assert(0);
 
 			container_abort("elemental_vector::increase_capacity: requesting too many elements\n");
 		}
@@ -79,10 +79,10 @@ namespace basisu
 
 			if (!can_fit_into_size_t(new_capacity_u64))
 			{
-				assert(0);
-
 				if (nofail_flag)
 					return false;
+
+				assert(0);
 
 				container_abort("elemental_vector::increase_capacity: vector too large\n");
 			}
@@ -92,10 +92,10 @@ namespace basisu
 
 		if (!can_fit_into_size_t(desired_size_u64))
 		{
-			assert(0);
-
 			if (nofail_flag)
 				return false;
+
+			assert(0);
 
 			container_abort("elemental_vector::increase_capacity: vector too large\n");
 		}
@@ -111,10 +111,10 @@ namespace basisu
 			if (!new_p)
 			{
 				fprintf(stderr, "elemental_vector::increase_capacity: Allocation failed!\n");
-				assert(0);
-
 				if (nofail_flag)
 					return false;
+
+				assert(0);
 
 				container_abort("elemental_vector::increase_capacity: realloc() failed allocating %zu bytes", desired_size);
 			}
@@ -136,10 +136,10 @@ namespace basisu
 			if (!new_p)
 			{
 				fprintf(stderr, "elemental_vector::increase_capacity: Allocation failed!\n");
-				assert(0);
-
 				if (nofail_flag)
 					return false;
+
+				assert(0);
 
 				container_abort("elemental_vector::increase_capacity: malloc() failed allocating %zu bytes", desired_size);
 			}
