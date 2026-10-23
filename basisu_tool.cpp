@@ -5419,14 +5419,41 @@ static bool unpack_and_validate_dds_file(
 	return true;
 }
 
-// Prints basic header info about a PNG file (used by -info). Uses pv_png::get_png_info (no full decode).
+// Prints basic header info about a PNG file (used by -info). Uses pv_png::get_png_info, plus the image loader's get_ldr_image_info()
+// when BASISU_USE_WUFFS_LDR_LOADER is 1 (header only, no full decode).
+#if BASISU_USE_WUFFS_LDR_LOADER
+// The image loader (Wuffs) reads the header independently: report what it sees (true dimensions, even beyond its decode cap).
+// Returns true if the loader could parse the header.
+static bool print_png_loader_info(const uint8_vec& file_data)
+{
+	uint32_t loader_width = 0, loader_height = 0;
+	if (!get_ldr_image_info(file_data.data(), file_data.size(), "png", loader_width, loader_height))
+	{
+		printf("Image loader (Wuffs): header rejected, this file can't be loaded\n");
+		return false;
+	}
+
+	if ((loader_width > BASISU_WUFFS_LDR_MAX_DIM) || (loader_height > BASISU_WUFFS_LDR_MAX_DIM))
+		printf("Image loader (Wuffs): %ux%u, exceeds the maximum loadable dimension (%u), this file can't be loaded\n", loader_width, loader_height, (uint32_t)BASISU_WUFFS_LDR_MAX_DIM);
+	else
+		printf("Image loader (Wuffs): %ux%u\n", loader_width, loader_height);
+
+	return true;
+}
+#endif
+
 static bool print_png_info(const char* pInput_filename, const uint8_vec& file_data)
 {
 	pv_png::png_info info;
 	if (!pv_png::get_png_info(file_data.data(), file_data.size(), info))
 	{
 		error_printf("Failed parsing PNG file \"%s\"\n", pInput_filename);
+#if BASISU_USE_WUFFS_LDR_LOADER
+		// pvpngreader's header parser has its own limits (e.g. 32768 max dimension, ancillary chunk CRCs): still report the loader's view.
+		return print_png_loader_info(file_data);
+#else
 		return false;
+#endif
 	}
 
 	const char* pColor_type = "?";
@@ -5447,6 +5474,10 @@ static bool print_png_info(const char* pInput_filename, const uint8_vec& file_da
 	printf("Colorkey transparency (tRNS): %u\n", info.m_has_trns);
 	if (info.m_has_gamma)
 		printf("Gamma (gAMA): %f\n", info.m_gamma_value / 100000.0f);
+
+#if BASISU_USE_WUFFS_LDR_LOADER
+	print_png_loader_info(file_data);
+#endif
 
 	return true;
 }
