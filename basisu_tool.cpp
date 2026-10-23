@@ -5433,7 +5433,11 @@ static bool print_png_info(const char* pInput_filename, const uint8_vec& file_da
 	}
 	printf("Dimensions: %ux%u\n", width, height);
 	if ((width > BASISU_WUFFS_LDR_MAX_DIM) || (height > BASISU_WUFFS_LDR_MAX_DIM))
-		printf("Exceeds the maximum loadable dimension (%u), this file can't be loaded\n", (uint32_t)BASISU_WUFFS_LDR_MAX_DIM);
+	{
+		// A file the loader can't load is a failure (EXIT_FAILURE), even though its header was printed.
+		error_printf("Exceeds the maximum loadable dimension (%u), this file can't be loaded\n", (uint32_t)BASISU_WUFFS_LDR_MAX_DIM);
+		return false;
+	}
 	return true;
 #else
 	pv_png::png_info info;
