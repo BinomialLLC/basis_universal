@@ -3997,13 +3997,12 @@ namespace basisu
 #ifndef BASISU_WUFFS_LDR_MAX_DIM
 #define BASISU_WUFFS_LDR_MAX_DIM basist::BASISU_MAX_SUPPORTED_TEXTURE_DIMENSION
 #endif
-	// Largest Wuffs work buffer we allocate. Default = the measured worst case within the 16384 cap: a progressive 4-component (CMYK/YCCK)
-	// 4:4:4 JPEG (exactly 3 GiB at 16384x16384). Tradeoff: every valid image within the dimension cap loads, but a small corrupt/truncated
-	// file whose header claims up to 16384x16384 makes the loader allocate up to 1 GiB of pixels + this much work buffer before Wuffs finds
-	// the data missing. A lower value (e.g. 2 GiB, jpgd's coefficient buffer limit) bounds that, at the cost of rejecting the largest
-	// progressive or 4:4:4 JPEGs.
+	// Largest Wuffs work buffer we allocate: 1 GiB. This bounds how much a small corrupt/truncated file claiming a huge image can make the
+	// loader allocate (up to 1 GiB of pixels + this much work buffer) before Wuffs finds the data missing. Tradeoff: images within the
+	// dimension cap whose decode needs more work buffer are rejected - e.g. progressive JPEGs larger than roughly 9.4K^2 (CMYK/YCCK 4:4:4,
+	// ~12 bytes/pixel) or 10.9K^2 (YCbCr 4:4:4, ~9 bytes/pixel), and the very largest 8-bit RGBA PNGs near 16384^2. Raise it with -D if needed.
 #ifndef BASISU_WUFFS_LDR_MAX_WORKBUF_BYTES
-#define BASISU_WUFFS_LDR_MAX_WORKBUF_BYTES (3ULL * 1024 * 1024 * 1024)
+#define BASISU_WUFFS_LDR_MAX_WORKBUF_BYTES (1ULL * 1024 * 1024 * 1024)
 #endif
 
 	// Header-only query (no pixel decode, no size cap): true dimensions of a .PNG/.TGA/.JPG/.QOI file, even one larger than the decode cap.
