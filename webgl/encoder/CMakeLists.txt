@@ -149,7 +149,10 @@ if(EMSCRIPTEN)
     endif()
   endif()
 
-  set(LINK_THREADS "-s USE_PTHREADS=1 -s PTHREAD_POOL_SIZE=32 -s ENVIRONMENT=web,worker")
+  # INCOMING_MODULE_JS_API: Emscripten's default list plus mainScriptUrlOrBlob, which newer Emscripten (6.0.x) no longer accepts by default.
+  # ktx2_studio/encode-worker.js loads the threaded encoder via importScripts() and must pass mainScriptUrlOrBlob, otherwise the pthread
+  # pool is spawned from the wrong script and the encoder module never finishes loading (silent hang).
+  set(LINK_THREADS "-s USE_PTHREADS=1 -s PTHREAD_POOL_SIZE=32 -s ENVIRONMENT=web,worker -s INCOMING_MODULE_JS_API=['ENVIRONMENT','arguments','canvas','dynamicLibraries','elementPointerLock','instantiateWasm','locateFile','monitorRunDependencies','noExitRuntime','noInitialRun','onAbort','onExit','onRuntimeInitialized','postRun','preInit','preRun','print','printErr','setStatus','statusMessage','stderr','stdin','stdout','thisProgram','wasm','websocket','mainScriptUrlOrBlob']")
   set(LINK_WASM64  "-s MEMORY64=1 -sWASM_BIGINT=1 --profiling-funcs")
 
   # Helper to avoid repetition
