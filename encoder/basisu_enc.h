@@ -3999,13 +3999,15 @@ namespace basisu
 #endif
 	// Largest Wuffs work buffer we allocate: 1 GiB. This bounds how much a small corrupt/truncated file claiming a huge image can make the
 	// loader allocate (up to 1 GiB of pixels + this much work buffer) before Wuffs finds the data missing. Tradeoff: images within the
-	// dimension cap whose decode needs more work buffer are rejected - e.g. progressive JPEGs larger than roughly 9.4K^2 (CMYK/YCCK 4:4:4,
-	// ~12 bytes/pixel) or 10.9K^2 (YCbCr 4:4:4, ~9 bytes/pixel), and the very largest 8-bit RGBA PNGs near 16384^2. Raise it with -D if needed.
+	// dimension cap whose decode needs more work buffer are rejected - e.g. progressive JPEGs above ~15.4K^2 (4:2:0), ~13.4K^2 (4:2:2),
+	// ~10.9K^2 (4:4:4) or ~9.4K^2 (CMYK/YCCK 4:4:4); 16-bit RGB/RGBA PNGs above ~13.4K^2 / ~11.6K^2; 8-bit RGBA PNGs only at exactly
+	// 16384x16384. Raise it with -D if needed.
 #ifndef BASISU_WUFFS_LDR_MAX_WORKBUF_BYTES
 #define BASISU_WUFFS_LDR_MAX_WORKBUF_BYTES (1ULL * 1024 * 1024 * 1024)
 #endif
 
 	// Header-only query (no pixel decode, no size cap): true dimensions of a .PNG/.TGA/.JPG/.QOI file, even one larger than the decode cap.
+	// Only declared when BASISU_USE_WUFFS_LDR_LOADER is 1: define BASISU_USE_WUFFS_LDR_LOADER identically in every TU and in code using the library.
 	bool get_ldr_image_info(const uint8_t* pBuf, size_t buf_size, const char* pExt, uint32_t& width, uint32_t& height);
 #endif
 
