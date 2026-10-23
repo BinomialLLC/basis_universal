@@ -28,3 +28,7 @@ License: MIT
 Files: encoder/3rdparty/tinydds.h
 Copyright: 2019 DeanoC
 License: MIT
+
+Files: encoder/3rdparty/wuffs-v0.4.c
+Copyright: 2017-2026 The Wuffs Authors
+License: Apache-2.0
