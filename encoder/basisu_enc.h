@@ -2922,6 +2922,25 @@ namespace basisu
 			return *this;
 		}
 
+		// Allocates a w x h image (pitch w) with every pixel set to background, discarding the old contents. Unlike resize(), returns false (leaving
+		// the image unchanged) instead of aborting if the allocation fails.
+		bool try_alloc(uint32_t w, uint32_t h, const color_rgba& background = g_black_color)
+		{
+			// Every pixel index must fit in uint32_t (also keeps (size_t)w * h from wrapping in 32-bit builds).
+			if (((uint64_t)w * h) > UINT32_MAX)
+				return false;
+
+			color_rgba_vec pixels;
+			if (!pixels.try_resize((size_t)w * h))
+				return false;
+			pixels.set_all(background);
+			m_pixels.swap(pixels);
+			m_width = w;
+			m_height = h;
+			m_pitch = w;
+			return true;
+		}
+
 		void init(const uint8_t *pImage, uint32_t width, uint32_t height, uint32_t comps)
 		{
 			assert(comps >= 1 && comps <= 4);
@@ -3962,6 +3981,34 @@ namespace basisu
 	void print_psnr_hvs_image_metrics(const image& a, const image& b);
 
 	// Image saving/loading/resampling
+
+	// BASISU_USE_WUFFS_LDR_LOADER: 1 (default) = load_png(), load_tga(), load_jpg() and load_qoi() (and everything built on them: load_image(),
+	// the LDR paths of load_image_hdr()) decode with Google's Wuffs (encoder/3rdparty/wuffs-v0.4.c, used under Apache-2.0, compiled by
+	// encoder/3rdparty/basisu_wuffs.cpp). Wuffs' accept/reject decisions and pixels are final: there is no fallback to the older decoders.
+	// 0 = the older built-in decoders (pvpngreader, read_tga(), jpgd, qoi.h). Their source stays in the tree either way (qoi.h is also still
+	// used for writing .QOI). .HDR, .EXR, .DDS/.KTX etc. are never affected.
+#ifndef BASISU_USE_WUFFS_LDR_LOADER
+#define BASISU_USE_WUFFS_LDR_LOADER 1
+#endif
+
+#if BASISU_USE_WUFFS_LDR_LOADER
+	// Decode caps, checked from the image header BEFORE any pixel or work buffer is allocated. Override with -D.
+	// Maximum width/height. Default: basist::BASISU_MAX_SUPPORTED_TEXTURE_DIMENSION (16384) = jpgd's JPGD_MAX_DIMENSION = read_tga()'s MAX_TGA_IMAGE_SIZE.
+#ifndef BASISU_WUFFS_LDR_MAX_DIM
+#define BASISU_WUFFS_LDR_MAX_DIM basist::BASISU_MAX_SUPPORTED_TEXTURE_DIMENSION
+#endif
+	// Largest Wuffs work buffer we allocate. Default = the measured worst case within the 16384 cap: a progressive 4-component (CMYK/YCCK)
+	// 4:4:4 JPEG (exactly 3 GiB at 16384x16384). Tradeoff: every valid image within the dimension cap loads, but a small corrupt/truncated
+	// file whose header claims up to 16384x16384 makes the loader allocate up to 1 GiB of pixels + this much work buffer before Wuffs finds
+	// the data missing. A lower value (e.g. 2 GiB, jpgd's coefficient buffer limit) bounds that, at the cost of rejecting the largest
+	// progressive or 4:4:4 JPEGs.
+#ifndef BASISU_WUFFS_LDR_MAX_WORKBUF_BYTES
+#define BASISU_WUFFS_LDR_MAX_WORKBUF_BYTES (3ULL * 1024 * 1024 * 1024)
+#endif
+
+	// Header-only query (no pixel decode, no size cap): true dimensions of a .PNG/.TGA/.JPG/.QOI file, even one larger than the decode cap.
+	bool get_ldr_image_info(const uint8_t* pBuf, size_t buf_size, const char* pExt, uint32_t& width, uint32_t& height);
+#endif
 
 	bool load_png(const uint8_t* pBuf, size_t buf_size, image& img, const char* pFilename = nullptr);
 	bool load_png(const char* pFilename, image& img);

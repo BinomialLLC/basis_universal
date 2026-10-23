@@ -42,6 +42,13 @@
 #define QOI_IMPLEMENTATION
 #include "3rdparty/qoi.h"
 
+#if BASISU_USE_WUFFS_LDR_LOADER
+// Wuffs (https://github.com/google/wuffs, encoder/3rdparty/wuffs-v0.4.c): declarations only. The implementation is compiled once, in its
+// own translation unit with its warnings silenced: encoder/3rdparty/basisu_wuffs.cpp. Both include the same configuration header.
+#include "3rdparty/basisu_wuffs_config.h"
+#include "3rdparty/wuffs-v0.4.c"
+#endif
+
 #if defined(_WIN32)
 // For QueryPerformanceCounter/QueryPerformanceFrequency
 #define WIN32_LEAN_AND_MEAN
@@ -411,9 +418,213 @@ namespace basisu
 	}
 		
 	const uint32_t MAX_32BIT_ALLOC_SIZE = 250000000;
+
+#if BASISU_USE_WUFFS_LDR_LOADER
+	// The decode caps (see basisu_enc.h), checked from the image header (decode_image_config) BEFORE any pixel or work buffer is allocated.
+	const uint32_t WUFFS_LDR_MAX_DIM = BASISU_WUFFS_LDR_MAX_DIM;
+	const uint64_t WUFFS_LDR_MAX_WORKBUF_BYTES = BASISU_WUFFS_LDR_MAX_WORKBUF_BYTES;
+
+	enum class wuffs_ldr_format { cPNG, cTGA, cJPEG, cQOI };
+
+	// Decoder object storage + the base-interface pointer. The object lives in our own (zeroed) memory; Wuffs itself never allocates.
+	struct wuffs_ldr_decoder
+	{
+		uint8_vec m_mem;
+		wuffs_base__image_decoder* m_pDec = nullptr;
+
+		bool init(wuffs_ldr_format fmt)
+		{
+			wuffs_base__status status = wuffs_base__make_status(nullptr);
+			switch (fmt)
+			{
+			case wuffs_ldr_format::cPNG:
+				if (!m_mem.try_resize(sizeof__wuffs_png__decoder()))
+					return false;
+				status = wuffs_png__decoder__initialize((wuffs_png__decoder*)m_mem.data(), m_mem.size(), WUFFS_VERSION, 0);
+				m_pDec = wuffs_png__decoder__upcast_as__wuffs_base__image_decoder((wuffs_png__decoder*)m_mem.data());
+				break;
+			case wuffs_ldr_format::cTGA:
+				if (!m_mem.try_resize(sizeof__wuffs_targa__decoder()))
+					return false;
+				status = wuffs_targa__decoder__initialize((wuffs_targa__decoder*)m_mem.data(), m_mem.size(), WUFFS_VERSION, 0);
+				m_pDec = wuffs_targa__decoder__upcast_as__wuffs_base__image_decoder((wuffs_targa__decoder*)m_mem.data());
+				break;
+			case wuffs_ldr_format::cJPEG:
+				if (!m_mem.try_resize(sizeof__wuffs_jpeg__decoder()))
+					return false;
+				status = wuffs_jpeg__decoder__initialize((wuffs_jpeg__decoder*)m_mem.data(), m_mem.size(), WUFFS_VERSION, 0);
+				m_pDec = wuffs_jpeg__decoder__upcast_as__wuffs_base__image_decoder((wuffs_jpeg__decoder*)m_mem.data());
+				break;
+			case wuffs_ldr_format::cQOI:
+				if (!m_mem.try_resize(sizeof__wuffs_qoi__decoder()))
+					return false;
+				status = wuffs_qoi__decoder__initialize((wuffs_qoi__decoder*)m_mem.data(), m_mem.size(), WUFFS_VERSION, 0);
+				m_pDec = wuffs_qoi__decoder__upcast_as__wuffs_base__image_decoder((wuffs_qoi__decoder*)m_mem.data());
+				break;
+			default:
+				assert(0); // caller misuse, never file data
+				return false;
+			}
+			return wuffs_base__status__is_ok(&status);
+		}
+	};
+
+	static void wuffs_report(const wuffs_base__status& status, const char* pFilename)
+	{
+		error_printf("Failed loading image \"%s\" (Wuffs: %s)\n", pFilename, wuffs_base__status__message(&status));
+	}
+
+	// Decodes a whole .PNG/.TGA/.JPG/.QOI file in memory to 8-bit RGBA (non-premultiplied; alpha is 255 for formats/images without alpha).
+	// Wuffs' accept/reject and pixels are final (no fallback, no fixups). On failure img is unchanged; never asserts on file data.
+	static bool wuffs_load_ldr(const uint8_t* pBuf, size_t buf_size, wuffs_ldr_format fmt, image& img, const char* pFilename)
+	{
+		if (!pFilename)
+			pFilename = "(memory)";
+
+		if ((!pBuf) || (!buf_size))
+			return false;
+
+		wuffs_ldr_decoder dec;
+		if (!dec.init(fmt))
+			return false;
+
+		// The whole file is in memory: a closed reader, so running out of data is "#truncated input", never a suspension.
+		wuffs_base__io_buffer src = wuffs_base__ptr_u8__reader(const_cast<uint8_t*>(pBuf), buf_size, true);
+
+		// 1. Header only (no allocations): dimensions.
+		wuffs_base__image_config ic;
+		memset(&ic, 0, sizeof(ic));
+		wuffs_base__status status = wuffs_base__image_decoder__decode_image_config(dec.m_pDec, &ic, &src);
+		if (!wuffs_base__status__is_ok(&status))
+		{
+			wuffs_report(status, pFilename);
+			return false;
+		}
+
+		const uint32_t width = wuffs_base__pixel_config__width(&ic.pixcfg);
+		const uint32_t height = wuffs_base__pixel_config__height(&ic.pixcfg);
+
+		// 2. The decode cap, before any pixel/work buffer exists.
+		if ((!width) || (!height))
+		{
+			error_printf("Failed loading image \"%s\": empty image (%ux%u)\n", pFilename, width, height);
+			return false;
+		}
+
+		if ((width > WUFFS_LDR_MAX_DIM) || (height > WUFFS_LDR_MAX_DIM))
+		{
+			error_printf("Failed loading image \"%s\": %ux%u exceeds the maximum supported dimension (%u)\n", pFilename, width, height, WUFFS_LDR_MAX_DIM);
+			return false;
+		}
+
+		if ((sizeof(void*) == sizeof(uint32_t)) && (((uint64_t)width * height * 4) > MAX_32BIT_ALLOC_SIZE))
+		{
+			error_printf("Image \"%s\" is too large (%ux%u) to process in a 32-bit build!\n", pFilename, width, height);
+			return false;
+		}
+
+		const uint64_t workbuf_len = wuffs_base__image_decoder__workbuf_len(dec.m_pDec).max_incl;
+		if ((workbuf_len > WUFFS_LDR_MAX_WORKBUF_BYTES) || (workbuf_len > (uint64_t)SIZE_MAX))
+		{
+			error_printf("Failed loading image \"%s\": decoder work buffer too large (%llu bytes)\n", pFilename, (unsigned long long)workbuf_len);
+			return false;
+		}
+
+		// 3. Ask for 8-bit RGBA, which is color_rgba's exact memory layout, so Wuffs writes straight into the image.
+		wuffs_base__pixel_config__set(&ic.pixcfg, WUFFS_BASE__PIXEL_FORMAT__RGBA_NONPREMUL, WUFFS_BASE__PIXEL_SUBSAMPLING__NONE, width, height);
+
+		// try_alloc() initializes every pixel (opaque black), so nothing can expose uninitialized memory.
+		image tmp_img;
+		if (!tmp_img.try_alloc(width, height))
+		{
+			error_printf("Failed loading image \"%s\": out of memory\n", pFilename);
+			return false;
+		}
+
+		wuffs_base__pixel_buffer pb;
+		memset(&pb, 0, sizeof(pb));
+		status = wuffs_base__pixel_buffer__set_from_slice(&pb, &ic.pixcfg, wuffs_base__make_slice_u8(reinterpret_cast<uint8_t*>(tmp_img.get_ptr()), (size_t)width * height * sizeof(color_rgba)));
+		if (!wuffs_base__status__is_ok(&status))
+		{
+			wuffs_report(status, pFilename);
+			return false;
+		}
+
+		uint8_vec workbuf;
+		if (!workbuf.try_resize((size_t)workbuf_len))
+		{
+			error_printf("Failed loading image \"%s\": out of memory (%llu byte decoder work buffer)\n", pFilename, (unsigned long long)workbuf_len);
+			return false;
+		}
+
+		// 4. Decode (the first frame, for an APNG). decode_frame() reads the frame config itself.
+		status = wuffs_base__image_decoder__decode_frame(dec.m_pDec, &pb, &src, WUFFS_BASE__PIXEL_BLEND__SRC,
+			wuffs_base__make_slice_u8(workbuf.data(), workbuf.size()), nullptr);
+		if (!wuffs_base__status__is_ok(&status))
+		{
+			wuffs_report(status, pFilename);
+			return false;
+		}
+
+		img.swap(tmp_img);
+		return true;
+	}
+
+	static bool wuffs_load_ldr_file(const char* pFilename, wuffs_ldr_format fmt, image& img)
+	{
+		uint8_vec buffer;
+		if (!read_file_to_vec(pFilename, buffer))
+		{
+			error_printf("Failed reading file \"%s\"!\n", pFilename);
+			return false;
+		}
+
+		return wuffs_load_ldr(buffer.data(), buffer.size(), fmt, img, pFilename);
+	}
+
+	bool get_ldr_image_info(const uint8_t* pBuf, size_t buf_size, const char* pExt, uint32_t& width, uint32_t& height)
+	{
+		width = 0;
+		height = 0;
+
+		if ((!pBuf) || (!buf_size) || (!pExt))
+			return false;
+
+		wuffs_ldr_format fmt;
+		if (strcasecmp(pExt, "png") == 0)
+			fmt = wuffs_ldr_format::cPNG;
+		else if (strcasecmp(pExt, "tga") == 0)
+			fmt = wuffs_ldr_format::cTGA;
+		else if ((strcasecmp(pExt, "jpg") == 0) || (strcasecmp(pExt, "jpeg") == 0) || (strcasecmp(pExt, "jfif") == 0))
+			fmt = wuffs_ldr_format::cJPEG;
+		else if (strcasecmp(pExt, "qoi") == 0)
+			fmt = wuffs_ldr_format::cQOI;
+		else
+			return false;
+
+		wuffs_ldr_decoder dec;
+		if (!dec.init(fmt))
+			return false;
+
+		wuffs_base__io_buffer src = wuffs_base__ptr_u8__reader(const_cast<uint8_t*>(pBuf), buf_size, true);
+		wuffs_base__image_config ic;
+		memset(&ic, 0, sizeof(ic));
+		wuffs_base__status status = wuffs_base__image_decoder__decode_image_config(dec.m_pDec, &ic, &src);
+		if (!wuffs_base__status__is_ok(&status))
+			return false;
+
+		// Deliberately no WUFFS_LDR_MAX_DIM check here: the query reports the file's true dimensions.
+		width = wuffs_base__pixel_config__width(&ic.pixcfg);
+		height = wuffs_base__pixel_config__height(&ic.pixcfg);
+		return true;
+	}
+#endif // BASISU_USE_WUFFS_LDR_LOADER
 		
 	bool load_tga(const char* pFilename, image& img)
 	{
+#if BASISU_USE_WUFFS_LDR_LOADER
+		return wuffs_load_ldr_file(pFilename, wuffs_ldr_format::cTGA, img);
+#else
 		int w = 0, h = 0, n_chans = 0;
 		uint8_t* pImage_data = read_tga(pFilename, w, h, n_chans);
 				
@@ -462,10 +673,14 @@ namespace basisu
 		free(pImage_data);
 
 		return true;
+#endif
 	}
 		
 	bool load_qoi(const uint8_t* pBuf, size_t buf_size, image& img)
 	{
+#if BASISU_USE_WUFFS_LDR_LOADER
+		return wuffs_load_ldr(pBuf, buf_size, wuffs_ldr_format::cQOI, img, nullptr);
+#else
 		qoi_desc desc;
 		clear_obj(desc);
 
@@ -476,10 +691,14 @@ namespace basisu
 		img.grant_ownership(static_cast<color_rgba*>(p), desc.width, desc.height);
 
 		return true;
+#endif
 	}
 
 	bool load_qoi(const char* pFilename, image& img)
 	{
+#if BASISU_USE_WUFFS_LDR_LOADER
+		return wuffs_load_ldr_file(pFilename, wuffs_ldr_format::cQOI, img);
+#else
 		qoi_desc desc;
 		clear_obj(desc);
 
@@ -490,6 +709,7 @@ namespace basisu
 		img.grant_ownership(static_cast<color_rgba *>(p), desc.width, desc.height);
 
 		return true;
+#endif
 	}
 
 	bool load_png(const uint8_t *pBuf, size_t buf_size, image &img, const char *pFilename)
@@ -500,6 +720,10 @@ namespace basisu
 		if (!buf_size)
 			return false;
 
+#if BASISU_USE_WUFFS_LDR_LOADER
+		(void)tm;
+		return wuffs_load_ldr(pBuf, buf_size, wuffs_ldr_format::cPNG, img, pFilename);
+#else
 		uint32_t width = 0, height = 0, num_chans = 0;
 		void* pImage = pv_png::load_png(pBuf, buf_size, 4, width, height, num_chans);
 
@@ -514,6 +738,7 @@ namespace basisu
 		//debug_printf("Total load_png() time: %3.3f secs\n", tm.get_elapsed_secs());
 
 		return true;
+#endif
 	}
 		
 	bool load_png(const char* pFilename, image& img)
@@ -530,6 +755,9 @@ namespace basisu
 
 	bool load_jpg(const char *pFilename, image& img)
 	{
+#if BASISU_USE_WUFFS_LDR_LOADER
+		return wuffs_load_ldr_file(pFilename, wuffs_ldr_format::cJPEG, img);
+#else
 		int width = 0, height = 0, actual_comps = 0;
 		uint8_t *pImage_data = jpgd::decompress_jpeg_image_from_file(pFilename, &width, &height, &actual_comps, 4, jpgd::jpeg_decoder::cFlagLinearChromaFiltering);
 		if (!pImage_data)
@@ -540,10 +768,14 @@ namespace basisu
 		free(pImage_data);
 
 		return true;
+#endif
 	}
 
 	bool load_jpg(const uint8_t* pBuf, size_t buf_size, image& img)
 	{
+#if BASISU_USE_WUFFS_LDR_LOADER
+		return wuffs_load_ldr(pBuf, buf_size, wuffs_ldr_format::cJPEG, img, nullptr);
+#else
 		if (buf_size > INT_MAX)
 		{
 			assert(0);
@@ -560,6 +792,7 @@ namespace basisu
 		free(pImage_data);
 
 		return true;
+#endif
 	}
 
 	bool load_image(const char* pFilename, image& img)
