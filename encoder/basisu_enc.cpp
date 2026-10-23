@@ -426,14 +426,19 @@ namespace basisu
 
 	enum class wuffs_ldr_format { cPNG, cTGA, cJPEG, cQOI };
 
-	// Decoder object storage + the base-interface pointer. The object lives in our own (zeroed) memory; Wuffs itself never allocates.
+	// Decoder object storage. The object lives in our own (zeroed) memory; Wuffs itself never allocates.
+	// Calls go to each format's own functions, not through Wuffs' wuffs_base__image_decoder interface: that interface dispatches via
+	// function pointers whose type differs from the functions' (void* vs. the decoder's own type), which clang's -fsanitize=function
+	// (part of -fsanitize=undefined) and CFI builds reject.
 	struct wuffs_ldr_decoder
 	{
 		uint8_vec m_mem;
-		wuffs_base__image_decoder* m_pDec = nullptr;
+		wuffs_ldr_format m_fmt = wuffs_ldr_format::cPNG;
 
 		bool init(wuffs_ldr_format fmt)
 		{
+			m_fmt = fmt;
+
 			wuffs_base__status status = wuffs_base__make_status(nullptr);
 			switch (fmt)
 			{
@@ -441,31 +446,67 @@ namespace basisu
 				if (!m_mem.try_resize(sizeof__wuffs_png__decoder()))
 					return false;
 				status = wuffs_png__decoder__initialize((wuffs_png__decoder*)m_mem.data(), m_mem.size(), WUFFS_VERSION, 0);
-				m_pDec = wuffs_png__decoder__upcast_as__wuffs_base__image_decoder((wuffs_png__decoder*)m_mem.data());
 				break;
 			case wuffs_ldr_format::cTGA:
 				if (!m_mem.try_resize(sizeof__wuffs_targa__decoder()))
 					return false;
 				status = wuffs_targa__decoder__initialize((wuffs_targa__decoder*)m_mem.data(), m_mem.size(), WUFFS_VERSION, 0);
-				m_pDec = wuffs_targa__decoder__upcast_as__wuffs_base__image_decoder((wuffs_targa__decoder*)m_mem.data());
 				break;
 			case wuffs_ldr_format::cJPEG:
 				if (!m_mem.try_resize(sizeof__wuffs_jpeg__decoder()))
 					return false;
 				status = wuffs_jpeg__decoder__initialize((wuffs_jpeg__decoder*)m_mem.data(), m_mem.size(), WUFFS_VERSION, 0);
-				m_pDec = wuffs_jpeg__decoder__upcast_as__wuffs_base__image_decoder((wuffs_jpeg__decoder*)m_mem.data());
 				break;
 			case wuffs_ldr_format::cQOI:
 				if (!m_mem.try_resize(sizeof__wuffs_qoi__decoder()))
 					return false;
 				status = wuffs_qoi__decoder__initialize((wuffs_qoi__decoder*)m_mem.data(), m_mem.size(), WUFFS_VERSION, 0);
-				m_pDec = wuffs_qoi__decoder__upcast_as__wuffs_base__image_decoder((wuffs_qoi__decoder*)m_mem.data());
 				break;
 			default:
 				assert(0); // caller misuse, never file data
 				return false;
 			}
 			return wuffs_base__status__is_ok(&status);
+		}
+
+		wuffs_base__status decode_image_config(wuffs_base__image_config* pIC, wuffs_base__io_buffer* pSrc)
+		{
+			switch (m_fmt)
+			{
+			case wuffs_ldr_format::cPNG: return wuffs_png__decoder__decode_image_config((wuffs_png__decoder*)m_mem.data(), pIC, pSrc);
+			case wuffs_ldr_format::cTGA: return wuffs_targa__decoder__decode_image_config((wuffs_targa__decoder*)m_mem.data(), pIC, pSrc);
+			case wuffs_ldr_format::cJPEG: return wuffs_jpeg__decoder__decode_image_config((wuffs_jpeg__decoder*)m_mem.data(), pIC, pSrc);
+			case wuffs_ldr_format::cQOI: return wuffs_qoi__decoder__decode_image_config((wuffs_qoi__decoder*)m_mem.data(), pIC, pSrc);
+			default: break;
+			}
+			return wuffs_base__make_status(wuffs_base__error__bad_argument);
+		}
+
+		// Returns UINT64_MAX on an unknown format, which every caller's cap rejects.
+		uint64_t workbuf_len_max_incl()
+		{
+			switch (m_fmt)
+			{
+			case wuffs_ldr_format::cPNG: return wuffs_png__decoder__workbuf_len((wuffs_png__decoder*)m_mem.data()).max_incl;
+			case wuffs_ldr_format::cTGA: return wuffs_targa__decoder__workbuf_len((wuffs_targa__decoder*)m_mem.data()).max_incl;
+			case wuffs_ldr_format::cJPEG: return wuffs_jpeg__decoder__workbuf_len((wuffs_jpeg__decoder*)m_mem.data()).max_incl;
+			case wuffs_ldr_format::cQOI: return wuffs_qoi__decoder__workbuf_len((wuffs_qoi__decoder*)m_mem.data()).max_incl;
+			default: break;
+			}
+			return UINT64_MAX;
+		}
+
+		wuffs_base__status decode_frame(wuffs_base__pixel_buffer* pDst, wuffs_base__io_buffer* pSrc, wuffs_base__slice_u8 workbuf)
+		{
+			switch (m_fmt)
+			{
+			case wuffs_ldr_format::cPNG: return wuffs_png__decoder__decode_frame((wuffs_png__decoder*)m_mem.data(), pDst, pSrc, WUFFS_BASE__PIXEL_BLEND__SRC, workbuf, nullptr);
+			case wuffs_ldr_format::cTGA: return wuffs_targa__decoder__decode_frame((wuffs_targa__decoder*)m_mem.data(), pDst, pSrc, WUFFS_BASE__PIXEL_BLEND__SRC, workbuf, nullptr);
+			case wuffs_ldr_format::cJPEG: return wuffs_jpeg__decoder__decode_frame((wuffs_jpeg__decoder*)m_mem.data(), pDst, pSrc, WUFFS_BASE__PIXEL_BLEND__SRC, workbuf, nullptr);
+			case wuffs_ldr_format::cQOI: return wuffs_qoi__decoder__decode_frame((wuffs_qoi__decoder*)m_mem.data(), pDst, pSrc, WUFFS_BASE__PIXEL_BLEND__SRC, workbuf, nullptr);
+			default: break;
+			}
+			return wuffs_base__make_status(wuffs_base__error__bad_argument);
 		}
 	};
 
@@ -494,7 +535,7 @@ namespace basisu
 		// 1. Header only (no allocations): dimensions.
 		wuffs_base__image_config ic;
 		memset(&ic, 0, sizeof(ic));
-		wuffs_base__status status = wuffs_base__image_decoder__decode_image_config(dec.m_pDec, &ic, &src);
+		wuffs_base__status status = dec.decode_image_config(&ic, &src);
 		if (!wuffs_base__status__is_ok(&status))
 		{
 			wuffs_report(status, pFilename);
@@ -523,7 +564,7 @@ namespace basisu
 			return false;
 		}
 
-		const uint64_t workbuf_len = wuffs_base__image_decoder__workbuf_len(dec.m_pDec).max_incl;
+		const uint64_t workbuf_len = dec.workbuf_len_max_incl();
 		if ((workbuf_len > WUFFS_LDR_MAX_WORKBUF_BYTES) || (workbuf_len > (uint64_t)SIZE_MAX))
 		{
 			error_printf("Failed loading image \"%s\": decoder work buffer too large (%llu bytes)\n", pFilename, (unsigned long long)workbuf_len);
@@ -558,8 +599,7 @@ namespace basisu
 		}
 
 		// 4. Decode (the first frame, for an APNG). decode_frame() reads the frame config itself.
-		status = wuffs_base__image_decoder__decode_frame(dec.m_pDec, &pb, &src, WUFFS_BASE__PIXEL_BLEND__SRC,
-			wuffs_base__make_slice_u8(workbuf.data(), workbuf.size()), nullptr);
+		status = dec.decode_frame(&pb, &src, wuffs_base__make_slice_u8(workbuf.data(), workbuf.size()));
 		if (!wuffs_base__status__is_ok(&status))
 		{
 			wuffs_report(status, pFilename);
@@ -609,7 +649,7 @@ namespace basisu
 		wuffs_base__io_buffer src = wuffs_base__ptr_u8__reader(const_cast<uint8_t*>(pBuf), buf_size, true);
 		wuffs_base__image_config ic;
 		memset(&ic, 0, sizeof(ic));
-		wuffs_base__status status = wuffs_base__image_decoder__decode_image_config(dec.m_pDec, &ic, &src);
+		wuffs_base__status status = dec.decode_image_config(&ic, &src);
 		if (!wuffs_base__status__is_ok(&status))
 			return false;
 
