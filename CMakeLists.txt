@@ -27,6 +27,7 @@ option(BASISU_WASM_THREADING "Enable WASI threading support" OFF)
 option(BASISU_BUILD_PYTHON "Build native Python module via pybind11" OFF)
 option(BASISU_DISABLE_ANDROID_ASTC_DECOMP "Disable Android ASTC decompressor" OFF)
 option(BASISU_SUPPORT_ASTCENC "Enable astcenc support in encoder" FALSE)
+option(BASISU_USE_WUFFS_LDR_LOADER "Load .PNG/.TGA/.JPG/.QOI source images with Wuffs (encoder/3rdparty/wuffs-v0.4.c); OFF = the older built-in decoders" TRUE)
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/bin)
 
@@ -139,6 +140,12 @@ else()
     add_compile_definitions(BASISU_DISABLE_ANDROID_ASTC_DECOMP=0)
 endif()
 
+if (BASISU_USE_WUFFS_LDR_LOADER)
+    add_compile_definitions(BASISU_USE_WUFFS_LDR_LOADER=1)
+else()
+    add_compile_definitions(BASISU_USE_WUFFS_LDR_LOADER=0)
+endif()
+
 if (NOT MSVC AND NOT BASISU_BUILD_WASM)
     set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -g")
     set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -g")
@@ -248,6 +255,7 @@ set(ENCODER_LIB_SRC_LIST
     encoder/basisu_bc15_spmd_sse.cpp
     encoder/basisu_opencl.cpp
     encoder/pvpngreader.cpp
+    encoder/3rdparty/basisu_wuffs.cpp
     encoder/basisu_uastc_hdr_4x4_enc.cpp
     encoder/basisu_astc_hdr_6x6_enc.cpp
     encoder/basisu_astc_hdr_common.cpp
@@ -293,6 +301,7 @@ set(ENCODER_LIB_SRC_LIST
     encoder/jpgd.h
     encoder/pvpngreader.h
     encoder/3rdparty/qoi.h
+    encoder/3rdparty/basisu_wuffs_config.h
     encoder/3rdparty/tinyexr.h
     transcoder/basisu_astc_hdr_core.h
     transcoder/basisu_astc_helpers.h

@@ -4,6 +4,7 @@ project(basisu_encoder_js)
 # Toggle Zstd support for KTX2 (ON by default).
 option(KTX2_ZSTANDARD "Enable KTX2 Zstandard support" TRUE)
 option(SUPPORT_ASTCENC "Enable astcenc support" FALSE)
+option(BASISU_USE_WUFFS_LDR_LOADER "Load .PNG/.JPG/.QOI source images with Wuffs; OFF = the older built-in decoders" TRUE)
 
 # Build JavaScript glue that never calls eval() or new Function(), so the module
 # loads under a Content-Security-Policy without 'unsafe-eval' (OFF by default).
@@ -15,6 +16,7 @@ option(EMBIND_AOT "Generate embind wrappers at build time" TRUE)
 
 message("KTX2_ZSTANDARD=${KTX2_ZSTANDARD}")
 message("SUPPORT_ASTCENC=${SUPPORT_ASTCENC}")
+message("BASISU_USE_WUFFS_LDR_LOADER=${BASISU_USE_WUFFS_LDR_LOADER}")
 message("NO_DYNAMIC_EXECUTION=${NO_DYNAMIC_EXECUTION}")
 message("EMBIND_AOT=${EMBIND_AOT}")
 
@@ -76,6 +78,7 @@ if(EMSCRIPTEN)
     ../../encoder/basisu_opencl.cpp
     ../../encoder/pvpngreader.cpp
     ../../encoder/jpgd.cpp
+    ../../encoder/3rdparty/basisu_wuffs.cpp
     ../../encoder/3rdparty/android_astc_decomp.cpp
     ../../encoder/basisu_uastc_hdr_4x4_enc.cpp
     ../../encoder/basisu_astc_hdr_6x6_enc.cpp
@@ -124,6 +127,12 @@ if(EMSCRIPTEN)
 	set(ASTCENC_DEFINITION BASISU_SUPPORT_ASTCENC=0)
   endif()
 
+  if(BASISU_USE_WUFFS_LDR_LOADER)
+    set(WUFFS_LDR_DEFINITION BASISU_USE_WUFFS_LDR_LOADER=1)
+  else()
+    set(WUFFS_LDR_DEFINITION BASISU_USE_WUFFS_LDR_LOADER=0)
+  endif()
+
   # Common preprocessor defines (same as your original)
   set(COMMON_DEFS
     BASISD_SUPPORT_UASTC=1
@@ -138,6 +147,7 @@ if(EMSCRIPTEN)
     BASISD_SUPPORT_XUASTC=1
     ${ZSTD_DEFINITION}
 	${ASTCENC_DEFINITION}
+    ${WUFFS_LDR_DEFINITION}
   )
 
   # Base link flags 

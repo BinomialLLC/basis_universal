@@ -102,6 +102,9 @@
     <ClCompile Include="..\encoder\3rdparty\android_astc_decomp.cpp">
       <Filter>Source Files\encoder\3rdparty</Filter>
     </ClCompile>
+    <ClCompile Include="..\encoder\3rdparty\basisu_wuffs.cpp">
+      <Filter>Source Files\encoder\3rdparty</Filter>
+    </ClCompile>
     <ClCompile Include="..\encoder\basisu_astc_hdr_common.cpp">
       <Filter>Source Files\encoder</Filter>
     </ClCompile>
@@ -243,6 +246,9 @@
       <Filter>Source Files\encoder</Filter>
     </ClInclude>
     <ClInclude Include="..\encoder\3rdparty\qoi.h">
+      <Filter>Source Files\encoder\3rdparty</Filter>
+    </ClInclude>
+    <ClInclude Include="..\encoder\3rdparty\basisu_wuffs_config.h">
       <Filter>Source Files\encoder\3rdparty</Filter>
     </ClInclude>
     <ClInclude Include="..\encoder\3rdparty\tinydds.h">
