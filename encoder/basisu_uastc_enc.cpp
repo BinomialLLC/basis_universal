@@ -2856,10 +2856,13 @@ namespace basisu
 					else
 						trial_block.set_block_color5_clamp(block_colors[0], block_colors[1]);
 
+					// Base colors stay fixed while the intensity table changes.
+					color_rgba base_colors[2];
 					uint32_t range[2];
 					for (uint32_t subset = 0; subset < 2; subset++)
 					{
 						const color_rgba base_c(trial_block.get_block_color(subset, true));
+						base_colors[subset] = base_c;
 
 						const int pos_r = iabs(max_r[subset] - base_c.r);
 						const int neg_r = iabs(base_c.r - min_r[subset]);
@@ -2874,6 +2877,7 @@ namespace basisu
 					}
 
 					uint32_t best_inten_table[2] = { 0, 0 };
+					ycbcr best_color_tables[2][4];
 
 					for (uint32_t subset = 0; subset < 2; subset++)
 					{
@@ -2883,10 +2887,9 @@ namespace basisu
 						
 						for (uint32_t inten_table = 0; inten_table < inten_table_limit; inten_table++)
 						{
-							trial_block.set_inten_table(subset, inten_table);
-
 							color_rgba color_table[4];
-							trial_block.get_block_colors(color_table, subset);
+							// Scaled colors use the same palette in both ETC1 color modes.
+							etc_block::get_block_colors4(color_table, base_colors[subset], inten_table, true);
 
 							ycbcr color_table_ycbcr[4];
 							for (uint32_t i = 0; i < 4; i++)
@@ -2938,6 +2941,8 @@ namespace basisu
 							{
 								best_subset_err = total_error;
 								best_inten_table[subset] = inten_table;
+								for (uint32_t i = 0; i < 4; i++)
+									best_color_tables[subset][i] = color_table_ycbcr[i];
 							}
 
 						} // inten_table
@@ -2952,12 +2957,7 @@ namespace basisu
 
 					for (uint32_t subset = 0; subset < 2; subset++)
 					{
-						color_rgba color_table[4];
-						trial_block.get_block_colors(color_table, subset);
-
-						ycbcr color_table_ycbcr[4];
-						for (uint32_t i = 0; i < 4; i++)
-							rgb_to_y_cb_cr(color_table[i], color_table_ycbcr[i]);
+						const ycbcr* color_table_ycbcr = best_color_tables[subset];
 
 						if (flip)
 						{
