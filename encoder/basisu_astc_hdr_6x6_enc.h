@@ -133,7 +133,7 @@ namespace astc_6x6_hdr
 	};
 	
 	// The input image should be unpadded to 6x6 boundaries, i.e. the original unexpanded image.
-	bool compress_photo(const basisu::imagef& orig_src_img, const astc_hdr_6x6_global_config& global_cfg, basisu::job_pool* pJob_pool,
+	bool compress_photo(const basisu::imagef& orig_src_img, const astc_hdr_6x6_global_config& global_cfg, basisu::job_pool_base* pJob_pool,
 		basisu::uint8_vec& intermediate_tex_data, basisu::uint8_vec& astc_tex_data, result_metrics& metrics);
 
 } // namespace uastc_6x6_hdr

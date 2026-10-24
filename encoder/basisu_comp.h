@@ -934,7 +934,7 @@ namespace basisu
 		param<int> m_xubc7_bc7e_scalar_level; // bc7e_scalar quality level, clamped to [BC7E_SCALAR_MIN_LEVEL, BC7E_SCALAR_MAX_LEVEL]
 																		
 		// Job pool, MUST not be nullptr;
-		job_pool *m_pJob_pool;
+		job_pool_base *m_pJob_pool;
 
 		// Returns the current format mode as set by set_format_mode() above.
 		// Because of backwards API compatibility we don't use this directly yet, it's just here to aid the transition to the new API.

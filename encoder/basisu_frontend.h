@@ -109,7 +109,7 @@ namespace basisu
 						
 			opencl_context_ptr m_pOpenCL_context;
 			
-			job_pool *m_pJob_pool;
+			job_pool_base *m_pJob_pool;
 		};
 
 		bool init(const params &p);

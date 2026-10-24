@@ -818,22 +818,44 @@ namespace basisu
 
 #undef BASISU_GET_KEY
 	
+	// Abstract job pool interface: lets the embedding application supply its own task
+	// scheduler to the encoders. add_job() queues a job for asynchronous execution,
+	// wait_for_all() blocks until every queued job has completed, and
+	// get_total_threads() returns the pool's parallelism hint (the TOTAL number of
+	// threads, including the calling thread, matching job_pool's constructor).
+	// job_pool below is the default implementation.
+	class job_pool_base
+	{
+		BASISU_NO_EQUALS_OR_COPY_CONSTRUCT(job_pool_base);
+
+	public:
+		job_pool_base() { }
+		virtual ~job_pool_base() { }
+
+		virtual void add_job(const std::function<void()>& job) = 0;
+		virtual void add_job(std::function<void()>&& job) = 0;
+
+		virtual void wait_for_all() = 0;
+
+		virtual size_t get_total_threads() const = 0;
+	};
+
 	// Very simple job pool with no dependencies.
-	class job_pool
+	class job_pool : public job_pool_base
 	{
 		BASISU_NO_EQUALS_OR_COPY_CONSTRUCT(job_pool);
 
 	public:
 		// num_threads is the TOTAL number of job pool threads, including the calling thread! So 2=1 new thread, 3=2 new threads, etc.
 		job_pool(uint32_t num_threads);
-		~job_pool();
+		virtual ~job_pool();
 				
-		void add_job(const std::function<void()>& job);
-		void add_job(std::function<void()>&& job);
+		virtual void add_job(const std::function<void()>& job) override;
+		virtual void add_job(std::function<void()>&& job) override;
 
-		void wait_for_all();
+		virtual void wait_for_all() override;
 
-		size_t get_total_threads() const { return 1 + m_threads.size(); }
+		virtual size_t get_total_threads() const override { return 1 + m_threads.size(); }
 		
 	private:
 		std::vector<std::thread> m_threads;
@@ -2088,7 +2110,7 @@ namespace basisu
 		uint32_t max_codebook_size, uint32_t max_parent_codebook_size,
 		basisu::vector<uint_vec>& codebook,
 		basisu::vector<uint_vec>& parent_codebook,
-		uint32_t max_threads, bool limit_clusterizers, job_pool *pJob_pool)
+		uint32_t max_threads, bool limit_clusterizers, job_pool_base *pJob_pool)
 	{
 		codebook.resize(0);
 		parent_codebook.resize(0);
@@ -2220,7 +2242,7 @@ namespace basisu
 		uint32_t max_codebook_size, uint32_t max_parent_codebook_size,
 		basisu::vector<uint_vec>& codebook,
 		basisu::vector<uint_vec>& parent_codebook,
-		uint32_t max_threads, job_pool *pJob_pool,
+		uint32_t max_threads, job_pool_base *pJob_pool,
 		bool even_odd_input_pairs_equal)
 	{
 		//typedef bit_hasher<typename Quantizer::training_vec_type> training_vec_bit_hasher;

@@ -143,7 +143,7 @@ namespace astc_ldr {
 	bool compress_image(
 		const image& orig_img, uint8_vec &comp_data, vector2D<astc_helpers::log_astc_block>& coded_blocks,
 		const astc_ldr_encode_config& global_cfg,
-		job_pool& job_pool);
+		job_pool_base& job_pool);
 	
 	void downsample_weight_residual_grid(
 		const float* pMatrix_weights,
