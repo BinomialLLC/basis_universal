@@ -13,6 +13,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #include "basisu_bc7enc.h"
+#if BASISU_SUPPORT_NEON
+#include "basisu_neon.h"
+#endif
 
 #ifdef _DEBUG
 #define BC7ENC_CHECK_OVERALL_ERROR 1
@@ -819,6 +822,10 @@ static uint64_t pack_astc_range11_5bit_to_one_color(const color_cell_compressor_
 	return total_err;
 }
 
+#if BASISU_SUPPORT_NEON
+#include "basisu_uastc_selectors_neon.inl"
+#endif
+
 static uint64_t evaluate_solution(const color_quad_u8 *pLow, const color_quad_u8 *pHigh, const uint32_t pbits[2], const color_cell_compressor_params *pParams, color_cell_compressor_results *pResults)
 {
 	color_quad_u8 quantMinColor = *pLow;
@@ -882,6 +889,14 @@ static uint64_t evaluate_solution(const color_quad_u8 *pLow, const color_quad_u8
 
 	uint64_t total_err = 0;
 
+#if BASISU_SUPPORT_NEON
+	if (g_cpu_supports_neon && !pParams->m_pForce_selectors && !pParams->m_perceptual &&
+		pParams->m_weights[0] == 1 && pParams->m_weights[1] == 1 && pParams->m_weights[2] == 1 &&
+		(!pParams->m_has_alpha || pParams->m_weights[3] == 1) &&
+		(N == 4 || N == 8 || N == 16 || N == 32))
+		total_err = uastc_evaluate_selectors_neon(weightedColors, pParams, pResults->m_pSelectors_temp);
+	else
+#endif
 	if (pParams->m_pForce_selectors)
 	{
 		for (uint32_t i = 0; i < pParams->m_num_pixels; i++)
