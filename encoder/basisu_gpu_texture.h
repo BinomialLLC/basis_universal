@@ -108,6 +108,15 @@ namespace basisu
 			m_block_height = basisu::get_block_height(m_fmt);
 			m_blocks_x = (m_width + m_block_width - 1) / m_block_width;
 			m_blocks_y = (m_height + m_block_height - 1) / m_block_height;
+
+			// A PVRTC1 4bpp texture is at least 2x2 blocks (8x8 texels): GL sizes it as (max(width, 8) * max(height, 8) * 4 + 7) / 8, and
+			// decoders (e.g. PowerVR's PVRTDecompress) decode a smaller image as that larger grid.
+			if ((m_fmt == texture_format::cPVRTC1_4_RGB) || (m_fmt == texture_format::cPVRTC1_4_RGBA))
+			{
+				m_blocks_x = basisu::maximum<uint32_t>(m_blocks_x, 2);
+				m_blocks_y = basisu::maximum<uint32_t>(m_blocks_y, 2);
+			}
+
 			m_qwords_per_block = basisu::get_qwords_per_block(m_fmt);
 
 			m_blocks.resize(0);

@@ -204,8 +204,10 @@ namespace basisu
 			m_width = width;
 			m_height = height;
 
-			m_block_width = (width + 3) >> 2;
-			m_block_height = (height + 3) >> 2;
+			// A PVRTC1 4bpp texture is at least 2x2 blocks (8x8 texels). Like PowerVR's decoder (PVRTDecompress), a smaller image is
+			// decoded as that larger grid (blending with its wrapped neighbour blocks), and the image is its top-left width x height texels.
+			m_block_width = basisu::maximum<uint32_t>((width + 3) >> 2, 2);
+			m_block_height = basisu::maximum<uint32_t>((height + 3) >> 2, 2);
 
 			m_blocks.resize(m_block_width, m_block_height);
 		}

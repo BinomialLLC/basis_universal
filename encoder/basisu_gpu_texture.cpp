@@ -1225,11 +1225,12 @@ namespace basisu
 
 		if ((m_fmt == texture_format::cPVRTC1_4_RGB) || (m_fmt == texture_format::cPVRTC1_4_RGBA))
 		{
+			// Both grids are at least 2x2 blocks (see init() and pvrtc4_image::resize()).
 			pvrtc4_image pi(m_width, m_height);
-			
+
 			if (get_total_blocks() != pi.get_total_blocks())
 				return false;
-			
+
 			memcpy((void *)&pi.get_blocks()[0], (const void *)get_ptr(), get_size_in_bytes());
 
 			pi.deswizzle();
