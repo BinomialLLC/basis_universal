@@ -9483,8 +9483,9 @@ namespace basist
 
 			assert(total_dst_blocks);
 
-			// Note this only computes the # of blocks we will write during transcoding, but for PVRTC1 OpenGL may require more for very small textures.
-			// basis_compute_transcoded_image_size_in_bytes() may return larger buffers.
+			// Note this only computes the # of blocks in the image, but for PVRTC1 OpenGL requires more for very small textures, and
+			// basis_compute_transcoded_image_size_in_bytes() returns that larger size. Given a buffer that large, the PVRTC1 transcoders fill it
+			// (see pvrtc1_4_tile_small_level()).
 			if (output_blocks_buf_size_in_blocks_or_pixels < total_dst_blocks)
 			{
 				BASISU_DEVEL_ERROR("basis_validate_output_buffer_size: output_blocks_buf_size_in_blocks_or_pixels is too small\n");
@@ -10127,6 +10128,10 @@ namespace basist
 		}
 		}
 
+		// PVRTC1 levels smaller than 8x8 texels: fill the 2x2 block minimum (see pvrtc1_4_tile_small_level()).
+		if (status && ((target_format == transcoder_texture_format::cTFPVRTC1_4_RGB) || (target_format == transcoder_texture_format::cTFPVRTC1_4_RGBA)))
+			pvrtc1_4_tile_small_level(pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, (orig_width + 3) >> 2, (orig_height + 3) >> 2);
+
 		return status;
 	}
 
@@ -10649,6 +10654,10 @@ namespace basist
 			break;
 		}
 		}
+
+		// PVRTC1 levels smaller than 8x8 texels: fill the 2x2 block minimum (see pvrtc1_4_tile_small_level()).
+		if (status && ((target_format == transcoder_texture_format::cTFPVRTC1_4_RGB) || (target_format == transcoder_texture_format::cTFPVRTC1_4_RGBA)))
+			pvrtc1_4_tile_small_level(pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, (orig_width + 3) >> 2, (orig_height + 3) >> 2);
 
 		return status;
 	}
@@ -12889,6 +12898,8 @@ namespace basist
 			return false;
 		}
 		
+		bool status = false;
+
 		if (pHeader->m_tex_format == (int)basis_tex_format::cASTC_HDR_6x6)
 		{
 			// standard ASTC HDR 6x6
@@ -12916,7 +12927,7 @@ namespace basist
 		else if (pHeader->m_tex_format == (int)basis_tex_format::cUASTC_LDR_4x4)
 		{
 			// UASTC LDR 4x4
-			return m_lowlevel_uastc_ldr_4x4_decoder.transcode_slice(pOutput_blocks, slice_desc.m_num_blocks_x, slice_desc.m_num_blocks_y,
+			status = m_lowlevel_uastc_ldr_4x4_decoder.transcode_slice(pOutput_blocks, slice_desc.m_num_blocks_x, slice_desc.m_num_blocks_y,
 				pDataU8 + slice_desc.m_file_ofs, slice_desc.m_file_size,
 				fmt, output_block_or_pixel_stride_in_bytes, (decode_flags & cDecodeFlagsBC1ForbidThreeColorBlocks) == 0, *pHeader, slice_desc, output_row_pitch_in_blocks_or_pixels, pState,
 				output_rows_in_pixels, channel0, channel1, decode_flags);
@@ -12926,7 +12937,7 @@ namespace basist
 			// supercompressed XUASTC LDR 4x4-12x12 or standard ASTC LDR 4x4-12x12
 			const bool use_astc_srgb_decode_profile = (pHeader->m_flags & cBASISHeaderFlagSRGB) != 0;
 
-			return m_lowlevel_xuastc_ldr_decoder.transcode_slice((basis_tex_format)(uint32_t)pHeader->m_tex_format, use_astc_srgb_decode_profile, pOutput_blocks, slice_desc.m_num_blocks_x, slice_desc.m_num_blocks_y,
+			status = m_lowlevel_xuastc_ldr_decoder.transcode_slice((basis_tex_format)(uint32_t)pHeader->m_tex_format, use_astc_srgb_decode_profile, pOutput_blocks, slice_desc.m_num_blocks_x, slice_desc.m_num_blocks_y,
 				pDataU8 + slice_desc.m_file_ofs, slice_desc.m_file_size,
 				fmt, output_block_or_pixel_stride_in_bytes, (decode_flags & cDecodeFlagsBC1ForbidThreeColorBlocks) == 0, *pHeader, slice_desc, output_row_pitch_in_blocks_or_pixels, pState,
 				output_rows_in_pixels, channel0, channel1, decode_flags);
@@ -12934,7 +12945,7 @@ namespace basist
 		else if (pHeader->m_tex_format == (int)basis_tex_format::cXUBC7)
 		{
 			// XUBC7 (supercompressed BC7)
-			return m_lowlevel_xubc7_decoder.transcode_slice((basis_tex_format)(uint32_t)pHeader->m_tex_format, pOutput_blocks, slice_desc.m_num_blocks_x, slice_desc.m_num_blocks_y,
+			status = m_lowlevel_xubc7_decoder.transcode_slice((basis_tex_format)(uint32_t)pHeader->m_tex_format, pOutput_blocks, slice_desc.m_num_blocks_x, slice_desc.m_num_blocks_y,
 				pDataU8 + slice_desc.m_file_ofs, slice_desc.m_file_size,
 				fmt, output_block_or_pixel_stride_in_bytes, (decode_flags & cDecodeFlagsBC1ForbidThreeColorBlocks) == 0, *pHeader, slice_desc, output_row_pitch_in_blocks_or_pixels, pState,
 				output_rows_in_pixels, channel0, channel1, decode_flags);
@@ -12949,11 +12960,17 @@ namespace basist
 				return false;
 			}
 						
-			return m_lowlevel_etc1s_decoder.transcode_slice(pOutput_blocks, slice_desc.m_num_blocks_x, slice_desc.m_num_blocks_y,
+			status = m_lowlevel_etc1s_decoder.transcode_slice(pOutput_blocks, slice_desc.m_num_blocks_x, slice_desc.m_num_blocks_y,
 				pDataU8 + slice_desc.m_file_ofs, slice_desc.m_file_size,
 				fmt, output_block_or_pixel_stride_in_bytes, (decode_flags & cDecodeFlagsBC1ForbidThreeColorBlocks) == 0, *pHeader, slice_desc, output_row_pitch_in_blocks_or_pixels, pState,
 				(decode_flags & cDecodeFlagsOutputHasAlphaIndices) != 0, pAlpha_blocks, output_rows_in_pixels);
 		}
+
+		// PVRTC1 levels smaller than 8x8 texels: fill the 2x2 block minimum (see pvrtc1_4_tile_small_level()).
+		if (status && ((fmt == block_format::cPVRTC1_4_RGB) || (fmt == block_format::cPVRTC1_4_RGBA)))
+			pvrtc1_4_tile_small_level(pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, (slice_desc.m_orig_width + 3) >> 2, (slice_desc.m_orig_height + 3) >> 2);
+
+		return status;
 	}
 
 	int basisu_transcoder::find_first_slice_index(const void* pData, uint32_t data_size, uint32_t image_index, uint32_t level_index) const
@@ -13178,9 +13195,9 @@ namespace basist
 
 			if (((fmt == transcoder_texture_format::cTFPVRTC1_4_RGB) || (fmt == transcoder_texture_format::cTFPVRTC1_4_RGBA)) && (output_blocks_buf_size_in_blocks_or_pixels > total_slice_blocks))
 			{
-				// The low-level transcoders only write the level's own ((width+3)/4) * ((height+3)/4) blocks, so clear the rest of the buffer.
+				// The PVRTC1 transcoders write the level's own ((width+3)/4) * ((height+3)/4) blocks, so clear the rest of the buffer.
 				// For GL usage, PVRTC1 4bpp image size is (max(width, 8)* max(height, 8) * 4 + 7) / 8. For levels smaller than 8x8 texels,
-				// pvrtc1_4_tile_small_level() fills that 2x2 block minimum after a successful transcode (below), overwriting part of this clear.
+				// the low-level transcode_image() then fills that 2x2 block minimum after a successful transcode (see pvrtc1_4_tile_small_level()).
 				memset(static_cast<uint8_t*>(pOutput_blocks) + total_slice_blocks * bytes_per_block_or_pixel, 0, (output_blocks_buf_size_in_blocks_or_pixels - total_slice_blocks) * bytes_per_block_or_pixel);
 			}
 		}
@@ -13294,11 +13311,7 @@ namespace basist
 		}
 		else
 		{
-			//BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: Returning true\n");
-
-			// PVRTC1 levels smaller than 8x8 texels: fill the 2x2 block minimum (see pvrtc1_4_tile_small_level()).
-			if ((fmt == transcoder_texture_format::cTFPVRTC1_4_RGB) || (fmt == transcoder_texture_format::cTFPVRTC1_4_RGBA))
-				pvrtc1_4_tile_small_level(pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, (pSlice_descs[slice_index].m_orig_width + 3) >> 2, (pSlice_descs[slice_index].m_orig_height + 3) >> 2);
+			//BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: Returning true\n");      
 		}
 
 		return status;
@@ -20968,10 +20981,6 @@ namespace basist
 			assert(0);
 			return false;
 		}
-
-		// PVRTC1 levels smaller than 8x8 texels: fill the 2x2 block minimum (see pvrtc1_4_tile_small_level()).
-		if ((fmt == transcoder_texture_format::cTFPVRTC1_4_RGB) || (fmt == transcoder_texture_format::cTFPVRTC1_4_RGBA))
-			pvrtc1_4_tile_small_level(pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, num_blocks4_x, num_blocks4_y);
 
 		return true;
 	}
@@ -45501,6 +45510,10 @@ bool basisu_lowlevel_xuastc_ldr_transcoder::transcode_image(
 	}
 	}
 
+	// PVRTC1 levels smaller than 8x8 texels: fill the 2x2 block minimum (see pvrtc1_4_tile_small_level()).
+	if (status && ((target_format == transcoder_texture_format::cTFPVRTC1_4_RGB) || (target_format == transcoder_texture_format::cTFPVRTC1_4_RGBA)))
+		pvrtc1_4_tile_small_level(pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, (orig_width + 3) >> 2, (orig_height + 3) >> 2);
+
 	return status;
 #else
 	assert(0);
@@ -46014,6 +46027,10 @@ bool basisu_lowlevel_xubc7_transcoder::transcode_image(
 		break;
 	}
 	}
+
+	// PVRTC1 levels smaller than 8x8 texels: fill the 2x2 block minimum (see pvrtc1_4_tile_small_level()).
+	if (status && ((target_format == transcoder_texture_format::cTFPVRTC1_4_RGB) || (target_format == transcoder_texture_format::cTFPVRTC1_4_RGBA)))
+		pvrtc1_4_tile_small_level(pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, (orig_width + 3) >> 2, (orig_height + 3) >> 2);
 
 	return status;
 #else
