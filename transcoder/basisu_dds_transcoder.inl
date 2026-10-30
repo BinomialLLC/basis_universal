@@ -609,8 +609,8 @@ namespace basist
 			if (resource_dim != DDS_DIMENSION_TEXTURE2D)
 				return false;
 
-			// Note: the DX10 spec says arraySize must be >= 1, but tinydds (and the basisu DDS writer that
-			// uses it) store 0 for a plain non-array texture. Treat 0 as 1 for robustness.
+			// Note: arraySize should be >= 1, but older files (including those written by basisu's DDS writer
+			// before it was fixed) store 0 for a plain non-array texture. Treat 0 as 1 for robustness.
 			uint32_t array_size_eff = array_size ? array_size : 1;
 			if (array_size_eff > 65536)
 				return false;

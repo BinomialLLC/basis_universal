@@ -390,6 +390,10 @@ bool upload(EMSCRIPTEN_WEBGL_CONTEXT_HANDLE const ctx, GLuint const name, const 
 								if (basis_transcoder_format_is_uncompressed(type)) {
 									// note that blocks becomes total number of pixels for RGB/RGBA
 									blocks = descW * descH;
+								} else if (type == transcoder_texture_format::cTFPVRTC1_4_RGB ||
+										   type == transcoder_texture_format::cTFPVRTC1_4_RGBA) {
+									// pass the whole GL-sized buffer, so the transcoder fills the 2x2 block minimum of levels smaller than 8x8
+									blocks = decSize / basis_get_bytes_per_block_or_pixel(type);
 								}
 								if (transcoder.transcode_image_level(data, size, 0, level, decBuf, blocks, type)) {
 									if (basis_transcoder_format_is_uncompressed(type)) {

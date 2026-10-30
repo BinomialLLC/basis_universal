@@ -2398,9 +2398,19 @@ public:
             return false;
         }
 
+        // The transcoder writes num_blocks_x * num_blocks_y blocks, but checks the output buffer's size against orig_width/orig_height,
+        // so make sure they agree (as check_slice_desc() does for .basis files).
+        if ((num_blocks_x != (orig_width + 3) / 4) || (num_blocks_y != (orig_height + 3) / 4))
+        {
+#if BASISU_DEBUG_PRINTF
+            printf("lowlevel_etc1s_image_transcoder::transcode_image: num_blocks_x/y don't match orig_width/height\n");
+#endif
+            return false;
+        }
+
         basisu::vector<uint8_t> temp_output_blocks(output_blocks_len);
 
-        // Never let the transcoder write past temp_output_blocks (PVRTC1 fills up to the buffer size for levels smaller than 8x8 texels).
+        // Don't let the PVRTC1 small-level fill, which writes up to the stated buffer size for levels smaller than 8x8 texels, write past temp_output_blocks.
         const uint32_t bytes_per_block_or_pixel = basis_get_bytes_per_block_or_pixel((transcoder_texture_format)target_format);
         if (bytes_per_block_or_pixel)
             output_blocks_buf_size_in_blocks_or_pixels = basisu::minimum<uint32_t>(output_blocks_buf_size_in_blocks_or_pixels, output_blocks_len / bytes_per_block_or_pixel);
@@ -2498,9 +2508,21 @@ bool transcode_uastc_image2(
     printf("has_alpha: %u is_video: %u\n", has_alpha, is_video);
 #endif
 
+    // The transcoders write blocks based on src_num_blocks_x/y, but check the output buffer's size against orig_width/orig_height,
+    // so make sure they agree (as check_slice_desc() does for .basis files).
+    const uint32_t src_block_width = basis_tex_format_get_block_width(src_tex_format), src_block_height = basis_tex_format_get_block_height(src_tex_format);
+    if ((!src_block_width) || (!src_block_height) ||
+        (src_num_blocks_x != (orig_width + src_block_width - 1) / src_block_width) || (src_num_blocks_y != (orig_height + src_block_height - 1) / src_block_height))
+    {
+#if BASISU_DEBUG_PRINTF
+        printf("transcode_uastc_image2: src_num_blocks_x/y don't match orig_width/height\n");
+#endif
+        return false;
+    }
+
     basisu::vector<uint8_t> temp_output_blocks(output_blocks_len);
 
-    // Never let the transcoder write past temp_output_blocks (PVRTC1 fills up to the buffer size for levels smaller than 8x8 texels).
+    // Don't let the PVRTC1 small-level fill, which writes up to the stated buffer size for levels smaller than 8x8 texels, write past temp_output_blocks.
     const uint32_t bytes_per_block_or_pixel = basis_get_bytes_per_block_or_pixel((transcoder_texture_format)target_format);
     if (bytes_per_block_or_pixel)
         output_blocks_buf_size_in_blocks_or_pixels = basisu::minimum<uint32_t>(output_blocks_buf_size_in_blocks_or_pixels, output_blocks_len / bytes_per_block_or_pixel);

@@ -2902,23 +2902,15 @@ namespace basisu
 		else
 			printf("  Dimensions   : %ux%u\n", w, h);
 		printf("  Mip levels   : %u\n", mips);
-		// tinydds reports 0 array slices for a non-array texture; show 1 for clarity.
+		// Older DDS files (including basisu's own, before its writer was fixed) store arraySize 0 for a non-array texture; show 1 for clarity.
 		const uint32_t num_slices = maximum<uint32_t>(1, slices);
 		if (is_cube)
 			printf("  Array slices : %u cube(s) x 6 faces = %u image(s) per mip\n", num_slices, num_slices * 6);
 		else
 			printf("  Array slices : %u\n", num_slices);
 		printf("  Cubemap      : %s\n", is_cube ? "yes" : "no");
-		// "Array" reflects a genuine multi-element array. tinydds's IsArray() is true for ANY DX10 file
-		// (arraySize>=1), so without care a plain single 2D texture or a single cubemap would falsely read
-		// "yes". For a cubemap, array-ness means more than one cube (slices > 1). For a 2D texture, annotate
-		// the DX10 1-element quirk ("yes (1 element)") rather than contradict "Texture type : 2D".
-		if (is_cube)
-			printf("  Array        : %s\n", (num_slices > 1) ? "yes" : "no");
-		else if (is_array && (num_slices == 1))
-			printf("  Array        : yes (1 element)\n");
-		else
-			printf("  Array        : %s\n", is_array ? "yes" : "no");
+		// "Array" means more than one element (more than one cube, for a cubemap): TinyDDS_IsArray() is arraySize > 1.
+		printf("  Array        : %s\n", is_array ? "yes" : "no");
 		if (pFmtStr)
 			printf("  Format       : %s  [tinydds %u / 0x%X]\n", pFmtStr, fmt, fmt);
 		else
