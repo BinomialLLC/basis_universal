@@ -914,6 +914,9 @@ namespace basist
 		// If the .basis file doesn't have alpha slices, the output alpha blocks will be set to fully opaque (all 255's).
 		// Currently, to decode to PVRTC1 the basis texture's dimensions in pixels must be a power of 2, due to PVRTC1 format requirements. 
 		// output_blocks_buf_size_in_blocks_or_pixels should be at least the image level's total_blocks (num_blocks_x * num_blocks_y), or the total number of output pixels if fmt==cTFRGBA32 etc.
+		// PVRTC1: pass the output buffer's real size. For levels smaller than 8x8 texels, a buffer of at least basis_compute_transcoded_image_size_in_bytes()
+		// gets the GL-sized 2x2 block minimum filled (see pvrtc1_4_tile_small_level()), so up to that many blocks are written. (ETC1S, UASTC and XUASTC/ASTC
+		// sources also zero any space past the level's own blocks.)
 		// output_row_pitch_in_blocks_or_pixels: Number of blocks or pixels per row. If 0, the transcoder uses the slice's num_blocks_x or orig_width (NOT num_blocks_x * 4). Ignored for PVRTC1 (due to texture swizzling).
 		// output_rows_in_pixels: Ignored unless fmt is uncompressed (cRGBA32, etc.). The total number of output rows in the output buffer. If 0, the transcoder assumes the slice's orig_height (NOT num_blocks_y * 4).
 		// Notes: 
@@ -932,8 +935,10 @@ namespace basist
 
 		// transcode_slice() decodes a single slice from the .basis file. It's a low-level API - most likely you want to use transcode_image_level().
 		// This is a low-level API, and will be needed to be called multiple times to decode some texture formats (like BC3, BC5, or ETC2).
-		// output_blocks_buf_size_in_blocks_or_pixels is just used for verification to make sure the output buffer is large enough.
+		// output_blocks_buf_size_in_blocks_or_pixels is used to make sure the output buffer is large enough.
 		// output_blocks_buf_size_in_blocks_or_pixels should be at least the image level's total_blocks (num_blocks_x * num_blocks_y), or the total number of output pixels if fmt==cTFRGBA32.
+		// PVRTC1: pass the output buffer's real size. For levels smaller than 8x8 texels, a buffer of at least basis_compute_transcoded_image_size_in_bytes()
+		// gets the GL-sized 2x2 block minimum filled (see pvrtc1_4_tile_small_level()), so up to that many blocks are written.
 		// output_block_stride_in_bytes: Number of bytes between each output block.
 		// output_row_pitch_in_blocks_or_pixels: Number of blocks or pixels per row. If 0, the transcoder uses the slice's num_blocks_x or orig_width (NOT num_blocks_x * 4). Ignored for PVRTC1 (due to texture swizzling).
 		// output_rows_in_pixels: Ignored unless fmt is cRGBA32. The total number of output rows in the output buffer. If 0, the transcoder assumes the slice's orig_height (NOT num_blocks_y * 4).
@@ -1409,6 +1414,8 @@ namespace basist
 		// completely transcoded before switching to another level. Every time the mipmap level is changed all supercompressed level data must be decompressed using Zstandard as a single unit.
 		// Currently ETC1S videos must always be transcoded from first to last frame (or KTX2 "layer"), in order, with no skipping of frames.
 		// By default this method is not thread safe unless you specify a pointer to a user allocated thread-specific transcoder_state struct.
+		// PVRTC1: pass the output buffer's real size in output_blocks_buf_size_in_blocks_or_pixels. For levels smaller than 8x8 texels, a buffer of at least
+		// basis_compute_transcoded_image_size_in_bytes() gets the GL-sized 2x2 block minimum filled (see pvrtc1_4_tile_small_level()), so up to that many blocks are written.
 		bool transcode_image_level(
 			uint32_t level_index, uint32_t layer_index, uint32_t face_index,
 			void* pOutput_blocks, uint32_t output_blocks_buf_size_in_blocks_or_pixels,
@@ -1677,7 +1684,7 @@ namespace basist
 
 		// Transcode one image (level,layer,face) to fmt. If fmt == the contained format it's a straight
 		// block copy (passthrough); otherwise each 4x4 block is unpacked to RGBA and repacked to fmt.
-		// pOutput_blocks / sizes / pitch semantics match ktx2_transcoder::transcode_image_level().
+		// pOutput_blocks / sizes / pitch semantics match ktx2_transcoder::transcode_image_level(), including the PVRTC1 small-level fill.
 		// NOTE: the non-passthrough (decode->repack) path requires BASISD_SUPPORT_XUASTC; in a build with it
 		// disabled, only passthrough (fmt == contained format) succeeds and every other target returns false.
 		bool transcode_image_level(

@@ -2297,6 +2297,48 @@ public:
 };
 #endif
 
+// The low-level transcode_image() functions trust their caller's dimensions, block counts, row pitch and row count, but JS can pass
+// anything, and the transcoders write to a temporary buffer sized to the JS array. So check them like check_slice_desc() checks a .basis
+// file's, and make sure the output (with any row pitch) fits in output_blocks_len bytes.
+static bool validate_lowlevel_transcode_args(basis_tex_format src_fmt, transcoder_texture_format target_fmt,
+    uint32_t src_num_blocks_x, uint32_t src_num_blocks_y, uint32_t orig_width, uint32_t orig_height,
+    uint32_t output_row_pitch_in_blocks_or_pixels, uint32_t output_rows_in_pixels, uint32_t output_blocks_len)
+{
+    if ((!orig_width) || (!orig_height) || (orig_width > BASISU_MAX_SUPPORTED_TEXTURE_DIMENSION) || (orig_height > BASISU_MAX_SUPPORTED_TEXTURE_DIMENSION))
+        return false;
+
+    // The transcoders write blocks based on the block counts, but check the output buffer's size against orig_width/orig_height.
+    const uint32_t src_block_width = basis_tex_format_get_block_width(src_fmt), src_block_height = basis_tex_format_get_block_height(src_fmt);
+    if ((src_num_blocks_x != (orig_width + src_block_width - 1) / src_block_width) || (src_num_blocks_y != (orig_height + src_block_height - 1) / src_block_height))
+        return false;
+
+    const uint32_t bytes_per_block_or_pixel = basis_get_bytes_per_block_or_pixel(target_fmt);
+    if (!bytes_per_block_or_pixel)
+        return false;
+
+    uint64_t required_size;
+    if (basis_transcoder_format_is_uncompressed(target_fmt))
+    {
+        const uint32_t pitch = output_row_pitch_in_blocks_or_pixels ? output_row_pitch_in_blocks_or_pixels : orig_width;
+        const uint32_t rows = output_rows_in_pixels ? output_rows_in_pixels : orig_height;
+        if ((pitch < orig_width) || (rows < orig_height))
+            return false;
+        required_size = (uint64_t)pitch * rows * bytes_per_block_or_pixel;
+    }
+    else
+    {
+        const uint32_t dst_block_width = basis_get_block_width(target_fmt), dst_block_height = basis_get_block_height(target_fmt);
+        const uint32_t dst_num_blocks_x = (orig_width + dst_block_width - 1) / dst_block_width;
+        const uint32_t dst_num_blocks_y = (orig_height + dst_block_height - 1) / dst_block_height;
+        const uint32_t pitch = output_row_pitch_in_blocks_or_pixels ? output_row_pitch_in_blocks_or_pixels : dst_num_blocks_x;
+        if (pitch < dst_num_blocks_x)
+            return false;
+        required_size = ((uint64_t)pitch * (dst_num_blocks_y - 1) + dst_num_blocks_x) * bytes_per_block_or_pixel;
+    }
+
+    return required_size <= output_blocks_len;
+}
+
 class lowlevel_etc1s_image_transcoder : public basisu_lowlevel_etc1s_transcoder
 {
     // Using our own transcoder state, for video support.
@@ -2398,9 +2440,18 @@ public:
             return false;
         }
 
+        if (!validate_lowlevel_transcode_args(basis_tex_format::cETC1S, (transcoder_texture_format)target_format, num_blocks_x, num_blocks_y, orig_width, orig_height,
+            output_row_pitch_in_blocks_or_pixels, output_rows_in_pixels, output_blocks_len))
+        {
+#if BASISU_DEBUG_PRINTF
+            printf("lowlevel_etc1s_image_transcoder::transcode_image: invalid dimensions, block counts, row pitch or output buffer size\n");
+#endif
+            return false;
+        }
+
         basisu::vector<uint8_t> temp_output_blocks(output_blocks_len);
 
-        // Never let the transcoder write past temp_output_blocks (PVRTC1 fills up to the buffer size for levels smaller than 8x8 texels).
+        // Don't let the PVRTC1 small-level fill, which writes up to the stated buffer size for levels smaller than 8x8 texels, write past temp_output_blocks.
         const uint32_t bytes_per_block_or_pixel = basis_get_bytes_per_block_or_pixel((transcoder_texture_format)target_format);
         if (bytes_per_block_or_pixel)
             output_blocks_buf_size_in_blocks_or_pixels = basisu::minimum<uint32_t>(output_blocks_buf_size_in_blocks_or_pixels, output_blocks_len / bytes_per_block_or_pixel);
@@ -2498,9 +2549,18 @@ bool transcode_uastc_image2(
     printf("has_alpha: %u is_video: %u\n", has_alpha, is_video);
 #endif
 
+    if (!validate_lowlevel_transcode_args(src_tex_format, target_format, src_num_blocks_x, src_num_blocks_y, orig_width, orig_height,
+        output_row_pitch_in_blocks_or_pixels, output_rows_in_pixels, output_blocks_len))
+    {
+#if BASISU_DEBUG_PRINTF
+        printf("transcode_uastc_image2: invalid dimensions, block counts, row pitch or output buffer size\n");
+#endif
+        return false;
+    }
+
     basisu::vector<uint8_t> temp_output_blocks(output_blocks_len);
 
-    // Never let the transcoder write past temp_output_blocks (PVRTC1 fills up to the buffer size for levels smaller than 8x8 texels).
+    // Don't let the PVRTC1 small-level fill, which writes up to the stated buffer size for levels smaller than 8x8 texels, write past temp_output_blocks.
     const uint32_t bytes_per_block_or_pixel = basis_get_bytes_per_block_or_pixel((transcoder_texture_format)target_format);
     if (bytes_per_block_or_pixel)
         output_blocks_buf_size_in_blocks_or_pixels = basisu::minimum<uint32_t>(output_blocks_buf_size_in_blocks_or_pixels, output_blocks_len / bytes_per_block_or_pixel);

@@ -1,3 +1,10 @@
+/*
+ * NOTE: This example is out of date and does not currently build. It uses the ETC1S global selector codebook
+ * (etc1_global_selector_codebook, g_global_selector_cb, and the basisu_transcoder(etc1_global_selector_codebook*)
+ * constructor), which was removed from the transcoder long ago. It needs updating to the current API (see
+ * example_transcoding/ or webgl/transcoder/basis_wrappers.cpp) before it can be compiled or run.
+ */
+
 /**
  * \file emscripten.cpp
  * Emscripten example of using the single-file \c basisu_transcoder.cpp. Draws
@@ -390,6 +397,10 @@ bool upload(EMSCRIPTEN_WEBGL_CONTEXT_HANDLE const ctx, GLuint const name, const 
 								if (basis_transcoder_format_is_uncompressed(type)) {
 									// note that blocks becomes total number of pixels for RGB/RGBA
 									blocks = descW * descH;
+								} else if (type == transcoder_texture_format::cTFPVRTC1_4_RGB ||
+										   type == transcoder_texture_format::cTFPVRTC1_4_RGBA) {
+									// pass the whole GL-sized buffer, so the transcoder fills the 2x2 block minimum of levels smaller than 8x8
+									blocks = decSize / basis_get_bytes_per_block_or_pixel(type);
 								}
 								if (transcoder.transcode_image_level(data, size, 0, level, decBuf, blocks, type)) {
 									if (basis_transcoder_format_is_uncompressed(type)) {

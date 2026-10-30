@@ -9517,7 +9517,8 @@ namespace basist
 
 		if ((target_format == transcoder_texture_format::cTFPVRTC1_4_RGB) || (target_format == transcoder_texture_format::cTFPVRTC1_4_RGBA))
 		{
-			// For PVRTC1, Basis only writes (or requires) total_blocks * bytes_per_block. But GL requires extra padding for very small textures:
+			// For PVRTC1, Basis requires total_blocks * bytes_per_block. But GL requires extra padding for very small textures, which the transcoders
+			// fill when given a buffer this large (see pvrtc1_4_tile_small_level()):
 			// https://www.khronos.org/registry/OpenGL/extensions/IMG/IMG_texture_compression_pvrtc.txt
 			const uint32_t width = (orig_width + 3) & ~3;
 			const uint32_t height = (orig_height + 3) & ~3;
