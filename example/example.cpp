@@ -684,7 +684,7 @@ bool random_compress_test()
     const uint32_t MAX_WIDTH = 512, MAX_HEIGHT = 512;
     const bool xuastc_or_astc_only = false;
     const bool xubc7_only = false;
-    const bool xuastc_astc_or_xubc7_only = true; // randomly pick XUASTC LDR, ASTC LDR, or XUBC7
+    const bool xuastc_astc_or_xubc7_only = false; // randomly pick XUASTC LDR, ASTC LDR, or XUBC7
         
     basisu::rand rnd;
     
