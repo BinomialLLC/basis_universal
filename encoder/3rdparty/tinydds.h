@@ -1522,6 +1522,17 @@ uint32_t TinyDDS_ArraySlices(TinyDDS_ContextHandle handle) {
 	return ctx->headerDx10.arraySize;
 }
 
+// rg: The original Is1D/Is2D/Is3D decided purely from the size (height <= 1 meant 1D) and ignored the DX10 header's resourceDimension,
+// so 1x1 and Nx1 2D textures were reported as 1D. Like DirectXTex: with a DX10 header use its resourceDimension; a legacy header can't
+// express 1D, so it's 3D if it's a volume texture and 2D otherwise.
+static uint32_t TinyDDS_ResourceDimension(TinyDDS_Context const *ctx) {
+	if ((ctx->header.formatFlags & TINYDDS_DDPF_FOURCC) && (ctx->header.formatFourCC == TINYDDS_MAKE_RIFFCODE('D', 'X', '1', '0')))
+		return ctx->headerDx10.resourceDimension;
+	if ((ctx->header.depth > 1) || (ctx->header.caps2 & TINYDDS_DDSCAPS2_VOLUME))
+		return TINYDDS_D3D10_RESOURCE_DIMENSION_TEXTURE3D;
+	return TINYDDS_D3D10_RESOURCE_DIMENSION_TEXTURE2D;
+}
+
 bool TinyDDS_Is1D(TinyDDS_ContextHandle handle) {
 	TinyDDS_Context *ctx = (TinyDDS_Context *) handle;
 	if (ctx == NULL)
@@ -1530,7 +1541,7 @@ bool TinyDDS_Is1D(TinyDDS_ContextHandle handle) {
 		ctx->callbacks.errorFn(ctx->user, "Header data hasn't been read yet or its invalid");
 		return false;
 	}
-	return (ctx->header.height <= 1 && ctx->header.depth <= 1);
+	return (TinyDDS_ResourceDimension(ctx) == TINYDDS_D3D10_RESOURCE_DIMENSION_TEXTURE1D);
 }
 bool TinyDDS_Is2D(TinyDDS_ContextHandle handle) {
 	TinyDDS_Context *ctx = (TinyDDS_Context *) handle;
@@ -1540,7 +1551,7 @@ bool TinyDDS_Is2D(TinyDDS_ContextHandle handle) {
 		ctx->callbacks.errorFn(ctx->user, "Header data hasn't been read yet or its invalid");
 		return false;
 	}
-	return (ctx->header.height > 1 && ctx->header.depth <= 1);
+	return (TinyDDS_ResourceDimension(ctx) == TINYDDS_D3D10_RESOURCE_DIMENSION_TEXTURE2D);
 }
 bool TinyDDS_Is3D(TinyDDS_ContextHandle handle) {
 	TinyDDS_Context *ctx = (TinyDDS_Context *) handle;
@@ -1551,7 +1562,7 @@ bool TinyDDS_Is3D(TinyDDS_ContextHandle handle) {
 		return false;
 	}
 
-	return (ctx->header.height > 1 && ctx->header.depth > 1);
+	return (TinyDDS_ResourceDimension(ctx) == TINYDDS_D3D10_RESOURCE_DIMENSION_TEXTURE3D);
 }
 
 bool TinyDDS_IsArray(TinyDDS_ContextHandle handle) {
