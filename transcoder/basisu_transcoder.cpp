@@ -45289,9 +45289,10 @@ bool basisu_lowlevel_xuastc_ldr_transcoder::transcode_image(
 		}
 	}
 
-	if ((target_format == transcoder_texture_format::cTFPVRTC1_4_RGBA) && (!has_alpha))
+	// Switch to PVRTC1 RGB if the input doesn't have alpha (as the ETC1S and UASTC LDR 4x4 transcoders do). Not for plain ASTC LDR: KTX2
+	// files from other tools use the standard ASTC DFD channel, which ktx2_transcoder reports as no alpha even when the blocks have it.
+	if ((target_format == transcoder_texture_format::cTFPVRTC1_4_RGBA) && (!has_alpha) && (!basis_tex_format_is_astc_ldr(src_format)))
 	{
-		// Switch to PVRTC1 RGB if the input doesn't have alpha (as the ETC1S and UASTC LDR 4x4 transcoders do).
 		target_format = transcoder_texture_format::cTFPVRTC1_4_RGB;
 	}
 
