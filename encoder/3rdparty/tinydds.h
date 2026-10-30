@@ -1563,7 +1563,8 @@ bool TinyDDS_IsArray(TinyDDS_ContextHandle handle) {
 		return false;
 	}
 
-	return (ctx->headerDx10.arraySize >= 1);
+	// rg: was >= 1, which reported every DX10 file with arraySize 1 (a plain texture) as an array.
+	return (ctx->headerDx10.arraySize > 1);
 }
 
 uint32_t TinyDDS_NumberOfMipmaps(TinyDDS_ContextHandle handle) {
@@ -2026,6 +2027,10 @@ bool TinyDDS_WriteImage(TinyDDS_WriteCallbacks const *callbacks,
 		header.formatFourCC = TINYDDS_MAKE_RIFFCODE('D','X','1','0');
 		headerDX10.arraySize = slices;
 	}
+	// rg: arraySize is the number of array elements (of cubes, for cubemaps), so a plain texture or a single cubemap is 1. The original
+	// code left it at 0, which Microsoft's DirectXTK DDS loaders (D3D11 and D3D12) reject.
+	if (!headerDX10.arraySize)
+		headerDX10.arraySize = 1;
 	header.flags = TINYDDS_DDSD_CAPS | TINYDDS_DDSD_PIXELFORMAT | TINYDDS_DDSD_MIPMAPCOUNT | TINYDDS_DDSD_WIDTH | TINYDDS_DDSD_HEIGHT;
 	header.caps1 = TINYDDS_DDSCAPS_TEXTURE | TINYDDS_DDSCAPS_COMPLEX | TINYDDS_DDSCAPS_MIPMAP;
 
