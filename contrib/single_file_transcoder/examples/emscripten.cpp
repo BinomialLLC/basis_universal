@@ -1,3 +1,10 @@
+/*
+ * NOTE: This example is out of date and does not currently build. It uses the ETC1S global selector codebook
+ * (etc1_global_selector_codebook, g_global_selector_cb, and the basisu_transcoder(etc1_global_selector_codebook*)
+ * constructor), which was removed from the transcoder long ago. It needs updating to the current API (see
+ * example_transcoding/ or webgl/transcoder/basis_wrappers.cpp) before it can be compiled or run.
+ */
+
 /**
  * \file emscripten.cpp
  * Emscripten example of using the single-file \c basisu_transcoder.cpp. Draws
