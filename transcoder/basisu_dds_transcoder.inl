@@ -1254,6 +1254,9 @@ namespace basist
 			}
 
 			encode_pvrtc1(ti.m_bf, pOutput_blocks, temp_image, num_blocks_x, num_blocks_y, from_alpha);
+
+			// Levels smaller than 8x8 texels: fill the 2x2 block minimum (see pvrtc1_4_tile_small_level()).
+			pvrtc1_4_tile_small_level(pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, num_blocks_x, num_blocks_y);
 			return true;
 		}
 

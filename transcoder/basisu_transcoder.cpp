@@ -9384,6 +9384,68 @@ namespace basist
 		return true;
 	}
 
+	// Block index in PVRTC1's swizzled (twiddled) block order. width/height are in blocks and must be powers of 2.
+	static uint32_t pvrtc1_4_swizzle_index(uint32_t width, uint32_t height, uint32_t x, uint32_t y)
+	{
+		uint32_t min_d = width, max_v = y;
+		if (height < width)
+		{
+			min_d = height;
+			max_v = x;
+		}
+
+		// Interleave the XY LSB's (Y in the low bit), then OR in the rest of the bits from the larger dimension.
+		uint32_t shift_ofs = 0, swizzled = 0;
+		for (uint32_t s_bit = 1, d_bit = 1; s_bit < min_d; s_bit <<= 1, d_bit <<= 2, ++shift_ofs)
+		{
+			if (y & s_bit) swizzled |= d_bit;
+			if (x & s_bit) swizzled |= (2 * d_bit);
+		}
+
+		return swizzled | ((max_v >> shift_ofs) << (2 * shift_ofs));
+	}
+
+	// A PVRTC1 4bpp texture is at least 2x2 blocks (8x8 texels): GL sizes it as (max(width, 8) * max(height, 8) * 4 + 7) / 8, and
+	// decoders (e.g. PowerVR's PVRTDecompress) decode a smaller level as that larger grid, blending every texel with its wrapped
+	// neighbour blocks. The PVRTC1 transcoders only write the level's own ceil(width/4) x ceil(height/4) blocks, computed as if the
+	// image wraps at that smaller grid's size. So when a level is smaller than 2x2 blocks and the output buffer can hold the larger
+	// grid, this rewrites the output as the max(num_blocks_x, 2) x max(num_blocks_y, 2) grid, with each block (x, y) a copy of block
+	// (x % num_blocks_x, y % num_blocks_y), in the larger grid's swizzled order. Decoding that gives exactly the image the transcoder
+	// computed. Call only after a successful PVRTC1 transcode.
+	static void pvrtc1_4_tile_small_level(void* pBlocks, uint32_t buf_size_in_blocks, uint32_t num_blocks_x, uint32_t num_blocks_y)
+	{
+		if ((num_blocks_x >= 2) && (num_blocks_y >= 2))
+			return;
+
+		// PVRTC1 levels are power of 2 sized, so one dimension is 1 block and the other a power of 2.
+		if (!basisu::is_pow2(num_blocks_x) || !basisu::is_pow2(num_blocks_y))
+			return;
+
+		const uint32_t padded_x = basisu::maximum<uint32_t>(num_blocks_x, 2);
+		const uint32_t padded_y = basisu::maximum<uint32_t>(num_blocks_y, 2);
+
+		if (buf_size_in_blocks < padded_x * padded_y)
+			return;
+
+		uint8_t* pDst = static_cast<uint8_t*>(pBlocks);
+		const uint32_t bytes_per_block = 8;
+
+		// With one dimension 1 block, the source grid's swizzled order is linear (block i is at index i). Every copy of source block i
+		// lands at an index >= i in the larger grid, so working backwards reads each source block before anything overwrites it.
+		for (int i = (int)(num_blocks_x * num_blocks_y) - 1; i >= 0; i--)
+		{
+			uint8_t blk[bytes_per_block];
+			memcpy(blk, pDst + (size_t)i * bytes_per_block, bytes_per_block);
+
+			const uint32_t src_x = (num_blocks_y == 1) ? (uint32_t)i : 0;
+			const uint32_t src_y = (num_blocks_y == 1) ? 0 : (uint32_t)i;
+
+			for (uint32_t y = src_y; y < padded_y; y += num_blocks_y)
+				for (uint32_t x = src_x; x < padded_x; x += num_blocks_x)
+					memcpy(pDst + (size_t)pvrtc1_4_swizzle_index(padded_x, padded_y, x, y) * bytes_per_block, blk, bytes_per_block);
+		}
+	}
+
 	bool basis_validate_output_buffer_size(
 		transcoder_texture_format target_format,
 		uint32_t output_blocks_buf_size_in_blocks_or_pixels,
@@ -13232,7 +13294,11 @@ namespace basist
 		}
 		else
 		{
-			//BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: Returning true\n");      
+			//BASISU_DEVEL_ERROR("basisu_transcoder::transcode_image_level: Returning true\n");
+
+			// PVRTC1 levels smaller than 8x8 texels: fill the 2x2 block minimum (see pvrtc1_4_tile_small_level()).
+			if ((fmt == transcoder_texture_format::cTFPVRTC1_4_RGB) || (fmt == transcoder_texture_format::cTFPVRTC1_4_RGBA))
+				pvrtc1_4_tile_small_level(pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, (pSlice_descs[slice_index].m_orig_width + 3) >> 2, (pSlice_descs[slice_index].m_orig_height + 3) >> 2);
 		}
 
 		return status;
@@ -20902,6 +20968,10 @@ namespace basist
 			assert(0);
 			return false;
 		}
+
+		// PVRTC1 levels smaller than 8x8 texels: fill the 2x2 block minimum (see pvrtc1_4_tile_small_level()).
+		if ((fmt == transcoder_texture_format::cTFPVRTC1_4_RGB) || (fmt == transcoder_texture_format::cTFPVRTC1_4_RGBA))
+			pvrtc1_4_tile_small_level(pOutput_blocks, output_blocks_buf_size_in_blocks_or_pixels, num_blocks4_x, num_blocks4_y);
 
 		return true;
 	}

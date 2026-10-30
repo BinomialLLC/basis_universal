@@ -1225,14 +1225,20 @@ namespace basisu
 
 		if ((m_fmt == texture_format::cPVRTC1_4_RGB) || (m_fmt == texture_format::cPVRTC1_4_RGBA))
 		{
+			// pi's block grid is at least 2x2 (see pvrtc4_image::resize()), but this image holds only its own blocks_x x blocks_y
+			// blocks, in that grid's swizzled order. Fill pi's grid with each block (x, y) a copy of block (x % blocks_x, y % blocks_y),
+			// as the transcoders do for levels smaller than 8x8 texels; for larger levels this is just a deswizzle.
 			pvrtc4_image pi(m_width, m_height);
-			
-			if (get_total_blocks() != pi.get_total_blocks())
-				return false;
-			
-			memcpy((void *)&pi.get_blocks()[0], (const void *)get_ptr(), get_size_in_bytes());
 
-			pi.deswizzle();
+			const uint32_t blocks_x = get_blocks_x(), blocks_y = get_blocks_y();
+			if (!is_pow2(blocks_x) || !is_pow2(blocks_y) || (pi.get_block_width() % blocks_x) || (pi.get_block_height() % blocks_y))
+				return false;
+
+			const pvrtc4_block* pSrc_blocks = reinterpret_cast<const pvrtc4_block*>(get_ptr());
+
+			for (uint32_t y = 0; y < pi.get_block_height(); y++)
+				for (uint32_t x = 0; x < pi.get_block_width(); x++)
+					pi.get_blocks()(x, y) = pSrc_blocks[pvrtc4_swizzle_uv(blocks_x, blocks_y, x % blocks_x, y % blocks_y)];
 
 			pi.unpack_all_pixels(img);
 
