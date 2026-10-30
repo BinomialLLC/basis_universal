@@ -212,8 +212,9 @@ namespace basist
 		uint32_t output_rows_in_pixels);
 
 	// Computes the size in bytes of a transcoded image or texture, taking into account the format's block width/height and any minimum size PVRTC1 requirements required by OpenGL.
-	// Note the returned value is not necessarily the # of bytes a transcoder could write to the output buffer due to these minimum PVRTC1 requirements.
-	// (These PVRTC1 requirements are not ours, but OpenGL's.)
+	// (These PVRTC1 requirements are not ours, but OpenGL's.) For PVRTC1 levels smaller than 8x8 texels, the .basis, KTX2 and DDS transcode_image_level()
+	// functions fill this whole size when the buffer is at least this large (see pvrtc1_4_tile_small_level()). A buffer of only ceil(width/4)*ceil(height/4)
+	// blocks is also accepted, but then only those blocks are written. The low-level transcode_image()/transcode_slice() functions always write only those blocks.
 	uint32_t basis_compute_transcoded_image_size_in_bytes(transcoder_texture_format target_format, uint32_t orig_width, uint32_t orig_height);
 
 	class basisu_transcoder;

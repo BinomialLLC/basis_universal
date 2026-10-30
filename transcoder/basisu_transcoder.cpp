@@ -13178,9 +13178,9 @@ namespace basist
 
 			if (((fmt == transcoder_texture_format::cTFPVRTC1_4_RGB) || (fmt == transcoder_texture_format::cTFPVRTC1_4_RGBA)) && (output_blocks_buf_size_in_blocks_or_pixels > total_slice_blocks))
 			{
-				// The transcoder doesn't write beyond total_slice_blocks, so we need to clear the rest ourselves.
-				// For GL usage, PVRTC1 4bpp image size is (max(width, 8)* max(height, 8) * 4 + 7) / 8. 
-				// However, for KTX and internally in Basis this formula isn't used, it's just ((width+3)/4) * ((height+3)/4) * bytes_per_block_or_pixel. This is all the transcoder actually writes to memory.
+				// The low-level transcoders only write the level's own ((width+3)/4) * ((height+3)/4) blocks, so clear the rest of the buffer.
+				// For GL usage, PVRTC1 4bpp image size is (max(width, 8)* max(height, 8) * 4 + 7) / 8. For levels smaller than 8x8 texels,
+				// pvrtc1_4_tile_small_level() fills that 2x2 block minimum after a successful transcode (below), overwriting part of this clear.
 				memset(static_cast<uint8_t*>(pOutput_blocks) + total_slice_blocks * bytes_per_block_or_pixel, 0, (output_blocks_buf_size_in_blocks_or_pixels - total_slice_blocks) * bytes_per_block_or_pixel);
 			}
 		}
