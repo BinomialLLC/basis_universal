@@ -12876,7 +12876,9 @@ namespace basist
 		{
 			if ((fmt == block_format::cPVRTC1_4_RGB) || (fmt == block_format::cPVRTC1_4_RGBA))
 			{
-				if ((!basisu::is_pow2(slice_desc.m_num_blocks_x * 4)) || (!basisu::is_pow2(slice_desc.m_num_blocks_y * 4)))
+				// The slice's own block counts are in source blocks, which for XUASTC/ASTC LDR may not be 4x4, so use the 4x4 block counts.
+				// (XUASTC/ASTC LDR also requires power of 2 texture dimensions, which its transcode_slice() checks.)
+				if ((!basisu::is_pow2(((slice_desc.m_orig_width + 3) >> 2) * 4)) || (!basisu::is_pow2(((slice_desc.m_orig_height + 3) >> 2) * 4)))
 				{
 					// PVRTC1 only supports power of 2 dimensions
 					BASISU_DEVEL_ERROR("basisu_transcoder::transcode_slice: PVRTC1 only supports power of 2 dimensions\n");

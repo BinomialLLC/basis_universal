@@ -2400,6 +2400,10 @@ public:
 
         basisu::vector<uint8_t> temp_output_blocks(output_blocks_len);
 
+        // Never let the transcoder write past temp_output_blocks (PVRTC1 fills up to the buffer size for levels smaller than 8x8 texels).
+        if (const uint32_t bytes_per_block_or_pixel = basis_get_bytes_per_block_or_pixel((transcoder_texture_format)target_format))
+            output_blocks_buf_size_in_blocks_or_pixels = basisu::minimum<uint32_t>(output_blocks_buf_size_in_blocks_or_pixels, output_blocks_len / bytes_per_block_or_pixel);
+
         bool status = basisu_lowlevel_etc1s_transcoder::transcode_image(
             (transcoder_texture_format)target_format,
             &temp_output_blocks[0], output_blocks_buf_size_in_blocks_or_pixels,
@@ -2494,6 +2498,10 @@ bool transcode_uastc_image2(
 #endif
 
     basisu::vector<uint8_t> temp_output_blocks(output_blocks_len);
+
+    // Never let the transcoder write past temp_output_blocks (PVRTC1 fills up to the buffer size for levels smaller than 8x8 texels).
+    if (const uint32_t bytes_per_block_or_pixel = basis_get_bytes_per_block_or_pixel((transcoder_texture_format)target_format))
+        output_blocks_buf_size_in_blocks_or_pixels = basisu::minimum<uint32_t>(output_blocks_buf_size_in_blocks_or_pixels, output_blocks_len / bytes_per_block_or_pixel);
 
 	bool status = false;	
 	if (basis_tex_format_is_xubc7(src_tex_format))
