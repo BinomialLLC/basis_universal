@@ -45289,6 +45289,13 @@ bool basisu_lowlevel_xuastc_ldr_transcoder::transcode_image(
 		}
 	}
 
+	// Switch to PVRTC1 RGB if the input doesn't have alpha (as the ETC1S and UASTC LDR 4x4 transcoders do). Not for plain ASTC LDR: KTX2
+	// files from other tools use the standard ASTC DFD channel, which ktx2_transcoder reports as no alpha even when the blocks have it.
+	if ((target_format == transcoder_texture_format::cTFPVRTC1_4_RGBA) && (!has_alpha) && (!basis_tex_format_is_astc_ldr(src_format)))
+	{
+		target_format = transcoder_texture_format::cTFPVRTC1_4_RGB;
+	}
+
 	const bool transcode_alpha_data_to_opaque_formats = (decode_flags & cDecodeFlagsTranscodeAlphaDataToOpaqueFormats) != 0;
 	const uint32_t bytes_per_block_or_pixel = basis_get_bytes_per_block_or_pixel(target_format);
 
@@ -45818,6 +45825,12 @@ bool basisu_lowlevel_xubc7_transcoder::transcode_image(
 			BASISU_DEVEL_ERROR("basisu_lowlevel_etc1s_transcoder::transcode_image: PVRTC1 only supports power of 2 dimensions\n");
 			return false;
 		}
+	}
+
+	if ((target_format == transcoder_texture_format::cTFPVRTC1_4_RGBA) && (!has_alpha))
+	{
+		// Switch to PVRTC1 RGB if the input doesn't have alpha (as the ETC1S and UASTC LDR 4x4 transcoders do).
+		target_format = transcoder_texture_format::cTFPVRTC1_4_RGB;
 	}
 
 	const bool transcode_alpha_data_to_opaque_formats = (decode_flags & cDecodeFlagsTranscodeAlphaDataToOpaqueFormats) != 0;
