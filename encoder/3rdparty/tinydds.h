@@ -2035,15 +2035,12 @@ bool TinyDDS_WriteImage(TinyDDS_WriteCallbacks const *callbacks,
 		header.flags |= TINYDDS_DDSD_DEPTH;
 		header.caps2 |= TINYDDS_DDSCAPS2_VOLUME;
 	}
-	else if(height > 1) 
+	else
 	{
+		// rg: basisu only writes 2D textures, 2D arrays and cubemaps, so always use TEXTURE2D here. The original code wrote
+		// TEXTURE1D for Nx1 and left 1x1 as 0 (UNKNOWN), neither of which basisu's DDS reader accepts.
 		headerDX10.resourceDimension = TINYDDS_D3D10_RESOURCE_DIMENSION_TEXTURE2D;
 		//header.flags |= TINYDDS_DDSD_HEIGHT;
-	}
-	else if(width > 1) 
-	{
-		headerDX10.resourceDimension = TINYDDS_D3D10_RESOURCE_DIMENSION_TEXTURE1D;
-		//header.flags |= TINYDDS_DDSD_WIDTH;
 	}
 
 	if(cubemap) 
