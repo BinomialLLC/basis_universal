@@ -2902,7 +2902,8 @@ namespace basisu
 		else
 			printf("  Dimensions   : %ux%u\n", w, h);
 		printf("  Mip levels   : %u\n", mips);
-		// Older DDS files (including basisu's own, before its writer was fixed) store arraySize 0 for a non-array texture; show 1 for clarity.
+		// tinydds reports 0 array slices for legacy (non-DX10) files and for older DX10 files that store arraySize 0 for a non-array texture
+		// (including basisu's own, before its writer was fixed); show 1 for clarity.
 		const uint32_t num_slices = maximum<uint32_t>(1, slices);
 		if (is_cube)
 			printf("  Array slices : %u cube(s) x 6 faces = %u image(s) per mip\n", num_slices, num_slices * 6);
