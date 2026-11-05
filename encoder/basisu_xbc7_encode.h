@@ -157,7 +157,7 @@ namespace xbc7 {
 		// the caller, basisu convention). The encoder always uses it; a pool of 1
 		// just runs serially. Pool size affects scheduling only, never the emitted
 		// bytes (the stripe count is independent of it).
-		job_pool* m_pJob_pool = nullptr;
+		job_pool_base* m_pJob_pool = nullptr;
 
 		// Stripe count for the main coding pass: 0 == auto (derived from image
 		// dimensions); else force exactly this many, clamped to

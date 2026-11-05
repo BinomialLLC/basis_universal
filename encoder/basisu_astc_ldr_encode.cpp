@@ -6460,7 +6460,7 @@ struct ldr_astc_block_encode_image_high_level_config
 
 	std::string m_debug_file_prefix;
 
-	job_pool* m_pJob_pool;
+	job_pool_base* m_pJob_pool;
 		
 	astc_ldr::cem_encode_params m_cem_enc_params;
 };
@@ -7804,7 +7804,7 @@ static bool ldr_astc_block_encode_image(
 	memset(packed_blocks.get_ptr(), 0, packed_blocks.size_in_bytes());
 
 	assert(enc_cfg.m_pJob_pool);
-	job_pool& job_pool = *enc_cfg.m_pJob_pool;
+	job_pool_base& job_pool = *enc_cfg.m_pJob_pool;
 
 	std::atomic<bool> encoder_failed_flag;
 	encoder_failed_flag.store(false);
@@ -9703,7 +9703,7 @@ bool ldr_astc_block_encode_image_fast_4x4(
 		grid_coder.init(block_width, block_height);
 
 	assert(enc_cfg.m_pJob_pool);
-	job_pool& job_pool = *enc_cfg.m_pJob_pool;
+	job_pool_base& job_pool = *enc_cfg.m_pJob_pool;
 	
 	const uint32_t num_threads = (uint32_t)job_pool.get_total_threads();
 	assert(num_threads);
@@ -10007,7 +10007,7 @@ static bool comp_astc_image_u8(
 	uint32_t block_w,
 	uint32_t block_h,
 	basisu::vector2D<astc_helpers::astc_block>& out_blocks,
-	job_pool &job_pool)
+	job_pool_base &job_pool)
 {
 	static const astcenc_swizzle swizzle{
 		ASTCENC_SWZ_R, ASTCENC_SWZ_G, ASTCENC_SWZ_B, ASTCENC_SWZ_A
@@ -10125,7 +10125,7 @@ static bool ldr_astc_block_encode_image_astcenc(
 	const uint32_t block_size_index = astc_helpers::get_block_size_index(block_width, block_height);
 
 	assert(enc_cfg.m_pJob_pool);
-	job_pool& job_pool = *enc_cfg.m_pJob_pool;
+	job_pool_base& job_pool = *enc_cfg.m_pJob_pool;
 	const uint32_t num_threads = (uint32_t)job_pool.get_total_threads();
 
 	float astcenc_quality = ASTCENC_PRE_FASTEST;
@@ -10674,7 +10674,7 @@ static bool ldr_astc_block_encode_image_astcf(
 		grid_coder.init(block_width, block_height);
 
 	assert(enc_cfg.m_pJob_pool);
-	job_pool& job_pool = *enc_cfg.m_pJob_pool;
+	job_pool_base& job_pool = *enc_cfg.m_pJob_pool;
 	const uint32_t num_threads = (uint32_t)job_pool.get_total_threads();
 
 	std::atomic<int> cur_row;
@@ -11843,7 +11843,7 @@ static uint32_t encode_values(bitwise_coder& coder, uint32_t total_values, const
 static bool compress_image_full_zstd(
 	const image& orig_img, uint8_vec& comp_data, vector2D<astc_helpers::log_astc_block>& coded_blocks,
 	const astc_ldr_encode_config& global_cfg,
-	job_pool& job_pool,
+	job_pool_base& job_pool,
 	ldr_astc_block_encode_image_high_level_config& enc_cfg,	const ldr_astc_block_encode_image_output& enc_out)
 {
 	BASISU_NOTE_UNUSED(job_pool);
@@ -13604,7 +13604,7 @@ static bool mutate_candidates(
 	const uint32_t max_new_blocks, const uint_vec* const pJob_block_list, const vector2D<float> &block_std_dev,
 	const uint32_t NUM_SIMILAR_PATS, const vector2D<uint16_t> similar_pats[2], const vector2D<uint8_t> similar_pat_perm_index[2],
 	const image& orig_img, const image& candidate_img,
-	uint32_t num_threads, job_pool &jp, 
+	uint32_t num_threads, job_pool_base &jp, 
 	const astc_ldr_encode_config& global_cfg, const ldr_astc_block_encode_image_high_level_config& enc_cfg, ldr_astc_block_encode_image_output& enc_out)
 {
 	assert(num_threads);
@@ -14331,7 +14331,7 @@ static bool refine_output_for_deblocking(
 	const uint32_t max_new_blocks = ((width * height) >= (2048 * 2048)) ? ((g_astc_refine_max_new_blocks.get_int() + 1) / 2) : g_astc_refine_max_new_blocks.get_int();
 
 	assert(enc_cfg.m_pJob_pool);
-	job_pool& job_pool = *enc_cfg.m_pJob_pool;
+	job_pool_base& job_pool = *enc_cfg.m_pJob_pool;
 
 	const uint32_t num_threads = (uint32_t)job_pool.get_total_threads();
 	assert(num_threads);
@@ -14867,7 +14867,7 @@ static bool cross_check_dct(
 bool compress_image(
 	const image& actual_orig_img, uint8_vec& comp_data, vector2D<astc_helpers::log_astc_block>& coded_blocks,
 	const astc_ldr_encode_config& orig_global_cfg,
-	job_pool& job_pool)
+	job_pool_base& job_pool)
 {
 	assert(g_initialized);
 

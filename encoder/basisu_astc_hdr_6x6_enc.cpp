@@ -6569,7 +6569,7 @@ void global_init()
 	//fmt_printf("astc_6x6_hdr::global_init() total time: {}\n", tm.get_elapsed_secs());
 }
 
-bool compress_photo(const basisu::imagef &orig_src_img, const astc_hdr_6x6_global_config &orig_global_cfg, job_pool *pJob_pool,
+bool compress_photo(const basisu::imagef &orig_src_img, const astc_hdr_6x6_global_config &orig_global_cfg, job_pool_base *pJob_pool,
 	basisu::uint8_vec& intermediate_tex_data, basisu::uint8_vec& astc_tex_data, result_metrics& metrics)
 {
 	assert(g_initialized);
