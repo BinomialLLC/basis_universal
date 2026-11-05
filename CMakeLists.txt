@@ -355,6 +355,7 @@ endif()
 
 # Create the static library
 add_library(basisu_encoder STATIC ${ENCODER_LIB_SRC_LIST})
+target_compile_features(basisu_encoder PUBLIC cxx_std_17)
 
 if (BASISU_SUPPORT_ASTCENC)
     target_compile_definitions(basisu_encoder PRIVATE BASISU_SUPPORT_ASTCENC=1)
