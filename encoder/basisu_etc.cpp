@@ -14,8 +14,7 @@
 // limitations under the License.
 #include "basisu_etc.h"
 
-#if BASISU_SUPPORT_SSE
-#define CPPSPMD_NAME(a) a##_sse41
+#if BASISU_SUPPORT_SIMD
 #include "basisu_kernels_declares.h"
 #endif
 
@@ -1179,7 +1178,7 @@ namespace basisu
 
 			const color_rgba* pSrc_pixels = m_pParams->m_pSrc_pixels;
 						
-			if (!g_cpu_supports_sse41)
+			if (!(g_cpu_supports_sse41 || g_cpu_supports_neon))
 			{
 				for (uint32_t c = 0; c < n; c++)
 				{
@@ -1228,13 +1227,13 @@ namespace basisu
 			}
 			else
 			{
-#if BASISU_SUPPORT_SSE
+#if BASISU_SUPPORT_SIMD
 				if (pSelectors_to_use)
 				{
 					if (m_pParams->m_perceptual)
-						perceptual_distance_rgb_4_N_sse41((int64_t*)&total_error, pSelectors_to_use, block_colors, pSrc_pixels, n, trial_solution.m_error);
+						perceptual_distance_rgb_4_N_simd((int64_t*)&total_error, pSelectors_to_use, block_colors, pSrc_pixels, n, trial_solution.m_error);
 					else
-						linear_distance_rgb_4_N_sse41((int64_t*)&total_error, pSelectors_to_use, block_colors, pSrc_pixels, n, trial_solution.m_error);
+						linear_distance_rgb_4_N_simd((int64_t*)&total_error, pSelectors_to_use, block_colors, pSrc_pixels, n, trial_solution.m_error);
 					
 					for (uint32_t i = 0; i < n; i++)
 						m_temp_selectors[i] = pSelectors_to_use[i];
@@ -1242,9 +1241,9 @@ namespace basisu
 				else
 				{
 					if (m_pParams->m_perceptual)
-						find_selectors_perceptual_rgb_4_N_sse41((int64_t*)&total_error, &m_temp_selectors[0], block_colors, pSrc_pixels, n, trial_solution.m_error);
+						find_selectors_perceptual_rgb_4_N_simd((int64_t*)&total_error, &m_temp_selectors[0], block_colors, pSrc_pixels, n, trial_solution.m_error);
 					else
-						find_selectors_linear_rgb_4_N_sse41((int64_t*)&total_error, &m_temp_selectors[0], block_colors, pSrc_pixels, n, trial_solution.m_error);
+						find_selectors_linear_rgb_4_N_simd((int64_t*)&total_error, &m_temp_selectors[0], block_colors, pSrc_pixels, n, trial_solution.m_error);
 				}
 #endif
 			}
@@ -1367,7 +1366,7 @@ namespace basisu
 				}
 				else
 				{
-					if (!g_cpu_supports_sse41)
+					if (!(g_cpu_supports_sse41 || g_cpu_supports_neon))
 					{
 						uint32_t cur_selector = 0, c;
 						for (c = 0; c < n; c++)
@@ -1391,7 +1390,7 @@ namespace basisu
 					}
 					else
 					{
-#if BASISU_SUPPORT_SSE
+#if BASISU_SUPPORT_SIMD
 						uint32_t cur_selector = 0, c;
 
 						for (c = 0; c < n; c++)
@@ -1415,7 +1414,7 @@ namespace basisu
 						}
 
 						int64_t block_error;
-						perceptual_distance_rgb_4_N_sse41(&block_error, &m_temp_selectors[0], block_colors, pSrc_pixels, n, INT64_MAX);
+						perceptual_distance_rgb_4_N_simd(&block_error, &m_temp_selectors[0], block_colors, pSrc_pixels, n, INT64_MAX);
 						total_error += block_error;
 #endif
 					}

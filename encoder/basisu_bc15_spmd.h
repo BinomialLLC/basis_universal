@@ -4,7 +4,7 @@
 // Two entry points share the SAME algorithm (omatch-solid fast path -> PCA endpoint seed -> 2x integer-threshold
 // least-squares -> low-variance avg-solid 2nd seed (keep-better) -> integer-threshold selectors):
 //   - encode_bc1_scalar : portable scalar reference ("oracle"), no SIMD.
-//   - encode_bc1_spmd   : SSE4.1 cppspmd kernel, 4 blocks per vector; falls back to the scalar path when SSE4.1
+//   - encode_bc1_spmd   : SSE4.1 or NEON kernel, 4 blocks per vector; falls back to the scalar path when SIMD
 //                         is unavailable (e.g. WASM without SIMD).
 // Benchmarked (vs basist::encode_bc1): ~3.4-4.7x faster on photos, ~+0.06 dB average, and it beats encode_bc1
 // on low-dynamic-range / gradient blocks. Opaque 4-color only (no 3-color / punchthrough).
@@ -55,7 +55,7 @@ namespace basisu
 		// Convenience wrappers over the low-level encoders. Each takes pPixels = num_blocks * 16 color_rgba,
 		// block-contiguous (texel index = y*4 + x), and writes complete blocks. num_blocks may be ANY count >= 1
 		// (not necessarily a multiple of 4); the <4 tail is handled internally with NO output overrun.
-		//   use_spmd     : true = SSE4.1 SPMD path (auto-falls back to scalar when SSE4.1 is unavailable); false = scalar.
+		//   use_spmd     : true = SIMD SPMD path (auto-falls back to scalar when SIMD is unavailable); false = scalar.
 		//   high_quality : enables the BC4 channel least-squares refit for the alpha/red/green block(s) (BC3/BC4/BC5).
 		// Output block sizes / layout (matches the transcoder's bcu unpackers):
 		//   BC1: 8 bytes/block  -- RGB, opaque 4-color.

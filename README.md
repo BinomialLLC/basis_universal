@@ -174,6 +174,17 @@ make
 
 To build with SSE 4.1 support on x86/x64 systems (ETC1S encoding is roughly 15-30% faster), add `-DBASISU_SSE=TRUE` to the cmake command line. Add `-DBASISU_OPENCL=TRUE` to build with (optional) OpenCL support. Use `-DCMAKE_BUILD_TYPE=Debug` to build in debug. To build 32-bit executables, add `-DBASISU_BUILD_X64=FALSE`.
 
+SSE4.1 also accelerates UASTC LDR hint palette conversion, 64-bit error/selector
+scoring, and ETC1 orientation estimation. These use the same SIMD entry points
+as NEON, with scalar fallback when runtime SSE4.1 detection fails.
+
+On native AArch64 builds, `BASISU_NEON` defaults to `ON`. It accelerates ETC1S
+color-distance, selector, and covariance kernels, the standalone BC1/BC4
+encoders, and UASTC LDR hint/orientation and linear selector evaluation. Set
+`-DBASISU_NEON=OFF` for the scalar backend. SSE and NEON are mutually exclusive.
+ARM builds disable floating-point contraction so both backends retain the same
+rounding.
+
 After building, the native command line tool used to create, validate, and transcode/unpack .KTX2/.basis files is `bin/basisu`.
 
 *Note we use C++17 for compiling the software. Anything later is too new for us. Compiling the software with a newer C++ version is not supported by us yet.*

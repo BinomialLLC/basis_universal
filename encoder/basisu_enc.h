@@ -29,11 +29,33 @@
 #include <libgen.h>
 #endif
 
+#ifndef BASISU_SUPPORT_NEON
+#define BASISU_SUPPORT_NEON 0
+#endif
+
+#if BASISU_SUPPORT_NEON && BASISU_SUPPORT_SSE
+#error SSE and NEON encoder backends cannot be enabled together.
+#endif
+#if BASISU_SUPPORT_NEON && !defined(__aarch64__) && !defined(_M_ARM64)
+#error The NEON encoder backend requires AArch64.
+#endif
+#if BASISU_SUPPORT_NEON && defined(__BYTE_ORDER__) && (__BYTE_ORDER__ != __ORDER_LITTLE_ENDIAN__)
+#error The NEON encoder backend requires little-endian byte order.
+#endif
+
+#if BASISU_SUPPORT_NEON
+#define BASISU_SUPPORT_SIMD 1
+#elif BASISU_SUPPORT_SSE
+#define BASISU_SUPPORT_SIMD 1
+#else
+#define BASISU_SUPPORT_SIMD 0
+#endif
+
 // This module is really just a huge grab bag of classes and helper functions needed by the encoder.
 
-#if BASISU_SUPPORT_SSE
+#if BASISU_SUPPORT_SIMD
 // Declared in basisu_kernels_imp.h, but we can't include that here otherwise it would lead to circular type errors.
-extern void update_covar_matrix_16x16_sse41(uint32_t num_vecs, const void* pWeighted_vecs, const void* pOrigin, const uint32_t *pVec_indices, void* pMatrix16x16);
+extern void update_covar_matrix_16x16_simd(uint32_t num_vecs, const void* pWeighted_vecs, const void* pOrigin, const uint32_t *pVec_indices, void* pMatrix16x16);
 #endif
 
 namespace basisu
@@ -53,8 +75,10 @@ namespace basisu
 
 	// basisu_kernels_sse.cpp - will be a no-op and g_cpu_supports_sse41 will always be false unless compiled with BASISU_SUPPORT_SSE=1
 	extern bool g_cpu_supports_sse41;
-
 	extern void detect_sse41();
+
+	// AArch64 guarantees NEON. This flag is set when its backend is compiled in.
+	extern bool g_cpu_supports_neon;
 		
 	void error_vprintf(const char* pFmt, va_list args);
 	void error_printf(const char *pFmt, ...);
@@ -1805,7 +1829,7 @@ namespace basisu
 
 			matrix<N, N, float> cmatrix;
 
-			if ((N != 16) || (!g_cpu_supports_sse41))
+			if ((N != 16) || (!(g_cpu_supports_sse41 || g_cpu_supports_neon)))
 			{
 				cmatrix.set_zero();
 
@@ -1822,12 +1846,12 @@ namespace basisu
 			}
 			else
 			{
-#if BASISU_SUPPORT_SSE
+#if BASISU_SUPPORT_SIMD
 				// Specialize the case with 16x16 matrices, which are quite expensive without SIMD.
-				// This SSE function takes pointers to void types, so do some sanity checks.
+				// This SIMD function takes pointers to void types, so do some sanity checks.
 				assert(sizeof(TrainingVectorType) == sizeof(float) * 16);
 				assert(sizeof(training_vec_with_weight) == sizeof(std::pair<vec16F, uint64_t>));
-				update_covar_matrix_16x16_sse41(node.m_training_vecs.size_u32(), m_training_vecs.data(), &node.m_origin, node.m_training_vecs.data(), &cmatrix);
+				update_covar_matrix_16x16_simd(node.m_training_vecs.size_u32(), m_training_vecs.data(), &node.m_origin, node.m_training_vecs.data(), &cmatrix);
 #endif
 			}
 

@@ -1,8 +1,8 @@
 // basisu_bc15_spmd.cpp -- standalone opaque 4-color BC1 encoder (see basisu_bc15_spmd.h).
 //
-// This TU holds the public API, the solid-color omatch tables, and the scalar reference encoder. The SSE4.1
-// cppspmd kernel lives in basisu_bc15_spmd_kernels.inl, compiled by basisu_bc15_spmd_sse.cpp; we only declare +
-// call its wrapper here (gated on g_cpu_supports_sse41), with the scalar path as the fallback.
+// This TU holds the public API, the solid-color omatch tables, and the scalar reference encoder. The SSE4.1/NEON
+// SPMD kernel lives in basisu_bc15_spmd_kernels.inl, compiled by the ISA-specific translation units; we only declare +
+// call its wrapper here (gated on the available SIMD backend), with the scalar path as the fallback.
 
 #include "basisu_bc15_spmd.h"
 #include "basisu_enc.h"
@@ -18,16 +18,16 @@ namespace basisu
 		static const int kLsRounds = 2; // least-squares alternation rounds
 		static const int kAvgVar = 16;  // try the avg-solid 2nd seed when (rng_r+rng_g+rng_b) < kAvgVar
 
-#if BASISU_SUPPORT_SSE
-		// Defined in basisu_bc15_spmd_kernels.inl (the SSE4.1 TU). Encodes up to 4 blocks at once, writing num_write
+#if BASISU_SUPPORT_SIMD
+		// Defined in basisu_bc15_spmd_kernels.inl (the selected SIMD TU). Encodes up to 4 blocks at once, writing num_write
 		// of them directly at pOut + j*out_stride (no temp buffer).
-		void encode_bc1_blocks_4_sse41(const color_rgba* pBlocks, uint8_t* pOut,
+		void encode_bc1_blocks_4_simd(const color_rgba* pBlocks, uint8_t* pOut,
 			int* om5lo, int* om5hi, int* om6lo, int* om6hi, int ls_rounds, int avgvar,
 			uint32_t out_stride, uint32_t num_write);
 
 		// BC4: encodes up to 4 single-channel blocks at once, writing num_write of them at pOut + j*out_stride.
 		// do_ls!=0 adds the 1-D least-squares refit. src_stride = byte stride between texel values in pBlocks (1 or 4).
-		void encode_bc4_blocks_4_sse41(const uint8_t* pBlocks, uint8_t* pOut, uint32_t out_stride, uint32_t num_write, uint32_t do_ls, uint32_t src_stride);
+		void encode_bc4_blocks_4_simd(const uint8_t* pBlocks, uint8_t* pOut, uint32_t out_stride, uint32_t num_write, uint32_t do_ls, uint32_t src_stride);
 #endif
 
 		// ---- solid-color omatch tables (stb_dxt/basisu 3% span penalty), as int[256] for the kernel's gather ----
@@ -241,13 +241,13 @@ namespace basisu
 			(void)pOut;
 			const uint32_t out_stride = 8 * block_stride;
 			(void)out_stride;
-#if BASISU_SUPPORT_SSE
-			if (g_cpu_supports_sse41)
+#if BASISU_SUPPORT_SIMD
+			if (g_cpu_supports_sse41 || g_cpu_supports_neon)
 			{
 				// Full groups of 4: the kernel writes all 4 blocks directly at the (possibly strided) output.
 				uint32_t base = 0;
 				for (; base + 4 <= num_blocks; base += 4)
-					encode_bc1_blocks_4_sse41(pSrc_pixels + base * 16, pOut + base * out_stride, s_om5_lo, s_om5_hi, s_om6_lo, s_om6_hi, kLsRounds, kAvgVar, out_stride, 4);
+					encode_bc1_blocks_4_simd(pSrc_pixels + base * 16, pOut + base * out_stride, s_om5_lo, s_om5_hi, s_om6_lo, s_om6_hi, kLsRounds, kAvgVar, out_stride, 4);
 
 				// Final partial group: pad the input to 4, but write only the n valid blocks (still direct, no temp).
 				const uint32_t n = num_blocks - base; // 0..3
@@ -256,7 +256,7 @@ namespace basisu
 					color_rgba grp[64];
 					for (uint32_t gi = 0; gi < 4; gi++)
 						memcpy(grp + gi * 16, pSrc_pixels + (base + ((gi < n) ? gi : (n - 1))) * 16, 16 * sizeof(color_rgba));
-					encode_bc1_blocks_4_sse41(grp, pOut + base * out_stride, s_om5_lo, s_om5_hi, s_om6_lo, s_om6_hi, kLsRounds, kAvgVar, out_stride, n);
+					encode_bc1_blocks_4_simd(grp, pOut + base * out_stride, s_om5_lo, s_om5_hi, s_om6_lo, s_om6_hi, kLsRounds, kAvgVar, out_stride, n);
 				}
 				return;
 			}
@@ -357,14 +357,14 @@ namespace basisu
 			(void)out_stride;
 			const uint32_t in_block = 16 * src_stride;
 			(void)in_block;
-#if BASISU_SUPPORT_SSE
-			if (g_cpu_supports_sse41)
+#if BASISU_SUPPORT_SIMD
+			if (g_cpu_supports_sse41 || g_cpu_supports_neon)
 			{
 				const uint32_t do_ls = high_quality ? 1 : 0;
 				// Full groups read straight from the (possibly strided) source -- no copy.
 				uint32_t base = 0;
 				for (; base + 4 <= num_blocks; base += 4)
-					encode_bc4_blocks_4_sse41(pSrc_pixels + (size_t)base * in_block, pOut + base * out_stride, out_stride, 4, do_ls, src_stride);
+					encode_bc4_blocks_4_simd(pSrc_pixels + (size_t)base * in_block, pOut + base * out_stride, out_stride, 4, do_ls, src_stride);
 
 				// Tail (<4): gather the channel into a tightly-packed 64-byte stack buffer (pad with last block), then
 				// encode with src_stride=1. Only the tail copies; the bulk above is zero-copy.
@@ -377,7 +377,7 @@ namespace basisu
 						const uint8_t* sp = pSrc_pixels + (size_t)(base + ((gi < n) ? gi : (n - 1))) * in_block;
 						for (uint32_t t = 0; t < 16; t++) grp[gi * 16 + t] = sp[t * src_stride];
 					}
-					encode_bc4_blocks_4_sse41(grp, pOut + base * out_stride, out_stride, n, do_ls, 1);
+					encode_bc4_blocks_4_simd(grp, pOut + base * out_stride, out_stride, n, do_ls, 1);
 				}
 				return;
 			}

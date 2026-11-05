@@ -1,7 +1,7 @@
 // basisu_bc15_spmd_kernels.inl -- Do NOT directly include.
 //
-// SSE4.1 cppspmd kernel for the standalone BC1 encoder. Included by basisu_bc15_spmd_sse.cpp from file scope after
-// cppspmd_sse.h + "using namespace CPPSPMD;". LANES = BLOCKS: 4 independent BC1 blocks per vector, one per lane;
+// Shared SPMD kernel for the standalone BC1/BC4 encoders. Included by the SSE4.1 or NEON translation unit
+// after selecting its vector types and four-lane load. LANES = BLOCKS: 4 independent BC1 blocks per vector, one per lane;
 // each lane runs the same scalar-looking program on its block's 16 texels. Mirrors encoder/basisu_kernels_imp.h.
 
 namespace bc_spmd_kern
@@ -27,7 +27,7 @@ namespace bc_spmd_kern
 		// Load texel i of all 4 blocks into per-channel vints (lane j = block j's texel i).
 		inline void load_texel(const int32_t* p, int i, vint& r, vint& g, vint& b)
 		{
-			vint rgba; rgba.m_value = _mm_setr_epi32(p[i], p[16 + i], p[32 + i], p[48 + i]);
+			const vint rgba = simd_set4(p[i], p[16 + i], p[32 + i], p[48 + i]);
 			r = rgba & vint(0xFF);
 			g = VINT_SHIFT_RIGHT(rgba, 8) & vint(0xFF);
 			b = VINT_SHIFT_RIGHT(rgba, 16) & vint(0xFF);
@@ -322,7 +322,7 @@ namespace bc_spmd_kern
 			const uint32_t S = src_stride;
 			vint A[16];
 			for (int i = 0; i < 16; i++)
-				A[i].m_value = _mm_setr_epi32(pBlocks[i * S], pBlocks[(16 + i) * S], pBlocks[(32 + i) * S], pBlocks[(48 + i) * S]);
+				A[i] = simd_set4(pBlocks[i * S], pBlocks[(16 + i) * S], pBlocks[(32 + i) * S], pBlocks[(48 + i) * S]);
 
 			vint mn = A[0], mx = A[0];
 			for (int i = 1; i < 16; i++) { mn = min(mn, A[i]); mx = max(mx, A[i]); }
@@ -406,19 +406,19 @@ namespace basisu
 {
 	namespace bc_spmd
 	{
-		void encode_bc4_blocks_4_sse41(const uint8_t* pBlocks, uint8_t* pOut, uint32_t out_stride, uint32_t num_write, uint32_t do_ls, uint32_t src_stride)
+		void encode_bc4_blocks_4_simd(const uint8_t* pBlocks, uint8_t* pOut, uint32_t out_stride, uint32_t num_write, uint32_t do_ls, uint32_t src_stride)
 		{
 			spmd_call<bc_spmd_kern::encode_bc4_blocks>(pBlocks, pOut, out_stride, num_write, do_ls, src_stride);
 		}
 	}
 }
 
-// ISA wrapper -- encode 4 blocks at once. Defined here (inside the SSE4.1 TU), declared in basisu_bc15_spmd.cpp.
+// SIMD wrapper -- encode 4 blocks at once. Defined in the selected ISA translation unit, declared in basisu_bc15_spmd.cpp.
 namespace basisu
 {
 	namespace bc_spmd
 	{
-		void encode_bc1_blocks_4_sse41(const color_rgba* pBlocks, uint8_t* pOut,
+		void encode_bc1_blocks_4_simd(const color_rgba* pBlocks, uint8_t* pOut,
 			int* om5lo, int* om5hi, int* om6lo, int* om6hi, int ls_rounds, int avgvar,
 			uint32_t out_stride, uint32_t num_write)
 		{

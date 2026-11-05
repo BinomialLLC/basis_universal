@@ -17,8 +17,7 @@
 //
 #include "basisu_backend.h"
 
-#if BASISU_SUPPORT_SSE
-#define CPPSPMD_NAME(a) a##_sse41
+#if BASISU_SUPPORT_SIMD
 #include "basisu_kernels_declares.h"
 #endif
 
@@ -851,7 +850,7 @@ namespace basisu
 								//const int MAX_ENDPOINT_SEARCH_DIST = (m_params.m_compression_level >= 2) ? 64 : 32;
 								const int MAX_ENDPOINT_SEARCH_DIST = (m_params.m_compression_level >= 2) ? 64 : 16;
 
-								if (!g_cpu_supports_sse41)
+								if (!(g_cpu_supports_sse41 || g_cpu_supports_neon))
 								{
 									const uint64_t initial_best_trial_err = UINT64_MAX;
 									uint64_t best_trial_err = initial_best_trial_err;
@@ -916,7 +915,7 @@ namespace basisu
 								}
 								else
 								{
-#if BASISU_SUPPORT_SSE
+#if BASISU_SUPPORT_SIMD
 									uint8_t block_selectors[16];
 									for (uint32_t i = 0; i < 16; i++)
 										block_selectors[i] = (uint8_t)etc_blk.get_selector(i & 3, i >> 2);
@@ -963,11 +962,11 @@ namespace basisu
 										int64_t trial_err;
 										if (r.get_params().m_perceptual)
 										{
-											perceptual_distance_rgb_4_N_sse41(&trial_err, block_selectors, block_colors, src_pixels.get_ptr(), 16, best_trial_err);
+											perceptual_distance_rgb_4_N_simd(&trial_err, block_selectors, block_colors, src_pixels.get_ptr(), 16, best_trial_err);
 										}
 										else
 										{
-											linear_distance_rgb_4_N_sse41(&trial_err, block_selectors, block_colors, src_pixels.get_ptr(), 16, best_trial_err);
+											linear_distance_rgb_4_N_simd(&trial_err, block_selectors, block_colors, src_pixels.get_ptr(), 16, best_trial_err);
 										}
 
 										//if (trial_err > thresh_err)
@@ -990,8 +989,8 @@ namespace basisu
 
 										total_endpoint_indices_remapped++;
 									}
-#endif // BASISU_SUPPORT_SSE
-								} // if (!g_cpu_supports_sse41)
+#endif // BASISU_SUPPORT_SIMD
+								} // if (!(g_cpu_supports_sse41 || g_cpu_supports_neon))
 															
 							} // if (cur_err)
 

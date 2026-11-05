@@ -9813,6 +9813,8 @@ static int main_internal(int argc, const char** argv)
 
 #if BASISU_SUPPORT_SSE
 	printf("Using SSE 4.1: %u, Multithreading: %u, Zstandard support: %u, OpenCL: %u\n", g_cpu_supports_sse41, (uint32_t)opts.m_comp_params.m_multithreading, basist::basisu_transcoder_supports_ktx2_zstd(), opencl_is_available());
+#elif BASISU_SUPPORT_NEON
+	printf("Using NEON: %u, Multithreading: %u, Zstandard support: %u, OpenCL: %u\n", g_cpu_supports_neon, (uint32_t)opts.m_comp_params.m_multithreading, basist::basisu_transcoder_supports_ktx2_zstd(), opencl_is_available());
 #else
 	printf("No SSE, Multithreading: %u, Zstandard support: %u, OpenCL: %u\n", (uint32_t)opts.m_comp_params.m_multithreading, basist::basisu_transcoder_supports_ktx2_zstd(), opencl_is_available());
 #endif
