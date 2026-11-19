@@ -17744,9 +17744,7 @@ namespace basist
 		}
 
 		const uint32_t table = unpacked_src_blk.m_etc2_hints & 0xF;
-		const int multiplier = unpacked_src_blk.m_etc2_hints >> 4;
-
-		assert(multiplier >= 1);
+		const int multiplier = basisu::maximum<int>(1, unpacked_src_blk.m_etc2_hints >> 4);
 
 		dst.m_multiplier = multiplier;
 		dst.m_table = table;
