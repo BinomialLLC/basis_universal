@@ -1010,7 +1010,8 @@ namespace basisu
 
 		m_limit = m_pParams->m_use_color4 ? 15 : 31;
 
-		vec3F avg_color(0.0f);
+		// Sum in integers: a float running sum stops growing once it passes 2^32
+		uint64_t sum_r = 0, sum_g = 0, sum_b = 0;
 
 		m_luma.resize(n);
 		m_sorted_luma_indices.resize(n);
@@ -1031,13 +1032,14 @@ namespace basisu
 			max_g = basisu::maximum<int>(max_g, c.g);
 			max_b = basisu::maximum<int>(max_b, c.b);
 
-			const vec3F fc(c.r, c.g, c.b);
-
-			avg_color += fc;
+			sum_r += c.r;
+			sum_g += c.g;
+			sum_b += c.b;
 
 			m_luma[i] = static_cast<uint16_t>(c.r + c.g + c.b);
 			m_sorted_luma_indices[i] = i;
 		}
+		vec3F avg_color(static_cast<float>(sum_r), static_cast<float>(sum_g), static_cast<float>(sum_b));
 		avg_color /= static_cast<float>(n);
 		m_avg_color = avg_color;
 		m_max_comp_spread = basisu::maximum(basisu::maximum(max_r - min_r, max_g - min_g), max_b - min_b);
