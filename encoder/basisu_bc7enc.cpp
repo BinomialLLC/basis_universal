@@ -1656,6 +1656,10 @@ uint64_t color_cell_compression(uint32_t mode, const color_cell_compressor_param
 					if ((ly == 0) && (hy == max_selector))
 						continue;
 
+					// With 2 selectors the scaled range can be empty, which would divide by zero.
+					if (ly == hy)
+						continue;
+
 					for (uint32_t i = 0; i < pParams->m_num_pixels; i++)
 						selectors_temp1[i] = (uint8_t)clampf(floorf((float)max_selector * ((float)selectors_temp[i] - (float)ly) / ((float)hy - (float)ly) + .5f), 0, (float)max_selector);
 
