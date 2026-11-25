@@ -60,6 +60,11 @@ namespace basisu
 
 		// Favor UASTC modes 0 and 10 more than the others (this is experimental, it's useful for RDO compression)
 		cPackUASTCFavorSimplerModes = 512,
+
+		// Don't search for ETC1/ETC2 EAC hints: non-solid blocks get constant hints instead. Faster encoding and better LZ compression.
+		// Doesn't change ASTC, BC1, BC3 or BC7 output. Only use this if the data won't be transcoded to
+		// ETC1 or ETC2 RGBA: the transcoder will still succeed, but the result will be very low quality.
+		cPackUASTCDisableETCHints = 1024,
 	};
 
 	// pRGBAPixels: Pointer to source 4x4 block of RGBA pixels (R first in memory).

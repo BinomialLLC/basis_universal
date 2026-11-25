@@ -3428,6 +3428,7 @@ EMSCRIPTEN_BINDINGS(basis_codec) {
     constant("cPackUASTCETC1FasterHints", static_cast<uint32_t>(cPackUASTCETC1FasterHints));
     constant("cPackUASTCETC1FastestHints", static_cast<uint32_t>(cPackUASTCETC1FastestHints));
     constant("cPackUASTCETC1DisableFlipAndIndividual", static_cast<uint32_t>(cPackUASTCETC1DisableFlipAndIndividual));
+    constant("cPackUASTCDisableETCHints", static_cast<uint32_t>(cPackUASTCDisableETCHints));
     
     constant("UASTC_RDO_DEFAULT_MAX_ALLOWED_RMS_INCREASE_RATIO", UASTC_RDO_DEFAULT_MAX_ALLOWED_RMS_INCREASE_RATIO);
     constant("UASTC_RDO_DEFAULT_SKIP_BLOCK_RMS_THRESH", UASTC_RDO_DEFAULT_SKIP_BLOCK_RMS_THRESH);
