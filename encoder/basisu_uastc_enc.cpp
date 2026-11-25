@@ -3935,6 +3935,8 @@ namespace basisu
 
 			float best_t = cur_ms_err * smooth_block_error_scale + cur_bits * params.m_lambda;
 
+			const float max_trial_rms_err = cur_rms_err * params.m_max_allowed_rms_increase_ratio;
+
 			// Now scan through previous blocks, insert their selector bit patterns into the current block, and find 
 			// selector bit patterns which don't increase the overall block error too much.
 			for (int prev_block_index = last_block_to_check; prev_block_index >= first_block_to_check; --prev_block_index)
@@ -3952,9 +3954,12 @@ namespace basisu
 				if (match_block_index > prev_block_index)
 					continue;
 
-				unpacked_uastc_block unpacked_prev_blk;
-				if (!unpack_uastc(prev_blk, unpacked_prev_blk, false, true))
-					return false;
+				const int block_dist_in_bytes = (block_index - match_block_index) * 16;
+				const float match_cost = compute_match_cost_estimate(block_dist_in_bytes) * params.m_lambda;
+
+				// The error term can't be negative, so this candidate can't beat the best one found so far.
+				if (match_cost >= best_t)
+					continue;
 
 				basist::uastc_block trial_blk(blk);
 
@@ -3979,6 +3984,11 @@ namespace basisu
 				for (uint32_t i = 0; i < 16; i++)
 					trial_uastc_err += color_distance(perceptual, pPixels[i], ((color_rgba*)decoded_trial_uastc_block)[i], true);
 
+				// Reject using a lower bound on the error (as if the BC7 error was 0), to avoid transcoding to BC7.
+				const float min_trial_ms_err = (float)(trial_uastc_err / 2) * (1.0f / 64.0f);
+				if ((sqrtf(min_trial_ms_err) > max_trial_rms_err) || ((min_trial_ms_err * smooth_block_error_scale + match_cost) >= best_t))
+					continue;
+
 				// Transcode trial to BC7, compute error
 				bc7_optimization_results trial_b7_results;
 				if (!transcode_uastc_to_bc7(unpacked_trial_blk, trial_b7_results))
@@ -3999,13 +4009,10 @@ namespace basisu
 				const float trial_ms_err = (float)trial_err * (1.0f / 64.0f);
 				const float trial_rms_err = sqrtf(trial_ms_err);
 
-				if (trial_rms_err > cur_rms_err * params.m_max_allowed_rms_increase_ratio)
+				if (trial_rms_err > max_trial_rms_err)
 					continue;
 
-				const int block_dist_in_bytes = (block_index - match_block_index) * 16;
-				const int match_bits = compute_match_cost_estimate(block_dist_in_bytes);
-
-				float t = trial_ms_err * smooth_block_error_scale + match_bits * params.m_lambda;
+				float t = trial_ms_err * smooth_block_error_scale + match_cost;
 				if (t < best_t)
 				{
 					best_t = t;
