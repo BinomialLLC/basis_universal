@@ -2721,6 +2721,12 @@ namespace basisu
 			return;
 		}
 
+		if (flags & cPackUASTCDisableETCHints)
+		{
+			memset(&best_etc1_blk, 0, sizeof(best_etc1_blk));
+			return;
+		}
+
 		const bool faster_etc1 = (flags & cPackUASTCETC1FasterHints) != 0;
 		const bool fastest_etc1 = (flags & cPackUASTCETC1FastestHints) != 0;
 
@@ -3610,7 +3616,13 @@ namespace basisu
 			compute_bc1_hints(bc1_hint0, bc1_hint1, best_results, block, decoded_uastc_block);
 		
 		eac_a8_block eac_a8_blk;
-		if ((g_uastc_mode_has_alpha[best_mode]) && (best_mode != UASTC_MODE_INDEX_SOLID_COLOR))
+		if (flags & cPackUASTCDisableETCHints)
+		{
+			// pack_uastc() requires a nonzero multiplier on alpha modes.
+			memset(&eac_a8_blk, 0, sizeof(eac_a8_blk));
+			eac_a8_blk.m_multiplier = 1;
+		}
+		else if ((g_uastc_mode_has_alpha[best_mode]) && (best_mode != UASTC_MODE_INDEX_SOLID_COLOR))
 		{
 			// Compute ETC2 hints
 			uint8_t decoded_uastc_block_alpha[16];
@@ -3704,7 +3716,13 @@ namespace basisu
 			compute_bc1_hints(bc1_hint0, bc1_hint1, results, (color_rgba (*)[4])pBlock_pixels, decoded_uastc_block);
 		const uint32_t best_mode = unpacked_blk.m_mode;
 		eac_a8_block eac_a8_blk;
-		if ((g_uastc_mode_has_alpha[best_mode]) && (best_mode != UASTC_MODE_INDEX_SOLID_COLOR))
+		if (flags & cPackUASTCDisableETCHints)
+		{
+			// pack_uastc() requires a nonzero multiplier on alpha modes.
+			memset(&eac_a8_blk, 0, sizeof(eac_a8_blk));
+			eac_a8_blk.m_multiplier = 1;
+		}
+		else if ((g_uastc_mode_has_alpha[best_mode]) && (best_mode != UASTC_MODE_INDEX_SOLID_COLOR))
 		{
 			uint8_t decoded_uastc_block_alpha[16];
 			for (uint32_t i = 0; i < 16; i++)
