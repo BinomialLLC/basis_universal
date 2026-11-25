@@ -14,6 +14,13 @@
 // limitations under the License.
 #include "basisu_bc7enc.h"
 
+#if defined(__aarch64__) || defined(_M_ARM64)
+	#include <arm_neon.h>
+	#define BASISU_BC7ENC_NEON (1)
+#else
+	#define BASISU_BC7ENC_NEON (0)
+#endif
+
 #ifdef _DEBUG
 #define BC7ENC_CHECK_OVERALL_ERROR 1
 #else
@@ -819,6 +826,203 @@ static uint64_t pack_astc_range11_5bit_to_one_color(const color_cell_compressor_
 	return total_err;
 }
 
+#if BASISU_BC7ENC_NEON
+// Interpolated colors are stored as one 32 entry table per channel, so a single table lookup fetches 16 pixels.
+struct neon_color_tables
+{
+	uint8x16x2_t m_c[4];
+};
+
+// 16 pixels, one vector per channel, plus a mask of the lanes that are in use.
+struct neon_pixels
+{
+	uint8x16x4_t m_p;
+	uint8x16_t m_mask;
+};
+
+static inline neon_pixels neon_load_pixels(const color_quad_u8* pPixels, uint32_t num_pixels)
+{
+	assert(num_pixels <= 16);
+
+	static const uint8_t s_lane_index[16] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 };
+
+	neon_pixels res;
+	res.m_mask = vcltq_u8(vld1q_u8(s_lane_index), vdupq_n_u8((uint8_t)num_pixels));
+
+	if (num_pixels == 16)
+		res.m_p = vld4q_u8((const uint8_t*)pPixels);
+	else
+	{
+		color_quad_u8 temp[16];
+		memset(temp, 0, sizeof(temp));
+		memcpy(temp, pPixels, num_pixels * sizeof(color_quad_u8));
+		res.m_p = vld4q_u8((const uint8_t*)temp);
+	}
+
+	return res;
+}
+
+static inline void neon_load_color_tables(neon_color_tables& tables, const color_quad_u8* pColors, uint32_t num_colors)
+{
+	assert(num_colors <= 32);
+
+	color_quad_u8 temp[32];
+	memset(temp, 0, sizeof(temp));
+	memcpy(temp, pColors, num_colors * sizeof(color_quad_u8));
+
+	const uint8x16x4_t t0 = vld4q_u8((const uint8_t*)&temp[0]);
+	const uint8x16x4_t t1 = vld4q_u8((const uint8_t*)&temp[16]);
+	for (uint32_t c = 0; c < 4; c++)
+	{
+		tables.m_c[c].val[0] = t0.val[c];
+		tables.m_c[c].val[1] = t1.val[c];
+	}
+}
+
+// Adds w * (value - offset) to 16 32-bit accumulators.
+static inline void neon_dot_add(int32x4_t acc[4], uint8x16_t value, int offset, int w)
+{
+	const int16x8_t o = vdupq_n_s16((int16_t)offset);
+	const int16x8_t lo = vsubq_s16(vreinterpretq_s16_u16(vmovl_u8(vget_low_u8(value))), o);
+	const int16x8_t hi = vsubq_s16(vreinterpretq_s16_u16(vmovl_u8(vget_high_u8(value))), o);
+	acc[0] = vmlal_n_s16(acc[0], vget_low_s16(lo), (int16_t)w);
+	acc[1] = vmlal_n_s16(acc[1], vget_high_s16(lo), (int16_t)w);
+	acc[2] = vmlal_n_s16(acc[2], vget_low_s16(hi), (int16_t)w);
+	acc[3] = vmlal_n_s16(acc[3], vget_high_s16(hi), (int16_t)w);
+}
+
+// Weighted squared error of 16 pixels vs. the selected colors. The caller must ensure the weights are small enough to not overflow 32 bits.
+static inline uint32x4x4_t neon_color_errors(const neon_color_tables& tables, uint8x16_t sels, const neon_pixels& pixels, uint32_t num_comps, const uint32_t weights[4])
+{
+	uint32x4x4_t res;
+	for (uint32_t i = 0; i < 4; i++)
+		res.val[i] = vdupq_n_u32(0);
+
+	for (uint32_t c = 0; c < num_comps; c++)
+	{
+		const uint8x16_t d = vabdq_u8(vqtbl2q_u8(tables.m_c[c], sels), pixels.m_p.val[c]);
+		const uint16x8_t lo = vmull_u8(vget_low_u8(d), vget_low_u8(d));
+		const uint16x8_t hi = vmull_u8(vget_high_u8(d), vget_high_u8(d));
+		res.val[0] = vmlaq_n_u32(res.val[0], vmovl_u16(vget_low_u16(lo)), weights[c]);
+		res.val[1] = vmlaq_n_u32(res.val[1], vmovl_u16(vget_high_u16(lo)), weights[c]);
+		res.val[2] = vmlaq_n_u32(res.val[2], vmovl_u16(vget_low_u16(hi)), weights[c]);
+		res.val[3] = vmlaq_n_u32(res.val[3], vmovl_u16(vget_high_u16(hi)), weights[c]);
+	}
+
+	return res;
+}
+
+// Narrows 4 vectors of 32-bit values/masks to 16 bytes.
+static inline uint8x16_t neon_narrow(const uint32x4_t v[4])
+{
+	const uint16x8_t lo = vcombine_u16(vmovn_u32(v[0]), vmovn_u32(v[1]));
+	const uint16x8_t hi = vcombine_u16(vmovn_u32(v[2]), vmovn_u32(v[3]));
+	return vcombine_u8(vmovn_u16(lo), vmovn_u16(hi));
+}
+
+// Sums 16 32-bit errors, ignoring unused lanes.
+static inline uint64_t neon_sum_errors(const uint32x4_t err[4], uint8x16_t mask)
+{
+	const int8x16_t m = vreinterpretq_s8_u8(mask);
+	const int16x8_t m_lo = vmovl_s8(vget_low_s8(m)), m_hi = vmovl_s8(vget_high_s8(m));
+
+	uint64x2_t sum = vpaddlq_u32(vandq_u32(err[0], vreinterpretq_u32_s32(vmovl_s16(vget_low_s16(m_lo)))));
+	sum = vpadalq_u32(sum, vandq_u32(err[1], vreinterpretq_u32_s32(vmovl_s16(vget_high_s16(m_lo)))));
+	sum = vpadalq_u32(sum, vandq_u32(err[2], vreinterpretq_u32_s32(vmovl_s16(vget_low_s16(m_hi)))));
+	sum = vpadalq_u32(sum, vandq_u32(err[3], vreinterpretq_u32_s32(vmovl_s16(vget_high_s16(m_hi)))));
+	return vaddvq_u64(sum);
+}
+
+// 4 channels of squared error with weights up to this fit in 32 bits.
+static const uint32_t NEON_MAX_WEIGHT = UINT32_MAX / (255 * 255 * 4);
+
+static inline bool neon_weights_ok(const uint32_t weights[4])
+{
+	return (weights[0] <= NEON_MAX_WEIGHT) && (weights[1] <= NEON_MAX_WEIGHT) && (weights[2] <= NEON_MAX_WEIGHT) && (weights[3] <= NEON_MAX_WEIGHT);
+}
+
+// Same results as the scalar non-perceptual path in evaluate_solution().
+static uint64_t evaluate_selectors_neon(const color_quad_u8* pWeighted_colors, const color_quad_u8& lo, const color_quad_u8& hi, const color_cell_compressor_params* pParams, uint8_t* pSelectors)
+{
+	const uint32_t N = pParams->m_num_selector_weights;
+	const uint32_t num_comps = pParams->m_has_alpha ? 4 : 3;
+	const neon_pixels pixels(neon_load_pixels(pParams->m_pPixels, pParams->m_num_pixels));
+
+	neon_color_tables tables;
+	neon_load_color_tables(tables, pWeighted_colors, N);
+
+	int32x4_t dots[4] = { vdupq_n_s32(0), vdupq_n_s32(0), vdupq_n_s32(0), vdupq_n_s32(0) };
+	int len2 = 0;
+	for (uint32_t c = 0; c < num_comps; c++)
+	{
+		const int d = hi.m_c[c] - lo.m_c[c];
+		len2 += d * d;
+		neon_dot_add(dots, pixels.m_p.val[c], lo.m_c[c], d);
+	}
+
+	const float f = N / (float)(len2 + .00000125f);
+
+	uint32x4_t sels32[4];
+	for (uint32_t i = 0; i < 4; i++)
+	{
+		// Fused, because that's what compilers generate by default on AArch64 for the scalar expression.
+		const int32x4_t s = vcvtq_s32_f32(vfmaq_n_f32(vdupq_n_f32(.5f), vcvtq_f32_s32(dots[i]), f));
+		sels32[i] = vreinterpretq_u32_s32(vminq_s32(vmaxq_s32(s, vdupq_n_s32(1)), vdupq_n_s32((int)N - 1)));
+	}
+
+	const uint8x16_t one = vdupq_n_u8(1);
+	const uint8x16_t sels1 = neon_narrow(sels32);
+	const uint8x16_t sels0 = vsubq_u8(sels1, one);
+
+	const uint32x4x4_t err0 = neon_color_errors(tables, sels0, pixels, num_comps, pParams->m_weights);
+	const uint32x4x4_t err1 = neon_color_errors(tables, sels1, pixels, num_comps, pParams->m_weights);
+
+	uint32x4_t best_err[4], lt32[4], eq32[4];
+	for (uint32_t i = 0; i < 4; i++)
+	{
+		best_err[i] = vminq_u32(err0.val[i], err1.val[i]);
+		lt32[i] = vcltq_u32(err0.val[i], err1.val[i]);
+		eq32[i] = vceqq_u32(err0.val[i], err1.val[i]);
+	}
+
+	// Use the lower selector if its error is lower, or on ties when it's 0 (prefer non-interpolation).
+	const uint8x16_t use_lower = vorrq_u8(neon_narrow(lt32), vandq_u8(neon_narrow(eq32), vceqq_u8(sels1, one)));
+	const uint8x16_t sels = vsubq_u8(sels1, vandq_u8(use_lower, one));
+
+	uint8_t temp_sels[16];
+	vst1q_u8(temp_sels, sels);
+	memcpy(pSelectors, temp_sels, pParams->m_num_pixels);
+
+	return neon_sum_errors(best_err, pixels.m_mask);
+}
+
+// Same as the scalar code in color_cell_compression_est_astc(), except it doesn't stop early when the error exceeds the best so far.
+static uint64_t estimate_error_neon(const color_quad_u8* pWeighted_colors, uint32_t num_weights, const int* pThresh, const int axis[4],
+	uint32_t num_comps, uint32_t num_pixels, const color_quad_u8* pPixels, const uint32_t weights[4])
+{
+	const neon_pixels pixels(neon_load_pixels(pPixels, num_pixels));
+
+	neon_color_tables tables;
+	neon_load_color_tables(tables, pWeighted_colors, num_weights);
+
+	int32x4_t dots[4] = { vdupq_n_s32(0), vdupq_n_s32(0), vdupq_n_s32(0), vdupq_n_s32(0) };
+	for (uint32_t c = 0; c < num_comps; c++)
+		neon_dot_add(dots, pixels.m_p.val[c], 0, axis[c]);
+
+	// The thresholds never decrease, so the selector is the number of thresholds reached.
+	uint32x4_t sels32[4] = { vdupq_n_u32(0), vdupq_n_u32(0), vdupq_n_u32(0), vdupq_n_u32(0) };
+	for (uint32_t j = 0; j < (num_weights - 1); j++)
+	{
+		const int32x4_t t = vdupq_n_s32(pThresh[j]);
+		for (uint32_t i = 0; i < 4; i++)
+			sels32[i] = vsubq_u32(sels32[i], vcgeq_s32(dots[i], t));
+	}
+
+	const uint32x4x4_t err = neon_color_errors(tables, neon_narrow(sels32), pixels, num_comps, weights);
+	return neon_sum_errors(err.val, pixels.m_mask);
+}
+#endif // BASISU_BC7ENC_NEON
+
 static uint64_t evaluate_solution(const color_quad_u8 *pLow, const color_quad_u8 *pHigh, const uint32_t pbits[2], const color_cell_compressor_params *pParams, color_cell_compressor_results *pResults)
 {
 	color_quad_u8 quantMinColor = *pLow;
@@ -896,6 +1100,12 @@ static uint64_t evaluate_solution(const color_quad_u8 *pLow, const color_quad_u8
 			pResults->m_pSelectors_temp[i] = sel;
 		}
 	}
+#if BASISU_BC7ENC_NEON
+	else if ((!pParams->m_perceptual) && (N >= 2) && (pParams->m_num_pixels <= 16) && neon_weights_ok(pParams->m_weights))
+	{
+		total_err = evaluate_selectors_neon(weightedColors, actualMinColor, actualMaxColor, pParams, pResults->m_pSelectors_temp);
+	}
+#endif
 	else if (!pParams->m_perceptual)
 	{
 		if (pParams->m_has_alpha)
@@ -1845,6 +2055,14 @@ uint64_t color_cell_compression_est_astc(
 	int thresh[32 - 1];
 	for (uint32_t i = 0; i < (num_weights - 1); i++)
 		thresh[i] = (dots[i] + dots[i + 1] + 1) >> 1;
+
+#if BASISU_BC7ENC_NEON
+	if ((num_pixels <= 16) && neon_weights_ok(weights))
+	{
+		const int axis[4] = { ar, ag, ab, aa };
+		return estimate_error_neon(weightedColors, num_weights, thresh, axis, num_comps, num_pixels, pPixels, weights);
+	}
+#endif
 
 	uint64_t total_err = 0;
 	if ((weights[0] | weights[1] | weights[2] | weights[3]) == 1)
