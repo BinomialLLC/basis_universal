@@ -337,17 +337,50 @@ namespace basist
 		inline float norm() const { return dot(*this); }
 	};
 
+	// Tables for computing the CRC-16 (polynomial 0x1021, MSB first) 8 bytes at a time.
+	struct crc16_tables
+	{
+		uint16_t m_tab[8][256];
+
+		crc16_tables()
+		{
+			for (uint32_t i = 0; i < 256; i++)
+			{
+				uint32_t c = i << 8;
+				for (uint32_t j = 0; j < 8; j++)
+					c = ((c << 1) ^ ((c & 0x8000) ? 0x1021 : 0)) & 0xFFFF;
+				m_tab[0][i] = static_cast<uint16_t>(c);
+			}
+
+			for (uint32_t t = 1; t < 8; t++)
+			{
+				for (uint32_t i = 0; i < 256; i++)
+				{
+					const uint32_t c = m_tab[t - 1][i];
+					m_tab[t][i] = static_cast<uint16_t>((c << 8) ^ m_tab[0][c >> 8]);
+				}
+			}
+		}
+	};
+
 	uint16_t crc16(const void* r, size_t size, uint16_t crc)
 	{
+		// Function local, so this is usable before basisu_transcoder_init() and from any thread.
+		static const crc16_tables s_tables;
+		const uint16_t (&tab)[8][256] = s_tables.m_tab;
+
 		crc = ~crc;
 
 		const uint8_t* p = static_cast<const uint8_t*>(r);
-		for (; size; --size)
+		for (; size >= 8; size -= 8, p += 8)
 		{
-			const uint16_t q = *p++ ^ (crc >> 8);
-			uint16_t k = (q >> 4) ^ q;
-			crc = (((crc << 8) ^ k) ^ (k << 5)) ^ (k << 12);
+			crc = static_cast<uint16_t>(
+				tab[7][(crc >> 8) ^ p[0]] ^ tab[6][(crc & 0xFF) ^ p[1]] ^ tab[5][p[2]] ^ tab[4][p[3]] ^
+				tab[3][p[4]] ^ tab[2][p[5]] ^ tab[1][p[6]] ^ tab[0][p[7]]);
 		}
+
+		for (; size; --size)
+			crc = static_cast<uint16_t>((crc << 8) ^ tab[0][(crc >> 8) ^ *p++]);
 
 		return static_cast<uint16_t>(~crc);
 	}
